@@ -27,15 +27,16 @@ use std::path::PathBuf;
 use std::process::Command;
 
 /// Browser-API crate names that must NEVER appear in the bestialitty-core
-/// resolved dep graph during Phase 1.
+/// resolved dep graph.
 ///
-/// When Phase 2's `lib.rs` wasm-bindgen wrapper ships, `wasm-bindgen` (and
-/// possibly `js-sys`) will need to move out of this list and gated behind a
-/// feature flag — but Phase 1 requires all three absent outright.
+/// Phase 2 (D-08): `wasm-bindgen` is removed from this list because Phase 2
+/// adds `[target.'cfg(target_arch = "wasm32")'.dependencies] wasm-bindgen`
+/// to Cargo.toml. Every other browser crate stays forbidden — `web-sys`,
+/// `js-sys`, `wasm-bindgen-futures`, every `gloo-*` — per D-07 / D-20.
 const FORBIDDEN_CRATES: &[&str] = &[
     "web-sys",
     "js-sys",
-    "wasm-bindgen",
+    // "wasm-bindgen" — REMOVED in Phase 2 per D-08. Allowed on wasm32 target only.
     "wasm-bindgen-futures",
     "gloo",
     "gloo-utils",
@@ -52,7 +53,18 @@ const FORBIDDEN_CRATES: &[&str] = &[
 ];
 
 /// Forbidden tokens in `crates/bestialitty-core/src/**/*.rs` source files.
-const FORBIDDEN_TOKENS: &[&str] = &["wasm_bindgen", "web_sys", "js_sys"];
+/// Tuple: (token, list of file-relative paths exempt FROM THAT SPECIFIC token).
+/// Every file is subject to every token unless explicitly exempted for that token.
+///
+/// D-07: Phase 2 permits `wasm_bindgen` ONLY in `src/lib.rs`. `web_sys` and
+/// `js_sys` remain forbidden in every file, including `lib.rs`. Do NOT replace
+/// this with a path-based early-continue — that would regress D-07 by also
+/// exempting lib.rs from `web_sys` / `js_sys`.
+const FORBIDDEN_TOKENS_WITH_EXEMPTIONS: &[(&str, &[&str])] = &[
+    ("wasm_bindgen", &["lib.rs"]),
+    ("web_sys", &[]),
+    ("js_sys", &[]),
+];
 
 #[test]
 fn dependency_graph_excludes_browser_crates() {
@@ -112,29 +124,32 @@ fn source_files_contain_no_wasm_attrs() {
     );
 
     for path in &files {
+        let file_rel = path
+            .strip_prefix(&src_dir)
+            .expect("file should be under src_dir")
+            .to_string_lossy()
+            .to_string();
+
         let contents = std::fs::read_to_string(path)
             .unwrap_or_else(|e| panic!("could not read {}: {}", path.display(), e));
 
-        // Check line-by-line. For each line, strip line-comment content
-        // (`//` and beyond — covers `//`, `//!`, `///`) before scanning for
-        // forbidden tokens. Doc-comment mentions of "wasm-free" architecture
-        // are fine; a real use of `wasm_bindgen` / `web_sys` / `js_sys` as
-        // code is not. This deliberately does NOT attempt to strip block
-        // comments (`/* ... */`) — if someone ever hides a wasm_bindgen
-        // attr inside a block comment to dodge this test, the build is
-        // already compromised.
+        // Check line-by-line. Strip line-comment content (`//` and beyond)
+        // before scanning for forbidden tokens. Doc-comment mentions of
+        // "wasm-free" architecture are fine; real code uses are not.
         for (lineno, raw_line) in contents.lines().enumerate() {
             let code_portion = match raw_line.find("//") {
                 Some(idx) => &raw_line[..idx],
                 None => raw_line,
             };
-            for token in FORBIDDEN_TOKENS {
+            for (token, exempt) in FORBIDDEN_TOKENS_WITH_EXEMPTIONS {
+                if exempt.contains(&file_rel.as_str()) {
+                    continue;
+                }
                 assert!(
                     !code_portion.contains(token),
                     "CORE-02 breach: {}:{} contains `{}` as code (not a comment). \
-                     Phase 1 logic modules must be wasm-free per D-20. Phase 2 adds \
-                     wasm-bindgen attrs to lib.rs ONLY; when it does, update this test \
-                     to exempt that file by path, not by lifting the grep.\n\
+                     Phase 2 (D-07): `wasm_bindgen` is permitted ONLY in lib.rs; \
+                     `web_sys` / `js_sys` are forbidden EVERYWHERE (lib.rs included). \
                      Offending line: {}",
                     path.display(),
                     lineno + 1,
