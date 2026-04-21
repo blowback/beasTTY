@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 01-05-PLAN.md (Terminal + vte Parser + 8 fixtures)
-last_updated: "2026-04-21T14:36:51.089Z"
+stopped_at: Completed 01-07-PLAN.md (Phase 1 exit gate green)
+last_updated: "2026-04-21T14:47:41.505Z"
 last_activity: 2026-04-21
 progress:
   total_phases: 6
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 7
-  completed_plans: 6
-  percent: 86
+  completed_plans: 7
+  percent: 100
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-04-21)
 ## Current Position
 
 Phase: 01 (rust-core-parser-grid-key-encoder) — EXECUTING
-Plan: 5 of 7
+Plan: 7 of 7
 Status: Ready to execute
 Last activity: 2026-04-21
 
-Progress: [█████████░] 86%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -61,6 +61,7 @@ Progress: [█████████░] 86%
 | Phase 01-rust-core-parser-grid-key-encoder P04 | 4m | 3 tasks | 3 files |
 | Phase 01-rust-core-parser-grid-key-encoder P06 | 2m | 1 tasks | 1 files |
 | Phase 01-rust-core-parser-grid-key-encoder P05 | 12m | 3 tasks | 20 files |
+| Phase 01-rust-core-parser-grid-key-encoder P07 | 9 | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -84,6 +85,8 @@ Recent decisions affecting current work:
 - Phase 1 Plan 05: Production parser promotes vte-based spike structure to src/vt52.rs; 20 torn-chunk tests + 8 paired fixtures; spike module deleted entirely
 - Phase 1 Plan 05: PerformImpl::execute intercepts ESC Y row/col bytes in C0 range (0x00-0x1F) — otherwise vte bypasses the underflow clamp; tested via esc_y_underflow_clamps_to_zero
 - Phase 1 Plan 05: record_trace in tests/fixture_runner.rs is a deliberate second implementation of the VT52 state machine; lockstep invariant (opcode set must match src/vt52.rs) documented in module doc comment
+- Phase 1 Plan 07: CORE-02 automated via tests/core_02_no_browser_deps.rs; D-17 boundary shape pinned as compile-time contract in tests/boundary_api_shape.rs; 4 pre-existing clippy::assertions_on_constants warnings in key.rs fixed via const { ... } blocks (build-time, not runtime, assertions)
+- Phase 1 complete: 128 tests green, fmt/clippy/build/test all pass, all 5 ROADMAP SC satisfied. Ready for Phase 2 wasm-boundary.
 
 ### Pending Todos
 
@@ -108,8 +111,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-04-21T14:36:51.083Z
-Stopped at: Completed 01-05-PLAN.md (Terminal + vte Parser + 8 fixtures)
+Last session: 2026-04-21T14:47:41.499Z
+Stopped at: Completed 01-07-PLAN.md (Phase 1 exit gate green)
 Resume file: None
 
 **Planned Phase:** 1 (rust-core-parser-grid-key-encoder) — 7 plans — 2026-04-21T12:58:56.302Z

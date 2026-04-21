@@ -21,7 +21,7 @@ session log, persistent preferences, static deployment, and a 24-hour soak.
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Rust Core — Parser, Grid, Key Encoder** - Pure-Rust VT52 parser, terminal state, scrollback ring, and key encoder, all verified by `cargo test`; includes the parser-strategy spike and live MicroBeast byte capture
+- [x] **Phase 1: Rust Core — Parser, Grid, Key Encoder** - Pure-Rust VT52 parser, terminal state, scrollback ring, and key encoder, all verified by `cargo test`; includes the parser-strategy spike and live MicroBeast byte capture
 - [ ] **Phase 2: Wasm Boundary & Minimal JS Harness** - `wasm-pack --target web` build pipeline and a minimal JS harness that validates zero-copy, batched byte-feed boundary end-to-end
 - [ ] **Phase 3: Canvas Renderer** - HiDPI canvas renderer with glyph atlas, dirty-row repaint, CRT and clean themes, visible cursor and focus, visible-bell flash
 - [ ] **Phase 4: Keyboard Input** - DOM keydown capture mapping PC keyboard to VT52 bytes, local-echo mode, CR/LF override toggle, browser-shortcut handling
@@ -45,9 +45,9 @@ Decimal phases appear between their surrounding integers in numeric order.
   - [x] 01-02-PLAN.md — Live MicroBeast byte capture (CP/M + BASIC) or D-08 deferral (Wave 1)
   - [x] 01-03-PLAN.md — Parser-strategy spike (hand-rolled vs vte) + ADR-001 (Wave 1)
   - [x] 01-04-PLAN.md — Grid + Scrollback ring + Dirty bitmap data-layer (Wave 2)
-  - [ ] 01-05-PLAN.md — Production parser + Terminal + 8 fixture tests; spike removed (Wave 3)
+  - [x] 01-05-PLAN.md — Production parser + Terminal + 8 fixture tests; spike removed (Wave 3)
   - [x] 01-06-PLAN.md — PC-keyboard to VT52 byte encoder (Wave 2)
-  - [ ] 01-07-PLAN.md — CORE-02 automated test + boundary API shape lock + fmt/clippy hygiene (Wave 4)
+  - [x] 01-07-PLAN.md — CORE-02 automated test + boundary API shape lock + fmt/clippy hygiene (Wave 4)
 
 ### Phase 2: Wasm Boundary & Minimal JS Harness
 **Goal**: Prove the Rust↔JS interop shape end-to-end with the smallest possible JS surface area — batched `feed(bytes)`, zero-copy `Uint8Array` views over wasm linear memory, and a `wasm-pack --target web` build that a static site can consume directly.
@@ -119,7 +119,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Rust Core — Parser, Grid, Key Encoder | 5/7   | In progress | - |
+| 1. Rust Core — Parser, Grid, Key Encoder | 7/7   | Complete    | 2026-04-21 |
 | 2. Wasm Boundary & Minimal JS Harness | 0/TBD | Not started | - |
 | 3. Canvas Renderer | 0/TBD | Not started | - |
 | 4. Keyboard Input | 0/TBD | Not started | - |
