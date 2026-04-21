@@ -1,0 +1,4 @@
+[toolchain]
+channel = "stable"
+components = ["rustfmt", "clippy"]
+# wasm32 target intentionally omitted; Phase 2 adds it.

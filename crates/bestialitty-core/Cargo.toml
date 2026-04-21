@@ -1,0 +1,23 @@
+[package]
+name = "bestialitty-core"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Pure-Rust VT52 terminal logic for BestialiTTY (parser, grid, scrollback, key encoder)."
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = []
+# Dev-only: push {offset, byte, state} entries to a bounded ring on malformed input.
+# Release builds have zero overhead. See CONTEXT D-15.
+trace-malformed = []
+
+[dependencies]
+# Phase 1 keeps dependencies empty. Plan 03 spike MAY add `vte = "0.15"` if the
+# vte-path wins the spike. Until then: no deps.
+
+[dev-dependencies]
+# Keep minimal; std alone is sufficient for Phase 1 tests.
