@@ -9,13 +9,20 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Parser
 
-- [ ] **PARSER-01**: VT52 parser covers the pragmatic subset emitted by the MicroBeast (cursor movement ESC A/B/C/D/H/I, direct addressing ESC Y, erase ESC J/ESC K)
-- [ ] **PARSER-02**: ESC Y cursor addressing correctly decodes the +32 (0x20) row/column byte offset
-- [ ] **PARSER-03**: Parser handles escape sequences split across serial chunk boundaries without loss
-- [ ] **PARSER-04**: ESC F / ESC G / ESC = / ESC > parse as silent no-ops (no screen corruption on unhandled-but-legal sequences)
-- [ ] **PARSER-05**: ESC Z identify query returns ESC / K response on the serial line
-- [ ] **PARSER-06**: BEL (0x07) triggers a visible-bell signal (screen flash and/or title-bar indicator)
-- [ ] **PARSER-07**: Default CR / LF handling matches MicroBeast CP/M convention (verified via live capture in phase 1)
+- [x] **PARSER-01
+**: VT52 parser covers the pragmatic subset emitted by the MicroBeast (cursor movement ESC A/B/C/D/H/I, direct addressing ESC Y, erase ESC J/ESC K)
+- [x] **PARSER-02
+**: ESC Y cursor addressing correctly decodes the +32 (0x20) row/column byte offset
+- [x] **PARSER-03
+**: Parser handles escape sequences split across serial chunk boundaries without loss
+- [x] **PARSER-04
+**: ESC F / ESC G / ESC = / ESC > parse as silent no-ops (no screen corruption on unhandled-but-legal sequences)
+- [x] **PARSER-05
+**: ESC Z identify query returns ESC / K response on the serial line
+- [x] **PARSER-06
+**: BEL (0x07) triggers a visible-bell signal (screen flash and/or title-bar indicator)
+- [x] **PARSER-07
+**: Default CR / LF handling matches MicroBeast CP/M convention (verified via live capture in phase 1)
 - [x] **PARSER-08
 **: Parser and state machine have Rust unit tests covering the MicroBeast subset and torn-chunk edge cases
 

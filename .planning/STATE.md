@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 01-06-PLAN.md (PC-keyboard to VT52 byte encoder)
-last_updated: "2026-04-21T14:20:49.020Z"
+stopped_at: Completed 01-05-PLAN.md (Terminal + vte Parser + 8 fixtures)
+last_updated: "2026-04-21T14:36:51.089Z"
 last_activity: 2026-04-21
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 7
-  completed_plans: 5
-  percent: 71
+  completed_plans: 6
+  percent: 86
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-04-21)
 ## Current Position
 
 Phase: 01 (rust-core-parser-grid-key-encoder) — EXECUTING
-Plan: 4 of 7
+Plan: 5 of 7
 Status: Ready to execute
 Last activity: 2026-04-21
 
-Progress: [███████░░░] 71%
+Progress: [█████████░] 86%
 
 ## Performance Metrics
 
@@ -60,6 +60,7 @@ Progress: [███████░░░] 71%
 | Phase 01-rust-core-parser-grid-key-encoder P01 | 3m | 3 tasks | 15 files |
 | Phase 01-rust-core-parser-grid-key-encoder P04 | 4m | 3 tasks | 3 files |
 | Phase 01-rust-core-parser-grid-key-encoder P06 | 2m | 1 tasks | 1 files |
+| Phase 01-rust-core-parser-grid-key-encoder P05 | 12m | 3 tasks | 20 files |
 
 ## Accumulated Context
 
@@ -80,6 +81,9 @@ Recent decisions affecting current work:
 - Phase 1 Plan 04: Dirty::mark is a silent no-op on out-of-bounds row indices (T-04-01 defensive, so Plan 05 parser never needs pre-call validation)
 - Phase 1 Plan 06: Key encoder implements full PC->VT52 mapping (arrows, 26 Ctrl-letters, 6 Ctrl-symbols, printable, keypad) as stateless pure Rust; hand-rolled Modifiers struct to avoid bitflags dep
 - Phase 1 Plan 06: Arrow keys ignore modifiers; Alt/Meta behaviourally inert for printable chars in Phase 1 — tests pin current behaviour so Phase 4 must change them intentionally, not accidentally
+- Phase 1 Plan 05: Production parser promotes vte-based spike structure to src/vt52.rs; 20 torn-chunk tests + 8 paired fixtures; spike module deleted entirely
+- Phase 1 Plan 05: PerformImpl::execute intercepts ESC Y row/col bytes in C0 range (0x00-0x1F) — otherwise vte bypasses the underflow clamp; tested via esc_y_underflow_clamps_to_zero
+- Phase 1 Plan 05: record_trace in tests/fixture_runner.rs is a deliberate second implementation of the VT52 state machine; lockstep invariant (opcode set must match src/vt52.rs) documented in module doc comment
 
 ### Pending Todos
 
@@ -104,8 +108,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-04-21T14:20:38.758Z
-Stopped at: Completed 01-06-PLAN.md (PC-keyboard to VT52 byte encoder)
+Last session: 2026-04-21T14:36:51.083Z
+Stopped at: Completed 01-05-PLAN.md (Terminal + vte Parser + 8 fixtures)
 Resume file: None
 
 **Planned Phase:** 1 (rust-core-parser-grid-key-encoder) — 7 plans — 2026-04-21T12:58:56.302Z
