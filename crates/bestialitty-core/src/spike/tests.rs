@@ -125,6 +125,43 @@ fn esc_k_erase_to_end_of_line_both() {
     assert_eq!(hr.grid[80], 0x20);
 }
 
+// --- Explicit cross-prototype equivalence tests ---
+//
+// These duplicate the comparison already embedded in `both_produce!` but
+// make the grep-verifiable `assert_eq!(hr, vt, ...)` call sites visible in
+// the raw source (the macro definition only shows once). More importantly,
+// they exercise whole realistic sequences end-to-end rather than a single
+// opcode at a time.
+
+#[test]
+fn combined_sequence_matches_between_prototypes() {
+    // Printable + ESC Y + printable + ESC K + printable — a mini session.
+    let input = &b"START\x1BY\x22\x24AB\x1BK\x1BY\x20\x20XY"[..];
+    let hr = run_hand_rolled(&[input]);
+    let vt = run_vte(&[input]);
+    assert_eq!(hr, vt, "hand_rolled vs vte_path diverge on {:02X?}", input);
+}
+
+#[test]
+fn repeated_cursor_moves_match_between_prototypes() {
+    // Four cursor-down + two cursor-right then a home + printable.
+    let input = &b"\x1BB\x1BB\x1BB\x1BB\x1BC\x1BC\x1BY\x20\x20Z"[..];
+    let hr = run_hand_rolled(&[input]);
+    let vt = run_vte(&[input]);
+    assert_eq!(hr, vt, "hand_rolled vs vte_path diverge on {:02X?}", input);
+}
+
+#[test]
+fn malformed_escape_ignored_identically() {
+    // ESC followed by a non-D-02 byte (lowercase 'q'): both prototypes
+    // silently discard per D-15, then the following printable lands at
+    // column 0.
+    let input = &b"\x1BqHi"[..];
+    let hr = run_hand_rolled(&[input]);
+    let vt = run_vte(&[input]);
+    assert_eq!(hr, vt, "hand_rolled vs vte_path diverge on {:02X?}", input);
+}
+
 // --- Torn-chunk floor (D-03) ---
 //
 // Each sequence is split at every internal offset; both prototypes must
