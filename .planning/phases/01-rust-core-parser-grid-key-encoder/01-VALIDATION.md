@@ -63,7 +63,7 @@ created: 2026-04-21
 | 1-K-02 | key-encoder | 3 | CORE-01 (Ctrl-letter → 0x01-0x1F) | — | Mask to low 5 bits | unit | `cargo test -p bestialitty-core key::ctrl` | ❌ W0 | ⬜ pending |
 | 1-K-03 | key-encoder | 3 | CORE-01 (printable pass-through) | — | Raw byte returned | unit | `cargo test -p bestialitty-core key::printable` | ❌ W0 | ⬜ pending |
 | 1-B-01 | boundary | 4 | CORE-02 (zero browser deps) | — | `cargo build --target x86_64-unknown-linux-gnu` green | infra | `cargo build --target x86_64-unknown-linux-gnu -p bestialitty-core` | ❌ W0 | ⬜ pending |
-| 1-B-02 | boundary | 4 | CORE-02 (no web-sys/js-sys deps) | — | Dep graph free of browser crates | infra | `! cargo metadata --format-version=1 -p bestialitty-core \| grep -E '"name":"(web-sys\|js-sys)"'` | ❌ W0 | ⬜ pending |
+| 1-B-02 | boundary | 4 | CORE-02 (no web-sys/js-sys deps) | — | Dep graph free of browser crates | infra | `! cargo metadata --format-version=1 \| grep -E '"name":"(web-sys\|js-sys)"'` | ❌ W0 | ⬜ pending |
 | 1-B-03 | boundary | 4 | CORE-01 (wasm boundary shape, D-17) | — | `grid_ptr/dirty_ptr/feed/encode_key/resize/cursor` exported | unit | `cargo test -p bestialitty-core boundary::api_shape` | ❌ W0 | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*

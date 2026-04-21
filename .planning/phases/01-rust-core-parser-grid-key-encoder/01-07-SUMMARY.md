@@ -238,7 +238,7 @@ $ cargo build --target x86_64-unknown-linux-gnu --workspace
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.11s
 [exit 0]
 
-$ ! cargo metadata --format-version=1 -p bestialitty-core \
+$ ! cargo metadata --format-version=1 \
     | grep -E '"name":"(web-sys|js-sys|wasm-bindgen)"'
 CORE-02 manual grep: CLEAN
 ```
@@ -300,4 +300,4 @@ wrapper.
 - [x] `cargo clippy --workspace --all-targets -- -D warnings` exits 0
 - [x] `cargo test --workspace --all-targets` passes (128 tests)
 - [x] `cargo build --target x86_64-unknown-linux-gnu --workspace` exits 0
-- [x] `! cargo metadata --format-version=1 -p bestialitty-core | grep -E '"name":"(web-sys|js-sys|wasm-bindgen)"'` — CLEAN
+- [x] `! cargo metadata --format-version=1 | grep -E '"name":"(web-sys|js-sys|wasm-bindgen)"'` — CLEAN
