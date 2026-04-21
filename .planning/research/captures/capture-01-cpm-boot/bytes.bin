@@ -1,0 +1,37 @@
+OK
+Keyboard OK
+MicroBeast starting...
+Detected PIO
+Detected Display 1/2
+Detected Display 2/2
+Detected RTC
+
+Check RTC
+Clock speed  8,0Mhz
+LED Off
+Format RAM disk
+Check RTC
+Restored 732 sectors OK
+
+A>
+A>dir
+A: MBASIC   COM : KCALC    COM : PIP      COM : SIEVE    COM
+A: STAT     COM : ZORK1    COM : ZORK1    DAT : VPEEK    COM
+A: RESTORE  COM : WRITE    COM : DOWNLOAD COM : UPLOAD   COM
+A: VLOAD    COM : INSIGBYT CH8 : CUSHION  CH8 : SETOPTS  COM
+A>stat
+A: R/W, Space: 68k
+B: R/W, Space: 163k
+
+
+A>dir
+A: MBASIC   COM : KCALC    COM : PIP      COM : SIEVE    COM
+A: STAT     COM : ZORK1    COM : ZORK1    DAT : VPEEK    COM
+A: RESTORE  COM : WRITE    COM : DOWNLOAD COM : UPLOAD   COM
+A: VLOAD    COM : INSIGBYT CH8 : CUSHION  CH8 : SETOPTS  COM
+A>stat
+A: R/W, Space: 68k
+B: R/W, Space: 163k
+
+
+A>
