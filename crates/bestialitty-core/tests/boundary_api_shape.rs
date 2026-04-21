@@ -18,7 +18,7 @@
 //! will consume. A `pub(crate)` method that compiles against an in-crate
 //! `#[cfg(test)]` module would fail here — which is what we want.
 
-use bestialitty_core::key::{encode, KeyCode, KeyEvent, Modifiers};
+use bestialitty_core::key::{KeyCode, KeyEvent, Modifiers, encode};
 use bestialitty_core::terminal::Terminal;
 
 #[test]

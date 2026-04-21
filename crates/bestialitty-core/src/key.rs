@@ -329,10 +329,17 @@ mod tests {
 
     #[test]
     fn modifiers_ctrl_constant_only_has_ctrl_set() {
-        assert!(Modifiers::CTRL.ctrl);
-        assert!(!Modifiers::CTRL.shift);
-        assert!(!Modifiers::CTRL.alt);
-        assert!(!Modifiers::CTRL.meta);
+        // Modifiers::CTRL is a `const`, so these assertions are constant
+        // expressions; use a `const { ... }` block to evaluate them at
+        // compile time (clippy::assertions_on_constants). A regression
+        // that flipped any CTRL field would fail the build, not just
+        // the test run — strictly stronger than a runtime assert!.
+        const {
+            assert!(Modifiers::CTRL.ctrl);
+            assert!(!Modifiers::CTRL.shift);
+            assert!(!Modifiers::CTRL.alt);
+            assert!(!Modifiers::CTRL.meta);
+        }
     }
 
     // --- KeyEvent constructors ---

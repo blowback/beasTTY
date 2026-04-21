@@ -8,9 +8,9 @@
 //! Any `wasm_bindgen` / `web_sys` / `js_sys` attrs stay confined to this file,
 //! added in Phase 2 — not here.
 
-pub mod terminal;
-pub mod grid;
-pub mod scrollback;
 pub mod dirty;
-pub mod vt52;
+pub mod grid;
 pub mod key;
+pub mod scrollback;
+pub mod terminal;
+pub mod vt52;

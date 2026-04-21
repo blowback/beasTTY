@@ -95,8 +95,7 @@ impl Terminal {
     }
 
     pub fn resize(&mut self, rows: u32, cols: u32) {
-        self.scrollback
-            .resize_grid(rows as usize, cols as usize);
+        self.scrollback.resize_grid(rows as usize, cols as usize);
         self.dirty.resize(rows as usize);
         self.dirty.mark_all();
         self.cursor_row = self.cursor_row.min(rows.saturating_sub(1));
@@ -219,9 +218,7 @@ impl Terminal {
     pub(crate) fn erase_to_end_of_line(&mut self) {
         let cursor_row = self.cursor_row as usize;
         let cursor_col = self.cursor_col as usize;
-        self.scrollback
-            .row_mut(cursor_row)
-            .clear_from(cursor_col);
+        self.scrollback.row_mut(cursor_row).clear_from(cursor_col);
         self.dirty.mark(cursor_row);
     }
     pub(crate) fn move_cursor(&mut self, row: u32, col: u32) {
@@ -451,14 +448,16 @@ mod tests {
         let mut term = t();
         term.feed(b"\x1BY\x22\x23"); // move to (2, 3)
         let before_cursor = term.cursor();
-        for noop in &[&b"\x1BF"[..], b"\x1BG", b"\x1B=", b"\x1B>", b"\x1B[", b"\x1B\\"] {
+        for noop in &[
+            &b"\x1BF"[..],
+            b"\x1BG",
+            b"\x1B=",
+            b"\x1B>",
+            b"\x1B[",
+            b"\x1B\\",
+        ] {
             let out = term.feed(noop);
-            assert_eq!(
-                out,
-                Vec::<u8>::new(),
-                "noop {:?} produced host reply",
-                noop
-            );
+            assert_eq!(out, Vec::<u8>::new(), "noop {:?} produced host reply", noop);
             assert_eq!(term.cursor(), before_cursor, "noop {:?} moved cursor", noop);
         }
         // Mode flags have been toggled through on/off pairs; final state should match

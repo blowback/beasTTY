@@ -151,10 +151,9 @@ fn cargo_toml_declares_cdylib_and_rlib() {
     // D-19: the crate must build both as a C-style dylib (for wasm-pack to
     // consume in Phase 2) and as an rlib (for native cargo test and any
     // future native shell per D-20). Either ordering is accepted.
-    let cargo_toml = std::fs::read_to_string(
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml"),
-    )
-    .expect("Cargo.toml must be readable");
+    let cargo_toml =
+        std::fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml"))
+            .expect("Cargo.toml must be readable");
 
     let has_cdylib_rlib = cargo_toml.contains("crate-type = [\"cdylib\", \"rlib\"]");
     let has_rlib_cdylib = cargo_toml.contains("crate-type = [\"rlib\", \"cdylib\"]");

@@ -53,7 +53,10 @@ impl Cell {
 // Compile-time assertions: Cell layout is load-bearing for Phase 2.
 // If either assertion fires, the JS-side Uint8Array view assumptions break.
 const _: () = assert!(size_of::<Cell>() == 8, "Cell must be 8 bytes per D-09");
-const _: () = assert!(align_of::<Cell>() == 4, "Cell must be 4-byte aligned per D-09");
+const _: () = assert!(
+    align_of::<Cell>() == 4,
+    "Cell must be 4-byte aligned per D-09"
+);
 
 /// A single grid row — runtime-sized to support `Terminal::resize(rows, cols)`.
 #[derive(Clone, Debug, PartialEq, Eq)]
