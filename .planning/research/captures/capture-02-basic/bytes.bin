@@ -1,0 +1,56 @@
+
+A>mbasic
+:
+
+
+BASIC-80 Rev. 5.2
+[Apple CP/M Version]
+Copyright (C) 1980 by Microsoft
+Created: 12-Nov-80
+30579 Bytes free
+
+Ok
+10 FOR I=1 TO 25
+20 PRINT I; " MicroBeast"
+30 NEXT I
+LIST
+10 FOR I=1 TO 25
+20 PRINT I; " MicroBeast"
+30 NEXT I
+Ok
+RUN
+ 1  MicroBeast
+ 2  MicroBeast
+ 3  MicroBeast
+ 4  MicroBeast
+ 5  MicroBeast
+ 6  MicroBeast
+ 7  MicroBeast
+ 8  MicroBeast
+ 9  MicroBeast
+ 10  MicroBeast
+ 11  MicroBeast
+ 12  MicroBeast
+ 13  MicroBeast
+ 14  MicroBeast
+ 15  MicroBeast
+ 16  MicroBeast
+ 17  MicroBeast
+ 18  MicroBeast
+ 19  MicroBeast
+ 20  MicroBeast
+ 21  MicroBeast
+ 22  MicroBeast
+ 23  MicroBeast
+ 24  MicroBeast
+ 25  MicroBeast
+Ok
+PRINF "OOPS"
+Syntax error
+Ok
+system,\,\
+È'>
+A>system
+SYSTEM?
+
+A>
