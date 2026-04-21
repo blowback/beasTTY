@@ -46,7 +46,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   - [x] 01-03-PLAN.md — Parser-strategy spike (hand-rolled vs vte) + ADR-001 (Wave 1)
   - [x] 01-04-PLAN.md — Grid + Scrollback ring + Dirty bitmap data-layer (Wave 2)
   - [ ] 01-05-PLAN.md — Production parser + Terminal + 8 fixture tests; spike removed (Wave 3)
-  - [ ] 01-06-PLAN.md — PC-keyboard to VT52 byte encoder (Wave 2)
+  - [x] 01-06-PLAN.md — PC-keyboard to VT52 byte encoder (Wave 2)
   - [ ] 01-07-PLAN.md — CORE-02 automated test + boundary API shape lock + fmt/clippy hygiene (Wave 4)
 
 ### Phase 2: Wasm Boundary & Minimal JS Harness
@@ -119,7 +119,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Rust Core — Parser, Grid, Key Encoder | 4/7   | In progress | - |
+| 1. Rust Core — Parser, Grid, Key Encoder | 5/7   | In progress | - |
 | 2. Wasm Boundary & Minimal JS Harness | 0/TBD | Not started | - |
 | 3. Canvas Renderer | 0/TBD | Not started | - |
 | 4. Keyboard Input | 0/TBD | Not started | - |

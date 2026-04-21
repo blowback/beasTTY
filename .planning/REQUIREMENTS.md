@@ -153,7 +153,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | PARSER-06 | Phase 1 | Pending |
 | PARSER-07 | Phase 1 | Pending |
 | PARSER-08 | Phase 1 | Pending |
-| CORE-01 | Phase 1 | Pending |
+| CORE-01 | Phase 1 | Complete |
 | CORE-02 | Phase 1 | Pending |
 | CORE-03 | Phase 2 | Pending |
 | CORE-04 | Phase 2 | Pending |

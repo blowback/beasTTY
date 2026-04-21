@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 01-04-PLAN.md (grid/scrollback/dirty data-layer foundations)
-last_updated: "2026-04-21T14:12:04.922Z"
+stopped_at: Completed 01-06-PLAN.md (PC-keyboard to VT52 byte encoder)
+last_updated: "2026-04-21T14:20:49.020Z"
 last_activity: 2026-04-21
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 7
-  completed_plans: 4
-  percent: 57
+  completed_plans: 5
+  percent: 71
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-04-21)
 ## Current Position
 
 Phase: 01 (rust-core-parser-grid-key-encoder) — EXECUTING
-Plan: 3 of 7
+Plan: 4 of 7
 Status: Ready to execute
 Last activity: 2026-04-21
 
-Progress: [██████░░░░] 57%
+Progress: [███████░░░] 71%
 
 ## Performance Metrics
 
@@ -59,6 +59,7 @@ Progress: [██████░░░░] 57%
 *Updated after each plan completion*
 | Phase 01-rust-core-parser-grid-key-encoder P01 | 3m | 3 tasks | 15 files |
 | Phase 01-rust-core-parser-grid-key-encoder P04 | 4m | 3 tasks | 3 files |
+| Phase 01-rust-core-parser-grid-key-encoder P06 | 2m | 1 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -77,6 +78,8 @@ Recent decisions affecting current work:
 - Phase 1 Plan 04: Cell #[repr(C)] 8-byte layout frozen with compile-time size+align assertions; any future field reorder fails build
 - Phase 1 Plan 04: Scrollback uses VecDeque::pop_front (O(1)) on every mutator to enforce total_len <= visible_rows + scrollback_cap invariant
 - Phase 1 Plan 04: Dirty::mark is a silent no-op on out-of-bounds row indices (T-04-01 defensive, so Plan 05 parser never needs pre-call validation)
+- Phase 1 Plan 06: Key encoder implements full PC->VT52 mapping (arrows, 26 Ctrl-letters, 6 Ctrl-symbols, printable, keypad) as stateless pure Rust; hand-rolled Modifiers struct to avoid bitflags dep
+- Phase 1 Plan 06: Arrow keys ignore modifiers; Alt/Meta behaviourally inert for printable chars in Phase 1 — tests pin current behaviour so Phase 4 must change them intentionally, not accidentally
 
 ### Pending Todos
 
@@ -101,8 +104,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-04-21T14:12:04.916Z
-Stopped at: Completed 01-04-PLAN.md (grid/scrollback/dirty data-layer foundations)
+Last session: 2026-04-21T14:20:38.758Z
+Stopped at: Completed 01-06-PLAN.md (PC-keyboard to VT52 byte encoder)
 Resume file: None
 
 **Planned Phase:** 1 (rust-core-parser-grid-key-encoder) — 7 plans — 2026-04-21T12:58:56.302Z
