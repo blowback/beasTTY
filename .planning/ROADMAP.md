@@ -58,7 +58,12 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. A debug harness page accepts a paste of raw VT52 bytes, calls `term.feed(bytes)` once per chunk, and renders the resulting grid as ASCII in a `<pre>` — no canvas, no Web Serial, no per-byte boundary calls
   3. The grid and dirty-row bitmap are read from JS via `new Uint8Array(wasm.memory.buffer, ptr, len)` with no allocation per frame and no JSON serialisation across the boundary
   4. Author can demonstrate in DevTools that a 64 KB byte feed crosses the boundary in a single `feed()` call, not 65,536 calls
-**Plans**: TBD
+**Plans**: 5 plans
+  - [ ] 02-01-PLAN.md — wasm32 toolchain + target-specific wasm-bindgen dep + CORE-02 test update + ADR-002 (Wave 1)
+  - [ ] 02-02-PLAN.md — pack_buf + snapshot_grid on Terminal + u32 unpackers on key.rs + native unit tests (Wave 2)
+  - [ ] 02-03-PLAN.md — lib.rs wasm-bindgen facade + extended boundary_api_shape.rs + wasm-pack smoke (Wave 3)
+  - [ ] 02-04-PLAN.md — scripts/build.sh + www/index.html + www/main.js + .gitignore rules (Wave 4)
+  - [ ] 02-05-PLAN.md — scripts/smoke-wasm-build.sh + www/README.md + SC-1..SC-4 checkpoint demo (Wave 5)
 
 ### Phase 3: Canvas Renderer
 **Goal**: A visually correct, crisp-on-HiDPI canvas terminal with both CRT and clean themes, a visible block cursor, theme-toggleable styling, font-size zoom, and visible-bell flash — driven off the Phase 2 grid view with dirty-row repainting.
@@ -120,7 +125,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Rust Core — Parser, Grid, Key Encoder | 7/7 | Complete    | 2026-04-21 |
-| 2. Wasm Boundary & Minimal JS Harness | 0/TBD | Not started | - |
+| 2. Wasm Boundary & Minimal JS Harness | 0/5 | Planned     | - |
 | 3. Canvas Renderer | 0/TBD | Not started | - |
 | 4. Keyboard Input | 0/TBD | Not started | - |
 | 5. Web Serial Transport | 0/TBD | Not started | - |
