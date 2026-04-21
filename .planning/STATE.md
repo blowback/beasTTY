@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: planning
-stopped_at: Phase 2 context gathered
-last_updated: "2026-04-21T16:42:21.268Z"
-last_activity: 2026-04-21
+status: executing
+stopped_at: Completed 02-01-PLAN.md
+last_updated: "2026-04-21T16:49:16.097Z"
+last_activity: 2026-04-21 -- Phase --phase execution started
 progress:
   total_phases: 6
   completed_phases: 1
   total_plans: 12
-  completed_plans: 7
-  percent: 58
+  completed_plans: 8
+  percent: 67
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-21)
 
 **Core value:** A modern, reliable, in-browser VT52 emulator good enough to use as a daily driver with a real MicroBeast.
-**Current focus:** Phase 01 — rust-core-parser-grid-key-encoder
+**Current focus:** Phase --phase — 02
 
 ## Current Position
 
-Phase: 2
-Plan: Not started
-Status: Ready to plan
-Last activity: 2026-04-21
+Phase: 02-wasm-boundary-minimal-js-harness — EXECUTING
+Plan: 2 of 5 (Plan 01 complete)
+Status: Executing Phase 02
+Last activity: 2026-04-21 — Phase 02 Plan 01 complete (b7dfe66, 2bd37cd, 1ebab6d)
 
-Progress: [██████████] 100%
+Progress: [███████░░░] 67%
 
 ## Performance Metrics
 
@@ -63,6 +63,7 @@ Progress: [██████████] 100%
 | Phase 01-rust-core-parser-grid-key-encoder P06 | 2m | 1 tasks | 1 files |
 | Phase 01-rust-core-parser-grid-key-encoder P05 | 12m | 3 tasks | 20 files |
 | Phase 01-rust-core-parser-grid-key-encoder P07 | 9 | 3 tasks | 6 files |
+| Phase 02 P01 | 3min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -88,6 +89,8 @@ Recent decisions affecting current work:
 - Phase 1 Plan 05: record_trace in tests/fixture_runner.rs is a deliberate second implementation of the VT52 state machine; lockstep invariant (opcode set must match src/vt52.rs) documented in module doc comment
 - Phase 1 Plan 07: CORE-02 automated via tests/core_02_no_browser_deps.rs; D-17 boundary shape pinned as compile-time contract in tests/boundary_api_shape.rs; 4 pre-existing clippy::assertions_on_constants warnings in key.rs fixed via const { ... } blocks (build-time, not runtime, assertions)
 - Phase 1 complete: 128 tests green, fmt/clippy/build/test all pass, all 5 ROADMAP SC satisfied. Ready for Phase 2 wasm-boundary.
+- Phase 2 Plan 01: ADR-002 selects wasm-bindgen target gating via [target.'cfg(target_arch = "wasm32")'.dependencies] (Candidate A) — rejected plain-dep (15s native test tax) and feature-flag (empty-lib.rs footgun)
+- Phase 2 Plan 01: CORE-02 test upgraded to FORBIDDEN_TOKENS_WITH_EXEMPTIONS — per-token, per-file exemption. wasm_bindgen exempt in lib.rs only; web_sys/js_sys forbidden everywhere including lib.rs (D-07)
 
 ### Pending Todos
 
@@ -112,8 +115,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: --stopped-at
-Stopped at: Phase 2 context gathered
-Resume file: --resume-file
+Last session: 2026-04-21T16:49:16.091Z
+Stopped at: Completed 02-01-PLAN.md
+Resume file: None
 
 **Planned Phase:** 2 (Wasm Boundary & Minimal JS Harness) — 5 plans — 2026-04-21T16:42:21.262Z

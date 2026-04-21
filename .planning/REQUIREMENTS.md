@@ -32,7 +32,8 @@ Requirements for initial release. Each maps to roadmap phases.
 **: Rust compiled to wasm owns parser, terminal state, and key encoding — pure logic, no I/O, no DOM
 - [x] **CORE-02
 **: Rust core has zero bindings to Web Serial or other browser I/O APIs
-- [ ] **CORE-03**: Rust↔JS interop uses `wasm-bindgen` + `wasm-pack` (target `web`)
+- [x] **CORE-03
+**: Rust↔JS interop uses `wasm-bindgen` + `wasm-pack` (target `web`)
 - [ ] **CORE-04**: JS shell owns Web Serial I/O, canvas rendering, event loop, and browser state
 - [ ] **CORE-05**: Wasm boundary uses batched byte feeds and shared-memory views (no per-byte or per-frame grid copying)
 
