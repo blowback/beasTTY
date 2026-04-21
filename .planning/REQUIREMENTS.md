@@ -142,66 +142,74 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| PARSER-01 | TBD | Pending |
-| PARSER-02 | TBD | Pending |
-| PARSER-03 | TBD | Pending |
-| PARSER-04 | TBD | Pending |
-| PARSER-05 | TBD | Pending |
-| PARSER-06 | TBD | Pending |
-| PARSER-07 | TBD | Pending |
-| PARSER-08 | TBD | Pending |
-| CORE-01 | TBD | Pending |
-| CORE-02 | TBD | Pending |
-| CORE-03 | TBD | Pending |
-| CORE-04 | TBD | Pending |
-| CORE-05 | TBD | Pending |
-| RENDER-01 | TBD | Pending |
-| RENDER-02 | TBD | Pending |
-| RENDER-03 | TBD | Pending |
-| RENDER-04 | TBD | Pending |
-| RENDER-05 | TBD | Pending |
-| RENDER-06 | TBD | Pending |
-| RENDER-07 | TBD | Pending |
-| RENDER-08 | TBD | Pending |
-| RENDER-09 | TBD | Pending |
-| RENDER-10 | TBD | Pending |
-| RENDER-11 | TBD | Pending |
-| RENDER-12 | TBD | Pending |
-| XPORT-01 | TBD | Pending |
-| XPORT-02 | TBD | Pending |
-| XPORT-03 | TBD | Pending |
-| XPORT-04 | TBD | Pending |
-| XPORT-05 | TBD | Pending |
-| XPORT-06 | TBD | Pending |
-| XPORT-07 | TBD | Pending |
-| XPORT-08 | TBD | Pending |
-| XPORT-09 | TBD | Pending |
-| XPORT-10 | TBD | Pending |
-| XPORT-11 | TBD | Pending |
-| INPUT-01 | TBD | Pending |
-| INPUT-02 | TBD | Pending |
-| INPUT-03 | TBD | Pending |
-| INPUT-04 | TBD | Pending |
-| INPUT-05 | TBD | Pending |
-| SESS-01 | TBD | Pending |
-| SESS-02 | TBD | Pending |
-| SESS-03 | TBD | Pending |
-| SESS-04 | TBD | Pending |
-| SESS-05 | TBD | Pending |
-| SESS-06 | TBD | Pending |
-| PREF-01 | TBD | Pending |
-| PREF-02 | TBD | Pending |
-| PLAT-01 | TBD | Pending |
-| PLAT-02 | TBD | Pending |
-| PLAT-03 | TBD | Pending |
-| PLAT-04 | TBD | Pending |
-| PLAT-05 | TBD | Pending |
+| PARSER-01 | Phase 1 | Pending |
+| PARSER-02 | Phase 1 | Pending |
+| PARSER-03 | Phase 1 | Pending |
+| PARSER-04 | Phase 1 | Pending |
+| PARSER-05 | Phase 1 | Pending |
+| PARSER-06 | Phase 1 | Pending |
+| PARSER-07 | Phase 1 | Pending |
+| PARSER-08 | Phase 1 | Pending |
+| CORE-01 | Phase 1 | Pending |
+| CORE-02 | Phase 1 | Pending |
+| CORE-03 | Phase 2 | Pending |
+| CORE-04 | Phase 2 | Pending |
+| CORE-05 | Phase 2 | Pending |
+| RENDER-01 | Phase 3 | Pending |
+| RENDER-02 | Phase 3 | Pending |
+| RENDER-03 | Phase 3 | Pending |
+| RENDER-04 | Phase 3 | Pending |
+| RENDER-05 | Phase 3 | Pending |
+| RENDER-06 | Phase 3 | Pending |
+| RENDER-07 | Phase 3 | Pending |
+| RENDER-08 | Phase 3 | Pending |
+| RENDER-09 | Phase 3 | Pending |
+| RENDER-10 | Phase 3 | Pending |
+| RENDER-11 | Phase 3 | Pending |
+| RENDER-12 | Phase 3 | Pending |
+| XPORT-01 | Phase 5 | Pending |
+| XPORT-02 | Phase 5 | Pending |
+| XPORT-03 | Phase 5 | Pending |
+| XPORT-04 | Phase 5 | Pending |
+| XPORT-05 | Phase 5 | Pending |
+| XPORT-06 | Phase 5 | Pending |
+| XPORT-07 | Phase 5 | Pending |
+| XPORT-08 | Phase 5 | Pending |
+| XPORT-09 | Phase 5 | Pending |
+| XPORT-10 | Phase 5 | Pending |
+| XPORT-11 | Phase 5 | Pending |
+| INPUT-01 | Phase 4 | Pending |
+| INPUT-02 | Phase 4 | Pending |
+| INPUT-03 | Phase 4 | Pending |
+| INPUT-04 | Phase 4 | Pending |
+| INPUT-05 | Phase 4 | Pending |
+| SESS-01 | Phase 6 | Pending |
+| SESS-02 | Phase 6 | Pending |
+| SESS-03 | Phase 6 | Pending |
+| SESS-04 | Phase 6 | Pending |
+| SESS-05 | Phase 6 | Pending |
+| SESS-06 | Phase 6 | Pending |
+| PREF-01 | Phase 6 | Pending |
+| PREF-02 | Phase 6 | Pending |
+| PLAT-01 | Phase 5 | Pending |
+| PLAT-02 | Phase 5 | Pending |
+| PLAT-03 | Phase 6 | Pending |
+| PLAT-04 | Phase 6 | Pending |
+| PLAT-05 | Phase 6 | Pending |
 
 **Coverage:**
 - v1 requirements: 54 total
-- Mapped to phases: 0 (to be filled by roadmap)
-- Unmapped: 54 ⚠️ (roadmap will resolve)
+- Mapped to phases: 54 (100%)
+- Unmapped: 0
+
+**Per-phase counts:**
+- Phase 1 (Rust Core): 10 requirements
+- Phase 2 (Wasm Boundary): 3 requirements
+- Phase 3 (Canvas Renderer): 12 requirements
+- Phase 4 (Keyboard Input): 5 requirements
+- Phase 5 (Web Serial Transport): 13 requirements
+- Phase 6 (Polish & Deployment): 11 requirements
 
 ---
 *Requirements defined: 2026-04-21*
-*Last updated: 2026-04-21 after initial definition*
+*Last updated: 2026-04-21 after roadmap traceability*
