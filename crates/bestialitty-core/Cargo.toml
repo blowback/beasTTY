@@ -14,10 +14,17 @@ default = []
 # Dev-only: push {offset, byte, state} entries to a bounded ring on malformed input.
 # Release builds have zero overhead. See CONTEXT D-15.
 trace-malformed = []
+# Parser-strategy spike (Plan 01-03). Pulls in both prototypes + shared harness
+# under `src/spike/` and the optional `vte` dependency. Default builds omit
+# everything so production wasm remains dep-free. See ADR-001 (forthcoming).
+spike = ["dep:vte"]
 
 [dependencies]
-# Phase 1 keeps dependencies empty. Plan 03 spike MAY add `vte = "0.15"` if the
-# vte-path wins the spike. Until then: no deps.
+# Phase 1 baseline keeps production deps empty. The `vte` crate is OPTIONAL and
+# only pulled in when the `spike` feature is active (parser-strategy prototype
+# comparison — Plan 01-03). Pinned to 0.15 per RESEARCH.md; API stable with
+# `Parser::advance(&mut self, performer, bytes)` signature.
+vte = { version = "0.15", optional = true }
 
 [dev-dependencies]
 # Keep minimal; std alone is sufficient for Phase 1 tests.
