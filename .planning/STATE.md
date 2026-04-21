@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 02-01-PLAN.md
-last_updated: "2026-04-21T16:49:16.097Z"
-last_activity: 2026-04-21 -- Phase --phase execution started
+stopped_at: Completed 02-02-PLAN.md
+last_updated: "2026-04-21T16:57:07.426Z"
+last_activity: 2026-04-21
 progress:
   total_phases: 6
   completed_phases: 1
   total_plans: 12
-  completed_plans: 8
-  percent: 67
+  completed_plans: 9
+  percent: 75
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-04-21)
 ## Current Position
 
 Phase: 02-wasm-boundary-minimal-js-harness — EXECUTING
-Plan: 2 of 5 (Plan 01 complete)
-Status: Executing Phase 02
-Last activity: 2026-04-21 — Phase 02 Plan 01 complete (b7dfe66, 2bd37cd, 1ebab6d)
+Plan: 3 of 5 (Plan 01 complete)
+Status: Ready to execute
+Last activity: 2026-04-21
 
-Progress: [███████░░░] 67%
+Progress: [████████░░] 75%
 
 ## Performance Metrics
 
@@ -64,6 +64,7 @@ Progress: [███████░░░] 67%
 | Phase 01-rust-core-parser-grid-key-encoder P05 | 12m | 3 tasks | 20 files |
 | Phase 01-rust-core-parser-grid-key-encoder P07 | 9 | 3 tasks | 6 files |
 | Phase 02 P01 | 3min | 3 tasks | 5 files |
+| Phase 02 P02 | 4min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -91,6 +92,10 @@ Recent decisions affecting current work:
 - Phase 1 complete: 128 tests green, fmt/clippy/build/test all pass, all 5 ROADMAP SC satisfied. Ready for Phase 2 wasm-boundary.
 - Phase 2 Plan 01: ADR-002 selects wasm-bindgen target gating via [target.'cfg(target_arch = "wasm32")'.dependencies] (Candidate A) — rejected plain-dep (15s native test tax) and feature-flag (empty-lib.rs footgun)
 - Phase 2 Plan 01: CORE-02 test upgraded to FORBIDDEN_TOKENS_WITH_EXEMPTIONS — per-token, per-file exemption. wasm_bindgen exempt in lib.rs only; web_sys/js_sys forbidden everywhere including lib.rs (D-07)
+- Phase 2 Plan 02: pack_buf lazy-init in new() — snapshot_grid owns resize-if-needed as single source of truth
+- Phase 2 Plan 02: unpack_keycode returns Option<KeyCode> (not KeyCode+default) — forces lib.rs to handle unknown tags explicitly, prevents FFI panic (T-02-02-02)
+- Phase 2 Plan 02: cursor_packed wire format (row << 16) | col pinned at Terminal via round-trip test — Plan 03 lib.rs must use identical expression
+- Phase 2 Plan 02: keycode discriminant tags frozen (0=Char, 1..4 arrows, 5..8 Enter/Tab/Backspace/Escape, 9=KeypadDigit, 10..13 KeypadEnter/Comma/Minus/Dot); mod bits 0..3 = ctrl/shift/alt/meta
 
 ### Pending Todos
 
@@ -115,8 +120,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-04-21T16:49:16.091Z
-Stopped at: Completed 02-01-PLAN.md
+Last session: 2026-04-21T16:57:07.420Z
+Stopped at: Completed 02-02-PLAN.md
 Resume file: None
 
 **Planned Phase:** 2 (Wasm Boundary & Minimal JS Harness) — 5 plans — 2026-04-21T16:42:21.262Z

@@ -35,7 +35,8 @@ Requirements for initial release. Each maps to roadmap phases.
 - [x] **CORE-03
 **: Rust↔JS interop uses `wasm-bindgen` + `wasm-pack` (target `web`)
 - [ ] **CORE-04**: JS shell owns Web Serial I/O, canvas rendering, event loop, and browser state
-- [ ] **CORE-05**: Wasm boundary uses batched byte feeds and shared-memory views (no per-byte or per-frame grid copying)
+- [x] **CORE-05
+**: Wasm boundary uses batched byte feeds and shared-memory views (no per-byte or per-frame grid copying)
 
 ### Rendering
 
@@ -165,7 +166,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | CORE-02 | Phase 1 | Complete |
 | CORE-03 | Phase 2 | Pending |
 | CORE-04 | Phase 2 | Pending |
-| CORE-05 | Phase 2 | Pending |
+| CORE-05 | Phase 2 | Complete |
 | RENDER-01 | Phase 3 | Pending |
 | RENDER-02 | Phase 3 | Pending |
 | RENDER-03 | Phase 3 | Pending |
