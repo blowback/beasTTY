@@ -46,10 +46,10 @@ enum EscYPhase {
 
 /// Per-feed Perform implementation. Holds a mutable borrow of the shared
 /// [`SpikeTerminal`] plus the ESC Y sub-state (shuttled in from
-/// [`Parser::feed`]).
-pub struct PerformTerm<'a> {
-    pub term: &'a mut SpikeTerminal,
-    pub esc_y: EscYPhase,
+/// [`Parser::feed`]). Non-`pub` — an internal detail of the vte adapter.
+struct PerformTerm<'a> {
+    term: &'a mut SpikeTerminal,
+    esc_y: EscYPhase,
 }
 
 impl<'a> Perform for PerformTerm<'a> {
