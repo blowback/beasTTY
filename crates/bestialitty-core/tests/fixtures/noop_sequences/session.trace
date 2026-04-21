@@ -1,0 +1,6 @@
+enter_graphics_mode
+exit_graphics_mode
+enter_alt_keypad
+exit_alt_keypad
+enter_hold_screen
+exit_hold_screen

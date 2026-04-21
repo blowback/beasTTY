@@ -1,0 +1,5 @@
+print 41
+print 42
+print 43
+move_cursor 0 1
+erase_to_end_of_screen

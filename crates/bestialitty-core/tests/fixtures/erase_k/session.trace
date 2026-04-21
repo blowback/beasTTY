@@ -1,0 +1,7 @@
+print 41
+print 42
+print 43
+print 44
+print 45
+move_cursor 0 2
+erase_to_end_of_line
