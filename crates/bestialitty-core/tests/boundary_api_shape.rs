@@ -18,7 +18,7 @@
 //! will consume. A `pub(crate)` method that compiles against an in-crate
 //! `#[cfg(test)]` module would fail here — which is what we want.
 
-use bestialitty_core::key::{KeyCode, KeyEvent, Modifiers, encode};
+use bestialitty_core::key::{KeyCode, KeyEvent, Modifiers, encode, unpack_keycode, unpack_mods};
 use bestialitty_core::terminal::Terminal;
 
 #[test]
@@ -146,4 +146,68 @@ fn bell_end_to_end() {
     assert!(term.bell_pending());
     term.clear_bell();
     assert!(!term.bell_pending());
+}
+
+#[test]
+fn terminal_snapshot_and_pointer_methods_have_stable_return_types() {
+    // Phase 2 D-10: every new method on crate::terminal::Terminal is pinned.
+    // Drift in `&mut self` / `&self` / return type / arg count fails the build.
+    let mut term = Terminal::new(24, 80, 100);
+    term.snapshot_grid(); // &mut self, no args, no return
+
+    let _ptr: *const u8 = term.pack_ptr(); // D-09 pack pointer (lib.rs exposes as grid_ptr())
+    let _len: usize = term.pack_byte_len(); // D-09 pack byte length
+    let _dptr: *const u8 = term.dirty_ptr(); // D-09 dirty bitmap pointer
+
+    assert_eq!(
+        _len,
+        24 * 80 * 8,
+        "pack_byte_len must equal rows * cols * size_of::<Cell>() (size_of = 8 per grid.rs const_assert)"
+    );
+}
+
+#[test]
+fn pack_ptr_stable_across_feed_per_d03() {
+    // D-03 invalidation contract: feed() must not invalidate the pack-buf pointer.
+    // Integration-level pin (duplicates terminal::tests for the lib-public surface).
+    let mut term = Terminal::new(24, 80, 100);
+    term.snapshot_grid();
+    let before = term.pack_ptr() as usize;
+    term.feed(b"Hello\x1BY\x21\x21World");
+    term.snapshot_grid();
+    let after = term.pack_ptr() as usize;
+    assert_eq!(
+        before, after,
+        "pack_buf pointer must be stable across feed() per D-03"
+    );
+}
+
+#[test]
+fn feed_accepts_large_slice_without_panic() {
+    // SC-4 integration gate: one feed() call must accept a 64 KB slice without
+    // panicking. The wasm façade's `feed` is the same signature; if this passes
+    // natively, it passes under wasm too (modulo JS marshalling, which is a
+    // separate concern tested via the harness in Plan 04 / SC-4 manual demo).
+    let mut term = Terminal::new(24, 80, 100);
+    let payload = vec![b'A'; 65_536];
+    let _reply: Vec<u8> = term.feed(&payload);
+    // Not asserting reply contents — ESC Z would be the reply-triggering seq;
+    // a block of 'A's is pure print ops with no host reply.
+}
+
+#[test]
+fn key_unpack_signatures_are_stable() {
+    // D-10 pins for the Phase 2 additions to key.rs. Plan 03's lib.rs
+    // encode_key_raw delegates to these; signature drift here is the
+    // single failure mode that catches a misaligned JS-side packing scheme.
+    let _kc: Option<KeyCode> = unpack_keycode(1u32);
+    let _m: Modifiers = unpack_mods(0u32);
+
+    // Round-trip smoke: ArrowUp (tag=1, no payload) + empty mods must encode to ESC A.
+    let evt = KeyEvent {
+        code: unpack_keycode(1u32).expect("tag 1 is ArrowUp"),
+        mods: unpack_mods(0u32),
+    };
+    let bytes: Vec<u8> = encode(evt);
+    assert_eq!(bytes, vec![0x1B, b'A']);
 }
