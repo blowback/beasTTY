@@ -119,7 +119,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Rust Core — Parser, Grid, Key Encoder | 7/7   | Complete    | 2026-04-21 |
+| 1. Rust Core — Parser, Grid, Key Encoder | 7/7 | Complete    | 2026-04-21 |
 | 2. Wasm Boundary & Minimal JS Harness | 0/TBD | Not started | - |
 | 3. Canvas Renderer | 0/TBD | Not started | - |
 | 4. Keyboard Input | 0/TBD | Not started | - |

@@ -152,14 +152,14 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| PARSER-01 | Phase 1 | Pending |
-| PARSER-02 | Phase 1 | Pending |
-| PARSER-03 | Phase 1 | Pending |
-| PARSER-04 | Phase 1 | Pending |
-| PARSER-05 | Phase 1 | Pending |
-| PARSER-06 | Phase 1 | Pending |
-| PARSER-07 | Phase 1 | Pending |
-| PARSER-08 | Phase 1 | Pending |
+| PARSER-01 | Phase 1 | Complete |
+| PARSER-02 | Phase 1 | Complete |
+| PARSER-03 | Phase 1 | Complete |
+| PARSER-04 | Phase 1 | Complete |
+| PARSER-05 | Phase 1 | Complete |
+| PARSER-06 | Phase 1 | Complete |
+| PARSER-07 | Phase 1 | Complete |
+| PARSER-08 | Phase 1 | Complete |
 | CORE-01 | Phase 1 | Complete |
 | CORE-02 | Phase 1 | Complete |
 | CORE-03 | Phase 2 | Pending |
