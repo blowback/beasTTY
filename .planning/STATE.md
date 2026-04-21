@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 02-03-PLAN.md
-last_updated: "2026-04-21T17:05:14.454Z"
+stopped_at: Completed 02-04-PLAN.md
+last_updated: "2026-04-21T17:14:13.165Z"
 last_activity: 2026-04-21
 progress:
   total_phases: 6
   completed_phases: 1
   total_plans: 12
-  completed_plans: 10
-  percent: 83
+  completed_plans: 11
+  percent: 92
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-04-21)
 ## Current Position
 
 Phase: 02-wasm-boundary-minimal-js-harness — EXECUTING
-Plan: 4 of 5 (Plan 01 complete)
+Plan: 5 of 5 (Plan 01 complete)
 Status: Ready to execute
 Last activity: 2026-04-21
 
-Progress: [████████░░] 83%
+Progress: [█████████░] 92%
 
 ## Performance Metrics
 
@@ -66,6 +66,7 @@ Progress: [████████░░] 83%
 | Phase 02 P01 | 3min | 3 tasks | 5 files |
 | Phase 02 P02 | 4min | 2 tasks | 2 files |
 | Phase Phase 02 PP03 | 3min | 2 tasks tasks | 2 files files |
+| Phase 02 P04 | 4min | 2 tasks tasks | 5 files files |
 
 ## Accumulated Context
 
@@ -98,6 +99,11 @@ Recent decisions affecting current work:
 - Phase 2 Plan 02: cursor_packed wire format (row << 16) | col pinned at Terminal via round-trip test — Plan 03 lib.rs must use identical expression
 - Phase 2 Plan 02: keycode discriminant tags frozen (0=Char, 1..4 arrows, 5..8 Enter/Tab/Backspace/Escape, 9=KeypadDigit, 10..13 KeypadEnter/Comma/Minus/Dot); mod bits 0..3 = ctrl/shift/alt/meta
 - Phase 2 Plan 03: lib.rs is the SOLE file in the crate with wasm_bindgen tokens (D-06/D-20); entire façade gated by single #[cfg(target_arch="wasm32")] mod wasm_boundary block; Terminal wrapper holds inner: CoreTerminal with one-line forwards; cursor_packed = (r << 16) | c at façade; encode_key_raw None-arm returns Vec::new() (T-02-03-01 FFI-safety)
+- Plan 02-04 scripts/build.sh uses cd \"\$(dirname \"\$0\")/..\" + wasm-pack --target web --out-dir ../../www/pkg at repo root — one script, Pitfall #5 resolved
+- Plan 02-04 www/main.js uses top-level await init() + reDeriveViews() per render tick (correctness-over-micro-perf) — Phase 3/4/5 inherit the snapshot_grid → read views → render → clear_dirty cadence
+- Plan 02-04 harness minimalism — only D-11 four required + D-12 readouts; no Reset/Clear-Dirty/Resize buttons despite Context permission (Plan 05 verification drives that decision)
+- Plan 02-04 hex-escape parser hand-rolled (not regex) with literal-backslash fallback on malformed \x — T-02-04-02 mitigation, no DoS surface
+- Plan 02-04 64 KB stress payload interleaves printable-ramp (0x20..0x7E) + ESC Y 0x20 0x20 cursor-home — exercises both print path AND state-machine transitions in one feed call
 
 ### Pending Todos
 
@@ -122,8 +128,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-04-21T17:05:14.448Z
-Stopped at: Completed 02-03-PLAN.md
+Last session: 2026-04-21T17:13:59.030Z
+Stopped at: Completed 02-04-PLAN.md
 Resume file: None
 
 **Planned Phase:** 2 (Wasm Boundary & Minimal JS Harness) — 5 plans — 2026-04-21T16:42:21.262Z
