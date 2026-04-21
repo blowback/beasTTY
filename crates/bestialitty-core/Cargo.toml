@@ -23,3 +23,9 @@ vte = "=0.15"
 
 [dev-dependencies]
 # Keep minimal; std alone is sufficient for Phase 1 tests.
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+# wasm-bindgen is resolved ONLY for the wasm32 target per ADR-002 (Candidate A).
+# Native `cargo test` does not compile it — D-20 (`cargo test` with no flags works).
+# Pair with `#[cfg(target_arch = "wasm32")] mod wasm_boundary` in src/lib.rs (Plan 03).
+wasm-bindgen = "0.2.118"
