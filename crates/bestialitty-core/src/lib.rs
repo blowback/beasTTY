@@ -14,13 +14,3 @@ pub mod scrollback;
 pub mod dirty;
 pub mod vt52;
 pub mod key;
-
-// Parser-strategy spike (Plan 01-03). Gated behind the `spike` Cargo feature
-// so the module + its optional `vte` dep stay out of every default and test
-// build. Spike tests are invoked specifically via
-// `cargo test --features spike spike::tests` — using `cfg(test)` alone here
-// would pull the `vte` use into ordinary `cargo test --lib` runs and break
-// them when the feature is off. See CONTEXT D-02/D-03 and ADR-001 (written
-// in Plan 01-03 Task 2).
-#[cfg(feature = "spike")]
-pub mod spike;
