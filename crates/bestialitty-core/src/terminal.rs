@@ -601,4 +601,74 @@ mod tests {
             }
         }
     }
+
+    // --- Phase 2 pack-buffer tests (D-01 / D-04) ---
+
+    #[test]
+    fn snapshot_grid_mirrors_scrollback_row_major() {
+        let mut term = Terminal::new(3, 4, 10);
+        term.feed(b"Hi");
+        term.snapshot_grid();
+
+        let ptr = term.pack_ptr();
+        let len = term.pack_byte_len();
+        assert_eq!(len, 3 * 4 * 8, "pack_byte_len must be rows*cols*size_of::<Cell>");
+
+        let bytes = unsafe { std::slice::from_raw_parts(ptr, len) };
+        // Row 0 col 0 -> 'H' at LSB of the u32 at byte offset 0
+        assert_eq!(bytes[0], b'H');
+        // Row 0 col 1 -> 'i' at byte offset 8 (one Cell stride)
+        assert_eq!(bytes[8], b'i');
+        // Row 0 col 2 -> blank (0x20) at byte offset 16
+        assert_eq!(bytes[16], 0x20);
+        // Row 1 col 0 -> blank at byte offset 4*8 = 32
+        assert_eq!(bytes[32], 0x20);
+    }
+
+    #[test]
+    fn snapshot_grid_repopulates_after_resize() {
+        let mut term = Terminal::new(3, 4, 10);
+        term.snapshot_grid();
+        assert_eq!(term.pack_byte_len(), 3 * 4 * 8);
+
+        term.resize(5, 10);
+        term.snapshot_grid();
+        assert_eq!(term.pack_byte_len(), 5 * 10 * 8);
+    }
+
+    #[test]
+    fn pack_ptr_stable_across_feed() {
+        // D-03: feed() must not invalidate the pack-buf pointer.
+        let mut term = Terminal::new(24, 80, 100);
+        term.snapshot_grid();
+        let before = term.pack_ptr() as usize;
+        term.feed(b"Hello");
+        term.snapshot_grid();
+        let after = term.pack_ptr() as usize;
+        assert_eq!(before, after, "pack_buf pointer must be stable across feed() per D-03");
+    }
+
+    #[test]
+    fn cursor_packed_convention_round_trips() {
+        // Pins the wire format lib.rs `cursor_packed` will use: (row << 16) | col.
+        let mut term = Terminal::new(24, 80, 100);
+        term.feed(b"\x1BY\x23\x45"); // row = 0x23-0x20 = 3, col = 0x45-0x20 = 37
+        let (r, c) = term.cursor();
+        assert_eq!((r, c), (3, 37));
+        let packed: u32 = (r << 16) | c;
+        assert_eq!(packed >> 16, r);
+        assert_eq!(packed & 0xFFFF, c);
+    }
+
+    #[test]
+    fn dirty_ptr_matches_dirty_slice() {
+        let mut term = Terminal::new(24, 80, 100);
+        term.feed(b"X");
+        let ptr = term.dirty_ptr();
+        let slice = term.dirty();
+        assert_eq!(ptr, slice.as_ptr());
+        // Row 0 got marked dirty by the print of 'X'.
+        let first_byte = unsafe { *ptr };
+        assert_eq!(first_byte, slice[0]);
+    }
 }
