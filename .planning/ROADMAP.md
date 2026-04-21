@@ -40,7 +40,14 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. The parser-strategy decision (hand-rolled DFA vs `vte` crate) is resolved by a committed, dated ADR in the repo with a working implementation of the chosen approach
   4. A live MicroBeast capture session is recorded under `.planning/research/captures/` and its byte inventory drives which VT52 sequences the parser handles, silently no-ops (ESC F/G/=/>), or intentionally leaves alone; CR/LF convention is documented from observed behaviour
   5. The core crate has zero dependencies on `web-sys`, `js-sys::Serial*`, or any browser API — `cargo build --target x86_64-unknown-linux-gnu` and `cargo test` both succeed
-**Plans**: TBD
+**Plans**: 7 plans
+  - [ ] 01-01-PLAN.md — Cargo workspace + bestialitty-core crate skeleton + captures/decisions dirs (Wave 0)
+  - [ ] 01-02-PLAN.md — Live MicroBeast byte capture (CP/M + BASIC) or D-08 deferral (Wave 1)
+  - [ ] 01-03-PLAN.md — Parser-strategy spike (hand-rolled vs vte) + ADR-001 (Wave 1)
+  - [ ] 01-04-PLAN.md — Grid + Scrollback ring + Dirty bitmap data-layer (Wave 2)
+  - [ ] 01-05-PLAN.md — Production parser + Terminal + 8 fixture tests; spike removed (Wave 3)
+  - [ ] 01-06-PLAN.md — PC-keyboard to VT52 byte encoder (Wave 2)
+  - [ ] 01-07-PLAN.md — CORE-02 automated test + boundary API shape lock + fmt/clippy hygiene (Wave 4)
 
 ### Phase 2: Wasm Boundary & Minimal JS Harness
 **Goal**: Prove the Rust↔JS interop shape end-to-end with the smallest possible JS surface area — batched `feed(bytes)`, zero-copy `Uint8Array` views over wasm linear memory, and a `wasm-pack --target web` build that a static site can consume directly.
@@ -112,7 +119,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Rust Core — Parser, Grid, Key Encoder | 0/TBD | Not started | - |
+| 1. Rust Core — Parser, Grid, Key Encoder | 0/7   | Not started | - |
 | 2. Wasm Boundary & Minimal JS Harness | 0/TBD | Not started | - |
 | 3. Canvas Renderer | 0/TBD | Not started | - |
 | 4. Keyboard Input | 0/TBD | Not started | - |
