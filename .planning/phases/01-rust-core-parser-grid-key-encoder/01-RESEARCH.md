@@ -1094,40 +1094,37 @@ Phase 1 (they're the reason D-06's capture comes before the spike).
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **MicroBeast CR/LF convention**
-   - What we know: default VT52 is CR-only / LF-only; CP/M historically often expects LF-implies-CR.
-   - What's unclear: which one the MicroBeast CP/M actually emits.
-   - Recommendation: Resolve via D-06 `capture-01-cpm-boot` (boot banner + prompt + `dir`).
-     Document in the capture's `README.md`. Default parser behavior: standard VT52.
-     Phase 4 owns the "LF implies CR" override toggle (INPUT-05).
+All five items below were resolvable from decisions already locked in CONTEXT.md
+(D-01..D-20) and the phase requirements. Recorded here for traceability; none
+block planning or execution.
 
-2. **Whether MicroBeast ever emits ESC F/G graphics-mode sequences**
-   - What we know: documented VT52 has graphics mode; MicroBeast hardware docs don't mention its use.
-   - What's unclear: whether any stock CP/M or BASIC program on MicroBeast actually uses ESC F/G.
-   - Recommendation: Parse as silent no-op in Phase 1 (PARSER-04). If live capture shows usage,
-     Phase 3's JS glyph renderer gains a lookup table; Phase 1 core does not need to change.
+1. **MicroBeast CR/LF convention** — **RESOLVED.**
+   Phase 1 parser ships with standard VT52 behaviour (CR = return-to-col-0, LF =
+   advance-row). Plan 02 records the observed convention in
+   `capture-01-cpm-boot/README.md`. If the capture is deferred per D-08, the
+   default is still correct; Phase 4 owns the optional "LF implies CR" toggle
+   (INPUT-05) — not a Phase 1 concern.
 
-3. **Whether `bell_pending` needs to be a counter or a boolean**
-   - What we know: BEL is rare on most workloads.
-   - What's unclear: whether multiple BELs in one `feed()` should produce multiple flashes
-     or coalesce to one.
-   - Recommendation: Boolean for Phase 1. Phase 3 renderer can debounce. Upgrade path
-     is trivial if later needed.
+2. **Whether MicroBeast ever emits ESC F/G graphics-mode sequences** — **RESOLVED.**
+   PARSER-04 locks silent no-op for `ESC F / G / = / >` in Phase 1 regardless
+   of live-capture outcome. If usage surfaces later, Phase 3's JS glyph renderer
+   owns the lookup table; the Rust core stays unchanged.
 
-4. **Exact `vte` crate current version**
-   - What we know: docs.rs shows 0.15.0; GitHub README still shows 0.13.0.
-   - What's unclear: whether docs.rs is cache-stale or GitHub README is.
-   - Recommendation: First task of the vte-path spike prototype is `cargo search vte`
-     + `cargo add vte` and pin the resolved version in the prototype Cargo.toml.
-     ADR-001 records the version used in the decision.
+3. **Whether `bell_pending` needs to be a counter or a boolean** — **RESOLVED.**
+   Boolean for Phase 1 (CONTEXT.md "Claude's Discretion" explicitly allows this).
+   Phase 3 renderer can debounce. Trivially upgradable if later required.
 
-5. **Should the `trace-malformed` buffer capacity be a compile-time const or runtime-configurable?**
-   - What we know: D-15 defers the structure to Claude's Discretion.
-   - Recommendation: compile-time `const MALFORMED_RING_CAP: usize = 256;` is simpler
-     and adequate. Runtime-configurable adds a constructor arg for feature-gated dev
-     convenience only — not worth it.
+4. **Exact `vte` crate current version** — **RESOLVED.**
+   Plan 03 Task 1 (vte-path spike prototype) runs `cargo search vte` live and
+   pins the resolved version in the spike's Cargo.toml; ADR-001 records the
+   version used. No up-front answer required at plan time.
+
+5. **Should the `trace-malformed` buffer capacity be a compile-time const or
+   runtime-configurable?** — **RESOLVED.**
+   Compile-time `const MALFORMED_RING_CAP: usize = 256;` (CONTEXT.md "Claude's
+   Discretion"). Feature-gated, default-off; release builds have zero overhead.
 
 ---
 

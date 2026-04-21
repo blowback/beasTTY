@@ -1,8 +1,8 @@
 ---
 phase: 1
 slug: rust-core-parser-grid-key-encoder
-status: draft
-nyquist_compliant: false
+status: approved
+nyquist_compliant: true
 wave_0_complete: false
 created: 2026-04-21
 ---
@@ -96,13 +96,15 @@ created: 2026-04-21
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify (every parser/grid/key task has a `cargo test` command)
-- [ ] Wave 0 covers all MISSING references (crate skeleton + capture/decisions dirs)
-- [ ] No watch-mode flags (all `cargo test` invocations are one-shot)
-- [ ] Feedback latency < 10s (pure-logic tests; no I/O)
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify (every parser/grid/key task has a `cargo test` command)
+- [x] Wave 0 covers all MISSING references (crate skeleton + capture/decisions dirs)
+- [x] No watch-mode flags (all `cargo test` invocations are one-shot)
+- [x] Feedback latency < 10s (pure-logic tests; no I/O)
+- [x] `nyquist_compliant: true` set in frontmatter
+
+*`wave_0_complete` flips to `true` after Plan 01 executes and `cargo test -p bestialitty-core --lib` returns "running 0 tests" exit 0.*
 
 **Nyquist sampling rationale:** The critical frequency for this phase is the per-byte state transition of the parser, because PITFALLS.md #2 (torn chunks) breaks at the sub-sequence level. The torn-chunk harness (1-TC-01) samples at 2× that frequency by splitting every multi-byte sequence at every internal offset and asserting identical final state — this is the Nyquist floor. Requirements PARSER-01..08 each have dedicated per-opcode tests (1-P-01..08) sampling at the opcode level. Grid, scrollback, and key encoder each have sub-system tests at the invariant level. CORE-02 (zero browser deps) is sampled at the build-graph level via `cargo metadata` dep inspection. No requirement is left below the Nyquist floor.
 
-**Approval:** pending
+**Approval:** approved 2026-04-21
