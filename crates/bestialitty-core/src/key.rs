@@ -127,6 +127,55 @@ pub fn encode(evt: KeyEvent) -> Vec<u8> {
     }
 }
 
+/// Decode the (code, mods) u32 pair that the Phase 4 DOM event handler packs
+/// from a KeyboardEvent into a `KeyEvent`. Packing scheme (pinned here so
+/// Phase 4 implements against an already-tested contract):
+///
+/// - `code` low 8 bits: discriminant tag (see match below).
+/// - `code` bits 8-15:  payload byte (for `Char` and `KeypadDigit` tags).
+/// - `code` bits 16-31: reserved (must be zero for recognized codes).
+///
+/// Returns `None` on an unknown tag so the lib.rs `encode_key_raw` wrapper
+/// can return an empty Vec rather than panic across the wasm FFI boundary
+/// (RESEARCH Pitfall #4 — panics across FFI trash the wasm instance).
+pub fn unpack_keycode(code: u32) -> Option<KeyCode> {
+    let tag = code & 0xFF;
+    let payload = ((code >> 8) & 0xFF) as u8;
+    match tag {
+        0 => Some(KeyCode::Char(payload)),
+        1 => Some(KeyCode::ArrowUp),
+        2 => Some(KeyCode::ArrowDown),
+        3 => Some(KeyCode::ArrowLeft),
+        4 => Some(KeyCode::ArrowRight),
+        5 => Some(KeyCode::Enter),
+        6 => Some(KeyCode::Tab),
+        7 => Some(KeyCode::Backspace),
+        8 => Some(KeyCode::Escape),
+        9 => Some(KeyCode::KeypadDigit(payload)),
+        10 => Some(KeyCode::KeypadEnter),
+        11 => Some(KeyCode::KeypadComma),
+        12 => Some(KeyCode::KeypadMinus),
+        13 => Some(KeyCode::KeypadDot),
+        _ => None,
+    }
+}
+
+/// Decode the modifier bits packed by Phase 4's DOM handler.
+///
+/// - Bit 0: ctrl
+/// - Bit 1: shift
+/// - Bit 2: alt
+/// - Bit 3: meta
+/// - Bits 4-31: reserved.
+pub fn unpack_mods(mods: u32) -> Modifiers {
+    Modifiers {
+        ctrl: (mods & 0b0001) != 0,
+        shift: (mods & 0b0010) != 0,
+        alt: (mods & 0b0100) != 0,
+        meta: (mods & 0b1000) != 0,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -388,12 +437,16 @@ mod tests {
 
     #[test]
     fn unpack_keycode_char_carries_payload() {
+        // Char tag is 0; payload sits in bits 8-15. `0 | (payload << 8)` is the
+        // canonical packing even though the OR-zero is an identity op, so the
+        // tests express the tag explicitly via a local constant.
+        const CHAR_TAG: u32 = 0;
         assert_eq!(
-            unpack_keycode(0 | ((b'A' as u32) << 8)),
+            unpack_keycode(CHAR_TAG | ((b'A' as u32) << 8)),
             Some(KeyCode::Char(b'A'))
         );
         assert_eq!(
-            unpack_keycode(0 | ((b'z' as u32) << 8)),
+            unpack_keycode(CHAR_TAG | ((b'z' as u32) << 8)),
             Some(KeyCode::Char(b'z'))
         );
     }
@@ -439,10 +492,7 @@ mod tests {
         // Reserved bits 4-31 do not flip any flag.
         let same_as_ctrl = unpack_mods(0b0001 | 0xFFFF_FFF0);
         assert!(
-            same_as_ctrl.ctrl
-                && !same_as_ctrl.shift
-                && !same_as_ctrl.alt
-                && !same_as_ctrl.meta
+            same_as_ctrl.ctrl && !same_as_ctrl.shift && !same_as_ctrl.alt && !same_as_ctrl.meta
         );
     }
 
