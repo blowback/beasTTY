@@ -27,6 +27,17 @@ pub struct Terminal {
     graphics_mode: bool,
     alt_keypad: bool,
     hold_screen: bool,
+    /// Phase 2 pack-on-read scratch buffer (D-01 / D-04).
+    ///
+    /// Populated by `snapshot_grid()` — a row-major memcpy of the visible
+    /// scrollback region into a single contiguous `Vec<Cell>`. `lib.rs`'s
+    /// wasm boundary exposes `pack_ptr()` + `pack_byte_len()` so JS can
+    /// construct `new Uint8Array(wasm.memory.buffer, ptr, len)`.
+    ///
+    /// Invalidation contract (D-03): pointer is stable across `feed()`,
+    /// internal scroll (`push_line`), and `resize_scrollback()`. Only
+    /// `resize(rows, cols)` may invalidate — JS must re-derive after.
+    pack_buf: Vec<Cell>,
 }
 
 impl Terminal {
@@ -42,6 +53,7 @@ impl Terminal {
             graphics_mode: false,
             alt_keypad: false,
             hold_screen: false,
+            pack_buf: Vec::new(),
         }
     }
 
@@ -104,6 +116,49 @@ impl Terminal {
 
     pub fn resize_scrollback(&mut self, new_cap: usize) {
         self.scrollback.resize_scrollback(new_cap);
+    }
+
+    // --- Phase 2 wasm-boundary support (D-01 / D-04) ---
+
+    /// Refresh the pack buffer. Row-major memcpy of every visible row from
+    /// the scrollback into a contiguous `Vec<Cell>`. Called by JS once per
+    /// frame before reading `pack_ptr()` / `pack_byte_len()`. Pairs with
+    /// `clear_dirty()` in the per-frame cadence (D-02).
+    pub fn snapshot_grid(&mut self) {
+        let cols = self.scrollback.cols();
+        let visible_rows = self.scrollback.visible_rows();
+        let needed = visible_rows * cols;
+        // Resize the pack buffer if the grid size changed since last snapshot.
+        // In steady state this is a no-op; only `resize()` changes `needed`.
+        if self.pack_buf.len() != needed {
+            self.pack_buf.resize(needed, Cell::BLANK);
+        }
+        for r in 0..visible_rows {
+            let src = self.scrollback.row(r).as_slice();
+            let dst_start = r * cols;
+            self.pack_buf[dst_start..dst_start + cols].copy_from_slice(src);
+        }
+    }
+
+    /// Pointer to the pack buffer's first byte. Stable across `feed()`,
+    /// `push_line`, and `resize_scrollback` (D-03). Invalidated by
+    /// `resize(rows, cols)` — JS must re-derive its `Uint8Array` view after.
+    pub fn pack_ptr(&self) -> *const u8 {
+        self.pack_buf.as_ptr() as *const u8
+    }
+
+    /// Byte length of the pack buffer: `visible_rows * cols * size_of::<Cell>()`.
+    /// The `size_of::<Cell>() == 8` const assert in `grid.rs` is load-bearing
+    /// for JS-side byte-offset arithmetic.
+    pub fn pack_byte_len(&self) -> usize {
+        self.pack_buf.len() * std::mem::size_of::<Cell>()
+    }
+
+    /// Pointer to the byte-per-row dirty bitmap. Stable across frames
+    /// (the underlying `Dirty::bytes` Vec's capacity does not change unless
+    /// `resize()` is called).
+    pub fn dirty_ptr(&self) -> *const u8 {
+        self.dirty.as_slice().as_ptr()
     }
 
     // --- Parser-callable dispatch methods ---
@@ -612,7 +667,11 @@ mod tests {
 
         let ptr = term.pack_ptr();
         let len = term.pack_byte_len();
-        assert_eq!(len, 3 * 4 * 8, "pack_byte_len must be rows*cols*size_of::<Cell>");
+        assert_eq!(
+            len,
+            3 * 4 * 8,
+            "pack_byte_len must be rows*cols*size_of::<Cell>"
+        );
 
         let bytes = unsafe { std::slice::from_raw_parts(ptr, len) };
         // Row 0 col 0 -> 'H' at LSB of the u32 at byte offset 0
@@ -645,7 +704,10 @@ mod tests {
         term.feed(b"Hello");
         term.snapshot_grid();
         let after = term.pack_ptr() as usize;
-        assert_eq!(before, after, "pack_buf pointer must be stable across feed() per D-03");
+        assert_eq!(
+            before, after,
+            "pack_buf pointer must be stable across feed() per D-03"
+        );
     }
 
     #[test]
