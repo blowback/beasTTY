@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 01-01-PLAN.md (workspace + core skeleton)
-last_updated: "2026-04-21T13:13:33.849Z"
+stopped_at: Completed 01-04-PLAN.md (grid/scrollback/dirty data-layer foundations)
+last_updated: "2026-04-21T14:12:04.922Z"
 last_activity: 2026-04-21
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 7
-  completed_plans: 1
-  percent: 14
+  completed_plans: 4
+  percent: 57
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-04-21)
 ## Current Position
 
 Phase: 01 (rust-core-parser-grid-key-encoder) — EXECUTING
-Plan: 2 of 7
+Plan: 3 of 7
 Status: Ready to execute
 Last activity: 2026-04-21
 
-Progress: [█░░░░░░░░░] 14%
+Progress: [██████░░░░] 57%
 
 ## Performance Metrics
 
@@ -58,6 +58,7 @@ Progress: [█░░░░░░░░░] 14%
 
 *Updated after each plan completion*
 | Phase 01-rust-core-parser-grid-key-encoder P01 | 3m | 3 tasks | 15 files |
+| Phase 01-rust-core-parser-grid-key-encoder P04 | 4m | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -73,6 +74,9 @@ Recent decisions affecting current work:
 - Phase 1 Plan 01: Cargo workspace pinned to resolver 3 + Edition 2024 + Rust 1.85 stable; cdylib+rlib dual crate-type established
 - Phase 1 Plan 01: rust-toolchain.toml pinned to stable + rustfmt + clippy (wasm32 deferred to Phase 2)
 - Phase 1 Plan 01: trace-malformed Cargo feature gate reserved ahead of Plan 04 implementation to prevent parallel feature-name invention
+- Phase 1 Plan 04: Cell #[repr(C)] 8-byte layout frozen with compile-time size+align assertions; any future field reorder fails build
+- Phase 1 Plan 04: Scrollback uses VecDeque::pop_front (O(1)) on every mutator to enforce total_len <= visible_rows + scrollback_cap invariant
+- Phase 1 Plan 04: Dirty::mark is a silent no-op on out-of-bounds row indices (T-04-01 defensive, so Plan 05 parser never needs pre-call validation)
 
 ### Pending Todos
 
@@ -97,8 +101,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-04-21T13:13:33.843Z
-Stopped at: Completed 01-01-PLAN.md (workspace + core skeleton)
+Last session: 2026-04-21T14:12:04.916Z
+Stopped at: Completed 01-04-PLAN.md (grid/scrollback/dirty data-layer foundations)
 Resume file: None
 
 **Planned Phase:** 1 (rust-core-parser-grid-key-encoder) — 7 plans — 2026-04-21T12:58:56.302Z
