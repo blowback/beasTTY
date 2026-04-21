@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>BestialiTTY Phase 2 Harness</title>
+  <!--
+    Dev serving options (D-14 — not committed to a specific tool):
+      python3 -m http.server -d www 8000    # Python 3.12 serves .wasm as application/wasm
+      basic-http-server www                 # Rust, single-binary alternative
+    Chromium refuses to stream-compile .wasm without Content-Type:application/wasm
+    (PITFALLS #7). Both options above are MIME-compliant.
+
+    Build pkg/ first:
+      ./scripts/build.sh
+  -->
+  <style>
+    body { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+           max-width: 90ch; margin: 1.5rem; }
+    h1 { font-size: 1.2rem; }
+    textarea { width: 100%; box-sizing: border-box; font-family: inherit;
+               font-size: 0.95rem; }
+    button { font-family: inherit; padding: 0.4rem 0.8rem; margin-right: 0.5rem; }
+    #grid, #dirty { border: 1px solid #888; padding: 4px; background: #f8f8f8;
+                    margin: 0.3rem 0; white-space: pre; }
+    #status { display: inline-block; margin-top: 0.5rem; color: #444; }
+    .hint { color: #666; font-size: 0.85rem; }
+  </style>
+</head>
+<body>
+  <h1>BestialiTTY Phase 2 Harness</h1>
+  <p class="hint">
+    Paste raw bytes, or use <code>\xNN</code> escapes for control bytes
+    (e.g., <code>\x1B</code> = ESC, <code>\x07</code> = BEL). Click <b>Feed</b>
+    to send the parsed bytes through the wasm VT52 parser in ONE boundary call.
+    Click <b>64 KB Stress</b> to demonstrate SC-4 (one <code>feed()</code> call
+    for 65&nbsp;536 bytes — observe the single DevTools Performance entry).
+  </p>
+
+  <textarea id="input" rows="4"
+            placeholder="Hello\x1BY\x21\x20World"></textarea>
+  <br>
+  <button id="feed">Feed</button>
+  <button id="stress64k">64 KB Stress</button>
+
+  <h3>Grid (ASCII)</h3>
+  <pre id="grid"></pre>
+
+  <h3>Dirty bitmap (1 byte per row, 1 = dirty)</h3>
+  <pre id="dirty"></pre>
+
+  <span id="status">cursor=(0,0) bell=false</span>
+
+  <script type="module" src="./main.js"></script>
+</body>
+</html>
