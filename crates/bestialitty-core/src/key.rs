@@ -383,4 +383,75 @@ mod tests {
             vec![b'a']
         );
     }
+
+    // --- Phase 2 u32 unpackers (D-09 / RESEARCH Open Question 2) ---
+
+    #[test]
+    fn unpack_keycode_char_carries_payload() {
+        assert_eq!(
+            unpack_keycode(0 | ((b'A' as u32) << 8)),
+            Some(KeyCode::Char(b'A'))
+        );
+        assert_eq!(
+            unpack_keycode(0 | ((b'z' as u32) << 8)),
+            Some(KeyCode::Char(b'z'))
+        );
+    }
+
+    #[test]
+    fn unpack_keycode_arrows_have_stable_tags() {
+        assert_eq!(unpack_keycode(1), Some(KeyCode::ArrowUp));
+        assert_eq!(unpack_keycode(2), Some(KeyCode::ArrowDown));
+        assert_eq!(unpack_keycode(3), Some(KeyCode::ArrowLeft));
+        assert_eq!(unpack_keycode(4), Some(KeyCode::ArrowRight));
+    }
+
+    #[test]
+    fn unpack_keycode_named_keys_and_keypad_digit() {
+        assert_eq!(unpack_keycode(5), Some(KeyCode::Enter));
+        assert_eq!(unpack_keycode(6), Some(KeyCode::Tab));
+        assert_eq!(unpack_keycode(7), Some(KeyCode::Backspace));
+        assert_eq!(unpack_keycode(8), Some(KeyCode::Escape));
+        assert_eq!(unpack_keycode(9 | (5 << 8)), Some(KeyCode::KeypadDigit(5)));
+        assert_eq!(unpack_keycode(10), Some(KeyCode::KeypadEnter));
+        assert_eq!(unpack_keycode(11), Some(KeyCode::KeypadComma));
+        assert_eq!(unpack_keycode(12), Some(KeyCode::KeypadMinus));
+        assert_eq!(unpack_keycode(13), Some(KeyCode::KeypadDot));
+    }
+
+    #[test]
+    fn unpack_keycode_unknown_tag_is_none() {
+        assert_eq!(unpack_keycode(0xFF), None);
+        assert_eq!(unpack_keycode(100), None);
+        assert_eq!(unpack_keycode(255), None);
+    }
+
+    #[test]
+    fn unpack_mods_bits_map_to_flags() {
+        let none = unpack_mods(0);
+        assert!(!none.ctrl && !none.shift && !none.alt && !none.meta);
+
+        assert_eq!(unpack_mods(0b0001), Modifiers::CTRL);
+
+        let all = unpack_mods(0b1111);
+        assert!(all.ctrl && all.shift && all.alt && all.meta);
+
+        // Reserved bits 4-31 do not flip any flag.
+        let same_as_ctrl = unpack_mods(0b0001 | 0xFFFF_FFF0);
+        assert!(
+            same_as_ctrl.ctrl
+                && !same_as_ctrl.shift
+                && !same_as_ctrl.alt
+                && !same_as_ctrl.meta
+        );
+    }
+
+    #[test]
+    fn unpack_keycode_and_encode_compose() {
+        // End-to-end smoke: the unpacker's output feeds directly into encode().
+        let kc = unpack_keycode(1).unwrap(); // ArrowUp
+        let mods = unpack_mods(0); // none
+        let bytes = encode(KeyEvent { code: kc, mods });
+        assert_eq!(bytes, vec![0x1B, b'A']); // ESC A per VT52 spec
+    }
 }
