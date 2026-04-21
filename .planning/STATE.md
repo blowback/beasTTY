@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-stopped_at: Completed 02-04-PLAN.md
-last_updated: "2026-04-21T17:14:13.165Z"
+status: verifying
+stopped_at: Completed 02-05-PLAN.md
+last_updated: "2026-04-21T17:23:54.328Z"
 last_activity: 2026-04-21
 progress:
   total_phases: 6
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 12
-  completed_plans: 11
-  percent: 92
+  completed_plans: 12
+  percent: 100
 ---
 
 # Project State
@@ -27,10 +27,10 @@ See: .planning/PROJECT.md (updated 2026-04-21)
 
 Phase: 02-wasm-boundary-minimal-js-harness — EXECUTING
 Plan: 5 of 5 (Plan 01 complete)
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-04-21
 
-Progress: [█████████░] 92%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -67,6 +67,7 @@ Progress: [█████████░] 92%
 | Phase 02 P02 | 4min | 2 tasks | 2 files |
 | Phase Phase 02 PP03 | 3min | 2 tasks tasks | 2 files files |
 | Phase 02 P04 | 4min | 2 tasks tasks | 5 files files |
+| Phase 02 P05 | 3min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -104,6 +105,9 @@ Recent decisions affecting current work:
 - Plan 02-04 harness minimalism — only D-11 four required + D-12 readouts; no Reset/Clear-Dirty/Resize buttons despite Context permission (Plan 05 verification drives that decision)
 - Plan 02-04 hex-escape parser hand-rolled (not regex) with literal-backslash fallback on malformed \x — T-02-04-02 mitigation, no DoS surface
 - Plan 02-04 64 KB stress payload interleaves printable-ramp (0x20..0x7E) + ESC Y 0x20 0x20 cursor-home — exercises both print path AND state-machine transitions in one feed call
+- Plan 02-05 scripts/smoke-wasm-build.sh feature-detects --no-opt (added in wasm-pack 0.13.0) to remain compatible with the project's pinned wasm-pack 0.12.1 (Rule 3 deviation fix)
+- Plan 02-05 www/README.md quotes [boot] + [SC-4] log lines verbatim from www/main.js so SC-1..SC-4 verification is a visual diff (T-02-05-03 mitigation)
+- Plan 02-05 checkpoint:human-verify auto-approved under _auto_chain_active=true; four SC demonstrations recorded in SUMMARY 'Human Verification Deferred' for post-execution review
 
 ### Pending Todos
 
@@ -128,8 +132,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-04-21T17:13:59.030Z
-Stopped at: Completed 02-04-PLAN.md
+Last session: 2026-04-21T17:23:54.322Z
+Stopped at: Completed 02-05-PLAN.md
 Resume file: None
 
 **Planned Phase:** 2 (Wasm Boundary & Minimal JS Harness) — 5 plans — 2026-04-21T16:42:21.262Z

@@ -63,7 +63,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   - [x] 02-02-PLAN.md — pack_buf + snapshot_grid on Terminal + u32 unpackers on key.rs + native unit tests (Wave 2)
   - [x] 02-03-PLAN.md — lib.rs wasm-bindgen facade + extended boundary_api_shape.rs + wasm-pack smoke (Wave 3)
   - [x] 02-04-PLAN.md — scripts/build.sh + www/index.html + www/main.js + .gitignore rules (Wave 4)
-  - [ ] 02-05-PLAN.md — scripts/smoke-wasm-build.sh + www/README.md + SC-1..SC-4 checkpoint demo (Wave 5)
+  - [x] 02-05-PLAN.md — scripts/smoke-wasm-build.sh + www/README.md + SC-1..SC-4 checkpoint demo (Wave 5)
 
 ### Phase 3: Canvas Renderer
 **Goal**: A visually correct, crisp-on-HiDPI canvas terminal with both CRT and clean themes, a visible block cursor, theme-toggleable styling, font-size zoom, and visible-bell flash — driven off the Phase 2 grid view with dirty-row repainting.
