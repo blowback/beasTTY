@@ -1,17 +1,19 @@
-// BestialiTTY Phase 3 — boot driver.
+// BestialiTTY — boot driver (Phase 3 renderer + Phase 4 Plan 02 keyboard).
 //
-// Preserves the Phase 2 wasm boundary + harness helpers (encode_key_raw smoke
-// log, parseHexEscapes, buildStressPayload, Feed button, 64 KB Stress button).
-// Replaces the pre-text renderers (renderAscii / renderDirty / renderStatus)
-// with delegation into www/renderer/canvas.js (rAF + HiDPI + glyph atlas).
-// Wires DOM chrome (theme toggle, phosphor radio-group, keyboard shortcuts,
-// focus indicator) via www/renderer/chrome.js.
+// Preserves the Phase 2 wasm boundary + harness helpers (parseHexEscapes,
+// buildStressPayload, Feed button, 64 KB Stress button). Delegates rendering
+// to www/renderer/canvas.js (rAF + HiDPI + glyph atlas). Wires DOM chrome
+// (theme toggle, phosphor radio-group, keyboard shortcuts, focus indicator)
+// via www/renderer/chrome.js. Phase 4 Plan 02 adds wireKeyboard() from
+// www/input/keyboard.js — attaches AFTER wireChrome so chrome.js's keydown
+// listener retains priority on Ctrl+Alt+T / Ctrl+{+,-,0} chords.
 //
 // Source:
 //   - 03-PATTERNS.md §"www/main.js" retrofit specification.
 //   - 03-CONTEXT.md D-15 (Debug details retains Phase 2 SC-4 path).
+//   - 04-PATTERNS.md §"www/main.js (modified)" (wireKeyboard call site).
 
-import init, { Terminal, encode_key_raw } from './pkg/bestialitty_core.js';
+import init, { Terminal } from './pkg/bestialitty_core.js';
 import {
     bootRenderer,
     requestFrame,
@@ -26,14 +28,12 @@ import {
     triggerBellFlash,          // Plan 03 owns bell sampling; canvas.js provides the CSS helper
 } from './renderer/canvas.js';
 import { wireChrome } from './renderer/chrome.js';
+import { wireKeyboard } from './input/keyboard.js';
+import { registerTxObserver, formatHexStrip } from './input/tx-sink.js';
 
 // ---- init + construction (Phase 2 — unchanged) ----
 const wasm = await init();                             // top-level-await: Chromium >=89
 const term = new Terminal(24, 80, 10_000);             // #[wasm_bindgen(constructor)]
-
-// Smoke-exercise encode_key_raw so the export isn't dead-stripped; Phase 4 uses it.
-const upEnc = encode_key_raw(1 /* tag=ArrowUp */, 0 /* no mods */);
-console.log('[boot] encode_key_raw(ArrowUp, none) =', Array.from(upEnc));  // [27, 65]
 
 // ---- Phase 3 renderer + chrome wiring ----
 await bootRenderer({ wasm, term });
@@ -147,6 +147,26 @@ function sampleBell() {
     // NOTE: the foreground-return "strip prefix" half is handled by the
     // visibilitychange listener registered in chrome.js wireChrome().
 }
+
+// ---- Phase 4 Plan 02 — keyboard input wiring ----
+// wireKeyboard attaches its keydown + compositionstart/update/end listeners
+// to #terminal-wrapper. chrome.js's keydown listener attached FIRST (inside
+// wireChrome above), so Phase 4's listener runs SECOND and short-circuits on
+// e.defaultPrevented for chords chrome.js already claimed (Ctrl+Alt+T,
+// Ctrl+{+,-,0}). Call site sits AFTER the sampleBell / drainHostReply arrow
+// functions are assigned so injected refs are defined (would TDZ if moved
+// earlier). Plan 04-03 wires the Settings-pane toggles (local-echo checkbox,
+// CR/LF radios, Reset TX button) and registers the TX observer against the
+// Debug pane's hex-strip <pre>; Plan 04-02 leaves the observer un-registered
+// so the TX strip stays at its placeholder text until Plan 04-03 adds the
+// DOM element.
+wireKeyboard({
+    term,
+    terminalWrapper,
+    sampleBell,
+    drainHostReply,
+    requestFrame,
+});
 
 // ---- Feed button (Phase 2 D-11 item 2 — ONE feed call per click) ----
 document.getElementById('feed').addEventListener('click', () => {
