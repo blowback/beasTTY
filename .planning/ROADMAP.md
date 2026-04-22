@@ -76,7 +76,11 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. Phosphor colour (green / amber / white) is user-selectable in the CRT theme, and font size zoom via Ctrl +/− / Ctrl 0 scales the bitmap font by integer multipliers
   4. A BEL byte (0x07) in the input stream causes a ~100ms screen flash and a `(!)` prefix on the document title when the tab is backgrounded
   5. Focus state on the canvas is visibly distinct from unfocused state (border or cursor-style change), and resizing the window or dragging the browser between monitors of different DPR does not produce blur
-**Plans**: TBD
+**Plans**: 4 plans
+  - [ ] 03-01-PLAN.md — Assets foundation: hand-drawn 8×16 bitmap font + JetBrains Mono WOFF2 + OFL licence + Playwright bootstrap + VT52 fixture (Wave 1)
+  - [ ] 03-02-PLAN.md — Renderer core: themes.js descriptors + atlas.js glyph cache + canvas.js rAF loop + HiDPI + cursor overdraw + DPR watcher (Wave 2)
+  - [ ] 03-03-PLAN.md — Chrome wiring: index.html canvas-first DOM + chrome.js event wiring + main.js retrofit + Phase 3 README (Wave 3)
+  - [ ] 03-04-PLAN.md — Verification: 9 Playwright specs covering RENDER-01..RENDER-12 + visual-regression baseline + human UAT checkpoint (Wave 4)
 **UI hint**: yes
 
 ### Phase 4: Keyboard Input
@@ -127,7 +131,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 |-------|----------------|--------|-----------|
 | 1. Rust Core — Parser, Grid, Key Encoder | 7/7 | Complete    | 2026-04-21 |
 | 2. Wasm Boundary & Minimal JS Harness | 6/6 | Complete    | 2026-04-22 |
-| 3. Canvas Renderer | 0/TBD | Not started | - |
+| 3. Canvas Renderer | 0/4 | Not started | - |
 | 4. Keyboard Input | 0/TBD | Not started | - |
 | 5. Web Serial Transport | 0/TBD | Not started | - |
 | 6. Daily-Driver Polish, Session & Deployment | 0/TBD | Not started | - |
