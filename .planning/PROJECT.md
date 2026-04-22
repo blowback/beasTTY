@@ -28,6 +28,12 @@ driver with a real MicroBeast — nothing else matters if that doesn't hold.
       clean modern monospace look. *(Validated in Phase 3: Canvas Renderer —
       CRT bitmap with phosphor toggle and Clean JetBrains-Mono vector theme,
       switchable via UI button or Ctrl+Alt+T)*
+- [x] Keyboard input: map standard PC browser key events to VT52 key codes
+      (arrows, keypad, control keys). *(Validated in Phase 4: Keyboard Input —
+      DOM keydown wired to Rust `encode_key_raw`, arrow keys transmit ESC A/B/C/D,
+      Ctrl-letter → 0x00–0x1F, local-echo toggle + 3-way CR/LF override in
+      Settings pane, IME `isComposing` guard, mousedown-preventDefault focus
+      retention on all chrome controls)*
 
 ### Active
 
@@ -39,8 +45,6 @@ driver with a real MicroBeast — nothing else matters if that doesn't hold.
       and browser state.
 - [ ] Web Serial transport driven entirely from JS (no Rust bindings to Web
       Serial).
-- [ ] Keyboard input: map standard PC browser key events to VT52 key codes
-      (arrows, keypad, control keys).
 - [ ] Scrollback buffer for reviewing output above the current screen.
 - [ ] Copy text out of the screen and paste into the serial stream.
 - [ ] Session logging — capture the serial stream to a downloadable file.
@@ -113,6 +117,9 @@ driver with a real MicroBeast — nothing else matters if that doesn't hold.
 | Classic CRT *and* clean modern themes in v1 | Both are cheap on top of canvas rendering and the author wants both available without a later retrofit. | Validated in Phase 3 |
 | Theme toggle chord remapped to Ctrl+Alt+T | Chromium reserves Ctrl+Shift+T for "reopen closed tab"; Ctrl+Alt+T avoids the collision while staying ergonomically close. | Decided in Phase 3 (UAT gap #4) |
 | Focus border driven by `[data-focused]` attribute (not `:focus-visible`) | `:focus-visible` only fires on keyboard focus in Chromium; an attribute-based selector populated by chrome.js fires on programmatic and pointer focus too. | Decided in Phase 3 (UAT gap #7) |
+| CR/LF override is TX-side only (JS post-encode rewrite); default CR; 3 modes (CR/LF/CRLF) | Phase 1 D-13 locks Phase 4 to JS-only; default CR matches both Phase 1 captures (CP/M shell + BASIC-80); 3-way covers both observed failure modes. | Validated in Phase 4 |
+| `mousedown` preventDefault on top-bar and Settings controls | Retains canvas focus across all chrome clicks without a visible refocus flicker; preserves native keyboard activation (Tab + Space). | Validated in Phase 4 |
+| Browser-reserved Ctrl combos (W/N/T) documented via user-visible note | Chromium issue #33056 confirms these are genuinely unpreventable from a web page; the correct mitigation is a discoverable note in the Settings pane, not API acrobatics. | Validated in Phase 4 |
 | Permissive license (MIT / Apache-2.0) | VT52 emulators are rare; low-friction licensing maximises usefulness to other MicroBeast owners. | — Pending |
 
 ## Evolution
@@ -133,4 +140,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-04-22 after Phase 3 (Canvas Renderer) completion*
+*Last updated: 2026-04-22 after Phase 4 (Keyboard Input) completion*
