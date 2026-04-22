@@ -44,8 +44,10 @@ Requirements for initial release. Each maps to roadmap phases.
 - [ ] **RENDER-01**: Canvas-based monospace rendering at fixed 80×24 grid
 - [ ] **RENDER-02**: Visible block cursor
 - [ ] **RENDER-03**: Focus indicator on the terminal surface (border or cursor-style change on focus/blur)
-- [ ] **RENDER-04**: CRT theme — bitmap-style pixel font, phosphor colour, optional scanlines/glow
-- [ ] **RENDER-05**: Clean modern monospace theme — sharp web font, minimal chrome
+- [x] **RENDER-04
+**: CRT theme — bitmap-style pixel font, phosphor colour, optional scanlines/glow
+- [x] **RENDER-05
+**: Clean modern monospace theme — sharp web font, minimal chrome
 - [ ] **RENDER-06**: User-toggleable theme switch between CRT and clean
 - [ ] **RENDER-07**: Keyboard shortcut to toggle theme (e.g., Ctrl-Shift-T)
 - [ ] **RENDER-08**: Phosphor colour choice for CRT theme (green / amber / white)

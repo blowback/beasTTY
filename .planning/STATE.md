@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: planning
-stopped_at: Phase 3 context gathered
-last_updated: "2026-04-22T10:34:05.575Z"
-last_activity: 2026-04-22 -- Phase 02 complete (6/6)
+status: executing
+stopped_at: Completed 03-01-PLAN.md
+last_updated: "2026-04-22T12:06:44.102Z"
+last_activity: 2026-04-22
 progress:
   total_phases: 6
   completed_phases: 2
-  total_plans: 13
-  completed_plans: 13
-  percent: 100
+  total_plans: 17
+  completed_plans: 14
+  percent: 82
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-21)
 
 **Core value:** A modern, reliable, in-browser VT52 emulator good enough to use as a daily driver with a real MicroBeast.
-**Current focus:** Phase 3 — Canvas Renderer (next)
+**Current focus:** Phase 03 — canvas-renderer
 
 ## Current Position
 
-Phase: 3 (next — not started)
-Plan: Not started
-Status: Ready to plan Phase 3
-Last activity: 2026-04-22 -- Phase 02 complete (6/6)
+Phase: 03 (canvas-renderer) — EXECUTING
+Plan: 2 of 4
+Status: Ready to execute
+Last activity: 2026-04-22
 
-Progress: [███░░░░░░░] 33% (2/6 phases complete)
+Progress: [████████░░] 82%
 
 ## Performance Metrics
 
@@ -70,6 +70,7 @@ Progress: [███░░░░░░░] 33% (2/6 phases complete)
 | Phase 02 P04 | 4min | 2 tasks tasks | 5 files files |
 | Phase 02 P05 | 3min | 3 tasks | 3 files |
 | Phase Phase 02 PP06 | 22min | 3 tasks | 6 files |
+| Phase Phase 03 canvas-renderer PP01 | 7min | 3 tasks tasks | 10 files files |
 
 ## Accumulated Context
 
@@ -113,6 +114,10 @@ Recent decisions affecting current work:
 - Plan 02-06: Retain Terminal::feed -> Vec<u8> for native callers; add feed_silent + host_reply ptr/len/clear as the wasm-facing zero-copy surface (eliminates wasm-bindgen .slice() that caused SC-3 sawtooth)
 - Plan 02-06: Reverse Plan 04's per-tick reDeriveViews decision based on human UAT evidence; cache views at module scope + rebuild only on wasm.memory.buffer identity change (one identity compare per render vs two Uint8Array constructors)
 - Plan 02-06: Defer three pre-text harness allocation sources (renderAscii flat-string, renderDirty Array.from, parseHexEscapes Uint8Array) to Phase 3 canvas renderer; amend SC-3 wording to scope to wasm-boundary only
+- Phase 3 Plan 01: BITMAP_FONT length pinned to 2048 (128 glyphs x 16 rows, 0x00..0x7F only); atlas.js must guard ch >= 0x80 or iterate only 0x20..0x7E
+- Phase 3 Plan 01: JetBrains Mono Regular v2.304 shipped as FULL WOFF2 (92 KB) since pyftsubset unavailable; subsetting deferred to v1.x optimisation
+- Phase 3 Plan 01: VT52 fixture is byte-identical copy of capture-01-cpm-boot/bytes.bin (797 B, SHA256 65eb9e...) — reproducible via simple cp for Plan 04 --update-snapshots runs
+- Phase 3 Plan 01: bitmap glyph data is ORIGINAL creative work (no ROM binary copy); licence header in bitmap-font.js grep-anchored (RESEARCH A1, D-01)
 
 ### Pending Todos
 
@@ -137,8 +142,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: --stopped-at
-Stopped at: Phase 3 context gathered
-Resume file: --resume-file
+Last session: 2026-04-22T12:06:44.096Z
+Stopped at: Completed 03-01-PLAN.md
+Resume file: None
 
-**Planned Phase:** 2 (Wasm Boundary & Minimal JS Harness) — 5 plans — 2026-04-21T16:42:21.262Z
+**Planned Phase:** 3 (Canvas Renderer) — 4 plans — 2026-04-22T11:52:27.340Z
