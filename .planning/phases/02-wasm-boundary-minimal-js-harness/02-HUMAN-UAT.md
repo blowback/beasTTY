@@ -1,9 +1,9 @@
 ---
-status: in_progress
+status: complete
 phase: 02-wasm-boundary-minimal-js-harness
 source: [02-VERIFICATION.md]
 started: 2026-04-21T00:00:00Z
-updated: 2026-04-22T00:01:00Z
+updated: 2026-04-22T00:02:00Z
 ---
 
 ## Current Test
@@ -37,14 +37,15 @@ steps:
 ### 3. SC-3: zero-copy Uint8Array views — no per-frame allocation growth
 
 expected: "DevTools Performance / Memory track shows a flat allocation profile attributable to the WASM BOUNDARY when Feed is clicked 5-10 times with simple ASCII input that produces no host_reply. Specifically: zero allocations attributable to (a) the wasm-bindgen-generated `Terminal.feed` wrapper, and (b) `reDeriveViews()`. The pre-text harness paths (`renderAscii` flat-string build, `renderDirty` Array.from().join, `parseHexEscapes` Uint8Array construction) are accepted as harness-only artifacts that Phase 3's canvas renderer eliminates by replacing the pre-text grid; their per-click ~5 KB churn is expected and not in scope for SC-3."
-result: pending
+result: pass
 depends_on: SC-1
+verified: 2026-04-22
 steps:
   1. Open DevTools → Performance tab (or Memory → Allocation instrumentation on timeline)
   2. Click "Record", then click Feed 5-10 times in rapid succession with simple ASCII input
   3. Stop recording; inspect the Memory timeline
   4. Allocation should be steady after the first click — no growing Uint8Array allocations
-notes: "Re-test after 02-06-PLAN.md fix. SC-3 wording updated to scope to wasm-boundary allocations; pre-text harness churn deferred to Phase 3."
+notes: "Re-verified 2026-04-22 after 02-06-PLAN.md fix. SC-3 wording scoped to wasm-boundary allocations; pre-text harness churn deferred to Phase 3. Author approved after Chromium DevTools demo."
 
 ### 4. SC-4: 64 KB in ONE feed() call
 
@@ -61,16 +62,17 @@ steps:
 ## Summary
 
 total: 4
-passed: 3
+passed: 4
 issues: 0
-pending: 1
+pending: 0
 skipped: 0
 blocked: 0
 
 ## Gaps
 
 - truth: "DevTools Performance / Memory track shows a flat allocation profile after initial view construction when Feed is clicked 5-10 times. No growing heap sawtooth from Uint8Array churn."
-  status: closing
+  status: closed
+  closed: 2026-04-22
   reason: "User reported: JS jeap and Nodes show a distinct stair-case/sawtooth pattern"
   severity_original: major
   test: 3

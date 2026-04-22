@@ -64,7 +64,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   - [x] 02-03-PLAN.md — lib.rs wasm-bindgen facade + extended boundary_api_shape.rs + wasm-pack smoke (Wave 3)
   - [x] 02-04-PLAN.md — scripts/build.sh + www/index.html + www/main.js + .gitignore rules (Wave 4)
   - [x] 02-05-PLAN.md — scripts/smoke-wasm-build.sh + www/README.md + SC-1..SC-4 checkpoint demo (Wave 5)
-  - [ ] 02-06-PLAN.md — SC-3 gap closure: Terminal::feed_silent + host_reply zero-copy accessors + cached views; SC-3 wording amendment (Wave 6, gap_closure)
+  - [x] 02-06-PLAN.md — SC-3 gap closure: Terminal::feed_silent + host_reply zero-copy accessors + cached views; SC-3 wording amendment (Wave 6, gap_closure)
 
 ### Phase 3: Canvas Renderer
 **Goal**: A visually correct, crisp-on-HiDPI canvas terminal with both CRT and clean themes, a visible block cursor, theme-toggleable styling, font-size zoom, and visible-bell flash — driven off the Phase 2 grid view with dirty-row repainting.
@@ -126,7 +126,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Rust Core — Parser, Grid, Key Encoder | 7/7 | Complete    | 2026-04-21 |
-| 2. Wasm Boundary & Minimal JS Harness | 5/6 | Executing   | - |
+| 2. Wasm Boundary & Minimal JS Harness | 6/6 | Complete    | 2026-04-22 |
 | 3. Canvas Renderer | 0/TBD | Not started | - |
 | 4. Keyboard Input | 0/TBD | Not started | - |
 | 5. Web Serial Transport | 0/TBD | Not started | - |
