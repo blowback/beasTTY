@@ -1,10 +1,11 @@
 ---
 phase: 3
 slug: canvas-renderer
-status: draft
+status: approved
 shadcn_initialized: false
 preset: none
 created: 2026-04-22
+reviewed_at: 2026-04-22
 ---
 
 # Phase 3 — UI Design Contract
