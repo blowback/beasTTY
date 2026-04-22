@@ -180,11 +180,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 | CORE-03 | Phase 2 | Complete |
 | CORE-04 | Phase 2 | Complete |
 | CORE-05 | Phase 2 | Complete |
-| RENDER-01 | Phase 3 | Partial (sizing asserted; content-feed blocked on G-03-04-01) |
+| RENDER-01 | Phase 3 | Complete (G-03-04-01 closed in Plan 03-05 — snapshot-first tick + grid_byte_len guard) |
 | RENDER-02 | Phase 3 | Complete |
 | RENDER-03 | Phase 3 | Complete |
-| RENDER-04 | Phase 3 | Partial (baseline captured; golden content blocked on G-03-04-01) |
-| RENDER-05 | Phase 3 | Partial (theme-descriptor swap asserted; content-feed blocked on G-03-04-01) |
+| RENDER-04 | Phase 3 | Complete (content-feed path restored in Plan 03-05) |
+| RENDER-05 | Phase 3 | Complete (theme swap preserves content via markAllRowsDirty in Plan 03-05) |
 | RENDER-06 | Phase 3 | Complete |
 | RENDER-07 | Phase 3 | Complete |
 | RENDER-08 | Phase 3 | Complete |

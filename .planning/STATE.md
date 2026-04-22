@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: verifying
-stopped_at: Completed 03-04-PLAN.md (verified with gap; awaiting /gsd-verify-phase 03 → /gsd-plan-phase 03 --gaps)
-last_updated: "2026-04-22T14:51:50.949Z"
+status: executing
+stopped_at: Completed 03-05-PLAN.md (gap-closure for canvas-renderer UAT gaps 1,2,3,5,6,8 + WR-03,04,05)
+last_updated: "2026-04-22T15:07:59.446Z"
 last_activity: 2026-04-22
 progress:
   total_phases: 6
   completed_phases: 2
   total_plans: 20
-  completed_plans: 17
-  percent: 85
+  completed_plans: 18
+  percent: 90
 ---
 
 # Project State
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-04-21)
 
 ## Current Position
 
-Phase: 03 (canvas-renderer) — AWAITING PHASE VERIFICATION
-Plan: 4 of 4 (SHIPPED with documented SC-1 gap)
-Status: All 4 plans committed; phase-level verification pending. Expected to return gaps_found → /gsd-plan-phase 03 --gaps
+Phase: 03 (canvas-renderer) — EXECUTING
+Plan: 2 of 7
+Status: Ready to execute
 Last activity: 2026-04-22
 
-Progress: [██████████] 100% (plans shipped; phase NOT yet verified complete — see Gap G-03-04-01)
+Progress: [█████████░] 90%
 
 ## Performance Metrics
 
@@ -74,6 +74,7 @@ Progress: [██████████] 100% (plans shipped; phase NOT yet ve
 | Phase Phase 03 canvas-renderer PP02 | 6min | 3 tasks tasks | 3 files files |
 | Phase 03-canvas-renderer P03 | 6min | 3 tasks | 4 files |
 | Phase 03-canvas-renderer P04 | 30min | 2 tasks | 10 files |
+| Phase 03-canvas-renderer P05 | 6min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -132,6 +133,7 @@ Recent decisions affecting current work:
 - Phase 3 Plan 03: Phase 2 SC-4 64 KB demonstration path preserved verbatim inside collapsible <details id=debug>; regression-checked in README; Debug pane default-collapsed per D-15 (no 'open' attribute)
 - Phase 3 Plan 04: 9 Playwright spec files under www/tests/render/ cover RENDER-01..RENDER-12; visual-regression baseline PNG at grid.spec.js-snapshots/crt-default-chromium-linux.png; @fast subset runs under 10 s; suite green at 23 passed + 1 test.fixme against current renderer
 - Phase 3 Plan 04 gap G-03-04-01: canvas.js rebuildViews() snapshots term.grid_byte_len() at boot when grid is still empty (returns 0) — gridView is zero-length for the session because reDeriveViews() only rebuilds on buffer-identity change which never fires for small feeds. Fix deferred to gap_closure plan via /gsd-plan-phase 03 --gaps. Preferred fix: candidate (2) — teach reDeriveViews() to compare term.grid_byte_len() !== gridView.byteLength
+- Phase 3 Plan 05 gap-closure: wall-clock cursor blink via performance.now() (immune to rAF throttling + monitor refresh); snapshot-first tick() ordering + grid_byte_len() size-delta rebuild guard closes G-03-04-01; markAllRowsDirty() is the canonical post-atlas.evict() repaint trigger paired with every evict call site; same-value short-circuit at top of setTheme/setPhosphor makes identity-click a no-op; rasteriseBitmap derives pxW/pxH from cellW/cellH (not from z), so 8x16 glyph fills the 16x32 cell at any zoom/DPR
 
 ### Pending Todos
 
@@ -156,8 +158,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-04-22T13:25:04Z
-Stopped at: Completed 03-04-PLAN.md (verified with gap; awaiting /gsd-verify-phase 03 → /gsd-plan-phase 03 --gaps)
+Last session: 2026-04-22T15:07:59.440Z
+Stopped at: Completed 03-05-PLAN.md (gap-closure for canvas-renderer UAT gaps 1,2,3,5,6,8 + WR-03,04,05)
 Resume file: None
 
 **Planned Phase:** 03 (canvas-renderer) — 7 plans — 2026-04-22T14:51:50.943Z
