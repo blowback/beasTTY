@@ -24,24 +24,40 @@ const upEnc = encode_key_raw(1 /* tag=ArrowUp */, 0 /* no mods */);
 console.log('[boot] encode_key_raw(ArrowUp, none) =', Array.from(upEnc));  // [27, 65] = ESC A
 
 // ---- zero-copy view derivation (D-03) ---------------------------------
+//
+// Views are cached at module scope and re-derived ONLY when the underlying
+// `wasm.memory.buffer` is replaced (memory growth or ArrayBuffer detachment
+// — Pitfall #2). The per-render guard is a single identity comparison;
+// zero allocations in the steady-state hot path. Closes SC-3 source #4
+// (02-06-PLAN.md): reverses Plan 04's per-tick rebuild on the basis of the
+// DevTools heap-sawtooth evidence.
 
-const CELL_SIZE = 8;   // matches Cell #[repr(C)] size assert in grid.rs
+const CELL_SIZE = 8;             // matches Cell #[repr(C)] size assert in grid.rs
+const HOST_REPLY_VIEW_CAP = 8;   // matches Vec::with_capacity(8) in Terminal::new
 
-// One-time derivation. Re-derive after term.resize() OR on every render
-// tick as a defensive guard against wasm ArrayBuffer detachment (Pitfall #2).
-let gridView  = new Uint8Array(wasm.memory.buffer, term.grid_ptr(),  term.grid_byte_len());
-let dirtyView = new Uint8Array(wasm.memory.buffer, term.dirty_ptr(), term.rows());
+let cachedBuffer  = null;
+let gridView      = null;
+let dirtyView     = null;
+let hostReplyView = null;        // covers full pre-reserved capacity; read [0..len) per call
+
+function rebuildViews() {
+    gridView      = new Uint8Array(wasm.memory.buffer, term.grid_ptr(),       term.grid_byte_len());
+    dirtyView     = new Uint8Array(wasm.memory.buffer, term.dirty_ptr(),      term.rows());
+    hostReplyView = new Uint8Array(wasm.memory.buffer, term.host_reply_ptr(), HOST_REPLY_VIEW_CAP);
+    cachedBuffer  = wasm.memory.buffer;
+}
 
 function reDeriveViews() {
-    gridView  = new Uint8Array(wasm.memory.buffer, term.grid_ptr(),  term.grid_byte_len());
-    dirtyView = new Uint8Array(wasm.memory.buffer, term.dirty_ptr(), term.rows());
+    if (wasm.memory.buffer !== cachedBuffer) rebuildViews();
 }
+
+rebuildViews();   // one-time at startup
 
 // ---- renderers ---------------------------------------------------------
 
 function renderAscii() {
     term.snapshot_grid();
-    reDeriveViews();   // defensive (Pitfall #2) — cheap (two Uint8Array ctors)
+    reDeriveViews();   // identity-compare guard; rebuilds only on wasm.memory.buffer swap
     const rows = term.rows();
     const cols = term.cols();
     let out = '';
@@ -116,7 +132,17 @@ function hexDigit(c) {
 document.getElementById('feed').addEventListener('click', () => {
     const textarea = document.getElementById('input');
     const bytes = parseHexEscapes(textarea.value);
-    term.feed(bytes);                     // ONE boundary call regardless of length
+    term.feed(bytes);                     // ONE boundary call regardless of length; returns nothing (02-06)
+    // Drain any host-bound reply via the cached zero-copy view. Zero-alloc
+    // in the common (len=0) path; only Array.from runs on ESC Z.
+    const replyLen = term.host_reply_len();
+    if (replyLen > 0) {
+        reDeriveViews();                  // guard against wasm.memory.buffer swap
+        // Phase 5 will write hostReplyView.subarray(0, replyLen) into navigator.serial.
+        // Phase 2 logs it as proof the zero-copy host_reply path works end-to-end.
+        console.log('[host_reply]', Array.from(hostReplyView.subarray(0, replyLen)));
+        term.clear_host_reply();
+    }
     refreshHarnessUI();
 });
 
@@ -150,6 +176,14 @@ document.getElementById('stress64k').addEventListener('click', () => {
     term.feed(bytes);                     // ONE call — this is what SC-4 verifies.
     const t1 = performance.now();
     console.timeEnd('Terminal.feed 64KB');
+
+    // host_reply drain is OUTSIDE the timed window — the parse path is what SC-4 measures.
+    const replyLen = term.host_reply_len();
+    if (replyLen > 0) {
+        reDeriveViews();
+        console.log('[host_reply 64KB]', Array.from(hostReplyView.subarray(0, replyLen)));
+        term.clear_host_reply();
+    }
 
     // SC-4 proof-artifact log lines (author screenshots these for verification):
     console.log(`[SC-4] Fed ${bytes.length} bytes in ONE feed() call`);
