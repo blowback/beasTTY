@@ -2,278 +2,226 @@
 phase: 03-canvas-renderer
 reviewed: 2026-04-22T00:00:00Z
 depth: standard
-files_reviewed: 19
+files_reviewed: 5
 files_reviewed_list:
-  - www/renderer/bitmap-font.js
-  - www/renderer/themes.js
-  - www/renderer/atlas.js
   - www/renderer/canvas.js
-  - www/renderer/chrome.js
+  - www/renderer/atlas.js
   - www/main.js
+  - www/renderer/chrome.js
   - www/index.html
-  - www/playwright.config.js
-  - www/package.json
-  - www/README.md
-  - www/tests/render/hidpi.spec.js
-  - www/tests/render/cursor.spec.js
-  - www/tests/render/theme-toggle.spec.js
-  - www/tests/render/phosphor.spec.js
-  - www/tests/render/zoom.spec.js
-  - www/tests/render/bell.spec.js
-  - www/tests/render/focus.spec.js
-  - www/tests/render/keyboard.spec.js
-  - www/tests/render/grid.spec.js
 findings:
   critical: 0
-  warning: 5
-  info: 7
-  total: 12
+  warning: 2
+  info: 6
+  total: 8
 status: issues_found
 ---
 
-# Phase 3: Code Review Report
+# Phase 3: Code Review Report (Gap-Closure)
 
 **Reviewed:** 2026-04-22
 **Depth:** standard
-**Files Reviewed:** 19
-**Status:** issues_found
+**Files Reviewed:** 5
+**Status:** issues_found (2 warning, 6 info)
 
 ## Summary
 
-Phase 3 ships a Canvas 2D renderer that replaces the Phase 2 `<pre>` harness.
-The architectural split is clean — `canvas.js` contains only rendering logic,
-`chrome.js` contains only DOM event wiring, and Web Serial remains absent from
-the entire Phase 3 delivery (correct; reserved for Phase 5). The Rust/wasm
-boundary in `canvas.js` (`rebuildViews` / `reDeriveViews`) is a faithful
-port of the Phase 2 zero-copy contract. HiDPI is handled correctly via
-`ctx.setTransform(dpr, 0, 0, dpr, 0, 0)` with no `ctx.scale` misuse
-(RESEARCH Anti-Pattern respected). Atlas caching, primer, and shared-nonce
-eviction all look correct.
+Gap-closure review for phase 03 plans 03-05 (renderer correctness), 03-06
+(chrome wiring), and 03-07 Rule-1 auto-fix (paintCursor blink-off repaint).
+The five files under review constitute the JS shell surface (renderer,
+atlas, chrome wiring, boot driver, HTML scaffold) and contain no business
+logic that belongs in the Rust core — the architecture split is respected.
 
-The review surfaces five warnings — none are security-critical or crashing
-bugs, but several are latent correctness issues that will bite once fixtures
-land (Phase 4) or refresh rates diverge from 60 Hz. Seven info-level items
-are mostly maintainability concerns.
+Specific deltas all look correct and defensive:
 
-The known gap G-03-04-01 (zero-length `gridView` snapshot at boot) is
-documented in the SUMMARY and is NOT re-flagged here. However, one related
-ordering issue in `tick()` is flagged below as WR-01 because it is a
-distinct bug that persists even after G-03-04-01 is closed.
+- `canvas.js`: the wall-clock cursor blink via `performance.now()` with a
+  530 ms gate is sound; snapshot-first `tick()` ordering with the
+  size-delta rebuild guard closes the G-03-04-01 boot-path hazard;
+  `markAllRowsDirty()` is called on every path that evicts the atlas; the
+  same-value short-circuit guards in `setTheme` / `setPhosphor` correctly
+  prevent wasted full-grid repaints; the cancellable `bellFlashTimer`
+  correctly handles overlapping bell events; the `paintCursor` blink-off
+  repaint (cell bg + glyph) is the minimal correct fix for the "cursor
+  stuck on" regression.
+- `atlas.js`: the 2x vertical bitmap scale is derived from `cellW / cellH`
+  vs the fixed 8x16 source, which is future-proof and avoids hard-coding
+  `z`.
+- `main.js`: the `parseHexEscapes` off-by-one fix
+  (`i + 4 <= input.length`) is correct — when `i = input.length - 4`, the
+  last index read is `i + 3 = input.length - 1`.
+- `chrome.js`: the Ctrl+Alt+T remapping with `!e.shiftKey && !e.metaKey`
+  guards against the Alt+Shift+T "pin tab" collision; `data-focused`
+  attribute management is symmetric across focus/blur listeners.
+- `index.html`: the attribute-driven focus border
+  (`[data-focused="true"]`) correctly bypasses Chromium's
+  `:focus-visible` keyboard-only heuristic, which is the stated reason
+  for the change.
+
+Findings below are secondary observations, not blockers on the three
+gap-closure plans. No Critical issues found. The two Warnings are
+defensive-hardening opportunities; the six Info items are
+style / consistency notes.
 
 ## Warnings
 
-### WR-01: `reDeriveViews()` called BEFORE `snapshot_grid()`, but snapshot may grow memory
+### WR-01: paintCursor does not bounds-check cursor row/col before indexing gridView
 
-**File:** `www/renderer/canvas.js:212-232`
-**Issue:** `tick()` calls `reDeriveViews()` at line 215, then calls
-`term.snapshot_grid()` at line 225. If `snapshot_grid()` triggers a wasm
-`memory.grow` (it allocates the mirror-grid on first call — see G-03-04-01
-reproducer notes), every subsequent read through `dirtyView[r]` at line 229
-and `gridView[i]` inside `paintRow`/`paintCursor` is against a detached
-ArrayBuffer. Chromium throws `TypeError: Cannot perform %TypedArray%.prototype
-on detached ArrayBuffer` and the rAF loop dies silently. This is a distinct
-issue from G-03-04-01: closing the zero-length-view gap does not fix the
-ordering. Any future wasm-side allocation during a tick (e.g. scrollback
-growth in Phase 4) will resurrect this bug.
-**Fix:**
-```js
-function tick() {
-    rafPending = false;
-    frameCount++;
+**File:** `www/renderer/canvas.js:189-212`
+**Issue:** `paintCursor()` reads `term.cursor_packed()` and unpacks it
+into `row` and `col`, then computes
+`const i = (row * term.cols() + col) * CELL_SIZE` and reads
+`gridView[i]`. There is no assertion that `row < term.rows()` or
+`col < term.cols()`. If the Rust side ever emits an out-of-range cursor
+position (bug upstream, or transient during a resize), `gridView[i]`
+returns `undefined`, and the subsequent `ch === 0 || ch < 0x20` test
+evaluates to `false` for `undefined` (because `undefined === 0` is false
+and `undefined < 0x20` is false, since NaN comparisons return false).
+`ch` then stays `undefined`, propagates into `atlas.get(ch, 1, rast, z)`
+where it is used as a Map key (works — `undefined` is a valid key) and
+in `ch & 0x7F` inside `rasteriseBitmap` (coerces `undefined` to `NaN`,
+then to `0` via the bitwise op — draws glyph 0). The visible symptom
+would be a cursor painted over an all-zero-byte glyph at position (0,0)
+of the bitmap table, which is blank. Not a crash, but silent data
+corruption that would mask an upstream bug.
+**Fix:** Add a defensive bounds check early in `paintCursor`:
+```javascript
+const rows = term.rows();
+const cols = term.cols();
+if (row >= rows || col >= cols) return;   // upstream invariant violation
+const i = (row * cols + col) * CELL_SIZE;
+```
+Using the locally cached `cols` also avoids the redundant second
+`term.cols()` wasm call on the hot path.
 
-    term.snapshot_grid();                  // do this FIRST; may grow wasm memory
-    reDeriveViews();                       // now re-derive if buffer detached
-    // Also guard against size-change inside the snapshot:
-    if (gridView.byteLength !== term.grid_byte_len()) rebuildViews();
+### WR-02: watchDPR re-registers without releasing prior MediaQueryList reference
 
-    const rows = term.rows();
-    const cols = term.cols();
-    for (let r = 0; r < rows; r++) {
-        if (dirtyView[r] !== 0) paintRow(r, cols);
-    }
-    term.clear_dirty();
-    paintCursor();
-
-    if (canvasHasFocus || needsPaint) {
-        needsPaint = false;
+**File:** `www/renderer/canvas.js:116-126`
+**Issue:** Each invocation of `watchDPR()` allocates a fresh
+`MediaQueryList` via `window.matchMedia(...)` and registers a
+`{ once: true }` `change` listener on it. After the listener fires, the
+callback recursively calls `watchDPR()` again, allocating another MQL.
+The `{ once: true }` option auto-removes the listener, but the MQL
+object itself is not explicitly released. The arrow-function closure
+inside `addEventListener` captures `atlas`, `markAllRowsDirty`,
+`resizeToTheme`, `requestFrame`, and recursively `watchDPR` itself, so
+every MQL retains a sizeable closure chain until GC. Over hundreds of
+DPR changes (pathological — e.g., a user dragging between three
+monitors) this can momentarily pin multiple closures. Not a leak in
+practice because Chromium will GC once unreferenced, but flagging as
+hardening for the multi-monitor-drag edge case.
+**Fix:** Promote the MQL to module-level state and reuse it across
+registrations:
+```javascript
+let dprMql = null;
+function watchDPR() {
+    if (dprMql) dprMql.onchange = null;
+    dprMql = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
+    dprMql.addEventListener('change', () => {
+        if (atlas) atlas.evict();
+        markAllRowsDirty();
+        resizeToTheme();
+        needsPaint = true;
         requestFrame();
-    }
-}
-```
-
-### WR-02: Cursor blink rate is hard-coded to 60 Hz (`frameCount % 64`)
-
-**File:** `www/renderer/canvas.js:191`
-**Issue:** The blink uses `(frameCount % 64) < 32` to achieve ~530 ms period
-at 60 fps. On 120 Hz displays this becomes ~265 ms; on 144 Hz, ~220 ms;
-and when Chromium throttles rAF to 1 Hz (backgrounded tab), the blink
-counter can drift into meaninglessness. D-07 specifies a 530 ms blink
-regardless of refresh rate. The fix is to gate on wall-clock time.
-**Fix:**
-```js
-// Near module state
-let blinkStartMs = performance.now();
-// ... in paintCursor()
-const elapsed = performance.now() - blinkStartMs;
-const blinkOn = (Math.floor(elapsed / 530) & 1) === 0;
-if (!blinkOn) return;
-```
-
-### WR-03: `parseHexEscapes` off-by-one bound check reads one past end-of-string
-
-**File:** `www/main.js:56-57`
-**Issue:** The condition `i + 3 < input.length + 1` simplifies to
-`i + 3 <= input.length`, which permits `charCodeAt(i + 3)` when
-`i + 3 === input.length` — that is, one past the last valid index.
-`charCodeAt` returns `NaN` out of range and `hexDigit(NaN)` returns `null`,
-so this currently fails gracefully (no crash). But the intent is clearly
-"need four characters remaining from position i", which is
-`i + 3 < input.length` (equivalently `i + 4 <= input.length`). The bug is
-latent today; any future change to `hexDigit` that doesn't null-guard
-NaN would turn this into a crash.
-**Fix:**
-```js
-if (ch === 0x5C /* \ */
-    && i + 4 <= input.length
-    && (input.charCodeAt(i + 1) === 0x78 || input.charCodeAt(i + 1) === 0x58)) {
-```
-
-### WR-04: `triggerBellFlash()` timeout has no cancel — rapid bells cut each other short
-
-**File:** `www/renderer/canvas.js:359-364`
-**Issue:** Each call schedules an unconditional
-`setTimeout(() => el.classList.remove('flash'), 100)`. If two bells arrive
-within 100 ms (entirely possible on a noisy serial port in Phase 5), the
-first timeout fires and strips the `.flash` class mid-second-flash, causing
-a visible mid-flash drop. Additionally, `setTimeout` handles pile up —
-minor leak, but also a user-perceptible visual glitch. Track the pending
-timeout ID and cancel-then-reset.
-**Fix:**
-```js
-let bellFlashTimer = null;
-export function triggerBellFlash() {
-    const el = bellOverlayEl || document.getElementById('bell-overlay');
-    if (!el) return;
-    if (bellFlashTimer !== null) clearTimeout(bellFlashTimer);
-    el.classList.add('flash');
-    bellFlashTimer = setTimeout(() => {
-        el.classList.remove('flash');
-        bellFlashTimer = null;
-    }, 100);
-}
-```
-
-### WR-05: `paintRow` hardcodes `80 *` for the row-clear rect but loops over `cols`
-
-**File:** `www/renderer/canvas.js:158,160`
-**Issue:** Line 158 clears `80 * cellW` pixels wide (hardcoded 80), but
-line 160 uses `cols` (from `term.cols()`) for the glyph loop. If the grid
-is ever resized to a different column count — Phase 4 may bring this in
-via terminal-resize negotiation, and the wasm `Terminal::new(24, 80, ...)`
-constructor already takes `cols` as a parameter — the clear rect and the
-glyph loop will diverge. Either clear based on `cols` or hoist a constant.
-**Fix:**
-```js
-function paintRow(r, cols) {
-    const z = activeZoom;
-    const cellW = activeTheme.cellW * z;
-    const cellH = activeTheme.cellH * z;
-    const rast = makeRasteriserForTheme(activeTheme);
-
-    ctx.fillStyle = activeTheme.bg;
-    ctx.fillRect(0, r * cellH, cols * cellW, cellH);   // was: 80 * cellW
-
-    for (let c = 0; c < cols; c++) { /* ... */ }
+        watchDPR();
+    }, { once: true });
 }
 ```
 
 ## Info
 
-### IN-01: `paintRow` / `paintCursor` re-allocate rasteriser closure every tick
+### IN-01: Stale "Ctrl+Shift+T" comment after chord remap to Ctrl+Alt+T
 
-**File:** `www/renderer/canvas.js:154,205`
-**Issue:** `paintRow` calls `makeRasteriserForTheme(activeTheme)` on every
-row of every paint, and `paintCursor` calls `makeInvRasteriserForTheme`
-every frame. Each call returns a fresh arrow-function closure — 24 + 1 =
-25 closures per paint, ~1,500/sec at 60 fps. Harmless at this scale, but
-the closures are purely state-dependent on `activeTheme` / `activeZoom` /
-`activeDpr`, which already trigger `atlas.evict()` when they change.
-Hoist a cached pair and invalidate them in `setTheme` / `setPhosphor` /
-`zoomStep` / `resetZoom` / `watchDPR`. This also removes the last
-per-frame allocation from the steady-state path.
-**Fix:** Cache `currentRast` and `currentInvRast` at module scope; rebuild
-inside the same sites that call `atlas.evict()`.
+**File:** `www/renderer/chrome.js:140`
+**Issue:** The comment above `terminalWrapper.focus()` at boot reads
+`"Auto-focus the wrapper at boot so cursor blinks and Ctrl+Shift+T works
+immediately."` — but the chord was deliberately remapped to Ctrl+Alt+T
+(per the detailed comment at lines 77-85). The stale comment will
+mislead future readers.
+**Fix:** Replace `Ctrl+Shift+T` with `Ctrl+Alt+T` in the comment at
+line 140.
 
-### IN-02: `if (ch === 0 || ch < 0x20)` does not guard against `undefined`
+### IN-02: Title-prefix string duplicated between main.js and chrome.js
 
-**File:** `www/renderer/canvas.js:164,200`
-**Issue:** When `gridView[i]` is `undefined` (e.g. the G-03-04-01 zero-length
-view, or any future bounds-miss), the check `ch === 0 || ch < 0x20` is
-`false || (undefined < 0x20)` = `false || NaN-comparison` = `false || false`.
-So `ch` remains `undefined`, gets passed to `atlas.get`, is coerced to `0`
-by the bit-shift, and renders as the (blank) 0x00 glyph. This masks bugs
-that should surface loudly. Defensive: `if (!ch || ch < 0x20 || ch > 0x7E)`
-covers undefined, null, 0, sub-printable, and >DEL in one check.
+**File:** `www/renderer/chrome.js:135-137` and `www/main.js:127`
+**Issue:** `main.js` defines `const TITLE_PREFIX = '(!) ';` and uses it
+to prepend to `document.title`. `chrome.js` line 135 hardcodes the
+literal `'(!) '` in `document.title.startsWith('(!) ')` and line 136
+uses `document.title.slice(4)` (magic number 4 = length of `'(!) '`).
+Any future change to the prefix (e.g., to `'[BELL] '`) requires edits in
+two files with different magic numbers, which is error-prone.
+**Fix:** Export `TITLE_PREFIX` from a shared module (a new
+`www/renderer/constants.js`, or inline into `chrome.js` since it is the
+consumer of the strip-prefix half and re-import into main.js) and use
+`.slice(TITLE_PREFIX.length)`.
+
+### IN-03: paintCursor makes a redundant `term.cols()` wasm call per frame
+
+**File:** `www/renderer/canvas.js:210`
+**Issue:** `paintCursor()` calls `term.cols()` to compute the gridView
+index. `tick()` already captured `cols` in a local at line 272 but does
+not pass it to `paintCursor()`. Each wasm-boundary call is cheap but not
+free; on a 120 Hz monitor in focused state this runs 120 times per
+second. Minor — listed for consistency with the pattern used in
+`paintRow`, which takes `cols` as a parameter.
+**Fix:** Either pass `cols` as a parameter to `paintCursor(cols)` or
+accept the redundancy and add a comment. Parameter-passing keeps the
+wasm-boundary call count bounded and matches the `paintRow(r, cols)`
+signature.
+
+### IN-04: triggerBellFlash does not memoise the fallback element lookup
+
+**File:** `www/renderer/canvas.js:419`
+**Issue:** Line 419 falls back to
+`document.getElementById('bell-overlay')` when `bellOverlayEl` is null.
+On a fallback hit, the resolved element is not cached back into
+`bellOverlayEl`, so every subsequent bell flash during a session that
+missed the boot-time lookup pays the `getElementById` cost again. Minor
+— bells are rare — but the idiom is inconsistent with typical lazy-init
+patterns.
 **Fix:**
-```js
-let ch = gridView[i];
-if (!ch || ch < 0x20 || ch > 0x7E) ch = 0x20;
+```javascript
+const el = bellOverlayEl || (bellOverlayEl = document.getElementById('bell-overlay'));
+if (!el) return;
 ```
 
-### IN-03: `visibilitychange` handler strips `(!) ` prefix even when user put it there
+### IN-05: main.js assumes chrome elements exist; throws opaque TypeError on null
 
-**File:** `www/renderer/chrome.js:126-130`
-**Issue:** `if (!document.hidden && document.title.startsWith('(!) '))`
-blindly slices the prefix. If a future code path (or a misbehaving
-embedding context) sets the title to something starting with `(!) ` for
-an unrelated reason, this strips it on the next visibility flip. Use a
-sentinel module-scope flag owned by `main.js`'s `sampleBell()` instead
-of pattern-matching title text.
-**Fix:** Export a `hasBellPrefix` flag from `main.js` (or move the
-visibilitychange listener there entirely) so the stripping is gated on
-"we set this" rather than "it looks like we set this".
+**File:** `www/main.js:41-46`
+**Issue:** `document.getElementById('phosphor-group')` returns `null`
+if the element is missing; the next line
+`phosphorGroup.querySelectorAll(...)` then throws
+`TypeError: Cannot read properties of null (reading 'querySelectorAll')`,
+which is an opaque error for anyone debugging a partial DOM (e.g., a
+template-forked index.html). `bootRenderer` already has a clear
+error-message path for `<canvas id="terminal">` missing
+(canvas.js:305); the chrome wiring lacks the equivalent.
+**Fix:** Add explicit guards before dereferencing:
+```javascript
+const terminalWrapper = document.getElementById('terminal-wrapper');
+const themeButton     = document.getElementById('theme-toggle');
+const phosphorGroup   = document.getElementById('phosphor-group');
+const bellOverlay     = document.getElementById('bell-overlay');
+if (!terminalWrapper) throw new Error('[main] #terminal-wrapper missing');
+if (!themeButton)     throw new Error('[main] #theme-toggle missing');
+if (!phosphorGroup)   throw new Error('[main] #phosphor-group missing');
+const phosphorButtons = phosphorGroup.querySelectorAll('button[data-phosphor]');
+```
 
-### IN-04: Atlas key could be built once per (theme, phosphor, zoom, dpr) batch
+### IN-06: Bitmap rasteriser leaves unused parameter `z` in signature
 
-**File:** `www/renderer/atlas.js:36,51`
-**Issue:** `(ch << 24) | ((fg & 0xFF) << 16) | ((this.nonce & 0xFF) << 8) | (zoom & 0xFF)`
-computed on every `get` / `getInverted`. `fg` / `nonce` / `zoom` are all
-stable for the entire paint tick. Minor micro-opt; noting only because
-RESEARCH §Pitfall 6 flags per-cell work as the first target when scaling
-beyond 80×24.
-
-### IN-05: No CSP meta tag on `index.html`
-
-**File:** `www/index.html:1-195`
-**Issue:** Static-site deployment with inline `<style>`, `<script type="module">`,
-and `woff2` fetch. No Content-Security-Policy meta. For a Chromium-only
-daily-driver tool that accepts raw bytes from a USB serial port and
-projects them onto a canvas, an explicit CSP
-(`default-src 'self'; font-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'`)
-would be belt-and-braces. Not a v1 blocker per CLAUDE.md scope, but
-cheap insurance before public deploy.
-
-### IN-06: `document.fonts.load` failure path logs but doesn't signal clean-theme degradation
-
-**File:** `www/renderer/canvas.js:269-275`
-**Issue:** If `document.fonts.load('14px "JetBrains Mono"')` rejects
-(e.g. offline, missing file, Cloudflare 404), the code warns via
-`console.warn` and continues. The clean theme then renders in fallback
-monospace, silently violating SC-1 ("no font-loading flash"). Consider
-either (a) disabling the clean-theme affordance in the top-bar when the
-font failed, or (b) logging to a user-visible error row.
-
-### IN-07: `bitmap-font.js` license claim is not cross-referenced in a third-party audit
-
-**File:** `www/renderer/bitmap-font.js:7-12`
-**Issue:** The header asserts "ORIGINAL creative work ... no bytes were
-copied verbatim from any IBM VGA ROM, spacerace/romfont, VileR's Ultimate
-Oldschool PC Font Pack". This is a legal claim, and the reviewer has no
-way to verify it — comparing 2048 bytes against every published 8×16 VGA
-font distribution is out of scope for a code review. Recommend committing
-a one-paragraph provenance note in `assets/fonts/LICENSE-bitmap-font.txt`
-(or similar) that records the authoring process (date, tool, pixel-art
-editor, approximate hours) so the claim has an audit trail.
+**File:** `www/renderer/atlas.js:85`
+**Issue:**
+`rasteriseBitmap(ch, fgColor, bgColor, cellW, cellH, z, dpr)` takes `z`
+as a parameter but derives the scale from `cellW / cellH` instead
+(lines 101-102), making `z` effectively dead. The comment at lines
+82-84 notes this is intentional for "call-site compatibility" but the
+parameter still shows up to linters/IDEs as unused and invites reader
+confusion about which source of truth determines scale.
+**Fix:** Remove `z` from the signature and update both call sites in
+`canvas.js` (`makeRasteriserForTheme` and `makeInvRasteriserForTheme`
+at lines 134 and 149), or rename to `_z` to signal intentional non-use.
+The first option is cleaner since the callers construct closures that
+pass `z` anyway — no external contract is broken.
 
 ---
 
