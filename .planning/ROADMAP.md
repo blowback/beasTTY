@@ -83,7 +83,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   - [x] 03-04-PLAN.md — Verification: 9 Playwright specs covering RENDER-01..RENDER-12 + visual-regression baseline + human UAT checkpoint (Wave 4)
   - [x] 03-05-PLAN.md — Gap closure: renderer-correctness fixes for UAT gaps 1/2/3/5/6/8 + WR-03/04/05 (wall-clock blink, snapshot-first tick, markAllRowsDirty, rasteriseBitmap scale) (Wave 1, gap_closure)
   - [x] 03-06-PLAN.md — Gap closure: keyboard-chord remap (Test 6) + focus-border visibility (Test 10)
-  - [ ] 03-07-PLAN.md — Gap closure: regression specs covering every 03-05 + 03-06 fix; un-fixme grid.spec.js
+  - [x] 03-07-PLAN.md — Gap closure: regression specs covering every 03-05 + 03-06 fix; un-fixme grid.spec.js; Rule 1 auto-fix for visible cursor blink
 **UI hint**: yes
 
 ### Phase 4: Keyboard Input
@@ -134,7 +134,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 |-------|----------------|--------|-----------|
 | 1. Rust Core — Parser, Grid, Key Encoder | 7/7 | Complete    | 2026-04-21 |
 | 2. Wasm Boundary & Minimal JS Harness | 6/6 | Complete    | 2026-04-22 |
-| 3. Canvas Renderer | 6/7 | Executing (gap closure 03-05, 03-06 done; 03-07 pending) | - |
+| 3. Canvas Renderer | 7/7 | Gap closure complete; awaiting verification | - |
 | 4. Keyboard Input | 0/TBD | Not started | - |
 | 5. Web Serial Transport | 0/TBD | Not started | - |
 | 6. Daily-Driver Polish, Session & Deployment | 0/TBD | Not started | - |

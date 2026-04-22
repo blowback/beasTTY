@@ -180,18 +180,18 @@ Which phases cover which requirements. Updated during roadmap creation.
 | CORE-03 | Phase 2 | Complete |
 | CORE-04 | Phase 2 | Complete |
 | CORE-05 | Phase 2 | Complete |
-| RENDER-01 | Phase 3 | Complete (G-03-04-01 closed in Plan 03-05 — snapshot-first tick + grid_byte_len guard) |
-| RENDER-02 | Phase 3 | Complete |
-| RENDER-03 | Phase 3 | Complete |
-| RENDER-04 | Phase 3 | Complete (content-feed path restored in Plan 03-05) |
-| RENDER-05 | Phase 3 | Complete (theme swap preserves content via markAllRowsDirty in Plan 03-05) |
+| RENDER-01 | Phase 3 | Complete (G-03-04-01 closed in Plan 03-05 — snapshot-first tick + grid_byte_len guard; regression-guarded by grid.spec.js `gap #2` tests in Plan 03-07) |
+| RENDER-02 | Phase 3 | Complete (visible block cursor + wall-clock blink restored by Plan 03-07 Rule 1 auto-fix to paintCursor blink-off branch; regression-guarded by cursor.spec.js `gap #1`) |
+| RENDER-03 | Phase 3 | Complete (focus indicator via `data-focused` attribute-selector CSS in Plan 03-06; regression-guarded by focus.spec.js `gap #7` tests in Plan 03-07) |
+| RENDER-04 | Phase 3 | Complete (content-feed path restored in Plan 03-05; regression-guarded by grid.spec.js and hidpi.spec.js `gap #8` in Plan 03-07) |
+| RENDER-05 | Phase 3 | Complete (theme swap preserves content via markAllRowsDirty in Plan 03-05; regression-guarded by theme-toggle.spec.js `gap #3` in Plan 03-07) |
 | RENDER-06 | Phase 3 | Complete |
-| RENDER-07 | Phase 3 | Complete |
-| RENDER-08 | Phase 3 | Complete |
-| RENDER-09 | Phase 3 | Complete |
-| RENDER-10 | Phase 3 | Complete |
+| RENDER-07 | Phase 3 | Complete (chord remapped to Ctrl+Alt+T in Plan 03-06 — Ctrl+Shift+T is Chromium-reserved; regression-guarded by theme-toggle.spec.js + keyboard.spec.js `gap #4` in Plan 03-07) |
+| RENDER-08 | Phase 3 | Complete (phosphor switch recolours existing glyphs via markAllRowsDirty in Plan 03-05; regression-guarded by phosphor.spec.js `gap #5` in Plan 03-07) |
+| RENDER-09 | Phase 3 | Complete (zoom preserves content via markAllRowsDirty in Plan 03-05; regression-guarded by zoom.spec.js `gap #6` in Plan 03-07) |
+| RENDER-10 | Phase 3 | Complete (HiDPI glyph fills full cell via rasteriseBitmap pxW/pxH derivation in Plan 03-05; regression-guarded by hidpi.spec.js `gap #8` in Plan 03-07) |
 | RENDER-11 | Phase 3 | Complete |
-| RENDER-12 | Phase 3 | Complete |
+| RENDER-12 | Phase 3 | Complete (per-theme cursor styling — regression-guarded by cursor.spec.js blink-cycle sampling against phosphor palette) |
 | XPORT-01 | Phase 5 | Pending |
 | XPORT-02 | Phase 5 | Pending |
 | XPORT-03 | Phase 5 | Pending |
@@ -237,4 +237,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 ---
 *Requirements defined: 2026-04-21*
-*Last updated: 2026-04-21 after roadmap traceability*
+*Last updated: 2026-04-22 after Phase 3 gap-closure plans 03-05/03-06/03-07 — all 12 RENDER-* requirements regression-guarded*
