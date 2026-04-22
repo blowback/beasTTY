@@ -180,18 +180,18 @@ Which phases cover which requirements. Updated during roadmap creation.
 | CORE-03 | Phase 2 | Complete |
 | CORE-04 | Phase 2 | Complete |
 | CORE-05 | Phase 2 | Complete |
-| RENDER-01 | Phase 3 | Pending |
-| RENDER-02 | Phase 3 | Pending |
-| RENDER-03 | Phase 3 | Pending |
-| RENDER-04 | Phase 3 | Pending |
-| RENDER-05 | Phase 3 | Pending |
-| RENDER-06 | Phase 3 | Pending |
-| RENDER-07 | Phase 3 | Pending |
-| RENDER-08 | Phase 3 | Pending |
-| RENDER-09 | Phase 3 | Pending |
-| RENDER-10 | Phase 3 | Pending |
-| RENDER-11 | Phase 3 | Pending |
-| RENDER-12 | Phase 3 | Pending |
+| RENDER-01 | Phase 3 | Partial (sizing asserted; content-feed blocked on G-03-04-01) |
+| RENDER-02 | Phase 3 | Complete |
+| RENDER-03 | Phase 3 | Complete |
+| RENDER-04 | Phase 3 | Partial (baseline captured; golden content blocked on G-03-04-01) |
+| RENDER-05 | Phase 3 | Partial (theme-descriptor swap asserted; content-feed blocked on G-03-04-01) |
+| RENDER-06 | Phase 3 | Complete |
+| RENDER-07 | Phase 3 | Complete |
+| RENDER-08 | Phase 3 | Complete |
+| RENDER-09 | Phase 3 | Complete |
+| RENDER-10 | Phase 3 | Complete |
+| RENDER-11 | Phase 3 | Complete |
+| RENDER-12 | Phase 3 | Complete |
 | XPORT-01 | Phase 5 | Pending |
 | XPORT-02 | Phase 5 | Pending |
 | XPORT-03 | Phase 5 | Pending |
