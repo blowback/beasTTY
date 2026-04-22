@@ -1,21 +1,21 @@
 ---
-status: partial
+status: complete
 phase: 02-wasm-boundary-minimal-js-harness
 source: [02-VERIFICATION.md]
 started: 2026-04-21T00:00:00Z
-updated: 2026-04-21T00:00:00Z
+updated: 2026-04-22T00:00:04Z
 ---
 
 ## Current Test
 
-[awaiting human testing]
+[testing complete]
 
 ## Tests
 
 ### 1. SC-1: wasm-pack ES-module loads in Chromium
 
 expected: Console shows `[boot] encode_key_raw(ArrowUp, none) = [27, 65]` and `[boot] Harness ready. Terminal=... wasm.memory=...` with no red errors. Page renders textarea, Feed + 64 KB Stress buttons, two `<pre>` elements, status span. No errors in the Console tab; Network tab shows `bestialitty_core.js` and `bestialitty_core_bg.wasm` fetched with `application/javascript` and `application/wasm` MIME types.
-result: [pending]
+result: pass
 steps:
   1. `./scripts/build.sh`
   2. `python3 -m http.server -d www 8000` (or `basic-http-server www`)
@@ -25,7 +25,7 @@ steps:
 ### 2. SC-2: paste -> feed() -> ASCII render
 
 expected: Paste `Hello\x1BY\x21\x20World` (five chars, ESC, Y, two control bytes as literal hex-escape, five chars) into the textarea. Click Feed. Grid `<pre>` shows `Hello` on row 0 (columns 0-4) and `World` starting at row 1, column 0. Status span shows `cursor=(1,5) bell=false`. Dirty `<pre>` shows `11` followed by zeros for the first two touched rows.
-result: [pending]
+result: pass
 depends_on: SC-1
 steps:
   1. With the harness loaded, paste `Hello\x1BY\x21\x20World` verbatim into the textarea
@@ -37,7 +37,9 @@ steps:
 ### 3. SC-3: zero-copy Uint8Array views — no per-frame allocation growth
 
 expected: DevTools Performance / Memory track shows a flat allocation profile after initial view construction when Feed is clicked 5-10 times. No growing heap sawtooth from Uint8Array churn.
-result: [pending]
+result: issue
+reported: "JS jeap and Nodes show a distinct stair-case/sawtooth pattern"
+severity: major
 depends_on: SC-1
 steps:
   1. Open DevTools → Performance tab (or Memory → Allocation instrumentation on timeline)
@@ -48,7 +50,7 @@ steps:
 ### 4. SC-4: 64 KB in ONE feed() call
 
 expected: Click "64 KB Stress". Console shows exactly ONE occurrence per click of: `Terminal.feed 64KB: N ms`, `[SC-4] Fed 65536 bytes in ONE feed() call`, `[SC-4] Elapsed: N ms`, `[SC-4] If this log appears ONCE (not 65536 times), SC-4 is satisfied.` DevTools Performance flame graph shows a single `Terminal.feed` entry, not 65,536 stacked frames.
-result: [pending]
+result: pass
 depends_on: SC-1
 steps:
   1. With the harness loaded and DevTools Performance tab open, click Record
@@ -60,10 +62,20 @@ steps:
 ## Summary
 
 total: 4
-passed: 0
-issues: 0
-pending: 4
+passed: 3
+issues: 1
+pending: 0
 skipped: 0
 blocked: 0
 
 ## Gaps
+
+- truth: "DevTools Performance / Memory track shows a flat allocation profile after initial view construction when Feed is clicked 5-10 times. No growing heap sawtooth from Uint8Array churn."
+  status: failed
+  reason: "User reported: JS jeap and Nodes show a distinct stair-case/sawtooth pattern"
+  severity: major
+  test: 3
+  root_cause: ""
+  artifacts: []
+  missing: []
+  debug_session: ""
