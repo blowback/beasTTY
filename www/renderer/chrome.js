@@ -61,6 +61,15 @@ export function wireChrome(opts) {
     themeButton.addEventListener('click', () => {
         toggleTheme(ctx);
     });
+    // Phase 4 D-16 — focus retention: suppress native focus transfer on mouse
+    // click so #terminal-wrapper keeps focus. mousedown fires BEFORE focus
+    // move; preventDefault at this phase blocks it entirely. Click handler
+    // above still fires (click and mousedown are separate events).
+    // Keyboard activation (Tab-to-button + Space) is unaffected because
+    // mousedown does not fire on keyboard activation.
+    themeButton.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+    });
 
     // ==== Phosphor radio-group (click) ====
     for (const btn of phosphorButtons) {
@@ -69,6 +78,9 @@ export function wireChrome(opts) {
             if (color !== 'green' && color !== 'amber' && color !== 'white') return;
             setPhosphor(color);
             applyPhosphorSideEffects(color, phosphorButtons);
+        });
+        btn.addEventListener('mousedown', (e) => {
+            e.preventDefault();            // Phase 4 D-16 — focus retention.
         });
     }
 
