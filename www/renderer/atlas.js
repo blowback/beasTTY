@@ -77,6 +77,11 @@ export class Atlas {
 // sourced from BITMAP_FONT[(ch & 0x7F) * 16 + row] — the 0x7F mask silently
 // folds any 8th-bit ch to low-7 ASCII (blanks to zero-byte rows in the
 // bitmap — VT52 pragmatic subset renders only printable ASCII).
+//
+// `z` (zoom multiplier) is preserved in the signature for call-site
+// compatibility with canvas.js but is unused — zoom is folded into the cellW
+// and cellH the caller already multiplied. The scale is derived from
+// cellW/cellH vs the fixed 8×16 source geometry instead. See gap #8 fix.
 export function rasteriseBitmap(ch, fgColor, bgColor, cellW, cellH, z, dpr) {
     const tile = new OffscreenCanvas(cellW * dpr, cellH * dpr);
     const ctx = tile.getContext('2d');
@@ -85,12 +90,22 @@ export function rasteriseBitmap(ch, fgColor, bgColor, cellW, cellH, z, dpr) {
     ctx.fillStyle = bgColor;
     ctx.fillRect(0, 0, cellW, cellH);
     ctx.fillStyle = fgColor;
-    const base = (ch & 0x7F) * 16;                     // 16 bytes per glyph; mask to ASCII
+
+    // The native glyph is 8 cols × 16 rows. The target cell at 1× zoom is
+    // cellW × cellH = 16 × 32 CSS pixels (UI-SPEC §Spacing "CRT cell size at
+    // 1× zoom" — bitmap doubled from native 8×16 for laptop readability).
+    // That makes each source pixel a 2×2 CSS-pixel square at z=1, scaled by
+    // `z` for zoom multiplier. Deriving the scale from cellW/cellH instead of
+    // hard-coding `z` keeps rasteriseBitmap correct even if cell geometry
+    // changes in the future.
+    const pxW = cellW / 8;                              // 16/8 = 2 at z=1; 32/8 = 4 at z=2
+    const pxH = cellH / 16;                             // 32/16 = 2 at z=1; 64/16 = 4 at z=2
+    const base = (ch & 0x7F) * 16;                      // 16 bytes per glyph; mask to ASCII
     for (let row = 0; row < 16; row++) {
         const bits = BITMAP_FONT[base + row];
         for (let col = 0; col < 8; col++) {
-            if (bits & (0x80 >> col)) {                // MSB-left bit test
-                ctx.fillRect(col * z, row * z, z, z);
+            if (bits & (0x80 >> col)) {                 // MSB-left bit test
+                ctx.fillRect(col * pxW, row * pxH, pxW, pxH);
             }
         }
     }
