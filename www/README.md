@@ -103,11 +103,11 @@ After `./scripts/build.sh` and a running server:
    cursor at (0, 0). No font-loading flash at first paint.
 3. On a Retina / 2× display: the pixel font is crisp, not blurred.
 
-### SC-2: Theme toggle (Ctrl+Shift+T and UI button)
+### SC-2: Theme toggle (Ctrl+Alt+T and UI button)
 
 1. Click the top-bar button labelled "Clean" to switch to the clean theme
    (JetBrains Mono).
-2. Press Ctrl+Shift+T to switch back to CRT.
+2. Press Ctrl+Alt+T to switch back to CRT. (Ctrl+Shift+T is reserved by Chromium for "reopen closed tab" and cannot be overridden from a web page — see 03-UAT.md gap #4.)
 3. Each theme has a distinct cursor style.
 
 ### SC-3: Phosphor selection and integer zoom

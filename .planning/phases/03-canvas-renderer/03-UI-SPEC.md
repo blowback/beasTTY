@@ -202,8 +202,8 @@ Both a border change AND a cursor-style change are present — redundant signali
 
 | Mechanism | Binding |
 |-----------|---------|
-| Top-bar button | Click the theme button (label shows the destination theme name). |
-| Keyboard shortcut | `Ctrl+Shift+T` (D-14; wired via keydown listener on `#terminal-wrapper` with `preventDefault()` so the default Chromium "reopen closed tab" gets recaptured when the terminal has focus). |
+| Top-bar button | Click the theme button (label shows the destination theme name). Tooltip announces the keyboard chord. |
+| Keyboard shortcut | `Ctrl+Alt+T` (wired via keydown listener on `#terminal-wrapper` with synchronous `preventDefault()`). **Remapped from the original D-14 `Ctrl+Shift+T` after human UAT (03-UAT.md gap #4) confirmed Chromium's "reopen closed tab" cannot be overridden from page JavaScript** — see RESEARCH §Pitfall 3 and PROJECT.md "Chromium-only". `Ctrl+Alt+T` is the standard Linux/GNOME/i3 "open terminal" chord, is not reserved by Chromium, and is hookable via preventDefault. |
 
 ### Phosphor selection (CRT theme only)
 
