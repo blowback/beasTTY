@@ -1,9 +1,9 @@
 ---
-status: complete
+status: diagnosed
 phase: 02-wasm-boundary-minimal-js-harness
 source: [02-VERIFICATION.md]
 started: 2026-04-21T00:00:00Z
-updated: 2026-04-22T00:00:04Z
+updated: 2026-04-22T00:00:05Z
 ---
 
 ## Current Test
@@ -75,7 +75,29 @@ blocked: 0
   reason: "User reported: JS jeap and Nodes show a distinct stair-case/sawtooth pattern"
   severity: major
   test: 3
-  root_cause: ""
-  artifacts: []
-  missing: []
-  debug_session: ""
+  root_cause: "Five distinct per-Feed-click allocation sources, dominated by an invisible wasm-bindgen-generated `.slice()` on the `feed()` return value. The 'zero-copy' promise of D-03 only ever held for the grid pack-buffer READ path; the feed() return-value path, the input bytes path, the pre-text render path, and the dirty stringification path all allocate per click. Combined ~5 KB of fresh heap per click → GC reclaims in batches → sawtooth. 'Nodes' growth is a sampling artifact of the heap pressure (no actual DOM nodes are created post-init)."
+  artifacts:
+    - path: "crates/bestialitty-core/src/lib.rs"
+      line: 70
+      issue: "feed() signature returns owned Vec<u8>; forces wasm-bindgen to copy-out + free per call, regardless of whether host_reply is empty (the common case in Phase 2 — only ESC Z emits a reply)"
+    - path: "www/pkg/bestialitty_core.js"
+      line: 77
+      issue: "Auto-generated `var v2 = getArrayU8FromWasm0(ret[0], ret[1]).slice();` allocates a fresh Uint8Array + ArrayBuffer on every feed() call (largest single contributor; invisible in www/main.js review — this is what CR-01 missed)"
+    - path: "www/main.js"
+      line: 35-38
+      issue: "reDeriveViews() creates two fresh Uint8Array headers (~160 bytes) every render — Plan 04 explicitly chose this defensive pattern, predicting it would be invisible at 80x24/60Hz; SC-3's literal wording disagrees"
+    - path: "www/main.js"
+      line: 42-59
+      issue: "renderAscii assembles a ~3888-byte flat String for textContent plus ~1920 cons-string intermediates (`out += ...`) per click"
+    - path: "www/main.js"
+      line: 84-105
+      issue: "parseHexEscapes: `return new Uint8Array(out)` allocates a fresh Uint8Array + ArrayBuffer + internal JS Array per click"
+    - path: "www/main.js"
+      line: 63
+      issue: "renderDirty: `Array.from(dirtyView).join('')` allocates a 24-element Array + 24-char String per click"
+  missing:
+    - "Eliminate the dominant source: change Rust feed() so the empty-reply common path doesn't return Vec<u8>. Two viable shapes: (a) split into `feed_silent(bytes) -> ()` plus `take_host_reply() -> Vec<u8>`, or (b) buffer host_reply in Terminal and expose `host_reply_ptr() / host_reply_len() / clear_host_reply()` so JS reads via a zero-copy view (mirror of pack_buf)"
+    - "Cache gridView/dirtyView at module scope; only re-derive when `wasm.memory.buffer !== cachedBuffer` (detects memory growth and invalidated views without per-frame allocation). Two-line guard in reDeriveViews()"
+    - "Optional / lower priority: pre-text render allocations (renderAscii, renderDirty, parseHexEscapes) become moot when Phase 3 replaces pre-text with canvas. Either accept and document, or refactor parseHexEscapes to write into a reusable scratch buffer if Phase 3 is not imminent"
+    - "Update SC-3 wording in 02-VERIFICATION.md if any of the pre-text render allocations are accepted as expected debug-harness behavior, so the criterion remains testable after the Rust/JS-shell fixes"
+  debug_session: ".planning/debug/sc3-zero-copy-heap-sawtooth.md"
