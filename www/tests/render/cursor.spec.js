@@ -97,3 +97,52 @@ test.describe('RENDER-02 / RENDER-12 — Cursor', () => {
     expect(focusedSawFg).toBe(true);
   });
 });
+
+test.describe('Gap #1 (UAT Test 3) — Wall-clock cursor blink', () => {
+  test('cursor is visible in one sample and invisible in another across ~3 blink cycles — gap #1', async ({ page }) => {
+    // Plan 03-05 Task 1 replaced (frameCount % 64) with performance.now()
+    // gating. At 530 ms half-period, a single cell must transition between
+    // blink-on (inverted tile — phosphor-green fg where cursor overdraws) and
+    // blink-off (theme bg visible through) at least once across a ~1.6 s
+    // sample window (27 × 60 ms = 1620 ms ≈ 3 × 530 ms cycles — covers ~3
+    // full blink periods so a throttled CI can still land samples in BOTH
+    // halves). Pre-fix: cursor stayed ON constantly (frameCount ticks on
+    // each rAF, but the modulo was tied to a 60 Hz cadence — on 120 Hz/144
+    // Hz the division landed on a stable phase).
+    //
+    // Thresholds are calibrated to phosphor green (#33ff66 → rgb(51, 255,
+    // 102); g-channel ≈ 255 when cursor-on, ≈ 15 when cursor-off shows the
+    // theme bg). Using a single midpoint threshold (e.g. g≈60) was
+    // coincidentally correct (REVIEW warning 5) — separate thresholds
+    // document the intent and harden against future palette changes.
+    await page.goto('/');
+    await page.waitForFunction(() => document.getElementById('terminal').width > 0);
+    await page.locator('#terminal-wrapper').focus();
+    await page.waitForTimeout(100);
+
+    // Sample the centre backing pixel of cell (0,0) every ~60 ms across
+    // 1620 ms (27 samples). At DPR=2 the centre of a 16×32 CSS cell is
+    // backing (16, 32). We look for at least one clearly-bg sample AND at
+    // least one clearly-fg sample.
+    const sampleCount = 27;                                // 27 × 60 ms = 1620 ms ≈ 3 × 530 ms cycles
+    const samples = [];
+    for (let i = 0; i < sampleCount; i++) {
+      const green = await page.evaluate(() => {
+        const c = document.getElementById('terminal');
+        const ctx = c.getContext('2d');
+        const img = ctx.getImageData(16, 32, 1, 1);
+        return img.data[1]; // green channel
+      });
+      samples.push(green);
+      await page.waitForTimeout(60);
+    }
+
+    // Pre-fix (stable-on): all samples are phosphor-green (~255).
+    // Pre-fix (stable-off): all ~15 (theme bg).
+    // Post-fix: both phases sampled — at least one < 30 (clear bg) AND at
+    //           least one > 200 (clear fg). Calibrated to phosphor green
+    //           per REVIEW warning 5 — no midpoint coincidence.
+    expect(samples.some((g) => g < 30)).toBe(true);       // "cursor off" — theme bg visible
+    expect(samples.some((g) => g > 200)).toBe(true);      // "cursor on"  — phosphor-green fg
+  });
+});

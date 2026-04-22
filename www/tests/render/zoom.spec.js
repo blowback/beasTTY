@@ -63,3 +63,50 @@ test.describe('RENDER-09 — Integer zoom via Ctrl +/-/0', () => {
     expect(await cssWidth(page)).toBe(base);
   });
 });
+
+test.describe('Gap #6 (UAT Test 8) — Zoom preserves canvas content', () => {
+  test('glyphs painted at 1× are still painted after Ctrl+= zoom to 2× — gap #6', async ({ page }) => {
+    // Plan 03-05 Task 1 adds markAllRowsDirty() in zoomStep + resetZoom.
+    // Pre-fix zoom resized the canvas, evicted the atlas, and re-primed the
+    // cache — but paintRow only ran for dirty rows (all zero after the wasm
+    // side last cleared dirty), so the previously-painted content never
+    // reappeared at the new zoom level.
+    await page.goto('/');
+    await page.waitForFunction(() => document.getElementById('terminal').width > 0);
+    await page.locator('#terminal-wrapper').focus();
+
+    // Feed glyphs at 1× zoom.
+    await page.locator('#debug').evaluate((el) => { el.open = true; });
+    await page.fill('#input', 'HELLO');
+    await page.click('#feed');
+    await page.waitForTimeout(150);
+
+    // Verify glyphs present before zoom.
+    const before = await page.evaluate(() => {
+      const c = document.getElementById('terminal');
+      const ctx = c.getContext('2d');
+      const img = ctx.getImageData(0, 0, Math.min(c.width, 640), 64);
+      for (let i = 0; i < img.data.length; i += 4) {
+        if (img.data[i + 1] > 60) return true;
+      }
+      return false;
+    });
+    expect(before).toBe(true);
+
+    // Zoom in — canvas resizes, atlas evicts, all rows should be marked dirty.
+    await page.keyboard.press('Control+Equal');
+    await page.waitForTimeout(250);
+
+    const after = await page.evaluate(() => {
+      const c = document.getElementById('terminal');
+      const ctx = c.getContext('2d');
+      // At 2× zoom + DPR 2, canvas.width doubles — sample first row (128 px tall).
+      const img = ctx.getImageData(0, 0, Math.min(c.width, 1280), 128);
+      for (let i = 0; i < img.data.length; i += 4) {
+        if (img.data[i + 1] > 60) return true;
+      }
+      return false;
+    });
+    expect(after).toBe(true);
+  });
+});

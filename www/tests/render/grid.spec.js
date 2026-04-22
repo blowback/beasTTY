@@ -43,30 +43,11 @@ test.describe('RENDER-01 / RENDER-04 / RENDER-05 — 80x24 grid renders', () => 
     expect(dims.cssH).toBe(768);
   });
 
-  test.fixme('default CRT green paints fixture bytes with non-bg pixels', async ({ page }) => {
-    // BLOCKED: known Plan 02 bug — canvas.js rebuildViews() captures
-    // term.grid_byte_len() at boot (before any snapshot_grid call), so
-    // gridView is a zero-length Uint8Array. Subsequent reDeriveViews()
-    // only rebuilds on wasm.memory.buffer identity change, which doesn't
-    // happen after a small feed(). Result: paintRow reads gridView[i] ===
-    // undefined → treated as space → no glyph pixels paint. The cursor
-    // paints correctly (uses ctx.fillRect / strokeRect / atlas.getInverted
-    // for the single cell under the cursor), but dirty-row content never
-    // appears.
-    //
-    // Reproducer (verified via tmp-debug probe at plan-authoring time):
-    //   term.grid_byte_len() === 0 before first snapshot_grid
-    //   term.grid_byte_len() === 15360 after first snapshot_grid
-    //   canvas.js rebuildViews() is called only at boot + buffer-identity change
-    //
-    // Fix belongs in canvas.js (Plan 02). Candidate one-line fixes:
-    //   (a) Call reDeriveViews() AFTER term.snapshot_grid() in tick().
-    //   (b) Call rebuildViews() unconditionally when term.grid_byte_len()
-    //       !== gridView.byteLength.
-    //   (c) Call term.snapshot_grid() in bootRenderer() before rebuildViews().
-    //
-    // Surfaced via the Plan 04 human-verify checkpoint; gap_closure plan
-    // will resolve. Test re-enabled after the fix lands.
+  test('default CRT green paints fixture bytes with non-bg pixels — gap #2 closure', async ({ page }) => {
+    // Gap #2 regression: pre-Plan 03-05 the tick() ordering (reDeriveViews
+    // BEFORE snapshot_grid) left gridView a zero-length Uint8Array after the
+    // first snapshot memory-grow; paintRow read undefined and painted nothing.
+    // Plan 03-05 Task 1 moves snapshot_grid() first + size-delta rebuild.
     await page.goto('/');
     await page.waitForFunction(() => {
       const c = document.getElementById('terminal');
@@ -85,6 +66,33 @@ test.describe('RENDER-01 / RENDER-04 / RENDER-05 — 80x24 grid renders', () => 
       const img = ctx.getImageData(0, 0, c.width, Math.min(c.height, 128));
       for (let i = 0; i < img.data.length; i += 4) {
         if (img.data[i] > 30 || img.data[i + 1] > 60) return true;
+      }
+      return false;
+    });
+    expect(nonBgFound).toBe(true);
+  });
+
+  test('FIRST Feed click after boot paints non-bg pixels (no 64 KB prime needed) — gap #2', async ({ page }) => {
+    await page.goto('/');
+    await page.waitForFunction(() => document.getElementById('terminal').width > 0);
+
+    // Pre-fix symptom: "cursor moves down but no text appears on Feed. 64 KB
+    // stress sends two lines of text. thereafter, Feed works properly." That
+    // is the zero-length gridView path. We trigger exactly ONE Feed click
+    // with a short (NOT 64 KB) payload and assert glyph pixels appear.
+    await page.locator('#debug').evaluate((el) => { el.open = true; });
+    await page.fill('#input', 'ABCDEF');
+    await page.click('#feed');
+    await page.waitForTimeout(150);
+
+    const nonBgFound = await page.evaluate(() => {
+      const c = document.getElementById('terminal');
+      const ctx = c.getContext('2d');
+      // Sample first row region: at DPR=2, cellH*dpr=64 so row 0 spans y=0..63.
+      // Scan backing-store pixel band for non-bg (phosphor-green glyph).
+      const img = ctx.getImageData(0, 0, Math.min(c.width, 640), 64);
+      for (let i = 0; i < img.data.length; i += 4) {
+        if (img.data[i + 1] > 60) return true;   // any green > 60 = glyph pixel
       }
       return false;
     });
