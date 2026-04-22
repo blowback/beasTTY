@@ -914,31 +914,22 @@ CONTEXT.md Claude's Discretion: pick period-authentic values. UI-SPEC already lo
 
 **Action item for planner:** Include a `www/assets/fonts/LICENSE-JetBrainsMono.txt` containing the full OFL 1.1 text with JetBrains attribution as part of the ship pipeline.
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Should Phase 3 install Playwright + write visual-regression tests, or defer to Phase 6?**
-   - What we know: Visual regression is a compound beast (baseline management, CI integration, font rendering determinism across platforms).
-   - What's unclear: Is the project's ship-fast ethos better served by Playwright in Phase 3 (where bugs are most likely) or Phase 6 (soak + polish)?
-   - Recommendation: **Install Playwright in Phase 3** (one plan covers it). Write 3–5 Playwright tests that cover the HiDPI correctness, the theme-switch visual diff, the bell overlay flash timing, and the Ctrl+Shift+T shortcut. Don't try to freeze every visual detail — just the regression-risk hot spots. Pick `fullPage: false` + mask the cursor-blink region so tests aren't flaky on blink phase.
+   - **RESOLVED (2026-04-22):** Install Playwright in Phase 3. Plan 01 (Wave 0) bootstraps `www/package.json` + `www/playwright.config.js`; Plan 04 writes 9 specs covering all 12 RENDER-XX IDs. Cursor-blink region is masked in baselines to avoid flake.
 
 2. **When CRT zoom is at 4×, atlas tiles are 32×64 CSS px × 2 DPR = 64×128 device px = ~32 KB per tile × 95 printable ASCII = ~3 MB. Is this a concern?**
-   - What we know: Modern browsers handle 100+ MB GPU memory per tab without issue.
-   - What's unclear: On an integrated GPU mobile-class device (which is not the target but could happen via Chrome on Android), could this matter?
-   - Recommendation: **Not a concern for the daily-driver target.** CONTEXT specifies Chromium desktop. If a user reports issues, profile and consider worker-based atlas or partial eviction — but do not pre-optimise.
+   - **RESOLVED (2026-04-22):** Not a concern for the daily-driver Chromium-desktop target. No pre-optimisation. If field telemetry surfaces issues post-v1, revisit with worker-based atlas or LRU — deferred.
 
 3. **Should the cursor's inverted-phosphor rendering reuse the existing glyph tile, or require a second atlas with swapped fg/bg?**
-   - What we know: A tile with fg `#33ff66` on bg `#0a0f0a` is the normal render. The cursor wants fg `#0a0f0a` on bg `#33ff66`.
-   - What's unclear: Can we `drawImage` the existing tile onto a phosphor-fg-filled cell with `ctx.globalCompositeOperation = 'difference'` (or similar) to invert cheaply? Or is it cleaner to keep a separate small atlas for cursor cells only (on-cursor atlas vs off-cursor atlas)?
-   - Recommendation: **Keep it simple: paint the cursor rect first (phosphor-fg), then drawImage the normal tile on top, then apply `globalCompositeOperation = 'difference'` / `'source-over'` as appropriate for the single cursor cell only.** If Planner finds this ugly, allocate 95 inverted tiles on first cursor render (atlas miss) and cache them in the main atlas with a flag bit in the key.
+   - **RESOLVED (2026-04-22):** Planner chose a hybrid — `paintCursor()` renders the inverted cell per-frame via a small cached inverted-tile sub-atlas keyed by `(ch, cursor_nonce)`. This eliminates per-frame `new OffscreenCanvas` allocation and keeps the rAF tick zero-alloc in steady state (matches `must_haves.truths` line 42). Sub-atlas is evicted alongside the main atlas on theme/phosphor/zoom/DPR change.
 
 4. **Is `basic-http-server` a better dev-serve recommendation than `python3 -m http.server` for Phase 3?**
-   - What we know: Phase 2 recommended both. `python3 -m http.server` serves `.woff2` with the correct `font/woff2` MIME type (Python ≥3.12 has the mapping built-in).
-   - What's unclear: older Python versions might serve `.woff2` as `application/octet-stream` — Chromium accepts it, but strict CORS/COEP setups could reject.
-   - Recommendation: Verify by `curl -I http://localhost:8000/assets/fonts/jetbrains-mono-regular.woff2` during Phase 3 verification. No change needed; just confirm.
+   - **RESOLVED (2026-04-22):** No change from Phase 2. Python 3.12 `http.server` serves `.woff2` with correct MIME. Plan 04 Task 2 (human-verify checkpoint) includes a `curl -I` MIME confirmation step.
 
 5. **Which of the 95 printable ASCII glyphs are high-risk hand-drawing targets?**
-   - What we know: Uppercase letters, digits, and punctuation are well-defined from any 8×16 reference. Ambiguous glyphs: `@` (IBM VGA's is distinctive), `$`, `&`, `~`, the curly braces, `|` (which rendered differently between IBM VGA and JetBrains Mono).
-   - Recommendation: Author re-draws working from a 1600% zoomed screenshot of `Mx437_IBM_VGA_8x16.ttf` rendered at 16 px — *visually referenced only, binary not copied*. Legally: comparable to re-typing a recipe from a book without copying the prose.
+   - **RESOLVED (2026-04-22):** Plan 01 Task 1 documents the ambiguous-glyph priority list: `@ $ & ~ { } |`. Author draws visually-referenced from a 1600% zoomed `Mx437_IBM_VGA_8x16.ttf` render; binary is not copied. Glyph table ships as original creative work under the project's MIT/Apache-2.0 licence.
 
 ## Environment Availability
 
