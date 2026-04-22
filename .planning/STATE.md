@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 03-02-PLAN.md
-last_updated: "2026-04-22T12:18:25.896Z"
+stopped_at: Completed 03-03-PLAN.md
+last_updated: "2026-04-22T12:30:56.359Z"
 last_activity: 2026-04-22
 progress:
   total_phases: 6
   completed_phases: 2
   total_plans: 17
-  completed_plans: 15
-  percent: 88
+  completed_plans: 16
+  percent: 94
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-04-21)
 ## Current Position
 
 Phase: 03 (canvas-renderer) — EXECUTING
-Plan: 3 of 4
+Plan: 4 of 4
 Status: Ready to execute
 Last activity: 2026-04-22
 
-Progress: [█████████░] 88%
+Progress: [█████████░] 94%
 
 ## Performance Metrics
 
@@ -72,6 +72,7 @@ Progress: [█████████░] 88%
 | Phase Phase 02 PP06 | 22min | 3 tasks | 6 files |
 | Phase Phase 03 canvas-renderer PP01 | 7min | 3 tasks tasks | 10 files files |
 | Phase Phase 03 canvas-renderer PP02 | 6min | 3 tasks tasks | 3 files files |
+| Phase 03-canvas-renderer P03 | 6min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -123,6 +124,11 @@ Recent decisions affecting current work:
 - Phase 3 Plan 02: rAF tick is paint-only — no bell sampling, no title mutation — bell flow owned by main.js (Plan 03) via synchronous feed-completion path (decouples from Chromium rAF throttling when document.hidden)
 - Phase 3 Plan 02: HiDPI via ctx.setTransform(dpr,0,0,dpr,0,0); NEVER ctx.scale (RESEARCH Anti-Pattern); DPR watched via matchMedia('(resolution: Xdppx)') with { once: true } self-re-registering listener
 - Phase 3 Plan 02: Cursor blink uses frameCount % 64 < 32 (~530ms @ 60fps); deterministic — no Date.now; blurred cursor = 1px strokeRect outline; focused cursor = fillRect block + inverted glyph overdraw via atlas.getInverted
+- Phase 3 Plan 03: chrome.js wireChrome is idempotent single-entry module; theme + phosphor + keyboard shortcuts + focus/blur + visibilitychange all wired in one call; uses synchronous e.preventDefault + e.code per RESEARCH Pitfall #3 and #10
+- Phase 3 Plan 03: BEL-while-hidden flow split across main.js (add-prefix after term.feed, SYNCHRONOUS, not rAF) and chrome.js (strip-prefix on visibilitychange); exactly ONE visibilitychange listener in Phase 3; canvas.js rAF tick remains paint-only (Plan 02 invariant preserved)
+- Phase 3 Plan 03: sampleBell() helper called immediately after every term.feed() in main.js Feed + 64 KB Stress handlers; Phase 5 serial transport MUST extend this pattern to any new term.feed call site to preserve BEL-while-hidden semantics
+- Phase 3 Plan 03: theme button label shows DESTINATION theme name (UI-SPEC Copywriting) — 'Clean' when CRT active, 'CRT' when clean active; phosphor group uses HTML hidden attribute driven by CSS #phosphor-group[hidden] { display: none }
+- Phase 3 Plan 03: Phase 2 SC-4 64 KB demonstration path preserved verbatim inside collapsible <details id=debug>; regression-checked in README; Debug pane default-collapsed per D-15 (no 'open' attribute)
 
 ### Pending Todos
 
@@ -147,8 +153,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-04-22T12:18:25.890Z
-Stopped at: Completed 03-02-PLAN.md
+Last session: 2026-04-22T12:30:56.352Z
+Stopped at: Completed 03-03-PLAN.md
 Resume file: None
 
 **Planned Phase:** 3 (Canvas Renderer) — 4 plans — 2026-04-22T11:52:27.340Z
