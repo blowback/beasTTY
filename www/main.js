@@ -53,7 +53,7 @@ function parseHexEscapes(input) {
     while (i < input.length) {
         const ch = input.charCodeAt(i);
         if (ch === 0x5C /* \ */
-            && i + 3 < input.length + 1
+            && i + 4 <= input.length
             && (input.charCodeAt(i + 1) === 0x78 || input.charCodeAt(i + 1) === 0x58) /* x or X */) {
             const hiVal = hexDigit(input.charCodeAt(i + 2));
             const loVal = hexDigit(input.charCodeAt(i + 3));
