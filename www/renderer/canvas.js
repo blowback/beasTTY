@@ -206,15 +206,28 @@ function paintCursor() {
     // system-clock jumps. Cycle: 530 ms ON, 530 ms OFF (total period 1060 ms).
     const elapsed = performance.now() - blinkStartMs;
     const blinkOn = (Math.floor(elapsed / 530) & 1) === 0;
-    if (!blinkOn) return;
+
+    const i = (row * term.cols() + col) * CELL_SIZE;
+    let ch = gridView[i];
+    if (ch === 0 || ch < 0x20) ch = 0x20;
+
+    if (!blinkOn) {
+        // Blink-OFF: erase the previously-painted cursor block by repainting the
+        // cell's underlying glyph on theme bg. Without this the block stays on
+        // screen because no row is dirty (dirty-row optimisation skips paintRow
+        // for this row on subsequent ticks). [03-07 Rule 1 fix — regression gap #1]
+        ctx.fillStyle = activeTheme.bg;
+        ctx.fillRect(x, y, cellW, cellH);
+        const rast = makeRasteriserForTheme(activeTheme);
+        const tile = atlas.get(ch, /*fg=*/1, rast, z);
+        ctx.drawImage(tile, x, y, cellW, cellH);
+        return;
+    }
 
     // Focused-on: block-fill + inverted-glyph overdraw.
     ctx.fillStyle = activeTheme.cursor.fgColor;
     ctx.fillRect(x, y, cellW, cellH);
 
-    const i = (row * term.cols() + col) * CELL_SIZE;
-    let ch = gridView[i];
-    if (ch === 0 || ch < 0x20) ch = 0x20;
     // Inverted tile is fetched from Atlas.invCache (RESEARCH §Open Questions Q3).
     // After first call per (theme, phosphor, zoom, DPR), this is a pure Map lookup +
     // drawImage — zero OffscreenCanvas allocation. Atlas.evict() flushes invCache
