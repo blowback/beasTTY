@@ -2,3 +2,6 @@
 **/*.rs.bk
 .DS_Store
 www/pkg/
+www/node_modules/
+www/playwright-report/
+www/test-results/
