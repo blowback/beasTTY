@@ -78,7 +78,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   5. Focus state on the canvas is visibly distinct from unfocused state (border or cursor-style change), and resizing the window or dragging the browser between monitors of different DPR does not produce blur
 **Plans**: 4 plans
   - [x] 03-01-PLAN.md — Assets foundation: hand-drawn 8×16 bitmap font + JetBrains Mono WOFF2 + OFL licence + Playwright bootstrap + VT52 fixture (Wave 1)
-  - [ ] 03-02-PLAN.md — Renderer core: themes.js descriptors + atlas.js glyph cache + canvas.js rAF loop + HiDPI + cursor overdraw + DPR watcher (Wave 2)
+  - [x] 03-02-PLAN.md — Renderer core: themes.js descriptors + atlas.js glyph cache + canvas.js rAF loop + HiDPI + cursor overdraw + DPR watcher (Wave 2)
   - [ ] 03-03-PLAN.md — Chrome wiring: index.html canvas-first DOM + chrome.js event wiring + main.js retrofit + Phase 3 README (Wave 3)
   - [ ] 03-04-PLAN.md — Verification: 9 Playwright specs covering RENDER-01..RENDER-12 + visual-regression baseline + human UAT checkpoint (Wave 4)
 **UI hint**: yes

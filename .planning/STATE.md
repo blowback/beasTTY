@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 03-01-PLAN.md
-last_updated: "2026-04-22T12:06:44.102Z"
+stopped_at: Completed 03-02-PLAN.md
+last_updated: "2026-04-22T12:18:25.896Z"
 last_activity: 2026-04-22
 progress:
   total_phases: 6
   completed_phases: 2
   total_plans: 17
-  completed_plans: 14
-  percent: 82
+  completed_plans: 15
+  percent: 88
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-04-21)
 ## Current Position
 
 Phase: 03 (canvas-renderer) — EXECUTING
-Plan: 2 of 4
+Plan: 3 of 4
 Status: Ready to execute
 Last activity: 2026-04-22
 
-Progress: [████████░░] 82%
+Progress: [█████████░] 88%
 
 ## Performance Metrics
 
@@ -71,6 +71,7 @@ Progress: [████████░░] 82%
 | Phase 02 P05 | 3min | 3 tasks | 3 files |
 | Phase Phase 02 PP06 | 22min | 3 tasks | 6 files |
 | Phase Phase 03 canvas-renderer PP01 | 7min | 3 tasks tasks | 10 files files |
+| Phase Phase 03 canvas-renderer PP02 | 6min | 3 tasks tasks | 3 files files |
 
 ## Accumulated Context
 
@@ -118,6 +119,10 @@ Recent decisions affecting current work:
 - Phase 3 Plan 01: JetBrains Mono Regular v2.304 shipped as FULL WOFF2 (92 KB) since pyftsubset unavailable; subsetting deferred to v1.x optimisation
 - Phase 3 Plan 01: VT52 fixture is byte-identical copy of capture-01-cpm-boot/bytes.bin (797 B, SHA256 65eb9e...) — reproducible via simple cp for Plan 04 --update-snapshots runs
 - Phase 3 Plan 01: bitmap glyph data is ORIGINAL creative work (no ROM binary copy); licence header in bitmap-font.js grep-anchored (RESEARCH A1, D-01)
+- Phase 3 Plan 02: Atlas ships dual-cache (cache + invCache) with shared nonce — evict() flushes both; focused cursor tile fetched via getInverted so rAF is zero-alloc in steady state (0 new OffscreenCanvas in canvas.js)
+- Phase 3 Plan 02: rAF tick is paint-only — no bell sampling, no title mutation — bell flow owned by main.js (Plan 03) via synchronous feed-completion path (decouples from Chromium rAF throttling when document.hidden)
+- Phase 3 Plan 02: HiDPI via ctx.setTransform(dpr,0,0,dpr,0,0); NEVER ctx.scale (RESEARCH Anti-Pattern); DPR watched via matchMedia('(resolution: Xdppx)') with { once: true } self-re-registering listener
+- Phase 3 Plan 02: Cursor blink uses frameCount % 64 < 32 (~530ms @ 60fps); deterministic — no Date.now; blurred cursor = 1px strokeRect outline; focused cursor = fillRect block + inverted glyph overdraw via atlas.getInverted
 
 ### Pending Todos
 
@@ -142,8 +147,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-04-22T12:06:44.096Z
-Stopped at: Completed 03-01-PLAN.md
+Last session: 2026-04-22T12:18:25.890Z
+Stopped at: Completed 03-02-PLAN.md
 Resume file: None
 
 **Planned Phase:** 3 (Canvas Renderer) — 4 plans — 2026-04-22T11:52:27.340Z

@@ -41,8 +41,10 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Rendering
 
-- [ ] **RENDER-01**: Canvas-based monospace rendering at fixed 80×24 grid
-- [ ] **RENDER-02**: Visible block cursor
+- [x] **RENDER-01
+**: Canvas-based monospace rendering at fixed 80×24 grid
+- [x] **RENDER-02
+**: Visible block cursor
 - [ ] **RENDER-03**: Focus indicator on the terminal surface (border or cursor-style change on focus/blur)
 - [x] **RENDER-04
 **: CRT theme — bitmap-style pixel font, phosphor colour, optional scanlines/glow
@@ -51,10 +53,13 @@ Requirements for initial release. Each maps to roadmap phases.
 - [ ] **RENDER-06**: User-toggleable theme switch between CRT and clean
 - [ ] **RENDER-07**: Keyboard shortcut to toggle theme (e.g., Ctrl-Shift-T)
 - [ ] **RENDER-08**: Phosphor colour choice for CRT theme (green / amber / white)
-- [ ] **RENDER-09**: Font size zoom via Ctrl +/- and Ctrl 0, integer multipliers for bitmap font
-- [ ] **RENDER-10**: HiDPI / devicePixelRatio rendering without blur on Retina-class displays
+- [x] **RENDER-09
+**: Font size zoom via Ctrl +/- and Ctrl 0, integer multipliers for bitmap font
+- [x] **RENDER-10
+**: HiDPI / devicePixelRatio rendering without blur on Retina-class displays
 - [ ] **RENDER-11**: Visible-bell rendering as screen flash (~100ms) and title-bar indicator on background tabs
-- [ ] **RENDER-12**: Per-theme cursor styling (CRT vs clean each define their own)
+- [x] **RENDER-12
+**: Per-theme cursor styling (CRT vs clean each define their own)
 
 ### Transport
 
