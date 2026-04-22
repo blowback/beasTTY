@@ -91,10 +91,20 @@
     }
     /* Centre the wrapper inside the body. */
     body { display: flex; flex-direction: column; align-items: center; }
-    #terminal-wrapper:focus-visible {
+    /* Focus indicator driven by the data-focused attribute set in chrome.js
+       wireChrome (focus/blur listeners on #terminal-wrapper). Attribute-
+       based selector is used instead of :focus-visible because Chromium's
+       :focus-visible heuristic does NOT trigger for programmatic .focus() at
+       boot OR for mouse-click focus — it only activates on keyboard-initiated
+       focus (e.g. Tab). The data-focused="true" attribute is set by chrome.js
+       on BOTH programmatic and pointer focus, making this indicator work in
+       every focus path (gap #7 fix — previously test 10 failed because
+       :focus-visible never fired after .focus() at boot). */
+    #terminal-wrapper[data-focused="true"] {
       border-color: var(--chrome-accent);
       outline: none;                        /* suppress UA default */
     }
+    /* Keyboard-only :focus-visible still applied to top-bar buttons (unchanged). */
     #terminal { display: block; }
 
     /* Bell overlay (RESEARCH §Pattern 7 + D-08 + Pitfall #8) */
@@ -158,7 +168,7 @@
 <body data-theme="crt">
   <!-- Top bar — theme toggle + phosphor radio-group (D-12). -->
   <div id="top-bar">
-    <button id="theme-toggle" type="button">Clean</button>
+    <button id="theme-toggle" type="button" title="Toggle theme (Ctrl+Alt+T)">Clean</button>
     <div id="phosphor-group" role="radiogroup" aria-label="Phosphor color">
       <button type="button" data-phosphor="green" aria-pressed="true">Green</button>
       <button type="button" data-phosphor="amber" aria-pressed="false">Amber</button>
