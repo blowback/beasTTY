@@ -182,12 +182,16 @@ wireKeyboard({
 localEchoCheckbox.addEventListener('change', (e) => {
     setLocalEcho(e.target.checked);
 });
-// D-16 — mousedown preventDefault prevents focus transfer. Native checkbox
-// click semantics would then NOT toggle the state, so we restore it:
+// D-16 — mousedown preventDefault prevents focus transfer. For a native
+// <input type="checkbox">, the subsequent click event STILL toggles the
+// checked state (mousedown's preventDefault only stops focus, not the
+// native click-toggle), so we do NOT manually flip .checked here — the
+// change listener above already fires from that native toggle. Plan 04-04
+// Task 1 Rule 1 fix: an earlier version manually flipped .checked in this
+// handler, which the subsequent native click then reverted, leaving the
+// checkbox effectively un-togglable by mouse.
 localEchoCheckbox.addEventListener('mousedown', (e) => {
     e.preventDefault();
-    localEchoCheckbox.checked = !localEchoCheckbox.checked;
-    setLocalEcho(localEchoCheckbox.checked);
 });
 
 // CR/LF override (INPUT-05). Radio default 'cr' per UI-SPEC (checked attr
