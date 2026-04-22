@@ -158,3 +158,91 @@ blocked: 0
   test: 14
   artifacts: []
   missing: []
+
+---
+
+## Gap Closure UAT (second pass)
+
+**Date:** 2026-04-22
+**Fixed by:** Plans 03-05 (renderer correctness) + 03-06 (chrome wiring) + 03-07 (regression tests + Rule 1 auto-fix for visible blink).
+**Chord remap:** Ctrl+Shift+T → Ctrl+Alt+T (gap #4 — 03-06 Task 1).
+**Focus indicator mechanism:** `:focus-visible` → `[data-focused="true"]` attribute selector (gap #7 — 03-06 Task 2).
+
+**Honesty note (recorded faithfully per orchestrator instruction):** The user signalled `approved`
+on this checkpoint without running the 14 tests individually against the fixed build and without
+recording per-test pass/fail evidence. The results below record that verbal approval — they are
+NOT a substitute for a per-test human re-run. The regression-evidence-of-record for this pass is
+the automated Playwright suite (see §Summary notes).
+
+### Tests
+
+### 1. Cold Start Smoke Test
+result: user-approved (not individually re-run)
+
+### 2. 80×24 CRT Canvas Renders
+result: user-approved (not individually re-run)
+
+### 3. Block Cursor Blinks
+result: user-approved (not individually re-run)
+note: Plan 03-07 Rule 1 auto-fix (commit `019034e`) was the actual visible-blink fix — 03-05's
+wall-clock gate was correct but the blink-OFF branch was a bare `return`, leaving the cursor
+stuck ON due to dirty-row optimisation. The `gap #1` regression test in cursor.spec.js caught it
+and now guards against recurrence.
+
+### 4. Feed Fixture Bytes Renders Content
+result: user-approved (not individually re-run)
+
+### 5. Theme Toggle Button
+result: user-approved (not individually re-run)
+
+### 6. Ctrl+Alt+T Keyboard Shortcut
+result: user-approved (not individually re-run)
+note: Chord remapped to **Ctrl+Alt+T** (from the original Ctrl+Shift+T which is Chromium-reserved
+for "reopen closed tab"). See 03-UI-SPEC.md Theme toggle row and README SC-2.
+
+### 7. Phosphor Switching (CRT theme only)
+result: user-approved (not individually re-run)
+
+### 8. Zoom In / Out / Reset
+result: user-approved (not individually re-run)
+
+### 9. Zoom Clamp at 4×
+result: user-approved (not individually re-run)
+
+### 10. Focus Indicator
+result: user-approved (not individually re-run)
+note: Border visibility now driven by the **`data-focused` attribute selector** (not
+`:focus-visible`) so the border fires for mouse-click focus and programmatic `.focus()` at boot,
+not only Tab-initiated focus.
+
+### 11. Bell Overlay Flash
+result: user-approved (not individually re-run)
+
+### 12. Bell Title Prefix While Hidden
+result: user-approved (not individually re-run)
+
+### 13. Debug Pane Retained (Phase 2 SC-4 Regression)
+result: user-approved (not individually re-run)
+
+### 14. HiDPI Sharpness
+result: user-approved (not individually re-run)
+
+## Summary (second pass)
+
+total: 14
+passed: 14
+issues: 0
+notes: User signalled `approved` without per-test verification commits; relying on the automated
+  Playwright suite (32 passed, 0 failed, 0 fixmes on `./scripts/build.sh && cd www && npx
+  playwright test --project=chromium`) as the regression evidence. Manual second pass deferred.
+  The `passed: 14 / issues: 0` values above reflect the user's verbal approval, not 14 individual
+  re-runs. Every one of the 8 original gaps has a named `gap #N` regression spec in
+  `www/tests/render/*.spec.js` that would have failed against the pre-fix code; those specs are
+  the primary guard against silent regression.
+
+## Regressions or new findings
+
+- Rule 1 auto-fix discovered during Task 1 execution: cursor blink-off branch was a bare `return`
+  (Plan 03-05 shipped the wall-clock gate but not the visible-repaint side of the blink).
+  Fixed in commit `019034e`; regression-guarded by the `gap #1` test in cursor.spec.js.
+- No other regressions or new findings surfaced in this pass.
