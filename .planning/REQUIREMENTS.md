@@ -82,11 +82,16 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Input
 
-- [ ] **INPUT-01**: Standard PC keyboard maps to VT52 key codes (arrows, keypad, control keys)
-- [ ] **INPUT-02**: Arrow keys transmit ESC A / ESC B / ESC C / ESC D
-- [ ] **INPUT-03**: Ctrl-key combinations transmit correct control bytes (0x00–0x1F) with sensible handling of browser-reserved combos (Ctrl-W, Ctrl-N, Ctrl-T)
-- [ ] **INPUT-04**: Local echo toggle, default off (MicroBeast echoes normally)
-- [ ] **INPUT-05**: CR / LF override toggle for edge-case MicroBeast software
+- [x] **INPUT-01
+**: Standard PC keyboard maps to VT52 key codes (arrows, keypad, control keys)
+- [x] **INPUT-02
+**: Arrow keys transmit ESC A / ESC B / ESC C / ESC D
+- [x] **INPUT-03
+**: Ctrl-key combinations transmit correct control bytes (0x00–0x1F) with sensible handling of browser-reserved combos (Ctrl-W, Ctrl-N, Ctrl-T)
+- [x] **INPUT-04
+**: Local echo toggle, default off (MicroBeast echoes normally)
+- [x] **INPUT-05
+**: CR / LF override toggle for edge-case MicroBeast software
 
 ### Session
 

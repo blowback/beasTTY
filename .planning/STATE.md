@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: planning
-stopped_at: Phase 4 context gathered
-last_updated: "2026-04-22T20:04:37.687Z"
+status: executing
+stopped_at: Completed 04-01-PLAN.md
+last_updated: "2026-04-22T20:56:59.334Z"
 last_activity: 2026-04-22
 progress:
   total_phases: 6
   completed_phases: 3
-  total_plans: 20
-  completed_plans: 20
-  percent: 100
+  total_plans: 24
+  completed_plans: 21
+  percent: 88
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-21)
 
 **Core value:** A modern, reliable, in-browser VT52 emulator good enough to use as a daily driver with a real MicroBeast.
-**Current focus:** Phase 03 — canvas-renderer
+**Current focus:** Phase 04 — keyboard-input
 
 ## Current Position
 
-Phase: 4
-Plan: Not started
-Status: Ready to plan
+Phase: 04 (keyboard-input) — EXECUTING
+Plan: 2 of 4
+Status: Ready to execute
 Last activity: 2026-04-22
 
-Progress: [██████████] 100%
+Progress: [█████████░] 88%
 
 ## Performance Metrics
 
@@ -78,6 +78,7 @@ Progress: [██████████] 100%
 | Phase 03-canvas-renderer P05 | 6min | 3 tasks | 3 files |
 | Phase 03-canvas-renderer P06 | 3min | 3 tasks tasks | 4 files files |
 | Phase 03-canvas-renderer P07 | ~110min | 3 tasks + 1 Rule 1 auto-fix | 10 files |
+| Phase 04-keyboard-input P01 | 3min | 3 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -141,6 +142,7 @@ Recent decisions affecting current work:
 - Phase 3 Plan 06: Chromium :focus-visible only fires on Tab-initiated focus (not programmatic .focus() at boot, not mouse click) — focus border switched from #terminal-wrapper:focus-visible to #terminal-wrapper[data-focused="true"] attribute selector, driven by chrome.js focus/blur listeners that set data-focused on all paths (UAT gap #7); base-rule border: 1px solid transparent untouched to preserve D-13 no-reflow contract
 - Phase 3 Plan 07 Rule 1 auto-fix: paintCursor blink-off path now repaints cell bg + underlying glyph (was a bare return) — Plan 03-05's wall-clock gate was correctly written but visible cursor stayed ON because dirty-row optimisation left the previously-painted block on screen; regression test 'gap #1 — wall-clock blink' caught it
 - Phase 3 Plan 07 Task 3 deviation: user signalled `approved` on the human-verify checkpoint without running the 14 tests individually; recorded faithfully in 03-UAT.md `## Gap Closure UAT (second pass)` as `result: user-approved (not individually re-run)` per test, with a `notes:` line making clear the Summary counts (passed: 14 / issues: 0) reflect verbal approval, not 14 individual re-runs; automated Playwright suite (32 passed, 0 failed, 0 fixmes) stands as substitute regression evidence
+- Phase 4 Plan 01: 8 fixmed Playwright stubs under www/tests/input/ resolve every INPUT-*/SC-* <automated> command ahead of implementation; testMatch glob union preserves Phase 3 render suite; window.__testGridView re-derives per-call for memory-growth safety and is unconditionally exposed (Phase 4 has zero security surface)
 
 ### Pending Todos
 
@@ -165,8 +167,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: --stopped-at
-Stopped at: Phase 4 context gathered
-Resume file: --resume-file
+Last session: 2026-04-22T20:56:52.929Z
+Stopped at: Completed 04-01-PLAN.md
+Resume file: None
 
-**Planned Phase:** 03 (canvas-renderer) — 7 plans — 2026-04-22T14:51:50.943Z
+**Planned Phase:** 04 (keyboard-input) — 4 plans — 2026-04-22T20:50:10.948Z
