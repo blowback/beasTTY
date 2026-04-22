@@ -4,12 +4,14 @@
 import { test, expect } from '@playwright/test';
 
 test.describe('Keyboard shortcuts @fast', () => {
-  test('Ctrl+Shift+T toggles theme (state check only) @fast', async ({ page }) => {
+  test('Ctrl+Alt+T toggles theme (state check only) @fast — gap #4 remap', async ({ page }) => {
+    // Plan 03-06 Task 1 remapped from Ctrl+Shift+T (Chromium-reserved for
+    // "reopen closed tab") to Ctrl+Alt+T (hookable via preventDefault).
     await page.goto('/');
     await page.locator('#terminal-wrapper').focus();
 
     await expect(page.locator('body')).toHaveAttribute('data-theme', 'crt');
-    await page.keyboard.press('Control+Shift+KeyT');
+    await page.keyboard.press('Control+Alt+KeyT');
     await expect(page.locator('body')).toHaveAttribute('data-theme', 'clean');
   });
 
