@@ -2,53 +2,193 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>BestialiTTY Phase 2 Harness</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BestialiTTY</title>
   <!--
-    Dev serving options (D-14 — not committed to a specific tool):
-      python3 -m http.server -d www 8000    # Python 3.12 serves .wasm as application/wasm
-      basic-http-server www                 # Rust, single-binary alternative
-    Chromium refuses to stream-compile .wasm without Content-Type:application/wasm
-    (PITFALLS #7). Both options above are MIME-compliant.
-
-    Build pkg/ first:
-      ./scripts/build.sh
+    Dev serving (same as Phase 2 — Chromium only per CLAUDE.md):
+      python3 -m http.server -d www 8000
+      basic-http-server www
+    Build pkg/ first: ./scripts/build.sh
   -->
   <style>
-    body { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-           max-width: 90ch; margin: 1.5rem; }
-    h1 { font-size: 1.2rem; }
-    textarea { width: 100%; box-sizing: border-box; font-family: inherit;
-               font-size: 0.95rem; }
-    button { font-family: inherit; padding: 0.4rem 0.8rem; margin-right: 0.5rem; }
-    #grid, #dirty { border: 1px solid #888; padding: 4px; background: #f8f8f8;
-                    margin: 0.3rem 0; white-space: pre; }
-    #status { display: inline-block; margin-top: 0.5rem; color: #444; }
-    .hint { color: #666; font-size: 0.85rem; }
+    /* ==== Self-hosted clean-theme font (CONTEXT D-02 + RESEARCH Pitfall #7) ==== */
+    /* font-display: block is REQUIRED — ROADMAP SC-1: no fallback flash. */
+    @font-face {
+      font-family: 'JetBrains Mono';
+      src: url('./assets/fonts/jetbrains-mono-regular.woff2') format('woff2');
+      font-display: block;
+      font-weight: 400;
+    }
+
+    /* ==== CSS custom properties (UI-SPEC §Color chrome tokens) ==== */
+    :root {
+      /* Clean-theme defaults; [data-theme="crt"] overrides below. */
+      --chrome-bg:     #1e242c;
+      --chrome-fg:     #e4e8ee;
+      --chrome-accent: #7fdbca;
+      --chrome-border: rgba(255, 255, 255, 0.08);
+      --bell-flash:    rgba(255, 255, 255, 0.7);
+      --scanline-color: rgba(0, 0, 0, 0.15);
+      /* Phosphor variables — set by canvas.js setPhosphor. */
+      --phosphor-fg:   #33ff66;
+      --phosphor-bg:   #0a0f0a;
+    }
+    [data-theme="crt"] {
+      --chrome-bg:     #0a0a0a;
+      --chrome-fg:     var(--phosphor-fg);
+      --chrome-accent: var(--phosphor-fg);
+    }
+
+    /* ==== Page layout ==== */
+    html, body {
+      margin: 0; padding: 0;
+      background: var(--chrome-bg);
+      color: var(--chrome-fg);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 14px;      /* UI-SPEC body */
+      line-height: 1.4;
+      min-height: 100vh;
+    }
+
+    /* ==== Top bar (UI-SPEC §Layout Contract) ==== */
+    #top-bar {
+      position: sticky; top: 0; z-index: 10;
+      display: flex; align-items: center; gap: 16px;
+      padding: 8px 16px;
+      background: var(--chrome-bg);
+      border-bottom: 1px solid var(--chrome-border);
+    }
+    #top-bar button {
+      font-family: inherit; font-size: 14px;
+      padding: 4px 8px;
+      background: transparent;
+      color: var(--chrome-fg);
+      border: 1px solid var(--chrome-border);
+      cursor: pointer;
+    }
+    #top-bar button:hover,
+    #top-bar button:focus-visible {
+      border-color: var(--chrome-accent);
+      outline: none;
+    }
+    #phosphor-group {
+      display: flex; gap: 4px;
+    }
+    #phosphor-group[hidden] { display: none; }
+    #phosphor-group button[aria-pressed="true"] {
+      border-color: var(--chrome-accent);
+      background: var(--chrome-accent);
+      color: var(--chrome-bg);
+    }
+
+    /* ==== Terminal wrapper + overlays (UI-SPEC §Layout + D-13 focus) ==== */
+    #terminal-wrapper {
+      position: relative;
+      display: inline-block;               /* let width/height follow canvas */
+      margin: 16px auto;                   /* UI-SPEC md spacing */
+      border: 1px solid transparent;        /* D-13 — no reflow on focus */
+      /* Cursor visible on hover even without focus-visible for click-to-focus. */
+    }
+    /* Centre the wrapper inside the body. */
+    body { display: flex; flex-direction: column; align-items: center; }
+    #terminal-wrapper:focus-visible {
+      border-color: var(--chrome-accent);
+      outline: none;                        /* suppress UA default */
+    }
+    #terminal { display: block; }
+
+    /* Bell overlay (RESEARCH §Pattern 7 + D-08 + Pitfall #8) */
+    #bell-overlay {
+      position: absolute; inset: 0;
+      pointer-events: none;                 /* Pitfall #8 — required */
+      background: var(--bell-flash);
+      opacity: 0;
+      transition: opacity 100ms ease-out;
+    }
+    #bell-overlay.flash { opacity: 0.7; }
+
+    /* Scanline overlay (RESEARCH §Pattern 6 + D-11) */
+    #scanlines {
+      position: absolute; inset: 0;
+      pointer-events: none;                 /* Pitfall #8 — required */
+      display: none;                         /* shown only in CRT theme */
+      background: repeating-linear-gradient(
+        0deg,
+        transparent 0px, transparent 1px,
+        var(--scanline-color) 1px, var(--scanline-color) 2px
+      );
+    }
+    [data-theme="crt"] #scanlines { display: block; }
+
+    /* ==== Debug details (D-15) ==== */
+    #debug {
+      margin: 16px auto; max-width: 90ch;
+      padding: 8px 16px;
+      background: var(--chrome-bg);
+      border: 1px solid var(--chrome-border);
+      font-size: 12px;                      /* UI-SPEC Label */
+    }
+    #debug summary {
+      cursor: pointer; font-size: 14px;
+      padding: 4px 0;
+    }
+    #debug textarea {
+      width: 100%; box-sizing: border-box;
+      font-family: inherit; font-size: 12px;
+      background: #0f1419; color: #e4e8ee;
+      border: 1px solid var(--chrome-border);
+      padding: 4px;
+    }
+    #debug button {
+      font-family: inherit; font-size: 12px;
+      padding: 4px 8px; margin-right: 8px; margin-top: 4px;
+      background: transparent;
+      color: var(--chrome-fg);
+      border: 1px solid var(--chrome-border);
+      cursor: pointer;
+    }
+    #debug .hint {
+      color: rgba(255,255,255,0.6);
+      font-size: 12px;
+      margin: 4px 0;
+    }
+    #debug code { background: rgba(255,255,255,0.08); padding: 0 4px; border-radius: 2px; }
   </style>
 </head>
-<body>
-  <h1>BestialiTTY Phase 2 Harness</h1>
-  <p class="hint">
-    Paste raw bytes, or use <code>\xNN</code> escapes for control bytes
-    (e.g., <code>\x1B</code> = ESC, <code>\x07</code> = BEL). Click <b>Feed</b>
-    to send the parsed bytes through the wasm VT52 parser in ONE boundary call.
-    Click <b>64 KB Stress</b> to demonstrate SC-4 (one <code>feed()</code> call
-    for 65&nbsp;536 bytes — observe the single DevTools Performance entry).
-  </p>
+<body data-theme="crt">
+  <!-- Top bar — theme toggle + phosphor radio-group (D-12). -->
+  <div id="top-bar">
+    <button id="theme-toggle" type="button">Clean</button>
+    <div id="phosphor-group" role="radiogroup" aria-label="Phosphor color">
+      <button type="button" data-phosphor="green" aria-pressed="true">Green</button>
+      <button type="button" data-phosphor="amber" aria-pressed="false">Amber</button>
+      <button type="button" data-phosphor="white" aria-pressed="false">White</button>
+    </div>
+  </div>
 
-  <textarea id="input" rows="4"
-            placeholder="Hello\x1BY\x21\x20World"></textarea>
-  <br>
-  <button id="feed">Feed</button>
-  <button id="stress64k">64 KB Stress</button>
+  <!-- Terminal canvas + overlays. tabindex=0 on wrapper so keydown fires here. -->
+  <div id="terminal-wrapper" tabindex="0">
+    <canvas id="terminal" tabindex="-1"></canvas>
+    <div id="bell-overlay"></div>
+    <div id="scanlines"></div>
+  </div>
 
-  <h3>Grid (ASCII)</h3>
-  <pre id="grid"></pre>
-
-  <h3>Dirty bitmap (1 byte per row, 1 = dirty)</h3>
-  <pre id="dirty"></pre>
-
-  <span id="status">cursor=(0,0) bell=false</span>
+  <!-- Debug harness (D-15) — retained Phase 2 SC-4 demonstration path. -->
+  <details id="debug">
+    <summary>Debug</summary>
+    <p class="hint">
+      Paste raw bytes, or use <code>\xNN</code> escapes for control bytes
+      (e.g., <code>\x1B</code> = ESC, <code>\x07</code> = BEL). Click <b>Feed</b>
+      to send the parsed bytes through the wasm VT52 parser in ONE boundary call.
+      Click <b>64 KB Stress</b> to demonstrate SC-4 (one <code>feed()</code> call
+      for 65&nbsp;536 bytes — observe the single DevTools Performance entry).
+    </p>
+    <textarea id="input" rows="4" placeholder="Hello\x1BY\x21\x20World"></textarea>
+    <div>
+      <button id="feed" type="button">Feed</button>
+      <button id="stress64k" type="button">64 KB Stress</button>
+    </div>
+  </details>
 
   <script type="module" src="./main.js"></script>
 </body>
