@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 03-05-PLAN.md (gap-closure for canvas-renderer UAT gaps 1,2,3,5,6,8 + WR-03,04,05)
-last_updated: "2026-04-22T15:07:59.446Z"
+stopped_at: Completed 03-06-PLAN.md (chrome-wiring gap-closure for UAT gaps 4,7)
+last_updated: "2026-04-22T15:16:28.784Z"
 last_activity: 2026-04-22
 progress:
   total_phases: 6
   completed_phases: 2
   total_plans: 20
-  completed_plans: 18
-  percent: 90
+  completed_plans: 19
+  percent: 95
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-04-21)
 ## Current Position
 
 Phase: 03 (canvas-renderer) — EXECUTING
-Plan: 2 of 7
+Plan: 3 of 7
 Status: Ready to execute
 Last activity: 2026-04-22
 
-Progress: [█████████░] 90%
+Progress: [██████████] 95%
 
 ## Performance Metrics
 
@@ -75,6 +75,7 @@ Progress: [█████████░] 90%
 | Phase 03-canvas-renderer P03 | 6min | 3 tasks | 4 files |
 | Phase 03-canvas-renderer P04 | 30min | 2 tasks | 10 files |
 | Phase 03-canvas-renderer P05 | 6min | 3 tasks | 3 files |
+| Phase 03-canvas-renderer P06 | 3min | 3 tasks tasks | 4 files files |
 
 ## Accumulated Context
 
@@ -134,6 +135,8 @@ Recent decisions affecting current work:
 - Phase 3 Plan 04: 9 Playwright spec files under www/tests/render/ cover RENDER-01..RENDER-12; visual-regression baseline PNG at grid.spec.js-snapshots/crt-default-chromium-linux.png; @fast subset runs under 10 s; suite green at 23 passed + 1 test.fixme against current renderer
 - Phase 3 Plan 04 gap G-03-04-01: canvas.js rebuildViews() snapshots term.grid_byte_len() at boot when grid is still empty (returns 0) — gridView is zero-length for the session because reDeriveViews() only rebuilds on buffer-identity change which never fires for small feeds. Fix deferred to gap_closure plan via /gsd-plan-phase 03 --gaps. Preferred fix: candidate (2) — teach reDeriveViews() to compare term.grid_byte_len() !== gridView.byteLength
 - Phase 3 Plan 05 gap-closure: wall-clock cursor blink via performance.now() (immune to rAF throttling + monitor refresh); snapshot-first tick() ordering + grid_byte_len() size-delta rebuild guard closes G-03-04-01; markAllRowsDirty() is the canonical post-atlas.evict() repaint trigger paired with every evict call site; same-value short-circuit at top of setTheme/setPhosphor makes identity-click a no-op; rasteriseBitmap derives pxW/pxH from cellW/cellH (not from z), so 8x16 glyph fills the 16x32 cell at any zoom/DPR
+- Phase 3 Plan 06: Ctrl+Shift+T is Chromium-reserved for 'reopen closed tab' and page-level preventDefault is silently ignored — theme-toggle chord remapped to Ctrl+Alt+T (standard Linux/GNOME/i3 'open terminal' chord, fully hookable); chord check requires !shiftKey && !metaKey to avoid Alt+Shift+T (Chromium 'pin tab') collision (UAT gap #4, T-03-06-01 mitigation)
+- Phase 3 Plan 06: Chromium :focus-visible only fires on Tab-initiated focus (not programmatic .focus() at boot, not mouse click) — focus border switched from #terminal-wrapper:focus-visible to #terminal-wrapper[data-focused="true"] attribute selector, driven by chrome.js focus/blur listeners that set data-focused on all paths (UAT gap #7); base-rule border: 1px solid transparent untouched to preserve D-13 no-reflow contract
 
 ### Pending Todos
 
@@ -158,8 +161,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-04-22T15:07:59.440Z
-Stopped at: Completed 03-05-PLAN.md (gap-closure for canvas-renderer UAT gaps 1,2,3,5,6,8 + WR-03,04,05)
+Last session: 2026-04-22T15:16:28.778Z
+Stopped at: Completed 03-06-PLAN.md (chrome-wiring gap-closure for UAT gaps 4,7)
 Resume file: None
 
 **Planned Phase:** 03 (canvas-renderer) — 7 plans — 2026-04-22T14:51:50.943Z
