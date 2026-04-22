@@ -45,6 +45,18 @@ const phosphorButtons = phosphorGroup.querySelectorAll('button[data-phosphor]');
 const bellOverlay     = document.getElementById('bell-overlay');
 wireChrome({ terminalWrapper, themeButton, phosphorButtons, phosphorGroup, bellOverlay });
 
+// ---- Phase 4 Plan 01 — test harness hook (unconditionally exposed) ----
+// Plan 04-04's local-echo spec uses __testGridView() to read grid bytes back
+// and assert that typed chars rendered (echo on) vs did not render (echo off,
+// the Phase 4 default). Unconditionally exposed — not gated by ?test=1 —
+// because Phase 4 has zero security surface (no auth, no PII, no network);
+// Phase 5 Web Serial will gate differently if needed.
+window.__testGridView = () => new Uint8Array(
+    wasm.memory.buffer,
+    term.grid_ptr(),
+    term.grid_byte_len(),
+);
+
 // ---- Phase 2 harness helpers (retained verbatim for Debug pane — D-15) ----
 
 function parseHexEscapes(input) {
