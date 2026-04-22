@@ -74,8 +74,16 @@ export function wireChrome(opts) {
 
     // ==== Keyboard shortcuts (keydown on wrapper — synchronous preventDefault) ====
     terminalWrapper.addEventListener('keydown', (e) => {
-        // Ctrl+Shift+T — theme toggle (RENDER-07 / D-14).
-        if (e.ctrlKey && e.shiftKey && e.code === 'KeyT') {
+        // Ctrl+Alt+T — theme toggle (RENDER-07).
+        // NOTE: Ctrl+Shift+T was the original chord per CONTEXT D-14 but Chromium
+        // reserves it for "reopen closed tab" with no page-level override
+        // (RESEARCH §Pitfall 3, reaffirmed by 03-UAT gap #4). Ctrl+Alt+T is
+        // the standard Linux/GNOME/i3 "open terminal" chord and is hookable
+        // from a web page — the Chromium default is a no-op on this chord.
+        // Do NOT include e.shiftKey: Alt+Shift+T already maps to "pin tab" on
+        // some Chromium builds, and we want the chord to work with exactly
+        // Ctrl+Alt+T (no extra modifier).
+        if (e.ctrlKey && e.altKey && !e.shiftKey && !e.metaKey && e.code === 'KeyT') {
             e.preventDefault();          // SYNCHRONOUS first — RESEARCH Pitfall #3.
             toggleTheme(ctx);
             return;
