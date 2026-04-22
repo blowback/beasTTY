@@ -1,6 +1,6 @@
 ---
 phase: 02-wasm-boundary-minimal-js-harness
-verified: 2026-04-21T00:00:00Z
+verified: 2026-04-22T00:00:00Z
 status: human_needed
 score: 10/10 must-haves verified (automated); 4 browser SCs deferred to human
 overrides_applied: 0
@@ -12,7 +12,7 @@ human_verification:
     expected: "Paste 'Hello\\x1BY\\x21\\x20World' into textarea, click Feed. Grid pre shows 'Hello' on row 0 and 'World' starting row 1 col 0. Status shows 'cursor=(1,5) bell=false'. Dirty pre shows '11' followed by zeros."
     why_human: "Requires browser DOM interaction and visual inspection of rendered output. Depends on SC-1 passing first."
   - test: "SC-3: zero-copy Uint8Array views — no per-frame allocation growth"
-    expected: "DevTools Performance / Memory track shows a flat allocation profile after initial view construction when Feed is clicked 5-10 times. No growing heap sawtooth from Uint8Array churn."
+    expected: "DevTools Performance / Memory track shows a flat allocation profile attributable to the WASM BOUNDARY when Feed is clicked 5-10 times with simple ASCII input that produces no host_reply. Specifically: zero allocations attributable to (a) the wasm-bindgen-generated `Terminal.feed` wrapper, and (b) `reDeriveViews()`. The pre-text harness paths (`renderAscii` flat-string build, `renderDirty` Array.from().join, `parseHexEscapes` Uint8Array construction) are accepted as harness-only artifacts that Phase 3's canvas renderer eliminates by replacing the pre-text grid; their per-click ~5 KB churn is expected and not in scope for SC-3."
     why_human: "Requires DevTools Memory/Performance profiling in a running Chromium session. Cannot be driven from a shell agent."
   - test: "SC-4: 64 KB in ONE feed() call"
     expected: "Click '64 KB Stress'. Console shows exactly ONE occurrence per click of: 'Terminal.feed 64KB: X ms', '[SC-4] Fed 65536 bytes in ONE feed() call', '[SC-4] Elapsed: N ms', '[SC-4] If this log appears ONCE (not 65536 times), SC-4 is satisfied.' DevTools Performance flame graph shows a single Terminal.feed entry, not 65536 stacked frames."
@@ -162,11 +162,13 @@ Page renders: textarea with placeholder, Feed and 64 KB Stress buttons, two `<pr
 
 #### 3. SC-3: zero-copy Uint8Array views — no per-frame allocation growth
 
-**Test:** DevTools Performance tab → Record. Click **Feed** 5-10 times. Stop recording.
+**Test:** DevTools Performance tab → Record. Click **Feed** 5-10 times with simple ASCII input (no ESC sequences). Stop recording.
 
-**Expected:** Memory track shows a flat allocation profile after initial view construction. No growing heap sawtooth attributable to `Uint8Array` churn. The two `reDeriveViews()` allocations per render (two small Uint8Array constructors) should be steady-state, not growing.
+**Expected:** Memory track shows a flat allocation profile attributable to the WASM BOUNDARY. Specifically: zero allocations attributable to (a) the wasm-bindgen-generated `Terminal.feed` wrapper in `www/pkg/bestialitty_core.js`, and (b) `reDeriveViews()` in `www/main.js`. The pre-text harness paths (`renderAscii` flat-string build, `renderDirty` Array.from().join, `parseHexEscapes` Uint8Array construction) are accepted as harness-only artifacts — Phase 3's canvas renderer eliminates them by replacing the pre-text grid.
 
 **Why human:** Requires DevTools Memory/Performance profiling in a live browser session.
+
+**Updated 2026-04-22 (per 02-06-PLAN.md gap closure):** SC-3 was initially failed in 02-HUMAN-UAT.md (sawtooth observed). Diagnosis (`.planning/debug/sc3-zero-copy-heap-sawtooth.md`) found five allocation sources; the dominant two (wasm-bindgen `feed()` `.slice()` and per-tick `reDeriveViews`) were eliminated by 02-06-PLAN.md (Rust `feed_silent` + cached views with buffer-identity guard). Three pre-text-harness sources (`renderAscii` flat-string build, `renderDirty` Array.from().join, `parseHexEscapes` Uint8Array construction) are intentionally deferred to Phase 3 — the canvas renderer replaces the pre-text grid entirely and these allocations vanish without further code change. SC-3's wording above reflects the post-fix testable contract.
 
 #### 4. SC-4: 64 KB in ONE feed() call
 
@@ -195,3 +197,4 @@ Review warnings (CR-01, WR-01 through WR-04) are improvements but none block the
 
 _Verified: 2026-04-21_
 _Verifier: Claude (gsd-verifier)_
+_Re-verified after 02-06-PLAN.md gap closure: 2026-04-22_

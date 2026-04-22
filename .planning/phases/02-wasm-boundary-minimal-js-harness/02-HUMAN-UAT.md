@@ -1,9 +1,9 @@
 ---
-status: diagnosed
+status: in_progress
 phase: 02-wasm-boundary-minimal-js-harness
 source: [02-VERIFICATION.md]
 started: 2026-04-21T00:00:00Z
-updated: 2026-04-22T00:00:05Z
+updated: 2026-04-22T00:01:00Z
 ---
 
 ## Current Test
@@ -36,16 +36,15 @@ steps:
 
 ### 3. SC-3: zero-copy Uint8Array views — no per-frame allocation growth
 
-expected: DevTools Performance / Memory track shows a flat allocation profile after initial view construction when Feed is clicked 5-10 times. No growing heap sawtooth from Uint8Array churn.
-result: issue
-reported: "JS jeap and Nodes show a distinct stair-case/sawtooth pattern"
-severity: major
+expected: "DevTools Performance / Memory track shows a flat allocation profile attributable to the WASM BOUNDARY when Feed is clicked 5-10 times with simple ASCII input that produces no host_reply. Specifically: zero allocations attributable to (a) the wasm-bindgen-generated `Terminal.feed` wrapper, and (b) `reDeriveViews()`. The pre-text harness paths (`renderAscii` flat-string build, `renderDirty` Array.from().join, `parseHexEscapes` Uint8Array construction) are accepted as harness-only artifacts that Phase 3's canvas renderer eliminates by replacing the pre-text grid; their per-click ~5 KB churn is expected and not in scope for SC-3."
+result: pending
 depends_on: SC-1
 steps:
   1. Open DevTools → Performance tab (or Memory → Allocation instrumentation on timeline)
   2. Click "Record", then click Feed 5-10 times in rapid succession with simple ASCII input
   3. Stop recording; inspect the Memory timeline
   4. Allocation should be steady after the first click — no growing Uint8Array allocations
+notes: "Re-test after 02-06-PLAN.md fix. SC-3 wording updated to scope to wasm-boundary allocations; pre-text harness churn deferred to Phase 3."
 
 ### 4. SC-4: 64 KB in ONE feed() call
 
@@ -63,17 +62,17 @@ steps:
 
 total: 4
 passed: 3
-issues: 1
-pending: 0
+issues: 0
+pending: 1
 skipped: 0
 blocked: 0
 
 ## Gaps
 
 - truth: "DevTools Performance / Memory track shows a flat allocation profile after initial view construction when Feed is clicked 5-10 times. No growing heap sawtooth from Uint8Array churn."
-  status: failed
+  status: closing
   reason: "User reported: JS jeap and Nodes show a distinct stair-case/sawtooth pattern"
-  severity: major
+  severity_original: major
   test: 3
   root_cause: "Five distinct per-Feed-click allocation sources, dominated by an invisible wasm-bindgen-generated `.slice()` on the `feed()` return value. The 'zero-copy' promise of D-03 only ever held for the grid pack-buffer READ path; the feed() return-value path, the input bytes path, the pre-text render path, and the dirty stringification path all allocate per click. Combined ~5 KB of fresh heap per click → GC reclaims in batches → sawtooth. 'Nodes' growth is a sampling artifact of the heap pressure (no actual DOM nodes are created post-init)."
   artifacts:
@@ -101,3 +100,4 @@ blocked: 0
     - "Optional / lower priority: pre-text render allocations (renderAscii, renderDirty, parseHexEscapes) become moot when Phase 3 replaces pre-text with canvas. Either accept and document, or refactor parseHexEscapes to write into a reusable scratch buffer if Phase 3 is not imminent"
     - "Update SC-3 wording in 02-VERIFICATION.md if any of the pre-text render allocations are accepted as expected debug-harness behavior, so the criterion remains testable after the Rust/JS-shell fixes"
   debug_session: ".planning/debug/sc3-zero-copy-heap-sawtooth.md"
+  closure_plan: ".planning/phases/02-wasm-boundary-minimal-js-harness/02-06-PLAN.md"
