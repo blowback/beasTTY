@@ -18,7 +18,16 @@ driver with a real MicroBeast — nothing else matters if that doesn't hold.
 
 <!-- Shipped and confirmed valuable. -->
 
-(None yet — ship to validate)
+- [x] Rust → wasm core responsible for parser, terminal state, and key
+      encoding — pure logic, no I/O, no transport concerns. *(Validated in
+      Phase 1: Rust core parser/grid/key-encoder; Phase 2: WASM boundary)*
+- [x] Rust↔JS interop via `wasm-bindgen` + `wasm-pack`. *(Validated in Phase
+      2: WASM boundary + minimal JS harness)*
+- [x] Two rendering themes shipped in v1 with a user toggle: a classic CRT
+      look (bitmap-style font, phosphor colour, optional scanlines/glow) and a
+      clean modern monospace look. *(Validated in Phase 3: Canvas Renderer —
+      CRT bitmap with phosphor toggle and Clean JetBrains-Mono vector theme,
+      switchable via UI button or Ctrl+Alt+T)*
 
 ### Active
 
@@ -26,18 +35,12 @@ driver with a real MicroBeast — nothing else matters if that doesn't hold.
 
 - [ ] VT52 emulation covering the pragmatic subset actually emitted by the
       MicroBeast and the software run on it (not strict DEC VT52, not ANSI).
-- [ ] Rust → wasm core responsible for parser, terminal state, and key
-      encoding — pure logic, no I/O, no transport concerns.
 - [ ] JS shell responsible for Web Serial I/O, canvas rendering, event loop,
       and browser state.
 - [ ] Web Serial transport driven entirely from JS (no Rust bindings to Web
       Serial).
-- [ ] Rust↔JS interop via `wasm-bindgen` + `wasm-pack`.
 - [ ] Keyboard input: map standard PC browser key events to VT52 key codes
       (arrows, keypad, control keys).
-- [ ] Two rendering themes shipped in v1 with a user toggle: a classic CRT
-      look (bitmap-style font, phosphor colour, optional scanlines/glow) and a
-      clean modern monospace look.
 - [ ] Scrollback buffer for reviewing output above the current screen.
 - [ ] Copy text out of the screen and paste into the serial stream.
 - [ ] Session logging — capture the serial stream to a downloadable file.
@@ -102,12 +105,14 @@ driver with a real MicroBeast — nothing else matters if that doesn't hold.
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| Rust/wasm core, JS shell | Clean separation: Rust is pure logic (easy to test, portable), JS handles everything the browser exposes (I/O, rendering, events). | — Pending |
-| Web Serial driven from JS, not Rust | Rust Web Serial bindings are considered brittle/unmaintained by the author; going through JS is the path of least pain. | — Pending |
-| `wasm-bindgen` + `wasm-pack` | Standard, well-trodden toolchain for Rust↔JS with codegen'd glue; pairs well with static-site bundlers. | — Pending |
-| Pragmatic VT52 subset only | Only what the MicroBeast and its software emit matters; over-scoping to DEC VT52 / ANSI / H19 trades effort for nothing. | — Pending |
-| Chromium-only + polite fail on others | Web Serial is Chromium-only; pluggable transport abstraction isn't worth the design cost for a personal daily driver. | — Pending |
-| Classic CRT *and* clean modern themes in v1 | Both are cheap on top of canvas rendering and the author wants both available without a later retrofit. | — Pending |
+| Rust/wasm core, JS shell | Clean separation: Rust is pure logic (easy to test, portable), JS handles everything the browser exposes (I/O, rendering, events). | Validated through Phase 3 |
+| Web Serial driven from JS, not Rust | Rust Web Serial bindings are considered brittle/unmaintained by the author; going through JS is the path of least pain. | — Pending (Phase 5) |
+| `wasm-bindgen` + `wasm-pack` | Standard, well-trodden toolchain for Rust↔JS with codegen'd glue; pairs well with static-site bundlers. | Validated in Phase 2 |
+| Pragmatic VT52 subset only | Only what the MicroBeast and its software emit matters; over-scoping to DEC VT52 / ANSI / H19 trades effort for nothing. | Validated in Phase 1 (parser) |
+| Chromium-only + polite fail on others | Web Serial is Chromium-only; pluggable transport abstraction isn't worth the design cost for a personal daily driver. | — Pending (Phase 5) |
+| Classic CRT *and* clean modern themes in v1 | Both are cheap on top of canvas rendering and the author wants both available without a later retrofit. | Validated in Phase 3 |
+| Theme toggle chord remapped to Ctrl+Alt+T | Chromium reserves Ctrl+Shift+T for "reopen closed tab"; Ctrl+Alt+T avoids the collision while staying ergonomically close. | Decided in Phase 3 (UAT gap #4) |
+| Focus border driven by `[data-focused]` attribute (not `:focus-visible`) | `:focus-visible` only fires on keyboard focus in Chromium; an attribute-based selector populated by chrome.js fires on programmatic and pointer focus too. | Decided in Phase 3 (UAT gap #7) |
 | Permissive license (MIT / Apache-2.0) | VT52 emulators are rare; low-friction licensing maximises usefulness to other MicroBeast owners. | — Pending |
 
 ## Evolution
@@ -128,4 +133,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-04-21 after initialization*
+*Last updated: 2026-04-22 after Phase 3 (Canvas Renderer) completion*
