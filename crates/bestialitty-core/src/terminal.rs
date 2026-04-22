@@ -49,7 +49,11 @@ impl Terminal {
             cursor_row: 0,
             cursor_col: 0,
             bell_pending: false,
-            host_reply: Vec::new(),
+            // Pre-reserve 8 bytes — comfortably covers the only Phase 2 reply
+            // (ESC `/` K = 3 bytes) with headroom for future identify-style
+            // multi-byte replies. Keeps `host_reply_ptr` stable across
+            // `feed_silent` calls in steady state (02-06-PLAN.md D-03 mirror).
+            host_reply: Vec::with_capacity(8),
             graphics_mode: false,
             alt_keypad: false,
             hold_screen: false,
@@ -60,6 +64,11 @@ impl Terminal {
     /// Hot path: process a chunk of bytes from the host; accumulate any
     /// host-bound reply (e.g. ESC Z -> ESC / K). Returns bytes the JS shell
     /// writes to `port.writable`. Typically empty.
+    ///
+    /// RETAINED for native callers (terminal.rs tests + boundary_api_shape +
+    /// fixture_runner — 11 callers total). The wasm façade in `lib.rs` uses
+    /// `feed_silent` instead (02-06-PLAN.md) to avoid the wasm-bindgen
+    /// `.slice()` that this `Vec<u8>` return forces on every call.
     pub fn feed(&mut self, bytes: &[u8]) -> Vec<u8> {
         self.host_reply.clear();
         // Take the parser out of self briefly so Rust's borrow checker
@@ -68,6 +77,49 @@ impl Terminal {
         parser.feed(self, bytes);
         self.parser = parser;
         std::mem::take(&mut self.host_reply)
+    }
+
+    /// Like `feed` but does NOT take or return the host_reply. Any host-bound
+    /// reply bytes accumulate into `self.host_reply`; JS reads via
+    /// `host_reply_ptr` / `host_reply_len` and acks via `clear_host_reply`.
+    ///
+    /// Wasm-only surface (02-06-PLAN.md): keeps the JS-side per-call
+    /// allocation at zero in the common (empty-reply) case by eliminating
+    /// the wasm-bindgen-generated `.slice()` on the `feed()` return value.
+    /// Closes the dominant SC-3 heap-sawtooth source.
+    pub fn feed_silent(&mut self, bytes: &[u8]) {
+        self.host_reply.clear();
+        let mut parser = std::mem::take(&mut self.parser);
+        parser.feed(self, bytes);
+        self.parser = parser;
+        // host_reply is intentionally NOT taken; JS reads it via ptr/len.
+    }
+
+    /// Pointer into the host_reply buffer. Stable across `feed_silent` calls
+    /// in steady state — `Terminal::new` pre-reserves 8 bytes, comfortably
+    /// bounding the only Phase 2 reply (3 bytes). Mirrors the D-03 contract
+    /// for `pack_ptr` / `dirty_ptr`.
+    ///
+    /// JS re-derives its `Uint8Array` view if `wasm.memory.buffer` is
+    /// replaced (memory growth / ArrayBuffer detachment). A future >8-byte
+    /// reply would require either bumping the pre-reserve OR adding a
+    /// pointer-identity guard alongside the buffer-identity guard in JS.
+    pub fn host_reply_ptr(&self) -> *const u8 {
+        self.host_reply.as_ptr()
+    }
+
+    /// Length in bytes of the currently-pending host reply. 0 in the common
+    /// case (no ESC Z in the most recent feed_silent). Constant-time field
+    /// read; JS calls this once per feed to decide whether to read + clear.
+    pub fn host_reply_len(&self) -> usize {
+        self.host_reply.len()
+    }
+
+    /// Ack the pending host reply: resets `len` to 0 while preserving
+    /// capacity, so the next ESC Z reuses the same allocation rather than
+    /// freeing-and-re-malloc'ing.
+    pub fn clear_host_reply(&mut self) {
+        self.host_reply.clear();
     }
 
     pub fn cursor(&self) -> (u32, u32) {

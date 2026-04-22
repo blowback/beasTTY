@@ -67,8 +67,31 @@ mod wasm_boundary {
 
         /// Feed a byte chunk through the VT52 parser. ONE boundary call per
         /// chunk — never per-byte (RESEARCH Pitfall #4, SC-4).
-        pub fn feed(&mut self, bytes: &[u8]) -> Vec<u8> {
-            self.inner.feed(bytes)
+        ///
+        /// Returns nothing: any host-bound reply (ESC Z -> ESC / K) is
+        /// accumulated in an internal buffer JS reads via `host_reply_ptr`
+        /// / `host_reply_len` and acks via `clear_host_reply`. This shape
+        /// keeps the JS-side allocation at zero in the common (empty-reply)
+        /// case, closing the SC-3 sawtooth (02-06-PLAN.md).
+        pub fn feed(&mut self, bytes: &[u8]) {
+            self.inner.feed_silent(bytes);
+        }
+
+        /// Pointer into the host-reply buffer. Stable across `feed()` calls
+        /// in steady state (D-03 mirror). JS re-derives the `Uint8Array`
+        /// view only when `wasm.memory.buffer` changes.
+        pub fn host_reply_ptr(&self) -> *const u8 {
+            self.inner.host_reply_ptr()
+        }
+
+        /// Length of the currently-pending host reply. 0 in the common case.
+        pub fn host_reply_len(&self) -> usize {
+            self.inner.host_reply_len()
+        }
+
+        /// Ack a reply read; resets length to 0, preserves capacity.
+        pub fn clear_host_reply(&mut self) {
+            self.inner.clear_host_reply();
         }
 
         /// Refresh the pack buffer. Call once per frame before reading

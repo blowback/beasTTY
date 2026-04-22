@@ -211,3 +211,97 @@ fn key_unpack_signatures_are_stable() {
     let bytes: Vec<u8> = encode(evt);
     assert_eq!(bytes, vec![0x1B, b'A']);
 }
+
+// --- Phase 2 Plan 06: zero-copy host_reply surface pins (SC-3 gap closure) ---
+
+#[test]
+fn feed_silent_returns_unit_and_accumulates_host_reply() {
+    // 02-06 contract: `feed_silent` drives the parser without taking or
+    // returning the host_reply. JS reads the pending reply via
+    // `host_reply_ptr` / `host_reply_len`, then acks via `clear_host_reply`.
+    // This eliminates the wasm-bindgen-generated `.slice()` on the feed()
+    // return value (dominant SC-3 allocation source).
+    let mut term = Terminal::new(24, 80, 100);
+    term.feed_silent(b"\x1BZ");
+    assert_eq!(
+        term.host_reply_len(),
+        3,
+        "ESC Z accumulates 3 bytes into host_reply"
+    );
+    let bytes = unsafe {
+        core::slice::from_raw_parts(term.host_reply_ptr(), term.host_reply_len())
+    };
+    assert_eq!(
+        bytes,
+        &[0x1B, b'/', b'K'][..],
+        "host_reply must hold the canonical identify reply"
+    );
+    term.clear_host_reply();
+    assert_eq!(
+        term.host_reply_len(),
+        0,
+        "clear_host_reply resets len to 0"
+    );
+}
+
+#[test]
+fn feed_silent_empty_reply_path_is_zero_len() {
+    // Steady-state common case: pure print has no host_reply. The pointer
+    // must still be valid (Vec pre-reserved in Terminal::new) so JS can
+    // construct a persistent Uint8Array view over the capacity even when
+    // the current len is 0.
+    let mut term = Terminal::new(24, 80, 100);
+    term.feed_silent(b"Hello");
+    assert_eq!(
+        term.host_reply_len(),
+        0,
+        "pure-print feed produces no host_reply bytes"
+    );
+    assert!(
+        !term.host_reply_ptr().is_null(),
+        "host_reply_ptr must be non-null even when len=0 (pre-reserved Vec)"
+    );
+}
+
+#[test]
+fn host_reply_ptr_stable_across_feed_silent_calls() {
+    // D-03 mirror: the host_reply pointer must not move under steady-state
+    // ESC-Z traffic. Vec::with_capacity(8) in Terminal::new + the 3-byte
+    // reply keeps us well under the reallocation threshold. JS caches the
+    // Uint8Array view over this pointer; a move here would require JS to
+    // re-derive per call (which is what we're eliminating).
+    let mut term = Terminal::new(24, 80, 100);
+    term.feed_silent(b"\x1BZ");
+    let before = term.host_reply_ptr() as usize;
+    term.clear_host_reply();
+    term.feed_silent(b"\x1BZ");
+    let after = term.host_reply_ptr() as usize;
+    assert_eq!(
+        before, after,
+        "host_reply_ptr must be stable across feed_silent+clear_host_reply cycles"
+    );
+}
+
+#[test]
+fn feed_silent_does_not_return() {
+    // Compile-time pin: a future change to `feed_silent` that introduces
+    // a return type (e.g. reverting to `-> Vec<u8>`) would reintroduce the
+    // wasm-bindgen `.slice()` and fail the SC-3 contract. This assertion
+    // fails to compile if the signature drifts.
+    let _: fn(&mut Terminal, &[u8]) = Terminal::feed_silent;
+}
+
+#[test]
+fn existing_feed_still_returns_vec_u8() {
+    // Regression guard: Plan 06 RETAINS the native `Terminal::feed -> Vec<u8>`
+    // surface so all 11 native callers (terminal.rs tests + boundary_api_shape
+    // + fixture_runner) keep working. Only the wasm façade in lib.rs switches
+    // to feed_silent; pure-Rust callers are unaffected.
+    let mut term = Terminal::new(24, 80, 100);
+    let reply: Vec<u8> = term.feed(b"\x1BZ");
+    assert_eq!(
+        reply,
+        vec![0x1B, b'/', b'K'],
+        "native Terminal::feed continues to return the Vec<u8> reply"
+    );
+}
