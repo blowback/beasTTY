@@ -50,6 +50,17 @@ function reDeriveViews() {
     if (wasm.memory.buffer !== cachedBuffer) rebuildViews();
 }
 
+// Mark every row dirty so the next tick() repaints the entire grid. Called
+// after atlas.evict() from setTheme / setPhosphor / zoomStep / resetZoom /
+// watchDPR — otherwise the dirty-row optimisation leaves the canvas blank
+// (atlas flushed + dirty-bitmap still all-zero → paint loop paints nothing).
+// UAT gaps 3, 5, 6 all share this root cause.
+function markAllRowsDirty() {
+    if (!dirtyView) return;
+    const rows = dirtyView.length;
+    for (let r = 0; r < rows; r++) dirtyView[r] = 1;
+}
+
 // ---- Module-local renderer state ----
 
 let canvas = null;
@@ -66,6 +77,8 @@ let rafPending = false;
 let needsPaint = false;
 let canvasHasFocus = false;
 let bellOverlayEl = null;    // resolved lazily — chrome.js may add #bell-overlay after boot
+let bellFlashTimer = null;   // outstanding setTimeout handle for bell-overlay class reset (WR-04 fold)
+let blinkStartMs = (typeof performance !== 'undefined') ? performance.now() : Date.now();
 
 // ---- HiDPI resize (RESEARCH §Pattern 1) ----
 
@@ -104,6 +117,7 @@ function watchDPR() {
     const mql = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
     mql.addEventListener('change', () => {
         if (atlas) atlas.evict();
+        markAllRowsDirty();                                                    // repaint entire grid at new DPR
         resizeToTheme();
         needsPaint = true;
         requestFrame();
@@ -155,7 +169,7 @@ function paintRow(r, cols) {
 
     // Clear the row band first (row bg) so dirty repaint overwrites old content.
     ctx.fillStyle = activeTheme.bg;
-    ctx.fillRect(0, r * cellH, 80 * cellW, cellH);
+    ctx.fillRect(0, r * cellH, cols * cellW, cellH);
 
     for (let c = 0; c < cols; c++) {
         const i = (r * cols + c) * CELL_SIZE;
@@ -187,8 +201,11 @@ function paintCursor() {
         return;
     }
 
-    // Focused: 530 ms blink via frameCount (D-07). 60 fps → 32 frames ≈ 530 ms.
-    const blinkOn = (frameCount % 64) < 32;
+    // Focused: 530 ms blink gated by wall-clock time (D-07) — immune to rAF
+    // throttling and monitor refresh rate. Uses performance.now() to avoid
+    // system-clock jumps. Cycle: 530 ms ON, 530 ms OFF (total period 1060 ms).
+    const elapsed = performance.now() - blinkStartMs;
+    const blinkOn = (Math.floor(elapsed / 530) & 1) === 0;
     if (!blinkOn) return;
 
     // Focused-on: block-fill + inverted-glyph overdraw.
@@ -212,7 +229,23 @@ function paintCursor() {
 function tick() {
     rafPending = false;
     frameCount++;
+
+    // SNAPSHOT FIRST — term.snapshot_grid() may call wasm memory.grow on its
+    // first invocation (or any time scrollback grows), which detaches any
+    // Uint8Array view backed by the old wasm.memory.buffer. Deriving views
+    // BEFORE the snapshot would leave gridView / dirtyView detached for this
+    // frame (Chromium throws TypeError, rAF dies silently) — WR-01 in 03-REVIEW.
+    term.snapshot_grid();
+
+    // Re-derive if the snapshot's memory.grow swapped the backing buffer.
     reDeriveViews();
+
+    // Defensive: if grid_byte_len has changed (first-snapshot path: 0 → 15360,
+    // or any future wasm-side resize), fully rebuild views. Closes the
+    // zero-length-gridView-at-boot path G-03-04-01 for good.
+    if (gridView.byteLength !== term.grid_byte_len()) {
+        rebuildViews();
+    }
 
     // NOTE: bell sampling, tab-title prefix, and overlay flash are OWNED BY
     // main.js (Plan 03) via the synchronous feed-completion path. The rAF tick
@@ -222,7 +255,6 @@ function tick() {
     // otherwise make the BEL-while-hidden UAT test flaky.
 
     // Dirty-row repaint.
-    term.snapshot_grid();
     const rows = term.rows();
     const cols = term.cols();
     for (let r = 0; r < rows; r++) {
@@ -234,7 +266,8 @@ function tick() {
     // steady-state allocation is zero after the first cursor frame).
     paintCursor();
 
-    // Self-reschedule (D-07 + RESEARCH Pitfall #4).
+    // Self-reschedule (D-07 + RESEARCH Pitfall #4). Also self-reschedule
+    // unconditionally if focused so the cursor's next blink-toggle frame fires.
     if (canvasHasFocus || needsPaint) {
         needsPaint = false;
         requestFrame();
@@ -289,10 +322,16 @@ export async function bootRenderer(opts) {
 
 export function setTheme(name) {
     if (!(name in THEMES)) return;
+    // Same-value short-circuit (REVIEW warning 3): clicking the already-active
+    // theme button must NOT evict the atlas, mark every row dirty, re-prime
+    // ASCII, or re-dispatch a rAF — the visible result would be an unnecessary
+    // full-grid repaint flicker. Guard intent: identity-click = no-op.
+    if (activeTheme && name === activeTheme.name) return;
     activeTheme = THEMES[name];
     // Entering CRT: restore last-selected phosphor (D-05 — phosphor is CRT-only).
     if (name === 'crt') applyPhosphorToTheme(activePhosphor);
     atlas.evict();
+    markAllRowsDirty();                                                        // gap #3 — mark every row dirty so the full grid repaints
     resizeToTheme();
     queueMicrotask(() => primeAscii(atlas, 1, makeRasteriserForTheme(activeTheme), activeZoom));
     needsPaint = true;
@@ -318,8 +357,12 @@ function applyPhosphorToTheme(color) {
 
 export function setPhosphor(color) {
     if (activeTheme.name !== 'crt') return;
+    // Same-value short-circuit (REVIEW warning 3): clicking the already-active
+    // phosphor button must NOT trigger an atlas evict + full-grid repaint.
+    if (color === activePhosphor) return;
     applyPhosphorToTheme(color);
     atlas.evict();
+    markAllRowsDirty();                                                        // gap #5 — recolour every rendered glyph on next paint
     queueMicrotask(() => primeAscii(atlas, 1, makeRasteriserForTheme(activeTheme), activeZoom));
     needsPaint = true;
     requestFrame();
@@ -330,6 +373,7 @@ export function zoomStep(delta) {
     if (z === activeZoom) return;
     activeZoom = z;
     atlas.evict();
+    markAllRowsDirty();                                                        // gap #6 — repaint all content at new cell size
     resizeToTheme();
     queueMicrotask(() => primeAscii(atlas, 1, makeRasteriserForTheme(activeTheme), activeZoom));
     needsPaint = true;
@@ -340,6 +384,7 @@ export function resetZoom() {
     if (activeZoom === 1) return;
     activeZoom = 1;
     atlas.evict();
+    markAllRowsDirty();                                                        // gap #6 — same as zoomStep
     resizeToTheme();
     queueMicrotask(() => primeAscii(atlas, 1, makeRasteriserForTheme(activeTheme), activeZoom));
     needsPaint = true;
@@ -348,6 +393,7 @@ export function resetZoom() {
 
 export function setFocus(focused) {
     canvasHasFocus = focused;
+    if (focused) blinkStartMs = performance.now();
     needsPaint = true;
     requestFrame();
 }
@@ -359,6 +405,10 @@ export function getActiveZoom() { return activeZoom; }
 export function triggerBellFlash() {
     const el = bellOverlayEl || document.getElementById('bell-overlay');
     if (!el) return;   // chrome may not be mounted yet during early boot
+    if (bellFlashTimer !== null) clearTimeout(bellFlashTimer);
     el.classList.add('flash');
-    setTimeout(() => el.classList.remove('flash'), 100);
+    bellFlashTimer = setTimeout(() => {
+        el.classList.remove('flash');
+        bellFlashTimer = null;
+    }, 100);
 }
