@@ -99,8 +99,8 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans**: 4 plans
   - [x] 04-01-PLAN.md — Wave 0 scaffolding: 8 Playwright stub specs + testMatch extension + `window.__testGridView` harness (Wave 1)
   - [x] 04-02-PLAN.md — Core keyboard wiring: www/input/keyboard.js + tx-sink.js + wireKeyboard call site in main.js (Wave 2)
-  - [ ] 04-03-PLAN.md — Settings pane DOM + Debug TX strip + chrome.js mousedown preventDefault + main.js control wiring (Wave 3)
-  - [ ] 04-04-PLAN.md — Fill Playwright stubs with real assertions + manual UAT checkpoint for IME + AltGraph + daily-driver feel (Wave 4)
+  - [x] 04-03-PLAN.md — Settings pane DOM + Debug TX strip + chrome.js mousedown preventDefault + main.js control wiring (Wave 3)
+  - [x] 04-04-PLAN.md — Fill Playwright stubs with real assertions + manual UAT checkpoint for IME + AltGraph + daily-driver feel (Wave 4)
 **UI hint**: yes
 
 ### Phase 5: Web Serial Transport
