@@ -163,6 +163,61 @@
       margin: 4px 0;
     }
     #debug code { background: rgba(255,255,255,0.08); padding: 0 4px; border-radius: 2px; }
+
+    /* ==== Settings details (Phase 4 D-13) — mirrors #debug rule ==== */
+    #settings {
+      margin: 16px auto; max-width: 90ch;
+      padding: 8px 16px;
+      background: var(--chrome-bg);
+      border: 1px solid var(--chrome-border);
+      font-size: 12px;
+    }
+    #settings summary {
+      cursor: pointer; font-size: 14px;
+      padding: 4px 0;
+    }
+    #settings label {
+      display: inline-flex; align-items: center; gap: 4px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    #settings fieldset {
+      margin: 8px 0;
+      padding: 8px;
+      border: 1px solid var(--chrome-border);
+      display: flex; flex-wrap: wrap; gap: 16px;
+    }
+    #settings legend {
+      font-size: 13px;
+      padding: 0 4px;
+    }
+    #settings .hint {
+      color: rgba(255,255,255,0.6);
+      font-size: 12px;
+      margin: 4px 0;
+    }
+    #settings details.reserved {
+      margin-top: 8px;
+      border: 1px solid var(--chrome-border);
+      padding: 4px 8px;
+    }
+    #settings details.reserved summary {
+      font-size: 13px;
+    }
+
+    /* TX hex strip inside Debug pane (Phase 4 D-15) */
+    #tx-strip {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px;
+      background: #0f1419;
+      color: var(--chrome-fg);
+      border: 1px solid var(--chrome-border);
+      padding: 4px 8px;
+      margin: 4px 0;
+      white-space: pre;
+      overflow-x: auto;
+      min-height: 1.4em;
+    }
   </style>
 </head>
 <body data-theme="crt">
@@ -183,6 +238,29 @@
     <div id="scanlines"></div>
   </div>
 
+  <!-- Settings pane (Phase 4 D-13/D-14) — default-collapsed; local echo + CR/LF + reserved note. -->
+  <details id="settings">
+    <summary>Settings</summary>
+    <label for="local-echo">
+      <input type="checkbox" id="local-echo">
+      Local echo
+    </label>
+    <p class="hint">Show typed characters on screen before they reach the host. Off by default; enable for bootloaders or self-test modes that don't echo.</p>
+
+    <fieldset>
+      <legend>Enter key sends</legend>
+      <label><input type="radio" name="crlf" id="crlf-cr" value="cr" checked> CR (0x0D)</label>
+      <label><input type="radio" name="crlf" id="crlf-lf" value="lf"> LF (0x0A)</label>
+      <label><input type="radio" name="crlf" id="crlf-crlf" value="crlf"> CRLF (0x0D 0x0A)</label>
+    </fieldset>
+    <p class="hint">CR (0x0D) matches every MicroBeast workload we've observed. Switch to CRLF if every line prints twice; LF if lines stack on top of each other.</p>
+
+    <details class="reserved">
+      <summary>Browser-reserved Ctrl combinations</summary>
+      <p class="hint">Ctrl+W, Ctrl+N, Ctrl+T are claimed by Chromium (close tab, new window, reopen closed tab) and cannot be intercepted by a web page. Use Ctrl+F4, Ctrl+Shift+N, or a different keybinding on the MicroBeast side if you need those control codes. Everything from Ctrl+A through Ctrl+Z (except W, N, T) is forwarded normally, as are Ctrl+@, Ctrl+[, Ctrl+\, Ctrl+], Ctrl+^, Ctrl+_.</p>
+    </details>
+  </details>
+
   <!-- Debug harness (D-15) — retained Phase 2 SC-4 demonstration path. -->
   <details id="debug">
     <summary>Debug</summary>
@@ -198,6 +276,9 @@
       <button id="feed" type="button">Feed</button>
       <button id="stress64k" type="button">64 KB Stress</button>
     </div>
+    <p class="hint">TX bytes (last 64):</p>
+    <pre id="tx-strip">(none yet — press any key on the terminal to see TX bytes)</pre>
+    <button id="tx-reset" type="button">Reset TX</button>
   </details>
 
   <script type="module" src="./main.js"></script>
