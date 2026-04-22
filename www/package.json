@@ -1,0 +1,15 @@
+{
+  "name": "bestialitty-www",
+  "private": true,
+  "version": "0.0.0",
+  "description": "BestialiTTY static-site frontend — Playwright tests for canvas renderer (Phase 3).",
+  "type": "module",
+  "scripts": {
+    "test": "playwright test --project=chromium",
+    "test:fast": "playwright test --project=chromium --grep @fast",
+    "test:update": "playwright test --project=chromium --update-snapshots"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.51.0"
+  }
+}
