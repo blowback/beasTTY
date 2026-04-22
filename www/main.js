@@ -28,8 +28,8 @@ import {
     triggerBellFlash,          // Plan 03 owns bell sampling; canvas.js provides the CSS helper
 } from './renderer/canvas.js';
 import { wireChrome } from './renderer/chrome.js';
-import { wireKeyboard } from './input/keyboard.js';
-import { registerTxObserver, formatHexStrip } from './input/tx-sink.js';
+import { wireKeyboard, setLocalEcho, setCrlfMode } from './input/keyboard.js';
+import { registerTxObserver, formatHexStrip, resetTx } from './input/tx-sink.js';
 
 // ---- init + construction (Phase 2 — unchanged) ----
 const wasm = await init();                             // top-level-await: Chromium >=89
@@ -43,6 +43,12 @@ const themeButton     = document.getElementById('theme-toggle');
 const phosphorGroup   = document.getElementById('phosphor-group');
 const phosphorButtons = phosphorGroup.querySelectorAll('button[data-phosphor]');
 const bellOverlay     = document.getElementById('bell-overlay');
+// Phase 4 Plan 03 — Settings pane + Debug TX strip refs.
+const localEchoCheckbox = document.getElementById('local-echo');
+const crlfRadios        = document.querySelectorAll('input[name="crlf"]');
+const txStripEl         = document.getElementById('tx-strip');
+const txResetButton     = document.getElementById('tx-reset');
+const TX_STRIP_PLACEHOLDER = '(none yet — press any key on the terminal to see TX bytes)';
 wireChrome({ terminalWrapper, themeButton, phosphorButtons, phosphorGroup, bellOverlay });
 
 // ---- Phase 4 Plan 01 — test harness hook (unconditionally exposed) ----
@@ -166,6 +172,61 @@ wireKeyboard({
     sampleBell,
     drainHostReply,
     requestFrame,
+});
+
+// ---- Phase 4 Plan 03 — Settings controls ----
+// Local-echo toggle (INPUT-04). Default unchecked in DOM; setLocalEcho(false)
+// is the default in keyboard.js. Change event fires for both mouse-click
+// (after mousedown preventDefault below restores the toggle) and keyboard
+// activation (Tab + Space).
+localEchoCheckbox.addEventListener('change', (e) => {
+    setLocalEcho(e.target.checked);
+});
+// D-16 — mousedown preventDefault prevents focus transfer. Native checkbox
+// click semantics would then NOT toggle the state, so we restore it:
+localEchoCheckbox.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    localEchoCheckbox.checked = !localEchoCheckbox.checked;
+    setLocalEcho(localEchoCheckbox.checked);
+});
+
+// CR/LF override (INPUT-05). Radio default 'cr' per UI-SPEC (checked attr
+// on #crlf-cr). Change event fires via Tab+Space or (after mousedown restore)
+// mouse click.
+for (const radio of crlfRadios) {
+    radio.addEventListener('change', (e) => {
+        if (e.target.checked) setCrlfMode(e.target.value);
+    });
+    // D-16 — mousedown preventDefault + explicit check + setCrlfMode.
+    radio.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        radio.checked = true;
+        // Clear sibling radios (native radio group exclusion is bypassed
+        // when we set .checked programmatically after preventDefault).
+        for (const other of crlfRadios) {
+            if (other !== radio) other.checked = false;
+        }
+        setCrlfMode(radio.value);
+    });
+}
+
+// TX-strip observer (D-15). Registered exactly once; fires synchronously on
+// every pushTxBytes. Placeholder restored when ring is empty (after resetTx
+// or before any keypress).
+registerTxObserver(() => {
+    const hex = formatHexStrip(64);
+    txStripEl.textContent = hex === '' ? TX_STRIP_PLACEHOLDER : hex;
+});
+
+// Reset TX button — non-destructive (CONTEXT D-07, UI-SPEC Destructive states:
+// "not applicable"). Click fires from both mouse (via mousedown restore) and
+// keyboard (Tab + Enter/Space).
+txResetButton.addEventListener('click', () => {
+    resetTx();
+});
+txResetButton.addEventListener('mousedown', (e) => {
+    e.preventDefault();                           // D-16 focus retention.
+    resetTx();                                    // explicit action — mousedown suppressed native click path.
 });
 
 // ---- Feed button (Phase 2 D-11 item 2 — ONE feed call per click) ----
