@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 04-01-PLAN.md
-last_updated: "2026-04-22T20:56:59.334Z"
+stopped_at: Completed 04-02-PLAN.md
+last_updated: "2026-04-22T21:07:50.647Z"
 last_activity: 2026-04-22
 progress:
   total_phases: 6
   completed_phases: 3
   total_plans: 24
-  completed_plans: 21
-  percent: 88
+  completed_plans: 22
+  percent: 92
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-04-21)
 ## Current Position
 
 Phase: 04 (keyboard-input) — EXECUTING
-Plan: 2 of 4
+Plan: 3 of 4
 Status: Ready to execute
 Last activity: 2026-04-22
 
-Progress: [█████████░] 88%
+Progress: [█████████░] 92%
 
 ## Performance Metrics
 
@@ -79,6 +79,7 @@ Progress: [█████████░] 88%
 | Phase 03-canvas-renderer P06 | 3min | 3 tasks tasks | 4 files files |
 | Phase 03-canvas-renderer P07 | ~110min | 3 tasks + 1 Rule 1 auto-fix | 10 files |
 | Phase 04-keyboard-input P01 | 3min | 3 tasks | 10 files |
+| Phase 04-keyboard-input P02 | 6min | 3 tasks tasks | 3 files files |
 
 ## Accumulated Context
 
@@ -143,6 +144,10 @@ Recent decisions affecting current work:
 - Phase 3 Plan 07 Rule 1 auto-fix: paintCursor blink-off path now repaints cell bg + underlying glyph (was a bare return) — Plan 03-05's wall-clock gate was correctly written but visible cursor stayed ON because dirty-row optimisation left the previously-painted block on screen; regression test 'gap #1 — wall-clock blink' caught it
 - Phase 3 Plan 07 Task 3 deviation: user signalled `approved` on the human-verify checkpoint without running the 14 tests individually; recorded faithfully in 03-UAT.md `## Gap Closure UAT (second pass)` as `result: user-approved (not individually re-run)` per test, with a `notes:` line making clear the Summary counts (passed: 14 / issues: 0) reflect verbal approval, not 14 individual re-runs; automated Playwright suite (32 passed, 0 failed, 0 fixmes) stands as substitute regression evidence
 - Phase 4 Plan 01: 8 fixmed Playwright stubs under www/tests/input/ resolve every INPUT-*/SC-* <automated> command ahead of implementation; testMatch glob union preserves Phase 3 render suite; window.__testGridView re-derives per-call for memory-growth safety and is unconditionally exposed (Phase 4 has zero security surface)
+- Phase 4 Plan 02: keyboard.js uses wireKeyboard(opts) dependency injection — term/sampleBell/drainHostReply/requestFrame injected rather than imported from main.js, keeping the module standalone-testable and avoiding circular imports Plan 04-03 would hit
+- Phase 4 Plan 02: ASCII-only compositionend emission (charCodeAt <= 0xFF guard) chosen over TextEncoder UTF-8 — VT52 is ASCII, MicroBeast has no UTF-8 codepath; one-line extension point preserved
+- Phase 4 Plan 02: CR/LF override is TX-side byte rewrite only (post-encode_key_raw) — Rust encoder stays frozen per D-13; rewrite applies only when wasEnter AND bytes == [0x0D] AND crlfMode != 'cr'
+- Phase 4 Plan 02: TX ring (Uint8Array(1024)) is JS-owned, NOT a view over wasm.memory.buffer — Phase 5 swap to Web Serial writer.write keeps the allocation and ring/observer machinery; no memory-identity guard needed
 
 ### Pending Todos
 
@@ -167,8 +172,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-04-22T20:56:52.929Z
-Stopped at: Completed 04-01-PLAN.md
+Last session: 2026-04-22T21:07:35.938Z
+Stopped at: Completed 04-02-PLAN.md
 Resume file: None
 
 **Planned Phase:** 04 (keyboard-input) — 4 plans — 2026-04-22T20:50:10.948Z

@@ -98,7 +98,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   5. Canvas holds focus after clicking any toolbar button; IME composition does not double-emit characters
 **Plans**: 4 plans
   - [x] 04-01-PLAN.md — Wave 0 scaffolding: 8 Playwright stub specs + testMatch extension + `window.__testGridView` harness (Wave 1)
-  - [ ] 04-02-PLAN.md — Core keyboard wiring: www/input/keyboard.js + tx-sink.js + wireKeyboard call site in main.js (Wave 2)
+  - [x] 04-02-PLAN.md — Core keyboard wiring: www/input/keyboard.js + tx-sink.js + wireKeyboard call site in main.js (Wave 2)
   - [ ] 04-03-PLAN.md — Settings pane DOM + Debug TX strip + chrome.js mousedown preventDefault + main.js control wiring (Wave 3)
   - [ ] 04-04-PLAN.md — Fill Playwright stubs with real assertions + manual UAT checkpoint for IME + AltGraph + daily-driver feel (Wave 4)
 **UI hint**: yes
