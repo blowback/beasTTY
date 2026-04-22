@@ -22,8 +22,8 @@ session log, persistent preferences, static deployment, and a 24-hour soak.
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Rust Core — Parser, Grid, Key Encoder** - Pure-Rust VT52 parser, terminal state, scrollback ring, and key encoder, all verified by `cargo test`; includes the parser-strategy spike and live MicroBeast byte capture
-- [ ] **Phase 2: Wasm Boundary & Minimal JS Harness** - `wasm-pack --target web` build pipeline and a minimal JS harness that validates zero-copy, batched byte-feed boundary end-to-end
-- [ ] **Phase 3: Canvas Renderer** - HiDPI canvas renderer with glyph atlas, dirty-row repaint, CRT and clean themes, visible cursor and focus, visible-bell flash
+- [x] **Phase 2: Wasm Boundary & Minimal JS Harness** - `wasm-pack --target web` build pipeline and a minimal JS harness that validates zero-copy, batched byte-feed boundary end-to-end
+- [x] **Phase 3: Canvas Renderer** - HiDPI canvas renderer with glyph atlas, dirty-row repaint, CRT and clean themes, visible cursor and focus, visible-bell flash
 - [ ] **Phase 4: Keyboard Input** - DOM keydown capture mapping PC keyboard to VT52 bytes, local-echo mode, CR/LF override toggle, browser-shortcut handling
 - [ ] **Phase 5: Web Serial Transport** - Chromium detection, port picker, cancellation-safe read loop, DTR/RTS-safe connect, auto-reconnect, paste throttling
 - [ ] **Phase 6: Daily-Driver Polish, Session & Deployment** - Copy/paste, scrollback UI, session log download, persistent preferences, static deploy under permissive license, 24-hour soak
@@ -134,7 +134,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 |-------|----------------|--------|-----------|
 | 1. Rust Core — Parser, Grid, Key Encoder | 7/7 | Complete    | 2026-04-21 |
 | 2. Wasm Boundary & Minimal JS Harness | 6/6 | Complete    | 2026-04-22 |
-| 3. Canvas Renderer | 7/7 | Gap closure complete; awaiting verification | - |
+| 3. Canvas Renderer | 7/7 | Complete    | 2026-04-22 |
 | 4. Keyboard Input | 0/TBD | Not started | - |
 | 5. Web Serial Transport | 0/TBD | Not started | - |
 | 6. Daily-Driver Polish, Session & Deployment | 0/TBD | Not started | - |
