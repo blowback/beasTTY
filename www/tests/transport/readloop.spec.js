@@ -76,13 +76,64 @@ test.describe('XPORT-11 + SC-5 + D-35/D-38/D-39 — Read loop', () => {
         for (const n of argCounts) expect(n).toBe(0);
     });
 
-    test.fixme('visibilitychange !hidden triggers requestFrame catch-up', async ({ page }) => {
+    test('visibilitychange !hidden triggers requestFrame catch-up', async ({ page }) => {
         await setup(page);
-        expect(true).toBe(true);
+        await page.locator('#connect-button').click();
+        await expect(page.locator('#connect-button')).toHaveAttribute('data-state', 'connected');
+        // Simulate hidden → push bytes (they feed into term asynchronously) → visible.
+        // The catch-up requestFrame should then wake the renderer; we verify via
+        // the grid view that 'HI' is present at the first two cells.
+        await page.evaluate(() => {
+            Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
+            Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+            document.dispatchEvent(new Event('visibilitychange'));
+        });
+        await page.evaluate(() => window.__mockReaderPush([0x48, 0x49]));   // 'HI'
+        await page.waitForTimeout(100);
+        await page.evaluate(() => {
+            Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
+            Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' });
+            document.dispatchEvent(new Event('visibilitychange'));
+        });
+        // After the visibilitychange, the catch-up requestFrame should have painted.
+        await expect.poll(async () => {
+            return await page.evaluate(() => {
+                const g = window.__testGridView();
+                return String.fromCharCode(g[0], g[8]);
+            });
+        }, { timeout: 2000 }).toBe('HI');
+        // State still connected (visibilitychange did not disrupt transport).
+        await expect(page.locator('#connect-button')).toHaveAttribute('data-state', 'connected');
     });
 
-    test.fixme('read error transitions state to port-lost', async ({ page }) => {
+    test('read error transitions state to port-lost', async ({ page }) => {
         await setup(page);
-        expect(true).toBe(true);
+        await page.locator('#connect-button').click();
+        await expect(page.locator('#connect-button')).toHaveAttribute('data-state', 'connected');
+        // Wait for reader to exist, then force the next read() to throw a
+        // NetworkError (permission-revoke simulation — D-28).
+        await expect.poll(
+            () => page.evaluate(() => Boolean(navigator.serial._grantedPorts[0]?._reader)),
+            { timeout: 2000 },
+        ).toBe(true);
+        await page.evaluate(() => {
+            const p = navigator.serial._grantedPorts[0];
+            const origRead = p._reader.read.bind(p._reader);
+            let thrown = false;
+            p._reader.read = async () => {
+                if (!thrown) {
+                    thrown = true;
+                    const e = new Error('simulated network error');
+                    e.name = 'NetworkError';
+                    throw e;
+                }
+                return origRead();
+            };
+            // Kick the pending read by pushing a byte — the patched read() then
+            // throws NetworkError which handleReadError treats as permission-revoked.
+            window.__mockReaderPush([0x00]);
+        });
+        await expect(page.locator('#connect-button')).toHaveAttribute('data-state', 'port-lost', { timeout: 3000 });
+        await expect(page.locator('#error-log')).toContainText('permission-revoked', { timeout: 2000 });
     });
 });
