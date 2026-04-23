@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 05-web-serial-transport 05 (Wave 4 — auto-reconnect + error log ring-of-5 + VID/PID localStorage persistence)
-last_updated: "2026-04-23T01:37:36.379Z"
+stopped_at: Completed 05-web-serial-transport 06 (Wave 5 — paste-pump end-to-end + 8 paste tests un-fixme'd)
+last_updated: "2026-04-23T01:48:35.478Z"
 last_activity: 2026-04-23
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 31
-  completed_plans: 29
-  percent: 94
+  completed_plans: 30
+  percent: 97
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-04-21)
 ## Current Position
 
 Phase: 05 (Web Serial Transport) — EXECUTING
-Plan: 6 of 7
+Plan: 7 of 7
 Status: Ready to execute
 Last activity: 2026-04-23
 
-Progress: [█████████░] 94%
+Progress: [██████████] 97%
 
 ## Performance Metrics
 
@@ -88,6 +88,7 @@ Progress: [█████████░] 94%
 | Phase 05-web-serial-transport P03 | 7min | 3 tasks tasks | 6 files files |
 | Phase Phase 05-web-serial-transport PP04 | 5min | 3 tasks tasks | 4 files files |
 | Phase 05-web-serial-transport P05 | 5min | 3 tasks tasks | 3 files files |
+| Phase 05-web-serial-transport P06 | 6min | 3 tasks tasks | 5 files files |
 
 ## Accumulated Context
 
@@ -181,6 +182,10 @@ Recent decisions affecting current work:
 - Phase 5 Plan 05: error log ring-of-5 via errorLog.unshift + length-cap (ERROR_LOG_CAP=5); renderErrorLog seeds '(no recent errors)' at wireSerial boot so silent-reconnect tests can assert empty-state text; HH:MM:SS via new Date().toTimeString().slice(0,8) 24-hour local; appendErrorLog auto-expands connectionPane.open=true on new entry (D-27)
 - Phase 5 Plan 05: handleReadError refined for NetworkError (D-28 permission-revoked) vs generic read-error; connectMicroBeast open-error branch refined for InvalidStateError with 'in use'/'already open' message (D-29 port-in-use — another BestialiTTY tab owns it); both user-actionable with distinct log codes per UI-SPEC
 - Phase 5 Plan 05: grep-hygiene pattern recurs — 3 Rule 1 auto-fixes (setTimeout 500 multi-line, 'Choose MicroBeast…' comment duplicate, 'reopen-failed' comment duplicate). Fourth occurrence in Phase 5. Standing lesson: paraphrase comments that reference load-bearing literals instead of quoting them when a grep-count done-criterion exists
+- Phase 5 Plan 06 (Wave 5): paste-pump body implements self-scheduling setTimeout chain (writeOneChunk schedules writeOneChunk after gapMs) — never setInterval (Pitfall 6). computeGap floors at 4ms to defend against unrealistic baud rates; at 19200 returns 18ms and yields ~1.15s for 1KB paste (90% of byte rate). setBaudForPump exported but unused in Wave 5 — Phase 6 PREF-01 wires it on config change
+- Phase 5 Plan 06: CRLF_MODES exported from keyboard.js (was module-scope const) so paste-pump reuses the identical table per D-23. Re-exported from paste-pump.js to keep the import reachable and suppress unused-import linting
+- Phase 5 Plan 06: pastePump.onPortLost() called from THREE paths — teardown Step 5, onNavSerialDisconnect after setState('port-lost'), handleReadError after setState('port-lost'). Triple-call is intentional + idempotent (isActive guard makes 2nd/3rd calls no-ops); covers all races between the read loop, the disconnect event, and user-initiated disconnect
+- Phase 5 Plan 06: keypress queue-jump (D-19) needs no explicit scheduler — each pushTxBytes call writes immediately through tx-sink.registeredWriter.write, so a keypress between paste chunks interleaves naturally. Test 6 asserts a single-byte 0x41 'A' write sandwiched between two 32-byte 0x45 'E' chunks; passes deterministically on mock-serial which has synchronous writes
 
 ### Pending Todos
 
@@ -205,8 +210,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-04-23T01:37:13.142Z
-Stopped at: Completed 05-web-serial-transport 05 (Wave 4 — auto-reconnect + error log ring-of-5 + VID/PID localStorage persistence)
+Last session: 2026-04-23T01:48:35.471Z
+Stopped at: Completed 05-web-serial-transport 06 (Wave 5 — paste-pump end-to-end + 8 paste tests un-fixme'd)
 Resume file: None
 
 **Planned Phase:** 5 (Web Serial Transport) — 7 plans — 2026-04-23T00:45:32.678Z

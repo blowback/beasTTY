@@ -117,9 +117,9 @@ Decimal phases appear between their surrounding integers in numeric order.
   - [x] 05-01-PLAN.md — Wave 0 scaffolding: Playwright navigator.serial mock + 7 spec stubs + testMatch extension + 05-HUMAN-UAT.md skeleton (Wave 0)
   - [x] 05-02-PLAN.md — Polite-fail gate first-line + Connection pane DOM + Connect button CSS + serial.js / paste-pump.js module skeletons (Wave 1)
   - [x] 05-03-PLAN.md — Core transport: requestPort + port.open + DTR/RTS safe defaults + pure-async read loop + cancel-before-close teardown + tx-sink writer coupling (Wave 2)
-  - [ ] 05-04-PLAN.md — Serial-config form wiring (baud / data bits / stop bits / parity / flow control + Reset to preset) (Wave 3)
+  - [x] 05-04-PLAN.md — Serial-config form wiring (baud / data bits / stop bits / parity / flow control + Reset to preset) (Wave 3)
   - [x] 05-05-PLAN.md — Auto-reconnect state machine + navigator.serial event listeners + error log ring-of-5 + VID/PID localStorage persistence (Wave 4)
-  - [ ] 05-06-PLAN.md — Paste pump setTimeout chain + CR/LF rewrite + Esc-cancel + progress observer + Paste test button (Wave 5)
+  - [x] 05-06-PLAN.md — Paste pump setTimeout chain + CR/LF rewrite + Esc-cancel + progress observer + Paste test button (Wave 5)
   - [ ] 05-07-PLAN.md — beforeunload handler + visibilitychange catch-up + remaining specs + 05-HUMAN-UAT.md checkpoint (Wave 6)
 **UI hint**: yes
 
