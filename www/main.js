@@ -39,6 +39,12 @@ import { wireChrome } from './renderer/chrome.js';
 import { wireKeyboard, setLocalEcho, setCrlfMode } from './input/keyboard.js';
 import { registerTxObserver, formatHexStrip, resetTx } from './input/tx-sink.js';
 import { wireSerial } from './transport/serial.js';
+import {
+    enqueuePaste,
+    onProgress as onPastePumpProgress,
+    cancelPaste as cancelPastePump,
+    wirePastePump,
+} from './input/paste-pump.js';
 
 // ---- init + construction (Phase 2 — unchanged) ----
 const wasm = await init();                             // top-level-await: Chromium >=89
@@ -71,6 +77,11 @@ const serialParity        = document.getElementById('serial-parity');
 const serialFlowCtl       = document.getElementById('serial-flowctl');
 const serialReset         = document.getElementById('serial-reset-preset');
 const serialReconnectHint = document.getElementById('serial-reconnect-hint');
+// Phase 5 Wave 5 — paste UI refs (D-16 / D-17 / D-18).
+const pasteProgressRow    = document.getElementById('paste-progress-row');
+const pasteProgressText   = document.getElementById('paste-progress-text');
+const pasteCancelBtn      = document.getElementById('paste-cancel');
+const pasteTestBtn        = document.getElementById('paste-test');
 wireChrome({ terminalWrapper, themeButton, phosphorButtons, phosphorGroup, bellOverlay });
 
 // ---- Phase 4 Plan 01 — test harness hook (unconditionally exposed) ----
@@ -196,6 +207,11 @@ wireKeyboard({
     requestFrame,
 });
 
+// Phase 5 Wave 5 — wire paste-pump's local-echo feed path (D-22). MUST be
+// called AFTER wireKeyboard (deps are resolved) and BEFORE wireSerial so the
+// pump is ready to accept bytes the instant the port opens.
+wirePastePump({ term, sampleBell, drainHostReply, requestFrame });
+
 // Phase 5 — wire Web Serial transport. opts mirror Phase 4 wireKeyboard
 // shape for sampleBell/drainHostReply/requestFrame discipline (D-35 post-feed
 // invariant). await because wireSerial awaits navigator.serial.getPorts() on
@@ -279,6 +295,71 @@ txResetButton.addEventListener('mousedown', (e) => {
     e.preventDefault();                           // D-16 focus retention.
     resetTx();                                    // explicit action — mousedown suppressed native click path.
 });
+
+// ---- Phase 5 Wave 5 — paste progress observer + Cancel + Paste test ----
+// D-17 observer updates the Connection-pane progress line, auto-expands the
+// pane on start, and restores prior open/collapsed state on complete/cancel.
+// preExpansionOpen is module-scope-ish (closure-captured); null between
+// pastes so the next 'started' re-captures fresh pane state.
+let preExpansionOpen = null;
+onPastePumpProgress((ev) => {
+    if (ev.status === 'started') {
+        preExpansionOpen = connectionPane.open;
+        if (!connectionPane.open) connectionPane.open = true;
+        pasteProgressRow.hidden = false;
+        pasteProgressText.textContent = `Pasting ${ev.total} B — 0%`;
+        return;
+    }
+    if (ev.status === 'chunk') {
+        const pct = Math.round(ev.written / ev.total * 100);
+        pasteProgressText.textContent = `Pasting ${ev.total} B — ${pct}%`;
+        return;
+    }
+    if (ev.status === 'complete') {
+        pasteProgressText.textContent = 'Paste complete';
+        setTimeout(() => {
+            pasteProgressRow.hidden = true;
+            pasteProgressText.textContent = '';
+            if (preExpansionOpen === false) connectionPane.open = false;
+            preExpansionOpen = null;
+        }, 2000);
+        return;
+    }
+    if (ev.status === 'cancelled') {
+        pasteProgressText.textContent = 'Paste cancelled';
+        setTimeout(() => {
+            pasteProgressRow.hidden = true;
+            pasteProgressText.textContent = '';
+            if (preExpansionOpen === false) connectionPane.open = false;
+            preExpansionOpen = null;
+        }, 2000);
+        return;
+    }
+    if (ev.status === 'cancelled-port-lost') {
+        pasteProgressText.textContent = `Paste cancelled — port lost (${ev.unsent} bytes unsent)`;
+        setTimeout(() => {
+            pasteProgressRow.hidden = true;
+            pasteProgressText.textContent = '';
+            if (preExpansionOpen === false) connectionPane.open = false;
+            preExpansionOpen = null;
+        }, 3000);
+        return;
+    }
+});
+
+// D-18 Cancel button wiring. mousedown preventDefault retains #terminal-wrapper
+// focus so Esc continues to work after a mouse-click cancel (UI-SPEC §Focus retention).
+pasteCancelBtn.addEventListener('click', () => cancelPastePump());
+pasteCancelBtn.addEventListener('mousedown', (e) => e.preventDefault());
+
+// D-16 — Paste test button routes textarea bytes through the pump.
+// Uses parseHexEscapes so \xNN escapes produce control bytes.
+pasteTestBtn.addEventListener('click', () => {
+    const textarea = document.getElementById('input');
+    const bytes = parseHexEscapes(textarea.value);
+    enqueuePaste(bytes);
+});
+pasteTestBtn.addEventListener('mousedown', (e) => e.preventDefault());
 
 // ---- Feed button (Phase 2 D-11 item 2 — ONE feed call per click) ----
 document.getElementById('feed').addEventListener('click', () => {
