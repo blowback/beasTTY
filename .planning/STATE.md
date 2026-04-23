@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 05-web-serial-transport 02 (Wave 1)
-last_updated: "2026-04-23T01:04:25.026Z"
+stopped_at: Completed 05-web-serial-transport 03 (Wave 2 — core transport + read loop)
+last_updated: "2026-04-23T01:16:49.013Z"
 last_activity: 2026-04-23
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 31
-  completed_plans: 26
-  percent: 84
+  completed_plans: 27
+  percent: 87
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-04-21)
 ## Current Position
 
 Phase: 05 (Web Serial Transport) — EXECUTING
-Plan: 3 of 7
+Plan: 4 of 7
 Status: Ready to execute
 Last activity: 2026-04-23
 
-Progress: [████████░░] 84%
+Progress: [█████████░] 87%
 
 ## Performance Metrics
 
@@ -85,6 +85,7 @@ Progress: [████████░░] 84%
 | Phase 04-keyboard-input P04 | 6min | 3 tasks tasks | 9 files files |
 | Phase 05-web-serial-transport P01 | 5min | 3 tasks | 10 files |
 | Phase 05-web-serial-transport P02 | 6min | 4 tasks | 6 files |
+| Phase 05-web-serial-transport P03 | 7min | 3 tasks tasks | 6 files files |
 
 ## Accumulated Context
 
@@ -167,6 +168,10 @@ Recent decisions affecting current work:
 - Phase 5 Plan 02 (Wave 1): polite-fail gate MUST abort via throw new Error('__polite-fail__') not return — main.js has top-level await + top-level statements so return is illegal at module scope; throw is the only cross-browser way to halt subsequent imports after renderPoliteFail's body-swap
 - Phase 5 Plan 02: Connect-button[data-state=connected] uses literal hex #33ff66 (NOT var(--phosphor-fg)) — universal green success semantic reads correctly across green/amber/white phosphors; codified directly in the #connect-button[data-state] CSS block with literal colors for connecting amber (#e0b030) and port-lost red (#e04040) too
 - Phase 5 Plan 02: body.polite-fail ruleset MUST include 'display: block; align-items: unset' to override Phase 3's body { display: flex; flex-direction: column; align-items: center } — otherwise polite-fail page centers a half-width column of content, defeating the full-page takeover contract
+- Phase 5 Plan 03 (Wave 2): Outer while(p.readable) + inner while(true) pure-async read loop with raw Uint8Array term.feed (no TextDecoder) — Pitfall #10 hard gate via grep-count = 0. Post-feed invariant sampleBell→drainHostReply('serial')→requestFrame preserved from Phase 3
+- Phase 5 Plan 03: Teardown order setSignals(DTR=false, RTS=false) → reader.cancel() → writer.releaseLock+unregisterWriter → port.close; runReadLoop trailing port.close() kept as safety net for fatal-error exit path; reconnect.spec asserts firstCancelIdx < firstCloseIdx to tolerate the benign second close while preserving Pitfall #1 invariant
+- Phase 5 Plan 03: tx-sink registerWriter/unregisterWriter is the single coupling point for Phase 4 keyboard + future Phase 6 paste-pump → wire; pushTxBytes signature preserved per Phase 4 D-07; writer.write(bytes).catch is fire-and-forget (Streams API handles backpressure at 19200 baud)
+- Phase 5 Plan 03: VID/PID literal 0x10c4/0xea60 inlined at requestPort filter call site (constants VID_MICROBEAST/PID_MICROBEAST still exist for the getPorts() getInfo match on boot-time restore) — done-criteria grep-anchor requires the literal visible inline
 
 ### Pending Todos
 
@@ -191,8 +196,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-04-23T01:04:25.019Z
-Stopped at: Completed 05-web-serial-transport 02 (Wave 1)
+Last session: 2026-04-23T01:16:49.007Z
+Stopped at: Completed 05-web-serial-transport 03 (Wave 2 — core transport + read loop)
 Resume file: None
 
 **Planned Phase:** 5 (Web Serial Transport) — 7 plans — 2026-04-23T00:45:32.678Z
