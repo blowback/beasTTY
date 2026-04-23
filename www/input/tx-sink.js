@@ -20,6 +20,12 @@ let wrapped = false;
 
 const observers = [];
 
+// Phase 5 D-21 — when a writer is registered (serial.js does this on connect),
+// every pushTxBytes call ALSO writes bytes to the wire synchronously after
+// appending to the ring. Signature of pushTxBytes is preserved (04-CONTEXT D-07);
+// keyboard.js is completely unaware of the coupling.
+let registeredWriter = null;
+
 // --- Public API -----------------------------------------------------------
 
 export function pushTxBytes(bytes) {
@@ -31,6 +37,17 @@ export function pushTxBytes(bytes) {
         if (writeIdx === 0) wrapped = true;
     }
     notify();
+
+    // Phase 5 D-21 — send on the wire when connected. Fire-and-forget;
+    // Streams API handles backpressure internally (writer.ready is a separate
+    // concern — at 1.7 KB/s write rate, plain await is sufficient). A failed
+    // write here does NOT unregister the writer; the serial.js teardown path
+    // handles lifecycle on port-lost.
+    if (registeredWriter) {
+        registeredWriter.write(bytes).catch((err) => {
+            console.error('[tx-sink] writer.write failed:', err);
+        });
+    }
 }
 
 export function formatHexStrip(limit = 64) {
@@ -57,6 +74,11 @@ export function resetTx() {
     wrapped = false;
     notify();
 }
+
+// Phase 5 D-21 — writer registration. serial.js calls registerWriter(writer)
+// after port.open() succeeds; unregisterWriter() in teardown.
+export function registerWriter(writer) { registeredWriter = writer; }
+export function unregisterWriter()     { registeredWriter = null; }
 
 // --- Internals ------------------------------------------------------------
 
