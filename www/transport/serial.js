@@ -19,6 +19,8 @@ const PID_MICROBEAST = 0xea60;   // D-02 — CP2102N
 const PRESET_CONFIG = Object.freeze({
     baudRate: 19200, dataBits: 8, stopBits: 1, parity: 'none', flowControl: 'none',
 });
+const STORAGE_KEY = 'bestialitty.port.preset';   // D-31 — localStorage key for VID/PID persistence
+const ERROR_LOG_CAP = 5;                          // D-27 — ring-of-5 newest-first
 const BUTTON_LABELS = Object.freeze({
     disconnected:  'Connect',
     connecting:    'Connecting…',          // U+2026 ellipsis
@@ -35,6 +37,7 @@ let state = 'disconnected';
 let lastConfig = null;
 let lastPortRef = null;
 const stateObservers = [];
+const errorLog = [];                              // D-27 — ring of last 5 entries (newest-first)
 
 // Injected deps (filled by wireSerial, used by Wave 2+ wiring).
 let term = null;
@@ -85,13 +88,22 @@ export async function wireSerial(opts) {
     errorLogEl = log;
     serialEls = serialConfigEls || null;
 
-    // D-05 — on boot, scan getPorts() and stash any matching port reference.
+    // D-26 — connect/disconnect listeners on navigator.serial (NOT port instances).
+    // Registered ONCE at wireSerial boot time. Pitfall #11 — listening on a port
+    // reference is the wrong level; the port is replaced on replug.
+    navigator.serial.addEventListener('connect', onNavSerialConnect);
+    navigator.serial.addEventListener('disconnect', onNavSerialDisconnect);
+
+    // D-05 / D-31 — on boot, read stored preset + scan getPorts() + stash match.
     // Does NOT auto-open — user clicks Connect explicitly.
+    const stored = readStoredPreset();
     try {
         const ports = await navigator.serial.getPorts();
         const match = ports.find((p) => {
             const i = p.getInfo();
-            return i.usbVendorId === VID_MICROBEAST && i.usbProductId === PID_MICROBEAST;
+            const vid = stored ? stored.usbVendorId : VID_MICROBEAST;
+            const pid = stored ? stored.usbProductId : PID_MICROBEAST;
+            return i.usbVendorId === vid && i.usbProductId === pid;
         });
         if (match) {
             lastPortRef = match;
@@ -102,6 +114,9 @@ export async function wireSerial(opts) {
     } catch (err) {
         console.warn('[serial] getPorts restore skipped:', err);
     }
+
+    // Render the empty-state error log on boot (D-27).
+    renderErrorLog();
 
     // Connect button click handler — D-01 stateful toggle.
     connectButton.addEventListener('click', onConnectButtonClick);
@@ -214,7 +229,15 @@ export async function connectMicroBeast(configOverride) {
         // D-11 — de-assert DTR/RTS immediately after open (Pitfall #12).
         await selectedPort.setSignals({ dataTerminalReady: false, requestToSend: false });
     } catch (err) {
-        appendErrorLog('open-failed', `Could not open port: ${err.message}`);
+        // D-29 — InvalidStateError ("port is in use" / "already open") is a
+        // distinct user-facing message (another BestialiTTY tab owns the port).
+        const msg = (err.message || '').toLowerCase();
+        if (err.name === 'InvalidStateError' && (msg.includes('in use') || msg.includes('already open'))) {
+            appendErrorLog('port-in-use',
+                'MicroBeast is in use by another BestialiTTY tab — close it to connect here.');
+        } else {
+            appendErrorLog('open-failed', `Could not open port: ${err.message}`);
+        }
         setState('disconnected');
         return;
     }
@@ -289,9 +312,16 @@ async function runReadLoop(p) {
 }
 
 function handleReadError(err) {
-    appendErrorLog('read-error', `Read error — treating as port lost: ${err.message}`);
+    // D-28 — NetworkError from the read loop means permission was revoked
+    // (e.g. user clicked "Forget device" in chrome://device-log); distinct
+    // user-facing message vs. a generic read error (unplug, wire noise).
+    const isPermissionRevoke = err && err.name === 'NetworkError';
+    if (isPermissionRevoke) {
+        appendErrorLog('permission-revoked', 'Permission revoked — click Reconnect to re-authorize');
+    } else {
+        appendErrorLog('read-error', `Read error — treating as port lost: ${err.message}`);
+    }
     console.error('[serial] read error', err);
-    // Wave 4 transitions to port-lost + triggers reconnect flow. Wave 2 just logs.
     setState('port-lost');
 }
 
@@ -349,19 +379,153 @@ function updatePortStatusDisconnected() {
     portStatusEl.textContent = 'Not connected';
 }
 
-// Error log helper (stub — Wave 4 owns the ring of 5; Wave 2 just appends one line).
+// Error log — D-27 ring-of-5 newest-first, `HH:MM:SS code: message` format.
+// Auto-expands the Connection pane on a new entry so the user sees it.
 function appendErrorLog(code, message) {
-    const ts = new Date().toTimeString().slice(0, 8);
-    const line = `${ts} ${code}: ${message}`;
-    console.error('[serial]', line);
-    if (!errorLogEl) return;
-    // Wave 4 swaps this for a proper last-5 ring. Wave 2 naive append (one line).
-    errorLogEl.textContent = line;
+    const ts = new Date().toTimeString().slice(0, 8);   // HH:MM:SS 24-hour local
+    const entry = { ts, code, message };
+    errorLog.unshift(entry);                             // newest-first
+    if (errorLog.length > ERROR_LOG_CAP) errorLog.length = ERROR_LOG_CAP;
+    renderErrorLog();
+    console.error('[serial]', `${ts} ${code}: ${message}`);
+    if (connectionPane) connectionPane.open = true;      // D-27 auto-expand on error
 }
 
-// VID/PID persistence stub (Wave 4 implements the localStorage write; Wave 2 no-ops
-// to keep the call graph stable so Wave 4 lands via Edit not a new call-site).
+function renderErrorLog() {
+    if (!errorLogEl) return;
+    if (errorLog.length === 0) {
+        errorLogEl.textContent = '(no recent errors)';
+        return;
+    }
+    // escapeHtml() is the trust boundary for every interpolated string before
+    // innerHTML (threat-register T-05-05-01: malicious err.message injection).
+    const html = errorLog.map((e) => {
+        const safeMsg = escapeHtml(`${e.code}: ${e.message}`);
+        const safeTs  = escapeHtml(e.ts);
+        return `<span class="log-entry"><span class="log-ts">${safeTs}</span> ${safeMsg}</span>`;
+    }).join('\n');
+    errorLogEl.innerHTML = html;
+}
+
+function escapeHtml(str) {
+    return String(str)
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
+}
+
+// VID/PID persistence — D-31. Writes { usbVendorId, usbProductId } to
+// localStorage under STORAGE_KEY on every successful open. Boot-time
+// getPorts() scan (wireSerial above) filters against the stored pair.
 function persistVidPid(p) {
-    // Wave 4 Plan 05 — localStorage.setItem('bestialitty.port.preset', JSON.stringify(...))
-    // Wave 2 leaves this as a no-op to keep the function-call graph stable.
+    try {
+        const info = p.getInfo();
+        if (typeof info.usbVendorId === 'number' && typeof info.usbProductId === 'number') {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify({
+                usbVendorId: info.usbVendorId,
+                usbProductId: info.usbProductId,
+            }));
+        }
+    } catch (err) {
+        console.warn('[serial] persistVidPid failed:', err);
+    }
+}
+
+function readStoredPreset() {
+    try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        if (typeof parsed.usbVendorId === 'number' && typeof parsed.usbProductId === 'number') {
+            return parsed;
+        }
+        return null;
+    } catch { return null; }
+}
+
+// --- Auto-reconnect state machine (Wave 4) --------------------------------
+
+// navigator.serial 'connect' event handler — D-24 silent auto-reconnect.
+// Only re-enters from 'port-lost' (D-03 — explicit disconnect/connecting/connected
+// states must not be stomped by a replug notification).
+async function onNavSerialConnect(ev) {
+    if (state !== 'port-lost') return;
+    const stored = readStoredPreset();
+    if (!stored) return;
+
+    let ports;
+    try { ports = await navigator.serial.getPorts(); } catch { return; }
+    const matches = ports.filter((p) => {
+        const i = p.getInfo();
+        return i.usbVendorId === stored.usbVendorId && i.usbProductId === stored.usbProductId;
+    });
+    if (matches.length === 0) return;   // VID/PID mismatch — not our device.
+
+    let target;
+    if (matches.length === 1) {
+        target = matches[0];
+    } else {
+        // D-25 — multiple matches: prefer lastPortRef (exact identity match).
+        // T-05-05-03 — without identity match, refuse to auto-open (wrong-device guard);
+        // force the user to pick (label string literal below is verbatim) + log.
+        target = matches.find((p) => p === lastPortRef);
+        if (!target) {
+            setState('port-lost');
+            if (connectButton) connectButton.textContent = 'Choose MicroBeast…';   // U+2026
+            appendErrorLog('multiple-adapters', 'Multiple CP2102N adapters connected — pick one');
+            return;
+        }
+    }
+    await handleReconnect(target);
+}
+
+// navigator.serial 'disconnect' event handler — D-24 silent port-lost entry.
+// Only transitions if the disconnected port is the one we own (or the last one we saw).
+// No error log on clean unplug — the red border signal is sufficient.
+function onNavSerialDisconnect(ev) {
+    if (ev.target === port || ev.target === lastPortRef) {
+        setState('port-lost');
+    }
+}
+
+// Handle a VID/PID-matched reconnect — D-04 single silent retry after 500ms on
+// a transient open() rejection; second failure lands in port-lost + reopen-failed.
+async function handleReconnect(target) {
+    setState('reconnecting');
+    try {
+        await target.open(lastConfig || PRESET_CONFIG);
+        await target.setSignals({ dataTerminalReady: false, requestToSend: false });
+    } catch (firstErr) {
+        // D-04 — single silent retry after exactly 500ms.
+        setTimeout(() => retryOpenOnce(target), 500);
+        return;
+    }
+    await finishReconnect(target);
+}
+
+// D-04 retry — second attempt at open() after a 500ms gap. If this also fails
+// the device is not cleanly ready; we surface reopen-failed (code string below)
+// and land in port-lost so the user can click Reconnect explicitly.
+async function retryOpenOnce(target) {
+    try {
+        await target.open(lastConfig || PRESET_CONFIG);
+        await target.setSignals({ dataTerminalReady: false, requestToSend: false });
+    } catch (retryErr) {
+        setState('port-lost');
+        appendErrorLog('reopen-failed', `Reconnect failed: ${retryErr.message}`);
+        return;
+    }
+    await finishReconnect(target);
+}
+
+async function finishReconnect(target) {
+    writer = target.writable.getWriter();
+    registerWriter(writer);
+    port = target;
+    lastPortRef = target;
+    setState('connected');
+    updatePortStatusConnected();
+    runReadLoop(target);
 }
