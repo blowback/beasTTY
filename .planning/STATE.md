@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 5 Plan 01 (Wave 0) complete
-last_updated: "2026-04-23T00:53:51.428Z"
+stopped_at: Completed 05-web-serial-transport 02 (Wave 1)
+last_updated: "2026-04-23T01:04:25.026Z"
 last_activity: 2026-04-23
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 31
-  completed_plans: 25
-  percent: 81
+  completed_plans: 26
+  percent: 84
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-04-21)
 ## Current Position
 
 Phase: 05 (Web Serial Transport) — EXECUTING
-Plan: 2 of 7
+Plan: 3 of 7
 Status: Ready to execute
 Last activity: 2026-04-23
 
-Progress: [████████░░] 81%
+Progress: [████████░░] 84%
 
 ## Performance Metrics
 
@@ -84,6 +84,7 @@ Progress: [████████░░] 81%
 | Phase Phase 04-keyboard-input PP03 | 5min | 3 tasks tasks | 3 files files |
 | Phase 04-keyboard-input P04 | 6min | 3 tasks tasks | 9 files files |
 | Phase 05-web-serial-transport P01 | 5min | 3 tasks | 10 files |
+| Phase 05-web-serial-transport P02 | 6min | 4 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -163,6 +164,9 @@ Recent decisions affecting current work:
 - Phase 5 Plan 01 (Wave 0): Test scaffolding landed BEFORE any production code — 38 test.fixme stubs across 7 spec files + SERIAL_MOCK fixture + 05-HUMAN-UAT.md skeleton lock Nyquist sampling discipline; every XPORT-*/PLAT-*/SC-* requirement has an automated verification target at commit time that Waves 1-5 will un-fixme
 - Phase 5 Plan 01: SERIAL_MOCK exported as backtick-string IIFE (not ES module) because page.addInitScript runs the value in the page context before any module loads — mock class hierarchy (MockReader/MockWriter/MockSerialPort/MockSerial) + window.__simulate{Unplug,Replug} / __mockReaderPush / __mockWriterLog hooks all live inside the backtick literal
 - Phase 5 Plan 01: test.fixme (not test.skip) adopted as stub primitive so runner reports them as expected-to-fail not skipped; later waves convert test.fixme( → test( as each assertion becomes executable — mirrors Phase 4 convention
+- Phase 5 Plan 02 (Wave 1): polite-fail gate MUST abort via throw new Error('__polite-fail__') not return — main.js has top-level await + top-level statements so return is illegal at module scope; throw is the only cross-browser way to halt subsequent imports after renderPoliteFail's body-swap
+- Phase 5 Plan 02: Connect-button[data-state=connected] uses literal hex #33ff66 (NOT var(--phosphor-fg)) — universal green success semantic reads correctly across green/amber/white phosphors; codified directly in the #connect-button[data-state] CSS block with literal colors for connecting amber (#e0b030) and port-lost red (#e04040) too
+- Phase 5 Plan 02: body.polite-fail ruleset MUST include 'display: block; align-items: unset' to override Phase 3's body { display: flex; flex-direction: column; align-items: center } — otherwise polite-fail page centers a half-width column of content, defeating the full-page takeover contract
 
 ### Pending Todos
 
@@ -187,8 +191,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-04-23T00:53:51.422Z
-Stopped at: Phase 5 Plan 01 (Wave 0) complete
+Last session: 2026-04-23T01:04:25.019Z
+Stopped at: Completed 05-web-serial-transport 02 (Wave 1)
 Resume file: None
 
 **Planned Phase:** 5 (Web Serial Transport) — 7 plans — 2026-04-23T00:45:32.678Z
