@@ -147,7 +147,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | 2. Wasm Boundary & Minimal JS Harness | 6/6 | Complete    | 2026-04-22 |
 | 3. Canvas Renderer | 7/7 | Complete    | 2026-04-22 |
 | 4. Keyboard Input | 3/4 | In progress | - |
-| 5. Web Serial Transport | 1/7 | In progress | - |
+| 5. Web Serial Transport | 4/7 | In progress | - |
 | 6. Daily-Driver Polish, Session & Deployment | 0/TBD | Not started | - |
 
 ---

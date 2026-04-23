@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 05-web-serial-transport 03 (Wave 2 — core transport + read loop)
-last_updated: "2026-04-23T01:16:49.013Z"
+stopped_at: Completed 05-web-serial-transport 04 (Wave 3 — serial-config form wiring + Reset-preset button + reconnect-required hint)
+last_updated: "2026-04-23T01:26:33.849Z"
 last_activity: 2026-04-23
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 31
-  completed_plans: 27
-  percent: 87
+  completed_plans: 28
+  percent: 90
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-04-21)
 ## Current Position
 
 Phase: 05 (Web Serial Transport) — EXECUTING
-Plan: 4 of 7
+Plan: 5 of 7
 Status: Ready to execute
 Last activity: 2026-04-23
 
-Progress: [█████████░] 87%
+Progress: [█████████░] 90%
 
 ## Performance Metrics
 
@@ -86,6 +86,7 @@ Progress: [█████████░] 87%
 | Phase 05-web-serial-transport P01 | 5min | 3 tasks | 10 files |
 | Phase 05-web-serial-transport P02 | 6min | 4 tasks | 6 files |
 | Phase 05-web-serial-transport P03 | 7min | 3 tasks tasks | 6 files files |
+| Phase Phase 05-web-serial-transport PP04 | 5min | 3 tasks tasks | 4 files files |
 
 ## Accumulated Context
 
@@ -172,6 +173,8 @@ Recent decisions affecting current work:
 - Phase 5 Plan 03: Teardown order setSignals(DTR=false, RTS=false) → reader.cancel() → writer.releaseLock+unregisterWriter → port.close; runReadLoop trailing port.close() kept as safety net for fatal-error exit path; reconnect.spec asserts firstCancelIdx < firstCloseIdx to tolerate the benign second close while preserving Pitfall #1 invariant
 - Phase 5 Plan 03: tx-sink registerWriter/unregisterWriter is the single coupling point for Phase 4 keyboard + future Phase 6 paste-pump → wire; pushTxBytes signature preserved per Phase 4 D-07; writer.write(bytes).catch is fire-and-forget (Streams API handles backpressure at 19200 baud)
 - Phase 5 Plan 03: VID/PID literal 0x10c4/0xea60 inlined at requestPort filter call site (constants VID_MICROBEAST/PID_MICROBEAST still exist for the getPorts() getInfo match on boot-time restore) — done-criteria grep-anchor requires the literal visible inline
+- Phase 5 Plan 04 (Wave 3): form-as-source-of-truth — readFormConfig() parses DOM on every connect rather than maintaining a shadow in-memory config; snapPreset() writes form values + clears reconnect hint; change listeners on all 5 selects flag 'Config changed — Disconnect and Connect to apply' when state==connected && readFormConfig() differs from lastConfig; hideReconnectHint() at the tail of successful connectMicroBeast (not at setState('connected')) so lastConfig is guaranteed assigned before the hint-clear check
+- Phase 5 Plan 04: UI-SPEC string 'Config changed — Disconnect and Connect to apply' grep-count hygiene — same shape as Plan 05-03's TextDecoder-comment issue; load-bearing UI copy quoted in BOTH a comment and code broke the grep-count=1 done-criterion; fix = paraphrase the comment ('reconnect-required hint; string literal below is verbatim') so the code occurrence is the single authoritative source
 
 ### Pending Todos
 
@@ -196,8 +199,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-04-23T01:16:49.007Z
-Stopped at: Completed 05-web-serial-transport 03 (Wave 2 — core transport + read loop)
+Last session: 2026-04-23T01:26:33.842Z
+Stopped at: Completed 05-web-serial-transport 04 (Wave 3 — serial-config form wiring + Reset-preset button + reconnect-required hint)
 Resume file: None
 
 **Planned Phase:** 5 (Web Serial Transport) — 7 plans — 2026-04-23T00:45:32.678Z
