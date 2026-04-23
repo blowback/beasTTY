@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 05-web-serial-transport 04 (Wave 3 — serial-config form wiring + Reset-preset button + reconnect-required hint)
-last_updated: "2026-04-23T01:26:33.849Z"
+stopped_at: Completed 05-web-serial-transport 05 (Wave 4 — auto-reconnect + error log ring-of-5 + VID/PID localStorage persistence)
+last_updated: "2026-04-23T01:37:36.379Z"
 last_activity: 2026-04-23
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 31
-  completed_plans: 28
-  percent: 90
+  completed_plans: 29
+  percent: 94
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-04-21)
 ## Current Position
 
 Phase: 05 (Web Serial Transport) — EXECUTING
-Plan: 5 of 7
+Plan: 6 of 7
 Status: Ready to execute
 Last activity: 2026-04-23
 
-Progress: [█████████░] 90%
+Progress: [█████████░] 94%
 
 ## Performance Metrics
 
@@ -87,6 +87,7 @@ Progress: [█████████░] 90%
 | Phase 05-web-serial-transport P02 | 6min | 4 tasks | 6 files |
 | Phase 05-web-serial-transport P03 | 7min | 3 tasks tasks | 6 files files |
 | Phase Phase 05-web-serial-transport PP04 | 5min | 3 tasks tasks | 4 files files |
+| Phase 05-web-serial-transport P05 | 5min | 3 tasks tasks | 3 files files |
 
 ## Accumulated Context
 
@@ -175,6 +176,11 @@ Recent decisions affecting current work:
 - Phase 5 Plan 03: VID/PID literal 0x10c4/0xea60 inlined at requestPort filter call site (constants VID_MICROBEAST/PID_MICROBEAST still exist for the getPorts() getInfo match on boot-time restore) — done-criteria grep-anchor requires the literal visible inline
 - Phase 5 Plan 04 (Wave 3): form-as-source-of-truth — readFormConfig() parses DOM on every connect rather than maintaining a shadow in-memory config; snapPreset() writes form values + clears reconnect hint; change listeners on all 5 selects flag 'Config changed — Disconnect and Connect to apply' when state==connected && readFormConfig() differs from lastConfig; hideReconnectHint() at the tail of successful connectMicroBeast (not at setState('connected')) so lastConfig is guaranteed assigned before the hint-clear check
 - Phase 5 Plan 04: UI-SPEC string 'Config changed — Disconnect and Connect to apply' grep-count hygiene — same shape as Plan 05-03's TextDecoder-comment issue; load-bearing UI copy quoted in BOTH a comment and code broke the grep-count=1 done-criterion; fix = paraphrase the comment ('reconnect-required hint; string literal below is verbatim') so the code occurrence is the single authoritative source
+- Phase 5 Plan 05 (Wave 4): navigator.serial connect/disconnect listeners registered ONCE at wireSerial boot (D-26 + Pitfall #11) — NEVER on port instances; retryOpenOnce helper extracted to keep setTimeout(() => fn(), 500) on a single line for grep-anchored done-criterion; escapeHtml as T-05-05-01 trust boundary before innerHTML in renderErrorLog (replaceAll chain, no regex alloc)
+- Phase 5 Plan 05: onNavSerialConnect D-25 matrix — single VID/PID match → open; multi-match + p === lastPortRef → open; multi-match WITHOUT identity → setState('port-lost') + label 'Choose MicroBeast…' + multiple-adapters log (T-05-05-03 wrong-device elevation guard); no silent auto-open of ambiguous device
+- Phase 5 Plan 05: error log ring-of-5 via errorLog.unshift + length-cap (ERROR_LOG_CAP=5); renderErrorLog seeds '(no recent errors)' at wireSerial boot so silent-reconnect tests can assert empty-state text; HH:MM:SS via new Date().toTimeString().slice(0,8) 24-hour local; appendErrorLog auto-expands connectionPane.open=true on new entry (D-27)
+- Phase 5 Plan 05: handleReadError refined for NetworkError (D-28 permission-revoked) vs generic read-error; connectMicroBeast open-error branch refined for InvalidStateError with 'in use'/'already open' message (D-29 port-in-use — another BestialiTTY tab owns it); both user-actionable with distinct log codes per UI-SPEC
+- Phase 5 Plan 05: grep-hygiene pattern recurs — 3 Rule 1 auto-fixes (setTimeout 500 multi-line, 'Choose MicroBeast…' comment duplicate, 'reopen-failed' comment duplicate). Fourth occurrence in Phase 5. Standing lesson: paraphrase comments that reference load-bearing literals instead of quoting them when a grep-count done-criterion exists
 
 ### Pending Todos
 
@@ -199,8 +205,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-04-23T01:26:33.842Z
-Stopped at: Completed 05-web-serial-transport 04 (Wave 3 — serial-config form wiring + Reset-preset button + reconnect-required hint)
+Last session: 2026-04-23T01:37:13.142Z
+Stopped at: Completed 05-web-serial-transport 05 (Wave 4 — auto-reconnect + error log ring-of-5 + VID/PID localStorage persistence)
 Resume file: None
 
 **Planned Phase:** 5 (Web Serial Transport) — 7 plans — 2026-04-23T00:45:32.678Z

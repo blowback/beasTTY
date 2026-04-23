@@ -118,7 +118,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   - [x] 05-02-PLAN.md — Polite-fail gate first-line + Connection pane DOM + Connect button CSS + serial.js / paste-pump.js module skeletons (Wave 1)
   - [x] 05-03-PLAN.md — Core transport: requestPort + port.open + DTR/RTS safe defaults + pure-async read loop + cancel-before-close teardown + tx-sink writer coupling (Wave 2)
   - [ ] 05-04-PLAN.md — Serial-config form wiring (baud / data bits / stop bits / parity / flow control + Reset to preset) (Wave 3)
-  - [ ] 05-05-PLAN.md — Auto-reconnect state machine + navigator.serial event listeners + error log ring-of-5 + VID/PID localStorage persistence (Wave 4)
+  - [x] 05-05-PLAN.md — Auto-reconnect state machine + navigator.serial event listeners + error log ring-of-5 + VID/PID localStorage persistence (Wave 4)
   - [ ] 05-06-PLAN.md — Paste pump setTimeout chain + CR/LF rewrite + Esc-cancel + progress observer + Paste test button (Wave 5)
   - [ ] 05-07-PLAN.md — beforeunload handler + visibilitychange catch-up + remaining specs + 05-HUMAN-UAT.md checkpoint (Wave 6)
 **UI hint**: yes
@@ -147,7 +147,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | 2. Wasm Boundary & Minimal JS Harness | 6/6 | Complete    | 2026-04-22 |
 | 3. Canvas Renderer | 7/7 | Complete    | 2026-04-22 |
 | 4. Keyboard Input | 3/4 | In progress | - |
-| 5. Web Serial Transport | 4/7 | In progress | - |
+| 5. Web Serial Transport | 5/7 | In progress | - |
 | 6. Daily-Driver Polish, Session & Deployment | 0/TBD | Not started | - |
 
 ---
