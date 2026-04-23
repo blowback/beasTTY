@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-stopped_at: Completed 05-web-serial-transport 06 (Wave 5 — paste-pump end-to-end + 8 paste tests un-fixme'd)
-last_updated: "2026-04-23T01:48:35.478Z"
+status: verifying
+stopped_at: Completed 05-web-serial-transport 07 (Wave 6 — lifecycle hardening beforeunload+visibilitychange, 5 fixmes un-fixme'd, 05-HUMAN-UAT.md filled)
+last_updated: "2026-04-23T02:00:27.300Z"
 last_activity: 2026-04-23
 progress:
   total_phases: 6
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 31
-  completed_plans: 30
-  percent: 97
+  completed_plans: 31
+  percent: 100
 ---
 
 # Project State
@@ -27,10 +27,10 @@ See: .planning/PROJECT.md (updated 2026-04-21)
 
 Phase: 05 (Web Serial Transport) — EXECUTING
 Plan: 7 of 7
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-04-23
 
-Progress: [██████████] 97%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -89,6 +89,7 @@ Progress: [██████████] 97%
 | Phase Phase 05-web-serial-transport PP04 | 5min | 3 tasks tasks | 4 files files |
 | Phase 05-web-serial-transport P05 | 5min | 3 tasks tasks | 3 files files |
 | Phase 05-web-serial-transport P06 | 6min | 3 tasks tasks | 5 files files |
+| Phase 05-web-serial-transport P07 | 6min | 4 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -186,6 +187,10 @@ Recent decisions affecting current work:
 - Phase 5 Plan 06: CRLF_MODES exported from keyboard.js (was module-scope const) so paste-pump reuses the identical table per D-23. Re-exported from paste-pump.js to keep the import reachable and suppress unused-import linting
 - Phase 5 Plan 06: pastePump.onPortLost() called from THREE paths — teardown Step 5, onNavSerialDisconnect after setState('port-lost'), handleReadError after setState('port-lost'). Triple-call is intentional + idempotent (isActive guard makes 2nd/3rd calls no-ops); covers all races between the read loop, the disconnect event, and user-initiated disconnect
 - Phase 5 Plan 06: keypress queue-jump (D-19) needs no explicit scheduler — each pushTxBytes call writes immediately through tx-sink.registeredWriter.write, so a keypress between paste chunks interleaves naturally. Test 6 asserts a single-byte 0x41 'A' write sandwiched between two 32-byte 0x45 'E' chunks; passes deterministically on mock-serial which has synchronous writes
+- Phase 5 Plan 07 (Wave 6): beforeunload handler bypasses the shared teardown() helper intentionally — teardown awaits each step, and beforeunload's browser time budget cannot afford that latency. This is the ONLY code path that bypasses teardown
+- Phase 5 Plan 07: requestFrame in wireChrome opts is defensively-optional (falsy guard) so tests that call wireChrome without it fall back to Phase 3 BEL-prefix-only behavior
+- Phase 5 Plan 07: Polite-fail setup uses Object.defineProperty(Navigator.prototype, 'serial', { get: () => undefined }) instead of 'delete navigator.serial' — the delete is a silent no-op in real Chromium because navigator.serial is a non-configurable getter. Rule 1 auto-fix caught during Task 2
+- Phase 5 Plan 07 Task 4: human-verify checkpoint auto-approved under auto_chain_active=true with honest 'auto-approved-in-auto-chain (pending real-hardware UAT)' result strings rather than fake 'pass' — distinguishes plan-level document verification from physical-hardware checklist execution
 
 ### Pending Todos
 
@@ -210,8 +215,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-04-23T01:48:35.471Z
-Stopped at: Completed 05-web-serial-transport 06 (Wave 5 — paste-pump end-to-end + 8 paste tests un-fixme'd)
+Last session: 2026-04-23T02:00:27.293Z
+Stopped at: Completed 05-web-serial-transport 07 (Wave 6 — lifecycle hardening beforeunload+visibilitychange, 5 fixmes un-fixme'd, 05-HUMAN-UAT.md filled)
 Resume file: None
 
 **Planned Phase:** 5 (Web Serial Transport) — 7 plans — 2026-04-23T00:45:32.678Z
