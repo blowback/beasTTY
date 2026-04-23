@@ -60,40 +60,92 @@ test.describe('XPORT-06..08, XPORT-10 + SC-3 + D-03..D-05/D-24..D-26/D-30..D-31/
         expect(firstCancelIdx).toBeLessThan(firstCloseIdx);
     });
 
-    test.fixme('simulateUnplug transitions state to port-lost', async ({ page }) => {
+    test('simulateUnplug transitions state to port-lost', async ({ page }) => {
         await setup(page);
         await page.locator('#connect-button').click();
+        await expect(page.locator('#connect-button')).toHaveAttribute('data-state', 'connected');
         await page.evaluate(() => window.__simulateUnplug());
         await expect(page.locator('#connect-button')).toHaveAttribute('data-state', 'port-lost');
+        await expect(page.locator('#connect-button')).toHaveText('Reconnect');
     });
 
-    test.fixme('simulateReplug with matching VID/PID auto-reconnects silently', async ({ page }) => {
+    test('simulateReplug with matching VID/PID auto-reconnects silently', async ({ page }) => {
         await setup(page);
         await page.locator('#connect-button').click();
+        await expect(page.locator('#connect-button')).toHaveAttribute('data-state', 'connected');
         await page.evaluate(() => window.__simulateUnplug());
+        await expect(page.locator('#connect-button')).toHaveAttribute('data-state', 'port-lost');
+        await page.evaluate(() => window.__simulateReplug());
+        await expect(page.locator('#connect-button')).toHaveAttribute('data-state', 'connected');
+        // D-24 silent: error log stays at empty state (or absent); no new entries.
+        const logText = await page.locator('#error-log').textContent();
+        expect(logText).toContain('no recent errors');
+    });
+
+    test('auto-reconnect retries once after 500ms on transient open fail', async ({ page }) => {
+        await setup(page);
+        await page.locator('#connect-button').click();
+        await expect(page.locator('#connect-button')).toHaveAttribute('data-state', 'connected');
+        // Arrange: make the next open() throw once, then succeed.
+        await page.evaluate(() => {
+            const port = navigator.serial._grantedPorts[0];
+            const origOpen = port.open.bind(port);
+            let count = 0;
+            port.open = async (cfg) => {
+                count += 1;
+                if (count === 1) throw new Error('transient USB error');
+                return origOpen(cfg);
+            };
+            window.__openAttempts = () => count;
+        });
+        await page.evaluate(() => window.__simulateUnplug());
+        await expect(page.locator('#connect-button')).toHaveAttribute('data-state', 'port-lost');
+        await page.evaluate(() => window.__simulateReplug());
+        // Wait up to 2s for retry to land (retry delay is 500ms).
+        await expect(page.locator('#connect-button')).toHaveAttribute('data-state', 'connected', { timeout: 2000 });
+        const attempts = await page.evaluate(() => window.__openAttempts());
+        expect(attempts).toBeGreaterThanOrEqual(2);
+    });
+
+    test('reload with granted port stashes reference but does NOT auto-open', async ({ page }) => {
+        await setup(page);
+        await page.locator('#connect-button').click();
+        await expect(page.locator('#connect-button')).toHaveAttribute('data-state', 'connected');
+        // Task 1 wires persistVidPid on every successful open; verify it wrote.
+        const preset = await page.evaluate(() => localStorage.getItem('bestialitty.port.preset'));
+        expect(JSON.parse(preset)).toEqual({ usbVendorId: 0x10c4, usbProductId: 0xea60 });
+        // Reload re-seeds mock module state (no cross-reload mock persistence);
+        // observable contract: Connect button reverts to gray 'Connect'.
+        await page.reload();
+        await page.locator('#terminal-wrapper').focus();
+        await page.waitForFunction(() => document.getElementById('terminal').width > 0);
+        await expect(page.locator('#connect-button')).toHaveAttribute('data-state', 'disconnected');
+        await expect(page.locator('#connect-button')).toHaveText('Connect');
+    });
+
+    test('connect/disconnect listeners registered on navigator.serial not port', async ({ page }) => {
+        await setup(page);
+        // Behavioral proof (D-26): __simulateUnplug dispatches the 'disconnect'
+        // event on navigator.serial; if the listener were on the port instance
+        // instead, the state transition would not fire. Passing this test is
+        // proof the D-26 wiring is correct.
+        await page.locator('#connect-button').click();
+        await expect(page.locator('#connect-button')).toHaveAttribute('data-state', 'connected');
+        await page.evaluate(() => window.__simulateUnplug());
+        await expect(page.locator('#connect-button')).toHaveAttribute('data-state', 'port-lost');
+        // And the 'connect' listener round-trips back to connected.
         await page.evaluate(() => window.__simulateReplug());
         await expect(page.locator('#connect-button')).toHaveAttribute('data-state', 'connected');
     });
 
-    test.fixme('auto-reconnect retries once after 500ms on transient open fail', async ({ page }) => {
+    test('localStorage bestialitty.port.preset written after first open', async ({ page }) => {
         await setup(page);
-        expect(true).toBe(true);
-    });
-
-    test.fixme('reload with granted port stashes reference but does NOT auto-open', async ({ page }) => {
-        await setup(page);
-        expect(true).toBe(true);
-    });
-
-    test.fixme('connect/disconnect listeners registered on navigator.serial not port', async ({ page }) => {
-        await setup(page);
-        expect(true).toBe(true);
-    });
-
-    test.fixme('localStorage bestialitty.port.preset written after first open', async ({ page }) => {
-        await setup(page);
+        // Clear any carry-over value from a previous session.
+        await page.evaluate(() => localStorage.removeItem('bestialitty.port.preset'));
         await page.locator('#connect-button').click();
-        const preset = await page.evaluate(() => localStorage.getItem('bestialitty.port.preset'));
-        expect(preset).toBeTruthy();
+        await expect(page.locator('#connect-button')).toHaveAttribute('data-state', 'connected');
+        const stored = await page.evaluate(() => localStorage.getItem('bestialitty.port.preset'));
+        expect(stored).not.toBeNull();
+        expect(JSON.parse(stored)).toEqual({ usbVendorId: 0x10c4, usbProductId: 0xea60 });
     });
 });
