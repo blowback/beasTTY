@@ -114,7 +114,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   4. The serial-config UI exposes baud / data bits / stop bits / parity / flow-control overrides; pasting a large block of text into the terminal is rate-limited to serial line speed (no silent MicroBeast input-buffer overrun at 19200 baud)
   5. Loading the app in Firefox or Safari shows a polite "use a Chromium-based browser" message with no console errors and no crash; the read loop is a pure async `while(true) { await reader.read() }` that survives background-tab throttling without losing serial data
 **Plans**: 7 plans
-  - [ ] 05-01-PLAN.md — Wave 0 scaffolding: Playwright navigator.serial mock + 7 spec stubs + testMatch extension + 05-HUMAN-UAT.md skeleton (Wave 0)
+  - [x] 05-01-PLAN.md — Wave 0 scaffolding: Playwright navigator.serial mock + 7 spec stubs + testMatch extension + 05-HUMAN-UAT.md skeleton (Wave 0)
   - [ ] 05-02-PLAN.md — Polite-fail gate first-line + Connection pane DOM + Connect button CSS + serial.js / paste-pump.js module skeletons (Wave 1)
   - [ ] 05-03-PLAN.md — Core transport: requestPort + port.open + DTR/RTS safe defaults + pure-async read loop + cancel-before-close teardown + tx-sink writer coupling (Wave 2)
   - [ ] 05-04-PLAN.md — Serial-config form wiring (baud / data bits / stop bits / parity / flow control + Reset to preset) (Wave 3)
@@ -147,7 +147,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | 2. Wasm Boundary & Minimal JS Harness | 6/6 | Complete    | 2026-04-22 |
 | 3. Canvas Renderer | 7/7 | Complete    | 2026-04-22 |
 | 4. Keyboard Input | 3/4 | In progress | - |
-| 5. Web Serial Transport | 0/7 | Planned     | - |
+| 5. Web Serial Transport | 1/7 | In progress | - |
 | 6. Daily-Driver Polish, Session & Deployment | 0/TBD | Not started | - |
 
 ---

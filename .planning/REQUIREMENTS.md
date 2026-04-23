@@ -68,17 +68,28 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Transport
 
-- [ ] **XPORT-01**: Web Serial transport driven entirely from JavaScript (no Rust bindings)
-- [ ] **XPORT-02**: Connect / Disconnect button with clear stateful label
-- [ ] **XPORT-03**: Visible connection status indicator (connected / disconnected / port lost)
-- [ ] **XPORT-04**: MicroBeast preset as the default serial configuration (19200 8N1, no flow control — verify in phase 1 live capture)
-- [ ] **XPORT-05**: Serial configuration override UI for baud, data bits, stop bits, parity, flow control
-- [ ] **XPORT-06**: Graceful port-disconnect recovery — read loop exits cleanly on `disconnect` event, UI surfaces the state
-- [ ] **XPORT-07**: Restore previously-granted port on reload via `navigator.serial.getPorts()` without re-prompting
-- [ ] **XPORT-08**: Auto-reconnect on USB re-plug via `connect` / `disconnect` event listeners
-- [ ] **XPORT-09**: Paste throttling to serial line rate — prevent silent overrun at 19200 baud with no flow control
-- [ ] **XPORT-10**: Disconnect uses `reader.cancel()` before `port.close()` to avoid reader-lock deadlock (WICG/serial#112)
-- [ ] **XPORT-11**: Read loop is pure async and decoupled from `requestAnimationFrame` so background-tab throttling does not drop serial data
+- [x] **XPORT-01
+**: Web Serial transport driven entirely from JavaScript (no Rust bindings)
+- [x] **XPORT-02
+**: Connect / Disconnect button with clear stateful label
+- [x] **XPORT-03
+**: Visible connection status indicator (connected / disconnected / port lost)
+- [x] **XPORT-04
+**: MicroBeast preset as the default serial configuration (19200 8N1, no flow control — verify in phase 1 live capture)
+- [x] **XPORT-05
+**: Serial configuration override UI for baud, data bits, stop bits, parity, flow control
+- [x] **XPORT-06
+**: Graceful port-disconnect recovery — read loop exits cleanly on `disconnect` event, UI surfaces the state
+- [x] **XPORT-07
+**: Restore previously-granted port on reload via `navigator.serial.getPorts()` without re-prompting
+- [x] **XPORT-08
+**: Auto-reconnect on USB re-plug via `connect` / `disconnect` event listeners
+- [x] **XPORT-09
+**: Paste throttling to serial line rate — prevent silent overrun at 19200 baud with no flow control
+- [x] **XPORT-10
+**: Disconnect uses `reader.cancel()` before `port.close()` to avoid reader-lock deadlock (WICG/serial#112)
+- [x] **XPORT-11
+**: Read loop is pure async and decoupled from `requestAnimationFrame` so background-tab throttling does not drop serial data
 
 ### Input
 
@@ -109,8 +120,10 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Platform
 
-- [ ] **PLAT-01**: Detect Chromium-based Web Serial support on load
-- [ ] **PLAT-02**: Clear "use a Chromium-based browser" message on unsupported browsers — polite fail, no crash
+- [x] **PLAT-01
+**: Detect Chromium-based Web Serial support on load
+- [x] **PLAT-02
+**: Clear "use a Chromium-based browser" message on unsupported browsers — polite fail, no crash
 - [ ] **PLAT-03**: Ships as a static site, self-hosted (GitHub Pages / Cloudflare Pages / own domain)
 - [ ] **PLAT-04**: Public repo under a permissive license (MIT or Apache-2.0)
 - [ ] **PLAT-05**: First-open sane defaults — MicroBeast preset pre-selected; one click to connect

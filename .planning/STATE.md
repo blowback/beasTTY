@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: planning
-stopped_at: Phase 5 UI-SPEC approved
-last_updated: "2026-04-23T00:45:32.685Z"
-last_activity: 2026-04-22
+status: executing
+stopped_at: Phase 5 Plan 01 (Wave 0) complete
+last_updated: "2026-04-23T00:53:51.428Z"
+last_activity: 2026-04-23
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 31
-  completed_plans: 24
-  percent: 77
+  completed_plans: 25
+  percent: 81
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-21)
 
 **Core value:** A modern, reliable, in-browser VT52 emulator good enough to use as a daily driver with a real MicroBeast.
-**Current focus:** Phase 04 — keyboard-input
+**Current focus:** Phase 05 — Web Serial Transport
 
 ## Current Position
 
-Phase: 5
-Plan: Not started
-Status: Ready to plan
-Last activity: 2026-04-22
+Phase: 05 (Web Serial Transport) — EXECUTING
+Plan: 2 of 7
+Status: Ready to execute
+Last activity: 2026-04-23
 
-Progress: [██████████] 100%
+Progress: [████████░░] 81%
 
 ## Performance Metrics
 
@@ -83,6 +83,7 @@ Progress: [██████████] 100%
 | Phase 04-keyboard-input P02 | 6min | 3 tasks tasks | 3 files files |
 | Phase Phase 04-keyboard-input PP03 | 5min | 3 tasks tasks | 3 files files |
 | Phase 04-keyboard-input P04 | 6min | 3 tasks tasks | 9 files files |
+| Phase 05-web-serial-transport P01 | 5min | 3 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -159,6 +160,9 @@ Recent decisions affecting current work:
 - Phase 4 Plan 04: CompositionEvent synthetic-dispatch pattern sufficient for SC-5 IME half — our module-scope isComposing flag is driven by our own compositionstart/end handlers, NOT Chromium's internal flag, so dispatchEvent(new CompositionEvent(...)) gives reliable end-to-end coverage. No test.fixme fallback needed; manual UAT (VALIDATION.md) fills the real-IME OS integration gap
 - Phase 4 Plan 04: per-spec inline setup() helper (duplicated across 8 files) over shared module — each spec opens different panes (Debug alone / Debug+Settings / Debug+Settings+tx-reset) so a shared helper would need parameterization that obscures setup discipline; ~50 lines of duplication outweighed by standalone spec readability
 - Phase 4 Plan 04: checkpoint:human-verify Task 3 auto-approved per _auto_chain_active=true in .planning/config.json — three manual-only VALIDATION.md items (real IME, AltGraph, 5-min feel) remain open for out-of-band human UAT but do not block Phase 4 verify; every INPUT-*/SC-* criterion has automated anchor
+- Phase 5 Plan 01 (Wave 0): Test scaffolding landed BEFORE any production code — 38 test.fixme stubs across 7 spec files + SERIAL_MOCK fixture + 05-HUMAN-UAT.md skeleton lock Nyquist sampling discipline; every XPORT-*/PLAT-*/SC-* requirement has an automated verification target at commit time that Waves 1-5 will un-fixme
+- Phase 5 Plan 01: SERIAL_MOCK exported as backtick-string IIFE (not ES module) because page.addInitScript runs the value in the page context before any module loads — mock class hierarchy (MockReader/MockWriter/MockSerialPort/MockSerial) + window.__simulate{Unplug,Replug} / __mockReaderPush / __mockWriterLog hooks all live inside the backtick literal
+- Phase 5 Plan 01: test.fixme (not test.skip) adopted as stub primitive so runner reports them as expected-to-fail not skipped; later waves convert test.fixme( → test( as each assertion becomes executable — mirrors Phase 4 convention
 
 ### Pending Todos
 
@@ -183,8 +187,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: --stopped-at
-Stopped at: Phase 5 UI-SPEC approved
-Resume file: --resume-file
+Last session: 2026-04-23T00:53:51.422Z
+Stopped at: Phase 5 Plan 01 (Wave 0) complete
+Resume file: None
 
 **Planned Phase:** 5 (Web Serial Transport) — 7 plans — 2026-04-23T00:45:32.678Z
