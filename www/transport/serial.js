@@ -45,6 +45,9 @@ let connectButton = null;
 let connectionPane = null;
 let portStatusEl = null;
 let errorLogEl = null;
+// Wave 3 (D-08) — serial-config form refs:
+//   { baud, dataBits, stopBits, parity, flowCtl, resetBtn, reconnectHintEl }
+let serialEls = null;
 
 // --- Public API -----------------------------------------------------------
 
@@ -70,6 +73,7 @@ export async function wireSerial(opts) {
         term: termArg, sampleBell, drainHostReply, requestFrame,
         connectButton: btn, connectionPane: pane,
         portStatusEl: status, errorLogEl: log,
+        serialConfigEls,                     // Wave 3 (D-08) — form refs
     } = opts;
     term = termArg;
     sampleBellFn = sampleBell;
@@ -79,6 +83,7 @@ export async function wireSerial(opts) {
     connectionPane = pane;
     portStatusEl = status;
     errorLogEl = log;
+    serialEls = serialConfigEls || null;
 
     // D-05 — on boot, scan getPorts() and stash any matching port reference.
     // Does NOT auto-open — user clicks Connect explicitly.
@@ -102,6 +107,34 @@ export async function wireSerial(opts) {
     connectButton.addEventListener('click', onConnectButtonClick);
     connectButton.addEventListener('mousedown', (e) => e.preventDefault());  // UI-SPEC §Focus retention line 575
 
+    // Phase 5 D-08 — serial-config form listeners (Wave 3).
+    // UI-SPEC §"Connection pane form-control behaviors" — change a select and
+    // if we're connected to an open port whose config no longer matches, flag
+    // the user with the reconnect-required hint. Reset button snaps all 5
+    // selects back to the MicroBeast preset and clears the hint.
+    if (serialEls) {
+        for (const el of [serialEls.baud, serialEls.dataBits, serialEls.stopBits, serialEls.parity, serialEls.flowCtl]) {
+            if (!el) continue;
+            el.addEventListener('change', () => {
+                if (state === 'connected' && lastConfig) {
+                    const current = readFormConfig();
+                    const differs = (current.baudRate !== lastConfig.baudRate
+                                  || current.dataBits !== lastConfig.dataBits
+                                  || current.stopBits !== lastConfig.stopBits
+                                  || current.parity !== lastConfig.parity
+                                  || current.flowControl !== lastConfig.flowControl);
+                    if (differs) showReconnectHint(); else hideReconnectHint();
+                }
+            });
+        }
+        if (serialEls.resetBtn) {
+            serialEls.resetBtn.addEventListener('click', () => snapPreset());
+            // UI-SPEC §Focus retention line 576 — mousedown preventDefault keeps
+            // #terminal-wrapper focused after clicking Reset.
+            serialEls.resetBtn.addEventListener('mousedown', (e) => e.preventDefault());
+        }
+    }
+
     applyStateToButton();  // Set initial label + data-state=disconnected.
 }
 
@@ -115,6 +148,49 @@ async function onConnectButtonClick() {
     }
     // state === 'disconnected' or 'port-lost' → request + open.
     await connectMicroBeast();
+}
+
+// D-08 (Wave 3) — read serial config from the Connection-pane form. Returns
+// PRESET_CONFIG when the form refs are absent (e.g. tests that don't mount the
+// pane, or the tiny window during boot before wireSerial has run). Integer
+// fallbacks guard against DevTools-manipulated invalid option values
+// (T-05-04-01 mitigation).
+function readFormConfig() {
+    if (!serialEls || !serialEls.baud) return PRESET_CONFIG;
+    return {
+        baudRate:   parseInt(serialEls.baud.value, 10)     || 19200,
+        dataBits:   parseInt(serialEls.dataBits.value, 10) || 8,
+        stopBits:   parseInt(serialEls.stopBits.value, 10) || 1,
+        parity:     serialEls.parity.value                 || 'none',
+        flowControl: serialEls.flowCtl.value               || 'none',
+    };
+}
+
+// D-08 (Wave 3) — snap all 5 form selects back to the MicroBeast preset
+// (19200 / 8 / 1 / none / none). Also clears any pending reconnect-required
+// hint since Reset is a user-declared "use preset" action.
+function snapPreset() {
+    if (!serialEls || !serialEls.baud) return;
+    serialEls.baud.value     = String(PRESET_CONFIG.baudRate);
+    serialEls.dataBits.value = String(PRESET_CONFIG.dataBits);
+    serialEls.stopBits.value = String(PRESET_CONFIG.stopBits);
+    serialEls.parity.value   = PRESET_CONFIG.parity;
+    serialEls.flowCtl.value  = PRESET_CONFIG.flowControl;
+    hideReconnectHint();
+}
+
+// UI-SPEC line 554 — reconnect-required hint (string literal below is verbatim).
+// The hint element is a <span id="serial-reconnect-hint"> provided by main.js
+// via serialConfigEls.reconnectHintEl; hidden attribute flips visibility.
+function showReconnectHint() {
+    if (!serialEls || !serialEls.reconnectHintEl) return;
+    serialEls.reconnectHintEl.textContent = 'Config changed — Disconnect and Connect to apply';
+    serialEls.reconnectHintEl.hidden = false;
+}
+function hideReconnectHint() {
+    if (!serialEls || !serialEls.reconnectHintEl) return;
+    serialEls.reconnectHintEl.hidden = true;
+    serialEls.reconnectHintEl.textContent = '';
 }
 
 export async function connectMicroBeast(configOverride) {
@@ -132,7 +208,7 @@ export async function connectMicroBeast(configOverride) {
         return;
     }
 
-    const config = configOverride || PRESET_CONFIG;
+    const config = configOverride || readFormConfig();
     try {
         await selectedPort.open(config);
         // D-11 — de-assert DTR/RTS immediately after open (Pitfall #12).
@@ -157,6 +233,8 @@ export async function connectMicroBeast(configOverride) {
 
     // Fire the read loop (no await — runs until the reader is cancelled or port.readable=null).
     runReadLoop(selectedPort);
+    // Wave 3 (D-08) — config now matches the open port; clear any pending hint.
+    hideReconnectHint();
 }
 
 export async function disconnect() {
