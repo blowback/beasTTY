@@ -42,7 +42,8 @@ const KEY_TAG = Object.freeze({
 });
 
 // D-11 — CR/LF modes. Default D-12 = 'cr'.
-const CRLF_MODES = Object.freeze({
+// Phase 5 D-23 — exported so paste-pump can reuse the identical table.
+export const CRLF_MODES = Object.freeze({
     cr:   new Uint8Array([0x0D]),
     lf:   new Uint8Array([0x0A]),
     crlf: new Uint8Array([0x0D, 0x0A]),
