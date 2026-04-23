@@ -38,6 +38,7 @@ import {
 import { wireChrome } from './renderer/chrome.js';
 import { wireKeyboard, setLocalEcho, setCrlfMode } from './input/keyboard.js';
 import { registerTxObserver, formatHexStrip, resetTx } from './input/tx-sink.js';
+import { wireSerial } from './transport/serial.js';
 
 // ---- init + construction (Phase 2 — unchanged) ----
 const wasm = await init();                             // top-level-await: Chromium >=89
@@ -57,6 +58,11 @@ const crlfRadios        = document.querySelectorAll('input[name="crlf"]');
 const txStripEl         = document.getElementById('tx-strip');
 const txResetButton     = document.getElementById('tx-reset');
 const TX_STRIP_PLACEHOLDER = '(none yet — press any key on the terminal to see TX bytes)';
+// Phase 5 — Connection pane DOM refs (see www/index.html Plan 02 Wave 1).
+const connectButton     = document.getElementById('connect-button');
+const connectionPane    = document.getElementById('connection');
+const portStatusEl      = document.getElementById('port-status');
+const errorLogEl        = document.getElementById('error-log');
 wireChrome({ terminalWrapper, themeButton, phosphorButtons, phosphorGroup, bellOverlay });
 
 // ---- Phase 4 Plan 01 — test harness hook (unconditionally exposed) ----
@@ -180,6 +186,21 @@ wireKeyboard({
     sampleBell,
     drainHostReply,
     requestFrame,
+});
+
+// Phase 5 — wire Web Serial transport. opts mirror Phase 4 wireKeyboard
+// shape for sampleBell/drainHostReply/requestFrame discipline (D-35 post-feed
+// invariant). await because wireSerial awaits navigator.serial.getPorts() on
+// boot (D-05 restore-from-prior-grant scan).
+await wireSerial({
+    term,
+    sampleBell,
+    drainHostReply,
+    requestFrame,
+    connectButton,
+    connectionPane,
+    portStatusEl,
+    errorLogEl,
 });
 
 // ---- Phase 4 Plan 03 — Settings controls ----
