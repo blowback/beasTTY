@@ -113,7 +113,14 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. Unplugging the MicroBeast exits the read loop cleanly (via `reader.cancel()` before `port.close()`), surfaces port-lost in the UI, and replugging the same device auto-reconnects without a permission prompt (VID/PID matched); reload restores the previously-granted port via `navigator.serial.getPorts()`
   4. The serial-config UI exposes baud / data bits / stop bits / parity / flow-control overrides; pasting a large block of text into the terminal is rate-limited to serial line speed (no silent MicroBeast input-buffer overrun at 19200 baud)
   5. Loading the app in Firefox or Safari shows a polite "use a Chromium-based browser" message with no console errors and no crash; the read loop is a pure async `while(true) { await reader.read() }` that survives background-tab throttling without losing serial data
-**Plans**: TBD
+**Plans**: 7 plans
+  - [ ] 05-01-PLAN.md — Wave 0 scaffolding: Playwright navigator.serial mock + 7 spec stubs + testMatch extension + 05-HUMAN-UAT.md skeleton (Wave 0)
+  - [ ] 05-02-PLAN.md — Polite-fail gate first-line + Connection pane DOM + Connect button CSS + serial.js / paste-pump.js module skeletons (Wave 1)
+  - [ ] 05-03-PLAN.md — Core transport: requestPort + port.open + DTR/RTS safe defaults + pure-async read loop + cancel-before-close teardown + tx-sink writer coupling (Wave 2)
+  - [ ] 05-04-PLAN.md — Serial-config form wiring (baud / data bits / stop bits / parity / flow control + Reset to preset) (Wave 3)
+  - [ ] 05-05-PLAN.md — Auto-reconnect state machine + navigator.serial event listeners + error log ring-of-5 + VID/PID localStorage persistence (Wave 4)
+  - [ ] 05-06-PLAN.md — Paste pump setTimeout chain + CR/LF rewrite + Esc-cancel + progress observer + Paste test button (Wave 5)
+  - [ ] 05-07-PLAN.md — beforeunload handler + visibilitychange catch-up + remaining specs + 05-HUMAN-UAT.md checkpoint (Wave 6)
 **UI hint**: yes
 
 ### Phase 6: Daily-Driver Polish, Session & Deployment
@@ -140,7 +147,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | 2. Wasm Boundary & Minimal JS Harness | 6/6 | Complete    | 2026-04-22 |
 | 3. Canvas Renderer | 7/7 | Complete    | 2026-04-22 |
 | 4. Keyboard Input | 3/4 | In progress | - |
-| 5. Web Serial Transport | 0/TBD | Not started | - |
+| 5. Web Serial Transport | 0/7 | Planned     | - |
 | 6. Daily-Driver Polish, Session & Deployment | 0/TBD | Not started | - |
 
 ---
