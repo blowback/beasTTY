@@ -1206,27 +1206,27 @@ All claims in this research are either `[VERIFIED]` via Context7 / docs fetch / 
 |---|-------|---------|---------------|
 | _empty_ | _(no unverified claims)_ | — | — |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Should `enqueuePaste()` accept `string` or only `Uint8Array`?**
    - What we know: D-12 API sketch says `bytes`. Phase 4 tx-sink takes both (Uint8Array fast path + Array<number> fallback).
    - What's unclear: Phase 6 clipboard integration (SESS-03) will call `enqueuePaste` with string data from `navigator.clipboard.readText()`.
-   - Recommendation: Accept `Uint8Array | string`. If string, use the ASCII fast path from Phase 4's compositionend (charCodeAt <= 0xFF). Document as Claude's Discretion per CONTEXT (already listed there).
+   - RESOLVED: Accept `Uint8Array | string`. If string, use the ASCII fast path from Phase 4's compositionend (charCodeAt <= 0xFF). Document as Claude's Discretion per CONTEXT (already listed there).
 
 2. **Is a `<progress>` element better than a text line for paste progress (D-17)?**
    - What we know: D-17 specifies a text line `Pasting N B — X%` plus Cancel button.
    - What's unclear: `<progress value max>` is accessible by default; a text line needs aria-live region.
-   - Recommendation: Planner's call. Text line is simpler and mirrors Phase 4 Debug hex strip styling; `<progress>` is more accessible. No SC depends on either.
+   - RESOLVED: Planner's call. Text line is simpler and mirrors Phase 4 Debug hex strip styling; `<progress>` is more accessible. No SC depends on either.
 
 3. **When multiple CP2102N adapters match (D-25 multi-match case), should the error log show VID/PID or a human name?**
    - What we know: D-25 says `Multiple CP2102N adapters connected — pick one`.
    - What's unclear: Could show USB product strings from `getInfo()` (not returned by Web Serial — `getInfo()` only returns IDs).
-   - Recommendation: The D-25 text stands. No product-string field in SerialPortInfo as of Chromium 2026.
+   - RESOLVED: The D-25 text stands. No product-string field in SerialPortInfo as of Chromium 2026.
 
 4. **How aggressive should `handleReadError` be about distinguishing NetworkError vs non-fatal errors?**
    - What we know: D-37 says "catch → inline error log → port-lost flow."
    - What's unclear: Non-fatal errors (`BufferOverrunError`, `FramingError`, `ParityError`, `BreakError`) replace `port.readable` with a fresh stream — the outer loop handles this automatically. But our current D-37 flow jumps to port-lost on any error.
-   - Recommendation: Planner should make Pattern 2's outer loop handle non-fatal errors (re-enter loop without state change), and only flip to port-lost on NetworkError or when `port.readable === null`. This is a refinement of D-37 the planner can make safely per Claude's Discretion; error-message text stays user-friendly regardless.
+   - RESOLVED: Planner should make Pattern 2's outer loop handle non-fatal errors (re-enter loop without state change), and only flip to port-lost on NetworkError or when `port.readable === null`. This is a refinement of D-37 the planner can make safely per Claude's Discretion; error-message text stays user-friendly regardless.
 
 ## Environment Availability
 
@@ -1341,15 +1341,21 @@ Phase 5 has no external-tool dependencies beyond what Phases 1-4 already install
 
 ### Wave 0 Gaps
 
+<!-- Authoritative spec-file naming: 05-01-PLAN.md frontmatter `files_modified`. -->
+<!-- This section is kept in sync with that list; do not introduce alternate names. -->
+
 - [ ] `www/tests/transport/mock-serial.js` — shared `navigator.serial` mock exported as init-script string
-- [ ] `www/tests/transport/polite-fail.spec.js` — PLAT-01, PLAT-02 + D-32, D-33
-- [ ] `www/tests/transport/connect-open.spec.js` — XPORT-02, XPORT-03, XPORT-04 + D-01, D-02, D-06, D-07, D-08, D-09, D-11
-- [ ] `www/tests/transport/read-loop.spec.js` — XPORT-11 + D-35, D-38, D-39
-- [ ] `www/tests/transport/disconnect-reconnect.spec.js` — XPORT-06, XPORT-07, XPORT-08, XPORT-10 + D-03, D-04, D-05, D-24, D-25, D-26, D-30, D-31, D-36, D-37, D-42
-- [ ] `www/tests/transport/paste-pump.spec.js` — XPORT-09 + D-12..D-23, D-41
-- [ ] `www/tests/transport/config-form.spec.js` — XPORT-05 + D-08
+- [ ] `www/tests/transport/polite-fail.spec.js` — PLAT-01, PLAT-02 + D-32, D-33 (3 fixme stubs)
+- [ ] `www/tests/transport/connect.spec.js` — XPORT-01..04 + D-01, D-02, D-06, D-07, D-08, D-09, D-11 (6 fixme stubs)
+- [ ] `www/tests/transport/readloop.spec.js` — XPORT-11 + D-35, D-38, D-39 (4 fixme stubs)
+- [ ] `www/tests/transport/reconnect.spec.js` — XPORT-06, XPORT-07, XPORT-08, XPORT-10 + D-03, D-04, D-05, D-24, D-25, D-26, D-30, D-31, D-36, D-37, D-42 (7 fixme stubs)
+- [ ] `www/tests/transport/config.spec.js` — XPORT-05 + D-08 (5 fixme stubs)
+- [ ] `www/tests/transport/paste.spec.js` — XPORT-09 + D-12..D-23, D-41 (8 fixme stubs including CR/LF rewrite — all 8 un-fixme'd in Plan 06)
+- [ ] `www/tests/transport/errors.spec.js` — D-27, D-28, D-29, D-37, D-40 (5 fixme stubs)
 - [ ] `www/playwright.config.js` — extend `testMatch` with `'**/transport/*.spec.js'`
 - [ ] `.planning/phases/05-web-serial-transport/05-HUMAN-UAT.md` — real-hardware checklist for SC-1, SC-3b (VID/PID), SC-4b (real 19200 baud), SC-5a (Firefox/Safari), 5-minute daily-driver feel
+
+**Total Wave 0 Playwright stubs:** 3+6+4+7+5+8+5 = 38 across 7 spec files.
 
 **Test coverage ratio:**
 - Automated (Playwright mock): ~90% — state transitions, API shape, timing behaviour, mock-writer introspection.
