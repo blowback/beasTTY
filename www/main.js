@@ -13,6 +13,14 @@
 //   - 03-CONTEXT.md D-15 (Debug details retains Phase 2 SC-4 path).
 //   - 04-PATTERNS.md §"www/main.js (modified)" (wireKeyboard call site).
 
+// Phase 5 D-32 / D-33 — polite-fail gate. MUST be the first executable block
+// so wasm + fonts + canvas never load on non-Chromium browsers.
+import { renderPoliteFail } from './transport/serial.js';
+if (typeof navigator.serial === 'undefined') {
+    renderPoliteFail();
+    throw new Error('__polite-fail__');   // abort module execution; wasm never initialises
+}
+
 import init, { Terminal } from './pkg/bestialitty_core.js';
 import {
     bootRenderer,
