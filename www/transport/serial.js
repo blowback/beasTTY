@@ -12,6 +12,7 @@
 //     www/renderer/canvas.js:37-51 (module-scope state).
 
 import { registerWriter, unregisterWriter } from '../input/tx-sink.js';
+import { onPortLost as pastePumpOnPortLost } from '../input/paste-pump.js';
 
 // Constants -----------------------------------------------------------------
 const VID_MICROBEAST = 0x10c4;   // D-02 — Silicon Labs (CP2102N)
@@ -323,6 +324,8 @@ function handleReadError(err) {
     }
     console.error('[serial] read error', err);
     setState('port-lost');
+    // Phase 5 D-20 — drain any mid-paste queue when read loop fatal-errors.
+    pastePumpOnPortLost();
 }
 
 // D-11 + D-36 + 05-RESEARCH Pattern 3 — cancel-before-close teardown order:
@@ -352,7 +355,8 @@ async function teardown({ deassertSignals = true } = {}) {
     if (port) {
         try { await port.close(); } catch {}
     }
-    // Step 5 — Wave 4 calls pastePump.onPortLost() here; Wave 2 leaves it for Wave 4.
+    // Step 5 — Phase 5 D-20 — drop any mid-paste queue.
+    pastePumpOnPortLost();
     // NOTE: port variable stays set (so getPorts/VID-match still works on reconnect).
 }
 
@@ -487,6 +491,9 @@ async function onNavSerialConnect(ev) {
 function onNavSerialDisconnect(ev) {
     if (ev.target === port || ev.target === lastPortRef) {
         setState('port-lost');
+        // Phase 5 D-20 — drain any mid-paste queue on hard unplug so the
+        // pump stops trying to push bytes to a closed writer.
+        pastePumpOnPortLost();
     }
 }
 

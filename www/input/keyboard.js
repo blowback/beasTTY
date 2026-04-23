@@ -20,6 +20,7 @@
 
 import { encode_key_raw } from '../pkg/bestialitty_core.js';
 import { pushTxBytes } from './tx-sink.js';
+import { isActive as pastePumpIsActive, cancelPaste } from './paste-pump.js';
 
 // D-04 — frozen KeyCode tag table (mirrors crates/bestialitty-core/src/key.rs:141-159).
 // Any drift silently produces wrong TX bytes; the Wave 3 Playwright suite
@@ -170,6 +171,15 @@ export function wireKeyboard(opts) {
         // D-06 belt-and-braces — ignore during composition (some Chromium
         // versions set isComposing on first post-commit keydown).
         if (isComposing || e.isComposing) return;
+
+        // Phase 5 D-18 — Esc while paste pump is active cancels the paste AND
+        // suppresses 0x1B. When pump is idle, Esc encodes normally (Phase 4
+        // behaviour unchanged).
+        if (e.code === 'Escape' && pastePumpIsActive()) {
+            e.preventDefault();
+            cancelPaste();
+            return;
+        }
 
         const code = packKeyCode(e);
         if (code < 0) return;                        // D-17 silent drop, NO preventDefault.
