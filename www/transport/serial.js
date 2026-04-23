@@ -95,6 +95,21 @@ export async function wireSerial(opts) {
     navigator.serial.addEventListener('connect', onNavSerialConnect);
     navigator.serial.addEventListener('disconnect', onNavSerialDisconnect);
 
+    // D-30 — best-effort teardown on page unload. All awaits are .catch(()=>{});
+    // beforeunload has a tight browser time budget, so we fire-and-forget each
+    // step (Pattern 3 beforeunload variant in 05-RESEARCH). DO NOT use the
+    // shared teardown() helper here — teardown awaits each step, and beforeunload
+    // cannot afford that latency. This is the only code path that intentionally
+    // bypasses the shared teardown. If state === 'disconnected' the handler is
+    // a no-op (port/reader are null); safe to register unconditionally.
+    window.addEventListener('beforeunload', () => {
+        if (port && port.writable) {
+            port.setSignals({ dataTerminalReady: false, requestToSend: false }).catch(() => {});
+        }
+        if (reader) reader.cancel().catch(() => {});
+        if (port)   port.close().catch(() => {});
+    });
+
     // D-05 / D-31 — on boot, read stored preset + scan getPorts() + stash match.
     // Does NOT auto-open — user clicks Connect explicitly.
     const stored = readStoredPreset();

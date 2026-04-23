@@ -82,7 +82,7 @@ const pasteProgressRow    = document.getElementById('paste-progress-row');
 const pasteProgressText   = document.getElementById('paste-progress-text');
 const pasteCancelBtn      = document.getElementById('paste-cancel');
 const pasteTestBtn        = document.getElementById('paste-test');
-wireChrome({ terminalWrapper, themeButton, phosphorButtons, phosphorGroup, bellOverlay });
+wireChrome({ terminalWrapper, themeButton, phosphorButtons, phosphorGroup, bellOverlay, requestFrame });
 
 // ---- Phase 4 Plan 01 — test harness hook (unconditionally exposed) ----
 // Plan 04-04's local-echo spec uses __testGridView() to read grid bytes back

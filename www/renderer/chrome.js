@@ -50,7 +50,7 @@ function toggleTheme(ctx) {
 }
 
 export function wireChrome(opts) {
-    const { terminalWrapper, themeButton, phosphorButtons, phosphorGroup, bellOverlay } = opts;
+    const { terminalWrapper, themeButton, phosphorButtons, phosphorGroup, bellOverlay, requestFrame } = opts;
     const ctx = { terminalWrapper, themeButton, phosphorButtons, phosphorGroup, bellOverlay };
 
     // Initial paint of chrome side-effects (reflects canvas.js default state).
@@ -143,10 +143,17 @@ export function wireChrome(opts) {
     // ==== Visibility-change listener — clears '(!) ' title prefix on foreground return ====
     // The add-prefix half lives in main.js (synchronous after term.feed when document.hidden).
     // This is the ONLY visibilitychange listener in Phase 3 — canvas.js does not listen.
+    // Phase 5 D-39 — additive: catch-up paint on foreground return (Pitfall #6).
+    // The async read loop kept feeding `term` throughout the hidden period; this
+    // wakes the renderer to paint the accumulated state immediately instead of
+    // waiting for the next natural rAF tick (which Chromium throttles to ~1 Hz
+    // on hidden tabs). requestFrame is defensively-optional so tests that call
+    // wireChrome without it fall back to Phase 3 BEL-prefix-only behavior.
     document.addEventListener('visibilitychange', () => {
         if (!document.hidden && document.title.startsWith('(!) ')) {
             document.title = document.title.slice(4);
         }
+        if (!document.hidden && requestFrame) requestFrame();
     });
 
     // Auto-focus the wrapper at boot so cursor blinks and Ctrl+Shift+T works immediately.
