@@ -296,6 +296,16 @@
       font-size: 12px;
       margin: 4px 0;
     }
+    /* Phase 5 D-08 — reconnect-required hint (UI-SPEC line 554). Amber to
+       match the connecting/reconnecting border signal: "action required, but
+       not an error". Hidden by default via [hidden] attribute on the span. */
+    #serial-reconnect-hint {
+      display: block;
+      color: #e0b030;
+      font-size: 12px;
+      margin: 4px 0;
+    }
+    #serial-reconnect-hint[hidden] { display: none; }
 
     /* Paste progress row — flex layout so Cancel sits inline with text */
     #paste-progress-row {
@@ -427,6 +437,7 @@
         </select>
       </label>
     </fieldset>
+    <span id="serial-reconnect-hint" class="hint" hidden></span>
     <button id="serial-reset-preset" type="button">Reset to MicroBeast preset</button>
     <p class="hint">MicroBeast default is 19200 8N1, no flow control. Single-tab ownership is enforced by Chromium — close any other BestialiTTY tab that holds this port first.</p>
 

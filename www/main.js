@@ -63,6 +63,14 @@ const connectButton     = document.getElementById('connect-button');
 const connectionPane    = document.getElementById('connection');
 const portStatusEl      = document.getElementById('port-status');
 const errorLogEl        = document.getElementById('error-log');
+// Phase 5 Wave 3 — serial-config form refs (D-08 / UI-SPEC §"Serial config form" DOM).
+const serialBaud          = document.getElementById('serial-baud');
+const serialDataBits      = document.getElementById('serial-databits');
+const serialStopBits      = document.getElementById('serial-stopbits');
+const serialParity        = document.getElementById('serial-parity');
+const serialFlowCtl       = document.getElementById('serial-flowctl');
+const serialReset         = document.getElementById('serial-reset-preset');
+const serialReconnectHint = document.getElementById('serial-reconnect-hint');
 wireChrome({ terminalWrapper, themeButton, phosphorButtons, phosphorGroup, bellOverlay });
 
 // ---- Phase 4 Plan 01 — test harness hook (unconditionally exposed) ----
@@ -201,6 +209,16 @@ await wireSerial({
     connectionPane,
     portStatusEl,
     errorLogEl,
+    // Phase 5 Wave 3 — serial-config form refs (D-08).
+    serialConfigEls: {
+        baud: serialBaud,
+        dataBits: serialDataBits,
+        stopBits: serialStopBits,
+        parity: serialParity,
+        flowCtl: serialFlowCtl,
+        resetBtn: serialReset,
+        reconnectHintEl: serialReconnectHint,
+    },
 });
 
 // ---- Phase 4 Plan 03 — Settings controls ----
