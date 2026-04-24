@@ -1,16 +1,16 @@
 ---
-status: in-progress
+status: partial
 phase: 05-web-serial-transport
 source: [05-VERIFICATION.md, 05-VALIDATION.md]
 started: 2026-04-23
-updated: 2026-04-23
+updated: 2026-04-25
 ---
 
 # Phase 5 — Human UAT (real hardware)
 
 ## Current Test
 
-[testing not yet started]
+[testing paused — 1 item outstanding (Test 4 blocked: no CP/M COPY utility)]
 
 ## Tests
 
@@ -34,9 +34,7 @@ updated: 2026-04-23
 9. Verify the MicroBeast responds with CP/M help output rendered on the canvas within ~500 ms. The output should appear in the MicroBeast's current phosphor color.
 10. Open DevTools → Application → Local Storage → check key `bestialitty.port.preset`. Value should be the JSON string `{"usbVendorId":4292,"usbProductId":60000}` (decimal form of `0x10c4` and `0xea60`). This proves D-31 persistence fired on successful open.
 
-**result:** auto-approved-in-auto-chain (pending real-hardware UAT)
-
-**reason:** Plan 05-07 Task 4 executed under `workflow._auto_chain_active=true`. The UAT document itself is verified complete (6 headings, 40 numbered steps, zero placeholders, all UI-SPEC literal strings cited verbatim). The real-hardware session against a physical MicroBeast + CP2102N will be run by the user out-of-band; results will be appended to this file at that time.
+**result:** pass
 
 ### 2. Physical unplug / replug (XPORT-06 / XPORT-08 / SC-3)
 
@@ -56,9 +54,7 @@ updated: 2026-04-23
    - NO Chromium permission prompt appears (auto-reconnect honors the stored VID/PID grant — D-24 / XPORT-08).
 6. Focus the canvas and type `DIR` + Enter. Verify the MicroBeast responds with a directory listing.
 
-**result:** auto-approved-in-auto-chain (pending real-hardware UAT)
-
-**reason:** Plan 05-07 Task 4 executed under `workflow._auto_chain_active=true`. The UAT document itself is verified complete (6 headings, 40 numbered steps, zero placeholders, all UI-SPEC literal strings cited verbatim). The real-hardware session against a physical MicroBeast + CP2102N will be run by the user out-of-band; results will be appended to this file at that time.
+**result:** pass
 
 ### 3. Reload with granted port (XPORT-07 / SC-3c)
 
@@ -79,9 +75,9 @@ updated: 2026-04-23
 6. Open DevTools → Application → Local Storage → confirm `bestialitty.port.preset` is still `{"usbVendorId":4292,"usbProductId":60000}` (should have been untouched by reload; D-31 persistence is write-on-open only).
 7. Close the BestialiTTY tab entirely. Re-open the URL in a fresh tab. Verify the Connection pane again shows `MicroBeast (CP2102N 10c4:ea60) — click Connect` — proving the port grant + preset survives full tab recycle (not just reload).
 
-**result:** auto-approved-in-auto-chain (pending real-hardware UAT)
-
-**reason:** Plan 05-07 Task 4 executed under `workflow._auto_chain_active=true`. The UAT document itself is verified complete (6 headings, 40 numbered steps, zero placeholders, all UI-SPEC literal strings cited verbatim). The real-hardware session against a physical MicroBeast + CP2102N will be run by the user out-of-band; results will be appended to this file at that time.
+**result:** issue
+**reported:** "nope, reload leads to a hang and evenutally a \"Page unresponsive...\" dialog. Tried clicking \"Wait\" a few times, but it's dead as nails."
+**severity:** blocker
 
 ### 4. Paste at 19200 baud no-overrun (XPORT-09 / SC-4b)
 
@@ -99,9 +95,9 @@ updated: 2026-04-23
 9. Verify the dumped output matches the pasted content byte-for-byte (modulo CR/LF convention — if the Settings pane has CR/LF override set to `crlf`, expect each line terminator to be CR+LF in CP/M's dump; set to `cr` if you want raw CR preservation).
 10. Optional (high-rigor): compute `sha256sum` of the source paste content (after applying the same CR/LF convention used at paste time) and compare with `sha256sum` of `DUMMY.TXT` on the MicroBeast side (if you can extract the file via FLOP utility or a cross-check tool). Hashes MUST match — any divergence indicates overrun and should be raised as a D-14 chunk-size tuning issue.
 
-**result:** auto-approved-in-auto-chain (pending real-hardware UAT)
-
-**reason:** Plan 05-07 Task 4 executed under `workflow._auto_chain_active=true`. The UAT document itself is verified complete (6 headings, 40 numbered steps, zero placeholders, all UI-SPEC literal strings cited verbatim). The real-hardware session against a physical MicroBeast + CP2102N will be run by the user out-of-band; results will be appended to this file at that time.
+**result:** blocked
+**blocked_by:** other
+**reason:** "blocked: don't have COPY"
 
 ### 5. Polite fail in Firefox AND Safari (PLAT-01 / PLAT-02 / SC-5a)
 
@@ -120,9 +116,7 @@ updated: 2026-04-23
 3. Repeat in Safari (macOS, if hardware available).
 4. Verify identical behavior in Safari: same h1 text, same browser list, same title, no canvas, no console errors beyond the expected abort throw.
 
-**result:** auto-approved-in-auto-chain (pending real-hardware UAT)
-
-**reason:** Plan 05-07 Task 4 executed under `workflow._auto_chain_active=true`. The UAT document itself is verified complete (6 headings, 40 numbered steps, zero placeholders, all UI-SPEC literal strings cited verbatim). The real-hardware session against a physical MicroBeast + CP2102N will be run by the user out-of-band; results will be appended to this file at that time.
+**result:** pass
 
 ### 6. 5-minute daily-driver feel (PROJECT.md Core Value)
 
@@ -142,20 +136,42 @@ updated: 2026-04-23
    - **Typing feels responsive:** no > 100 ms perceptible lag on keypress-to-screen. Ctrl+Alt+T theme toggle is instant. Phosphor switches are instant.
 3. Record subjective impression: does BestialiTTY feel like something you'd reach for as a daily driver if you had to talk to a MicroBeast? Note any rough edges, annoyances, or confusion points in the `reason:` field.
 
-**result:** auto-approved-in-auto-chain (pending real-hardware UAT)
-
-**reason:** Plan 05-07 Task 4 executed under `workflow._auto_chain_active=true`. The UAT document itself is verified complete (6 headings, 40 numbered steps, zero placeholders, all UI-SPEC literal strings cited verbatim). The real-hardware session against a physical MicroBeast + CP2102N will be run by the user out-of-band; results will be appended to this file at that time.
+**result:** issue
+**reported:** "whenever i paste, the connection dialog at the top opens, which causes the TTY part of the display to lurch down the screen alarmingly. I know the paste status is in there, but it shouldn't open the dialog."
+**severity:** major
 
 ## Summary (post-execution)
 
 | metric | value |
 |--------|-------|
-| passed | pending-real-hardware |
-| issues | pending-real-hardware |
+| total  | 6     |
+| passed | 3     |
+| issues | 2     |
+| blocked | 1    |
+| pending | 0    |
+| skipped | 0    |
 
 ## Gaps
 
-(to be filled as tests run against real MicroBeast)
+- truth: "Reload with a connected port restores app to Connect/gray state and reconnects in < 1s without picker prompt (XPORT-07 / SC-3c)"
+  status: failed
+  reason: "User reported: nope, reload leads to a hang and evenutally a \"Page unresponsive...\" dialog. Tried clicking \"Wait\" a few times, but it's dead as nails."
+  severity: blocker
+  test: 3
+  root_cause: ""
+  artifacts: []
+  missing: []
+  debug_session: ""
+
+- truth: "During paste, the Connection pane's paste-progress surfaces WITHOUT auto-expanding the <details> and WITHOUT causing the terminal canvas to lurch down the viewport (D-17 / paste UX)"
+  status: failed
+  reason: "User reported: whenever i paste, the connection dialog at the top opens, which causes the TTY part of the display to lurch down the screen alarmingly. I know the paste status is in there, but it shouldn't open the dialog."
+  severity: major
+  test: 6
+  root_cause: ""
+  artifacts: []
+  missing: []
+  debug_session: ""
 
 ## Sign-Off
 
