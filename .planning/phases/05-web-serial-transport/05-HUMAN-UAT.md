@@ -1,5 +1,5 @@
 ---
-status: partial
+status: diagnosed
 phase: 05-web-serial-transport
 source: [05-VERIFICATION.md, 05-VALIDATION.md]
 started: 2026-04-23
@@ -158,20 +158,47 @@ updated: 2026-04-25
   reason: "User reported: nope, reload leads to a hang and evenutally a \"Page unresponsive...\" dialog. Tried clicking \"Wait\" a few times, but it's dead as nails."
   severity: blocker
   test: 3
-  root_cause: ""
-  artifacts: []
-  missing: []
-  debug_session: ""
+  root_cause: "The beforeunload handler in www/transport/serial.js violates the Web Serial close-contract: it calls reader.cancel() + port.close() but NEVER calls reader.releaseLock() nor writer.releaseLock(). Per the WHATWG/MDN spec, port.close() only resolves when both port.readable and port.writable are unlocked. The close promise therefore never resolves, stalling Chromium's renderer cleanup on the OLD page — which Chromium surfaces as \"Page unresponsive\". Clicking Wait never helps because the contract cannot be satisfied. The runReadLoop outer `while (p.readable)` aggravates it by re-acquiring a reader immediately after the inner cancel-driven break."
+  artifacts:
+    - path: "www/transport/serial.js:105-111"
+      issue: "beforeunload handler omits reader.releaseLock() and never releases the writer (writer.releaseLock() + unregisterWriter())"
+    - path: "www/transport/serial.js:303-328"
+      issue: "runReadLoop outer `while (p.readable)` re-acquires a reader after cancel-break, aggravating the lock state during shutdown"
+    - path: "www/transport/serial.js:349-376"
+      issue: "teardown() helper is the correct model; beforeunload should mirror its sequence (or call it) using synchronous releaseLock calls"
+  missing:
+    - "Call reader.releaseLock() and writer.releaseLock() + unregisterWriter() synchronously before port.close() inside the beforeunload handler"
+    - "Correct sequence in beforeunload: setSignals (fire-and-forget) → reader.cancel() (fire-and-forget) → reader.releaseLock() (sync) → writer.releaseLock() (sync) → port.close() (fire-and-forget)"
+    - "Add a module-scope `shuttingDown` flag set in beforeunload that runReadLoop's outer `while (p.readable)` checks, so a fresh reader is not re-acquired during tear-down"
+    - "Update the comment block at www/transport/serial.js lines 98-104 to reflect that cancel() ≠ releaseLock() and that close() requires unlocked streams"
+    - "Add a www/tests/transport/lifecycle.spec.js (or extend readloop.spec.js) asserting a mock port observes releaseLock calls before close during a simulated beforeunload while connected"
+  debug_session: ".planning/debug/reload-hang-page-unresponsive.md"
 
 - truth: "During paste, the Connection pane's paste-progress surfaces WITHOUT auto-expanding the <details> and WITHOUT causing the terminal canvas to lurch down the viewport (D-17 / paste UX)"
   status: failed
   reason: "User reported: whenever i paste, the connection dialog at the top opens, which causes the TTY part of the display to lurch down the screen alarmingly. I know the paste status is in there, but it shouldn't open the dialog."
   severity: major
   test: 6
-  root_cause: ""
-  artifacts: []
-  missing: []
-  debug_session: ""
+  root_cause: "www/main.js lines 307-308 explicitly set `connectionPane.open = true` on the paste-progress 'started' event (faithfully implementing spec D-17 / UI-SPEC §Connection pane auto-expand rules). <details id=\"connection\"> sits above #terminal-wrapper in the body's normal flex-column flow, and #terminal-wrapper has no sticky/fixed anchoring — so expanding the pane (~250-330 px height delta) translates 1:1 into the canvas's vertical position. This is a spec bug, not a code-vs-spec drift: the implementation matches D-17 verbatim; the spec is what's wrong. Same mechanism exists at serial.js:410 for D-27 error-log auto-expand."
+  artifacts:
+    - path: "www/main.js:305-348"
+      issue: "Paste-progress observer sets connectionPane.open = true on 'started' (line 308) with preExpansionOpen capture/restore dance at 304/307/323/333/343 — this is the direct cause of the canvas lurch"
+    - path: "www/index.html:395-453"
+      issue: "<details id=\"connection\"> DOM block whose auto-expansion shifts the canvas; <div id=\"paste-progress-row\" hidden> at lines 444-447 should be relocated out of this block"
+    - path: "www/index.html:54-82"
+      issue: "#top-bar is the sticky container that's the natural new home for paste-progress (rides at viewport top without pushing canvas)"
+    - path: "www/transport/serial.js:410"
+      issue: "Secondary auto-expand (connectionPane.open = true; // D-27 auto-expand on error) has the same lurch potential; consider same treatment for consistency"
+    - path: ".planning/phases/05-web-serial-transport/05-CONTEXT.md:188-194"
+      issue: "D-17 spec prescribes auto-expand on paste — needs amendment"
+    - path: ".planning/phases/05-web-serial-transport/05-UI-SPEC.md:511-516"
+      issue: "UI-SPEC Connection pane auto-expand rules table needs amendment to drop paste-start auto-expand"
+  missing:
+    - "Relocate paste-progress UI out of <details id=\"connection\"> and into #top-bar as a [hidden]-toggled flex item"
+    - "Remove connectionPane.open = true from main.js 'started' branch and the matching preExpansionOpen restore from 'complete' / 'cancelled' / 'cancelled-port-lost' branches (lines 304-348)"
+    - "Amend 05-CONTEXT.md D-17 and 05-UI-SPEC.md §Connection pane auto-expand rules to drop auto-expand on paste"
+    - "Decide whether the D-27 error-log auto-expand at serial.js:410 should similarly be demoted to a top-bar status slot for consistency"
+  debug_session: ".planning/debug/paste-auto-expands-pane-lurches-canvas.md"
 
 ## Sign-Off
 
