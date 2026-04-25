@@ -15,7 +15,10 @@ fn snapshot_grid_at_zero_matches_snapshot_grid() {
     let snap_a: Vec<u8> = unsafe { std::slice::from_raw_parts(term.pack_ptr(), len).to_vec() };
     term.snapshot_grid_at(0);
     let snap_b: Vec<u8> = unsafe { std::slice::from_raw_parts(term.pack_ptr(), len).to_vec() };
-    assert_eq!(snap_a, snap_b, "snapshot_grid_at(0) must match snapshot_grid()");
+    assert_eq!(
+        snap_a, snap_b,
+        "snapshot_grid_at(0) must match snapshot_grid()"
+    );
 }
 
 #[test]
@@ -48,7 +51,10 @@ fn snapshot_grid_at_returns_historical_window() {
     // Detailed marker assertion: read first cell's char byte (Cell layout: u32 char + 4 bytes attrs per Phase 1 grid.rs const_assert).
     let snap: Vec<u8> = unsafe { std::slice::from_raw_parts(term.pack_ptr(), len).to_vec() };
     // Row 0 col 0 char byte is at offset 0 (Cell #[repr(C)] u32 first field — LSB at offset 0).
-    assert_eq!(snap[0], b'L', "first cell of historical window should be 'L' marker");
+    assert_eq!(
+        snap[0], b'L',
+        "first cell of historical window should be 'L' marker"
+    );
 }
 
 #[test]
@@ -61,5 +67,8 @@ fn pack_ptr_stable_across_snapshot_grid_at() {
     term.snapshot_grid_at(1);
     term.snapshot_grid_at(0);
     let p2 = term.pack_ptr();
-    assert_eq!(p1, p2, "pack_ptr must be identity-stable across snapshot_grid_at calls");
+    assert_eq!(
+        p1, p2,
+        "pack_ptr must be identity-stable across snapshot_grid_at calls"
+    );
 }

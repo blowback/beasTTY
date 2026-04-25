@@ -37,8 +37,8 @@ fn clear_visible_marks_all_rows_dirty() {
     term.clear_dirty();
     term.clear_visible();
     let dirty: &[u8] = term.dirty();
-    for r in 0..24 {
-        assert_eq!(dirty[r], 1, "row {} must be dirty after clear_visible", r);
+    for (r, byte) in dirty.iter().enumerate().take(24) {
+        assert_eq!(*byte, 1, "row {} must be dirty after clear_visible", r);
     }
 }
 
@@ -50,7 +50,11 @@ fn clear_visible_homes_cursor() {
     // Sanity check pre-conditions
     assert_eq!(term.cursor(), (5, 10));
     term.clear_visible();
-    assert_eq!(term.cursor(), (0, 0), "cursor must be at (0,0) after clear_visible");
+    assert_eq!(
+        term.cursor(),
+        (0, 0),
+        "cursor must be at (0,0) after clear_visible"
+    );
 }
 
 #[test]

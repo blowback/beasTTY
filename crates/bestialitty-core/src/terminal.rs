@@ -217,6 +217,25 @@ impl Terminal {
         }
     }
 
+    /// Wipes every visible-region cell to BLANK + marks all rows dirty + homes
+    /// the cursor (0, 0). Parser state untouched — Phase 6 D-26 explicitly says
+    /// "remote state machine never sees a fake escape." JS callers use this
+    /// instead of feeding `\x1B\x4A` (ESC J) to clear the screen locally so
+    /// the remote VT52 state machine doesn't observe a fabricated escape.
+    pub fn clear_visible(&mut self) {
+        let cols = self.scrollback.cols();
+        let visible_rows = self.scrollback.visible_rows();
+        for r in 0..visible_rows {
+            let row = self.scrollback.row_mut(r);
+            for c in 0..cols {
+                row.as_mut_slice()[c] = Cell::BLANK;
+            }
+        }
+        self.dirty.mark_all();
+        self.cursor_row = 0;
+        self.cursor_col = 0;
+    }
+
     /// Pointer to the pack buffer's first byte. Stable across `feed()`,
     /// `push_line`, and `resize_scrollback` (D-03). Invalidated by
     /// `resize(rows, cols)` — JS must re-derive its `Uint8Array` view after.

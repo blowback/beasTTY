@@ -228,20 +228,15 @@ fn feed_silent_returns_unit_and_accumulates_host_reply() {
         3,
         "ESC Z accumulates 3 bytes into host_reply"
     );
-    let bytes = unsafe {
-        core::slice::from_raw_parts(term.host_reply_ptr(), term.host_reply_len())
-    };
+    let bytes =
+        unsafe { core::slice::from_raw_parts(term.host_reply_ptr(), term.host_reply_len()) };
     assert_eq!(
         bytes,
         &[0x1B, b'/', b'K'][..],
         "host_reply must hold the canonical identify reply"
     );
     term.clear_host_reply();
-    assert_eq!(
-        term.host_reply_len(),
-        0,
-        "clear_host_reply resets len to 0"
-    );
+    assert_eq!(term.host_reply_len(), 0, "clear_host_reply resets len to 0");
 }
 
 #[test]
@@ -304,4 +299,21 @@ fn existing_feed_still_returns_vec_u8() {
         vec![0x1B, b'/', b'K'],
         "native Terminal::feed continues to return the Vec<u8> reply"
     );
+}
+
+// --- Phase 6 Plan 02: pinned signatures for snapshot_grid_at + clear_visible ---
+
+#[test]
+fn phase6_snapshot_grid_at_and_clear_visible_signatures_pinned() {
+    // Phase 6 D-06 + D-26: pinned method signatures.
+    // Drift in &mut self / arg type / return type fails the build, mirroring
+    // Phase 2 D-10 boundary-shape lock. Type-annotated function-pointer coercion
+    // catches a signature change at compile time even before the runtime calls.
+    let _: fn(&mut Terminal, usize) = Terminal::snapshot_grid_at;
+    let _: fn(&mut Terminal) = Terminal::clear_visible;
+
+    let mut term = Terminal::new(24, 80, 100);
+    term.snapshot_grid_at(0_usize); // &mut self, usize, no return
+    term.clear_visible(); // &mut self, no args, no return
+    let _ = &term;
 }
