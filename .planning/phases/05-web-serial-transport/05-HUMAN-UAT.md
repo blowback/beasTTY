@@ -1,5 +1,5 @@
 ---
-status: diagnosed
+status: complete
 phase: 05-web-serial-transport
 source: [05-VERIFICATION.md, 05-VALIDATION.md]
 started: 2026-04-23
@@ -10,7 +10,7 @@ updated: 2026-04-25
 
 ## Current Test
 
-[testing paused — 1 item outstanding (Test 4 blocked: no CP/M COPY utility)]
+[complete — 5 passed, 1 blocked (Test 4: no CP/M COPY utility, environmental)]
 
 ## Tests
 
@@ -75,9 +75,8 @@ updated: 2026-04-25
 6. Open DevTools → Application → Local Storage → confirm `bestialitty.port.preset` is still `{"usbVendorId":4292,"usbProductId":60000}` (should have been untouched by reload; D-31 persistence is write-on-open only).
 7. Close the BestialiTTY tab entirely. Re-open the URL in a fresh tab. Verify the Connection pane again shows `MicroBeast (CP2102N 10c4:ea60) — click Connect` — proving the port grant + preset survives full tab recycle (not just reload).
 
-**result:** issue
-**reported:** "nope, reload leads to a hang and evenutally a \"Page unresponsive...\" dialog. Tried clicking \"Wait\" a few times, but it's dead as nails."
-**severity:** blocker
+**result:** pass
+**re_verified:** 2026-04-25 — confirmed fixed by Plan 05-08 (releaseLock before close + shuttingDown guard) on real hardware
 
 ### 4. Paste at 19200 baud no-overrun (XPORT-09 / SC-4b)
 
@@ -136,17 +135,16 @@ updated: 2026-04-25
    - **Typing feels responsive:** no > 100 ms perceptible lag on keypress-to-screen. Ctrl+Alt+T theme toggle is instant. Phosphor switches are instant.
 3. Record subjective impression: does BestialiTTY feel like something you'd reach for as a daily driver if you had to talk to a MicroBeast? Note any rough edges, annoyances, or confusion points in the `reason:` field.
 
-**result:** issue
-**reported:** "whenever i paste, the connection dialog at the top opens, which causes the TTY part of the display to lurch down the screen alarmingly. I know the paste status is in there, but it shouldn't open the dialog."
-**severity:** major
+**result:** pass
+**re_verified:** 2026-04-25 — confirmed fixed by Plan 05-09 (paste-progress relocated to top-bar, no auto-expand) on real hardware
 
 ## Summary (post-execution)
 
 | metric | value |
 |--------|-------|
 | total  | 6     |
-| passed | 3     |
-| issues | 2     |
+| passed | 5     |
+| issues | 0     |
 | blocked | 1    |
 | pending | 0    |
 | skipped | 0    |
@@ -154,7 +152,10 @@ updated: 2026-04-25
 ## Gaps
 
 - truth: "Reload with a connected port restores app to Connect/gray state and reconnects in < 1s without picker prompt (XPORT-07 / SC-3c)"
-  status: failed
+  status: closed
+  closed_by: 05-08
+  closed_on: 2026-04-25
+  closed_evidence: "User re-ran Test 3 on real hardware after Plan 05-08 landed; reload no longer hangs, no Page unresponsive dialog. Plan 05-08 commits 2550085 / a5afb9b / f38dbdc."
   reason: "User reported: nope, reload leads to a hang and evenutally a \"Page unresponsive...\" dialog. Tried clicking \"Wait\" a few times, but it's dead as nails."
   severity: blocker
   test: 3
@@ -175,7 +176,10 @@ updated: 2026-04-25
   debug_session: ".planning/debug/reload-hang-page-unresponsive.md"
 
 - truth: "During paste, the Connection pane's paste-progress surfaces WITHOUT auto-expanding the <details> and WITHOUT causing the terminal canvas to lurch down the viewport (D-17 / paste UX)"
-  status: failed
+  status: closed
+  closed_by: 05-09
+  closed_on: 2026-04-25
+  closed_evidence: "User re-ran Test 6 on real hardware after Plan 05-09 landed; paste-progress now appears in the sticky #top-bar slot, Connection pane stays as user left it, no canvas lurch. Plan 05-09 commits ceac705 / f894620 / b3e2b3d / 2300683."
   reason: "User reported: whenever i paste, the connection dialog at the top opens, which causes the TTY part of the display to lurch down the screen alarmingly. I know the paste status is in there, but it shouldn't open the dialog."
   severity: major
   test: 6
@@ -202,4 +206,4 @@ updated: 2026-04-25
 
 ## Sign-Off
 
-**Approval:** auto-approved in auto-chain (plan-level document verified). Real-hardware UAT pending — the user will run the 6 test rows against a physical MicroBeast + CP2102N cable and fill in each `result:` with `pass` / `fail` / `partial`, update the Summary counts, and flip front-matter `status: in-progress` → `status: complete`.
+**Approval:** user-approved 2026-04-25 — real-hardware UAT complete. 5/6 tests pass; Test 4 remains environmentally blocked (no CP/M COPY utility on user's MicroBeast image), deferred to Phase 6 backlog. Both gap closures (Plans 05-08 and 05-09) confirmed fixed on physical MicroBeast + CP2102N cable.
