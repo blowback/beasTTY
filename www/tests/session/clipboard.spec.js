@@ -133,6 +133,9 @@ test.describe('SESS-02/SESS-03 — Clipboard', () => {
     test('paste applies CR/LF rewrite per Phase 4 crlfMode', async ({ page }) => {
         await setup(page);
         // Switch CR/LF mode to LF — Phase 5 paste-pump rewrites 0x0D → 0x0A.
+        // The Settings <details> pane is collapsed at boot; open it so the
+        // radio is interactable, then dispatch a change to flip the radio.
+        await page.locator('#settings').evaluate((el) => { el.open = true; });
         await page.locator('#crlf-lf').check();
         await page.evaluate(() => window.__setClipboardContents('A\rB'));
         await connectMockSerial(page);

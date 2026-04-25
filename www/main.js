@@ -50,6 +50,7 @@ import {
     cancelPaste as cancelPastePump,
     wirePastePump,
 } from './input/paste-pump.js';
+import { wireClipboard, copySelection, pasteFromClipboard } from './input/clipboard.js';
 
 // ---- init + construction (Phase 2 — unchanged) ----
 const wasm = await init();                             // top-level-await: Chromium >=89
@@ -278,6 +279,23 @@ wireKeyboard({
 // called AFTER wireKeyboard (deps are resolved) and BEFORE wireSerial so the
 // pump is ready to accept bytes the instant the port opens.
 wirePastePump({ term, sampleBell, drainHostReply, requestFrame });
+
+// ---- Phase 6 Plan 04 (Wave 3) — wire clipboard adapter ----
+// wireClipboard owns the large-paste confirm chip lifecycle (D-25) and the
+// #paste-confirm focus-retention listener. The DOM refs were already resolved
+// at the top of main.js (Phase 5 paste-progress block); we add #paste-confirm.
+const pasteConfirmBtn = document.getElementById('paste-confirm');
+wireClipboard({
+    pasteProgressText,
+    pasteCancelBtn,
+    pasteConfirmBtn,
+    pasteProgressRow,
+    // Plan 06-06 (PREF-01) wires the Settings serial-config baud as the
+    // authoritative source. For now the form select element is the live value.
+    getBaud: () => parseInt(serialBaud.value, 10) || 19200,
+});
+window.__copySelection = copySelection;
+window.__pasteFromClipboard = pasteFromClipboard;
 
 // Phase 5 — wire Web Serial transport. opts mirror Phase 4 wireKeyboard
 // shape for sampleBell/drainHostReply/requestFrame discipline (D-35 post-feed
