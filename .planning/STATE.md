@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 06-06-PLAN.md (Wave 5 — prefs.js + Settings rows + auto-connect; 14/14 prefs + 5/5 auto-connect tests green)
-last_updated: "2026-04-25T14:50:28.298Z"
+stopped_at: Completed 06-07-PLAN.md (Wave 6 — MIT LICENSE + GH Pages workflow + best-effort _headers + CSP meta-tag fallback + README deploy docs; both human-verify gates auto-approved under _auto_chain_active=true; PLAT-03 + PLAT-04 closed)
+last_updated: "2026-04-25T14:58:13.656Z"
 last_activity: 2026-04-25
 progress:
   total_phases: 6
   completed_phases: 5
   total_plans: 41
-  completed_plans: 39
-  percent: 95
+  completed_plans: 40
+  percent: 98
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-04-21)
 ## Current Position
 
 Phase: 06 (daily-driver-polish-session-deployment) — EXECUTING
-Plan: 7 of 8 (Plan 06-01 complete; ready for Plan 06-02 / Wave 1)
+Plan: 8 of 8 (Plan 06-01 complete; ready for Plan 06-02 / Wave 1)
 Status: Ready to execute
 Last activity: 2026-04-25
 
-Progress: [██████████] 95%
+Progress: [██████████] 98%
 
 ## Performance Metrics
 
@@ -98,6 +98,7 @@ Progress: [██████████] 95%
 | Phase 06 P04 | 75min | 3 tasks tasks | 9 files files |
 | Phase 06 P05 | 35min | 2 tasks tasks | 6 files files |
 | Phase 06 P06 | 16min | 3 tasks tasks | 9 files files |
+| Phase 06 P07 | 3min | 4 tasks tasks | 6 files files |
 
 ## Accumulated Context
 
@@ -233,6 +234,11 @@ Recent decisions affecting current work:
 - Phase 6 Plan 06 Rule 1 fix: addInitScript localStorage.removeItem('bestialitty.prefs') runs on EVERY navigation including page.reload(), erasing saved blob right before main.js loadPrefs() reads it. Removed all such calls; tests rely on Playwright's per-test fresh browser context default-empty localStorage
 - Phase 6 Plan 06: canvas.js setZoom(z) absolute setter alongside zoomStep(delta) — applyPrefs needs absolute path (zoomStep is delta-relative and would never converge to a stored fontZoom). Same clamp [1..4] + atlas evict + markAllRowsDirty side-effects as zoomStep; same-value short-circuit per chrome.js REVIEW warning 3 pattern
 - Phase 6 Plan 06: mock-serial.js test hooks via window — __preGrantPort (seeds granted port pre-boot for getPorts() match), __forceOpenReject (throws from MockSerialPort.open), __mockOpenCount (counts successful opens; race-guard regression). Init-script registration order matters: hook flag scripts MUST register BEFORE SERIAL_MOCK so the IIFE inspects them at install time
+- Phase 6 Plan 07 (Wave 6): MIT LICENSE author auto-approved as 'Ant Skelton' under _auto_chain_active=true; matches git config user.name + user.email ant@ant.org
+- Phase 6 Plan 07: Pages source repo setting status = pages-pending; documented as one-time manual step in www/README.md + 06-07-SUMMARY.md (Settings -> Pages -> Source: GitHub Actions); first push will fail at configure-pages step until set
+- Phase 6 Plan 07: dual-source CSP pattern — verbatim directives in BOTH www/_headers (full HTTP-header enforcement on Cloudflare/Netlify/self-hosted) AND <meta http-equiv> in www/index.html (GH-Pages fallback); frame-ancestors INERT in meta-tag form per CSP spec
+- Phase 6 Plan 07: action versions pinned to actions/checkout@v4 + actions/configure-pages@v5 + actions/upload-pages-artifact@v3 + actions/deploy-pages@v5 (verified 2026-04-25 per RESEARCH §Sources)
+- Phase 6 Plan 07: both checkpoint:human-verify gates auto-approved under _auto_chain_active=true; auto-approval log captured in 06-07-SUMMARY.md for later operator review
 
 ### Pending Todos
 
@@ -257,8 +263,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-04-25T14:50:28.291Z
-Stopped at: Completed 06-06-PLAN.md (Wave 5 — prefs.js + Settings rows + auto-connect; 14/14 prefs + 5/5 auto-connect tests green)
+Last session: 2026-04-25T14:58:13.649Z
+Stopped at: Completed 06-07-PLAN.md (Wave 6 — MIT LICENSE + GH Pages workflow + best-effort _headers + CSP meta-tag fallback + README deploy docs; both human-verify gates auto-approved under _auto_chain_active=true; PLAT-03 + PLAT-04 closed)
 Resume file: None
 
 **Planned Phase:** 6 (Daily-Driver Polish, Session & Deployment) — 8 plans — 2026-04-25T13:14:27.851Z

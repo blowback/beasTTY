@@ -140,8 +140,10 @@ Requirements for initial release. Each maps to roadmap phases.
 **: Detect Chromium-based Web Serial support on load
 - [x] **PLAT-02
 **: Clear "use a Chromium-based browser" message on unsupported browsers — polite fail, no crash
-- [ ] **PLAT-03**: Ships as a static site, self-hosted (GitHub Pages / Cloudflare Pages / own domain)
-- [ ] **PLAT-04**: Public repo under a permissive license (MIT or Apache-2.0)
+- [x] **PLAT-03
+**: Ships as a static site, self-hosted (GitHub Pages / Cloudflare Pages / own domain)
+- [x] **PLAT-04
+**: Public repo under a permissive license (MIT or Apache-2.0)
 - [x] **PLAT-05
 
 **: First-open sane defaults — MicroBeast preset pre-selected; one click to connect
