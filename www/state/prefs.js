@@ -67,6 +67,16 @@ export function savePrefs(partial) {
     saveTimer = setTimeout(flushPrefs, 250);   // D-33 debounce — 250 ms locked.
 }
 
+// Phase 6 Plan 06-09 (gap closure) — flushPrefs MUST NOT fire subscribers.
+// Rationale: every savePrefs() call originates from a user action that
+// already mutated the DOM (theme click, phosphor click, serial-config
+// selectOption, etc.). Re-applying the just-saved blob to the DOM 250 ms
+// later is at best a no-op and at worst races against any other code
+// path that touched the same DOM in the intervening window (the proven
+// case is snapPreset in transport/serial.js, fixed in companion task).
+// External callers that need a notification — version migration on
+// load, the Reset prefs 2-click confirm path — go through resetPrefs()
+// which still iterates subscribers below.
 function flushPrefs() {
     try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(cached));
@@ -81,7 +91,7 @@ function flushPrefs() {
         }
     }
     saveTimer = null;
-    for (const fn of subscribers) fn(cached);
+    // No subscriber fan-out here — see comment block above this function.
 }
 
 // D-33 — flush immediately on beforeunload so a pending debounced write

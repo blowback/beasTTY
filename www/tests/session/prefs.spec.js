@@ -214,4 +214,48 @@ test.describe('PREF-01/PREF-02/PLAT-05 — Preferences persistence', () => {
         await page.waitForTimeout(3500);   // wait > 3 s
         await expect(page.locator('#reset-prefs-button')).toHaveText('Reset all preferences');
     });
+
+    // Phase 6 Plan 06-09 (gap closure) — no-revert regression suite.
+    // Covers the structural fix in www/state/prefs.js: flushPrefs no longer
+    // iterates subscribers, so a routine debounced savePrefs cannot re-fire
+    // applyPrefs and racily revert any DOM state the user just mutated.
+    // resetPrefs is preserved as the canonical subscriber fan-out path.
+    test('flushPrefs does NOT fire subscribers — no DOM revert after debounce window @fast', async ({ page }) => {
+        await setup(page);
+        // Install a spy subscriber via the public API.
+        await page.evaluate(() => {
+            window.__prefsSpyCalls = 0;
+            window.__prefsUnsub = window.__prefs.subscribe(() => { window.__prefsSpyCalls++; });
+        });
+        // Drive a routine savePrefs — debounce is 250 ms.
+        await page.evaluate(() => window.__prefs.savePrefs({ phosphor: 'amber' }));
+        // Wait > 250 ms so flushPrefs has run.
+        await page.waitForTimeout(350);
+        const spyCalls = await page.evaluate(() => window.__prefsSpyCalls);
+        // Structural fix: flushPrefs no longer iterates subscribers.
+        expect(spyCalls).toBe(0);
+        // Sanity — resetPrefs still does fire subscribers.
+        await page.evaluate(() => window.__prefs.resetPrefs());
+        const spyAfterReset = await page.evaluate(() => window.__prefsSpyCalls);
+        expect(spyAfterReset).toBe(1);
+        // Cleanup — unsubscribe so we don't leak across tests.
+        await page.evaluate(() => window.__prefsUnsub && window.__prefsUnsub());
+    });
+
+    test('phosphor DOM state survives the 250ms debounce window — no race-revert @fast', async ({ page }) => {
+        await setup(page);
+        // Click a phosphor button (real user interaction path) — Amber.
+        await page.locator('[data-phosphor="amber"]').click();
+        // Capture aria-pressed immediately after click (synchronous DOM update).
+        const pressedAfterClick = await page.locator('[data-phosphor="amber"]').getAttribute('aria-pressed');
+        expect(pressedAfterClick).toBe('true');
+        // Wait past the 250 ms debounce — applyPrefs would have fired pre-fix
+        // and (because cached state matches) would in this case be a no-op,
+        // BUT in the snapPreset analog it would have caused a revert. The
+        // structural fix makes this guarantee uniform across ALL DOM-mutating
+        // user actions.
+        await page.waitForTimeout(350);
+        const pressedAfterDebounce = await page.locator('[data-phosphor="amber"]').getAttribute('aria-pressed');
+        expect(pressedAfterDebounce).toBe('true');
+    });
 });
