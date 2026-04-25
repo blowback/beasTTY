@@ -100,6 +100,15 @@ mod wasm_boundary {
             self.inner.snapshot_grid();
         }
 
+        /// Snapshot a scrollback window starting `row_offset` rows back from
+        /// the live tail. row_offset = 0 → identical to snapshot_grid()
+        /// (Phase 6 D-06). JS marshals u32 directly; internal cast to usize
+        /// is free at wasm32. Out-of-range row_offset clamps to the oldest
+        /// retained row — never panics.
+        pub fn snapshot_grid_at(&mut self, row_offset: u32) {
+            self.inner.snapshot_grid_at(row_offset as usize);
+        }
+
         /// Pointer into the pack buffer — stable across `feed()` /
         /// `push_line` / `resize_scrollback` (D-03). Invalidated by
         /// `resize()` — JS must re-derive `Uint8Array` after.
@@ -151,6 +160,15 @@ mod wasm_boundary {
 
         pub fn resize_scrollback(&mut self, new_cap: usize) {
             self.inner.resize_scrollback(new_cap);
+        }
+
+        /// Phase 6 D-26 — direct grid mutation, NOT feeding ESC J. Parser
+        /// state untouched. Wipes visible cells, marks rows dirty, homes
+        /// cursor. JS top-bar Clear button calls this instead of feeding
+        /// `\x1B\x4A` so the remote VT52 state machine never sees a
+        /// fabricated escape.
+        pub fn clear_visible(&mut self) {
+            self.inner.clear_visible();
         }
     }
 
