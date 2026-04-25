@@ -34,28 +34,58 @@ driver with a real MicroBeast — nothing else matters if that doesn't hold.
       Ctrl-letter → 0x00–0x1F, local-echo toggle + 3-way CR/LF override in
       Settings pane, IME `isComposing` guard, mousedown-preventDefault focus
       retention on all chrome controls)*
+- [x] VT52 emulation covering the pragmatic subset emitted by the MicroBeast.
+      *(Validated across Phase 1 parser + Phase 2 wasm boundary + Phase 5 live
+      transport — torn-chunk safe, captures-driven test corpus.)*
+- [x] JS shell responsible for Web Serial I/O, canvas rendering, event loop, and
+      browser state. *(Validated in Phase 3: canvas renderer; Phase 4: keyboard;
+      Phase 5: Web Serial transport.)*
+- [x] Web Serial transport driven entirely from JS (no Rust bindings).
+      *(Validated in Phase 5: navigator.serial requestPort/getPorts/connect/
+      disconnect events, cancellation-safe read loop, paste throttling.)*
+- [x] Scrollback buffer for reviewing output above the current screen.
+      *(Validated in Phase 6: 10,000-line ring in Rust core, JS-side
+      `wheel`/Shift+PgUp/Shift+PgDn navigation, floating "↓ N new lines" chip,
+      [data-scrolled-back] subtle border tint, snap-to-bottom on TX/paste/
+      reconnect.)*
+- [x] Copy text out of the screen and paste into the serial stream.
+      *(Validated in Phase 6: drag-select line-wrapped + double-click word +
+      triple-click line, inverted-glyph rendering via atlas.getInverted,
+      Ctrl+Shift+C/Ctrl+Shift+V intercepts that preserve sacred Ctrl+C→0x03 /
+      Ctrl+V→0x16 paths, large-paste 4096-byte confirm chip.)*
+- [x] Session logging — capture the serial stream to a downloadable file.
+      *(Validated in Phase 6: per-connection raw-byte chunks accumulator,
+      mid-session Blob download with `bestialitty-{YYYYMMDD-HHMMSS}.bin`
+      filename, RX-only — TX never logged.)*
+- [x] Serial configuration: MicroBeast preset default with overrides.
+      *(Validated in Phase 5: 19200 8N1 no-flow preset, full baud/data bits/
+      stop bits/parity/flow control form, Reset to MicroBeast preset button;
+      Phase 6 persists last-used config to localStorage.)*
+- [x] Chromium-only with polite-fail on non-Chromium browsers.
+      *(Validated in Phase 5: feature-detect via `typeof navigator.serial`,
+      full-page takeover with browser list, no wasm/canvas init on detection
+      failure.)*
+- [x] Ships as a static site the author self-hosts.
+      *(Validated in Phase 6: `.github/workflows/pages.yml` with
+      actions/deploy-pages@v5; `www/_headers` best-effort Permissions-Policy +
+      CSP for Cloudflare/Netlify; `<meta http-equiv="Content-Security-Policy">`
+      defense-in-depth fallback for GH Pages; `.nojekyll`; deploy URL
+      reachability test deferred to first-push human UAT.)*
+- [x] Unit tests in Rust covering parser and terminal state machine.
+      *(Validated across Phase 1: 8 fixture tests + 20 torn-chunk tests; Phase 2:
+      boundary API shape; Phase 6: snapshot_grid_at + clear_visible parser
+      preservation gate. Total: 162+ Rust tests green.)*
+- [x] Permissive open-source license on a public repo.
+      *(Validated in Phase 6: SPDX MIT canonical text, Copyright 2026 Ant
+      Skelton, repo root `LICENSE` file.)*
 
 ### Active
 
 <!-- Current scope. Building toward these. -->
 
-- [ ] VT52 emulation covering the pragmatic subset actually emitted by the
-      MicroBeast and the software run on it (not strict DEC VT52, not ANSI).
-- [ ] JS shell responsible for Web Serial I/O, canvas rendering, event loop,
-      and browser state.
-- [ ] Web Serial transport driven entirely from JS (no Rust bindings to Web
-      Serial).
-- [ ] Scrollback buffer for reviewing output above the current screen.
-- [ ] Copy text out of the screen and paste into the serial stream.
-- [ ] Session logging — capture the serial stream to a downloadable file.
-- [ ] Serial configuration: MicroBeast preset is the default, with overrides
-      available for baud / data bits / stop bits / parity / flow control.
-- [ ] Chromium-only fully supported; non-Chromium browsers show a clear "use
-      a Chromium-based browser" message without crashing.
-- [ ] Ships as a static site the author self-hosts (GitHub Pages / Cloudflare
-      Pages / own domain).
-- [ ] Unit tests in Rust covering the parser and terminal state machine.
-- [ ] Permissive open-source license (MIT or Apache-2.0) on a public repo.
+(All v1 active requirements moved to Validated after Phase 6 completion. The 24-h
+memory-flat soak and daily-driver full-session UAT are documented as out-of-band
+manual sign-off items in `06-HUMAN-UAT.md` and `06-SOAK.md`.)
 
 ### Out of Scope
 
@@ -139,5 +169,13 @@ This document evolves at phase transitions and milestone boundaries.
 3. Audit Out of Scope — reasons still valid?
 4. Update Context with current state
 
+## Current State
+
+v1.0 milestone code-complete after Phase 6. All 54 mapped requirements validated at the
+code level. Three out-of-band manual sign-offs remain: GitHub Pages first-deploy smoke
+check (one-time repo setting + push), 24-hour memory-flat soak (`06-SOAK.md` protocol),
+and full daily-driver work session (`06-HUMAN-UAT.md` 8-test checklist). These do not
+block code completion; they confirm the daily-driver experience on real hardware.
+
 ---
-*Last updated: 2026-04-22 after Phase 4 (Keyboard Input) completion*
+*Last updated: 2026-04-25 after Phase 6 (Daily-Driver Polish, Session & Deployment) completion — v1.0 code-complete*
