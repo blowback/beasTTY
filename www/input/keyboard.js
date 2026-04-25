@@ -21,6 +21,18 @@
 import { encode_key_raw } from '../pkg/bestialitty_core.js';
 import { pushTxBytes } from './tx-sink.js';
 import { isActive as pastePumpIsActive, cancelPaste } from './paste-pump.js';
+// Phase 6 Plan 04 (Wave 3) — clipboard + selection + scroll-state intercepts.
+import { copySelection, pasteFromClipboard } from './clipboard.js';
+import {
+    isDragging as selectionIsDragging,
+    cancelDrag as selectionCancelDrag,
+} from './selection.js';
+import {
+    isScrolledBack as scrollIsScrolledBack,
+    scrollByPage,
+    snapToBottom,
+    jumpToTop,
+} from '../renderer/scroll-state.js';
 
 // D-04 — frozen KeyCode tag table (mirrors crates/bestialitty-core/src/key.rs:141-159).
 // Any drift silently produces wrong TX bytes; the Wave 3 Playwright suite
@@ -76,6 +88,20 @@ export function setCrlfMode(mode) {
     crlfMode = mode;
 }
 export function getCrlfMode() { return crlfMode; }
+
+// --- Phase 6 helper — pure-modifier-key detection ------------------------
+
+// Pure modifier-key keydowns (Shift/Ctrl/Alt/Meta press without a chord) do
+// not produce TX bytes and must NOT trigger the D-04 snap-on-TX gate while
+// scrolled back. Without this guard, pressing the leading modifier of a chord
+// like Shift+PageDown snaps the viewport before the second key arrives,
+// leaving D-01 broken.
+function isPureModifierKey(code) {
+    return code === 'ShiftLeft' || code === 'ShiftRight'
+        || code === 'ControlLeft' || code === 'ControlRight'
+        || code === 'AltLeft' || code === 'AltRight'
+        || code === 'MetaLeft' || code === 'MetaRight';
+}
 
 // --- Key-event packing (D-04, D-05) --------------------------------------
 
@@ -172,6 +198,16 @@ export function wireKeyboard(opts) {
         // versions set isComposing on first post-commit keydown).
         if (isComposing || e.isComposing) return;
 
+        // Phase 6 D-19 — Esc cancels in-flight selection drag (PRIORITY:
+        // before paste-cancel). 06-UI-SPEC §Esc key disambiguation locks the
+        // priority order: 1) selection drag cancel (UI-only, no remote effect),
+        // 2) paste cancel (Phase 5 D-18), 3) encode 0x1B to remote.
+        if (e.code === 'Escape' && selectionIsDragging()) {
+            e.preventDefault();
+            selectionCancelDrag();
+            return;
+        }
+
         // Phase 5 D-18 — Esc while paste pump is active cancels the paste AND
         // suppresses 0x1B. When pump is idle, Esc encodes normally (Phase 4
         // behaviour unchanged).
@@ -179,6 +215,45 @@ export function wireKeyboard(opts) {
             e.preventDefault();
             cancelPaste();
             return;
+        }
+
+        // Phase 6 D-21 — Ctrl+Shift+C copies. Ctrl+C (no Shift) still encodes
+        // 0x03 via the encode path below. Chromium reserves Ctrl+Shift+C for
+        // DevTools inspector; the standard preventDefault mitigation suffices
+        // when DevTools is closed (UAT confirms).
+        if (e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey && e.code === 'KeyC') {
+            e.preventDefault();
+            copySelection();
+            return;
+        }
+
+        // Phase 6 D-22 — Ctrl+Shift+V pastes. Ctrl+V (no Shift) still encodes
+        // 0x16 (SYN) via the encode path below.
+        if (e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey && e.code === 'KeyV') {
+            e.preventDefault();
+            pasteFromClipboard();
+            return;
+        }
+
+        // Phase 6 D-01 / D-05 — Shift+PgUp / Shift+PgDn / Shift+End / Shift+Home
+        // scroll. Plain PgUp/PgDn/End/Home pass through (silent drop per Phase 4
+        // D-17 since packKeyCode returns -1 for those).
+        if (e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
+            if (e.code === 'PageUp')   { e.preventDefault(); scrollByPage(+1); return; }
+            if (e.code === 'PageDown') { e.preventDefault(); scrollByPage(-1); return; }
+            if (e.code === 'End')      { e.preventDefault(); snapToBottom();   return; }
+            if (e.code === 'Home')     { e.preventDefault(); jumpToTop();      return; }
+        }
+
+        // Phase 6 D-04 — any TX-producing keypress while scrolled-back snaps
+        // to live tail. Gate runs AFTER all Phase 6 intercepts above (which
+        // return early so non-TX chords like Shift+End never reach this gate)
+        // but BEFORE the encode path so the snap is synchronous with the byte.
+        // Skip pure modifier-key keydowns (ShiftLeft/Right, ControlLeft/Right,
+        // AltLeft/Right, MetaLeft/Right) — those don't produce TX bytes and
+        // would otherwise snap-to-bottom the moment the user starts a chord.
+        if (scrollIsScrolledBack() && !isPureModifierKey(e.code)) {
+            snapToBottom();
         }
 
         const code = packKeyCode(e);

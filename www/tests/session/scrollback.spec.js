@@ -35,15 +35,22 @@ test.describe('SESS-01 — Scrollback navigation', () => {
         await expect(page.locator('#terminal-wrapper')).toHaveAttribute('data-scrolled-back', 'true');
     });
 
-    test.fixme('Shift+PgUp pages back 24 lines', async ({ page }) => {
-        // LIVE WHEN: Plan 06-04 lands keyboard.js Shift+PgUp intercept.
-        // Plan 06-03 only exposes the API (window.__scrollState.scrollByPage(+1)).
+    test('Shift+PgUp pages back 24 lines', async ({ page }) => {
         await setup(page);
+        await page.locator('#terminal-wrapper').focus();
+        await page.keyboard.press('Shift+PageUp');
+        const offset = await page.evaluate(() => window.__scrollState.getOffset());
+        expect(offset).toBe(24);
     });
 
-    test.fixme('Shift+PgDn pages forward 24 lines', async ({ page }) => {
-        // LIVE WHEN: Plan 06-04 lands keyboard.js Shift+PgDn intercept.
+    test('Shift+PgDn pages forward 24 lines', async ({ page }) => {
         await setup(page);
+        // Pre-scroll so PgDn has somewhere to go.
+        await page.evaluate(() => window.__scrollState.scrollByLines(50));
+        await page.locator('#terminal-wrapper').focus();
+        await page.keyboard.press('Shift+PageDown');
+        const offset = await page.evaluate(() => window.__scrollState.getOffset());
+        expect(offset).toBe(26);   // 50 - 24
     });
 
     test('Shift+End API equivalent (snapToBottom) clears offset @fast', async ({ page }) => {
@@ -57,10 +64,18 @@ test.describe('SESS-01 — Scrollback navigation', () => {
         expect(offset).toBe(0);
     });
 
-    test.fixme('Shift+Home jumps to top of scrollback', async ({ page }) => {
-        // LIVE WHEN: Plan 06-04 lands keyboard.js Shift+Home intercept.
-        // Plan 06-03 exposes the API: window.__scrollState.jumpToTop().
+    test('Shift+Home jumps to top of scrollback', async ({ page }) => {
         await setup(page);
+        await page.locator('#terminal-wrapper').focus();
+        await page.keyboard.press('Shift+Home');
+        // jumpToTop calls setOffset(MAX_SAFE_INTEGER); scroll-state clamps the
+        // result internally — it ends up at the largest representable offset
+        // since the wasm side does the actual clamping at snapshot time. Just
+        // assert non-zero (we are scrolled back) and that the data attribute
+        // is set.
+        const offset = await page.evaluate(() => window.__scrollState.getOffset());
+        expect(offset).toBeGreaterThan(0);
+        await expect(page.locator('#terminal-wrapper')).toHaveAttribute('data-scrolled-back', 'true');
     });
 
     test('chip increments newLinesSinceUserScrolled on every notifyFeed with newline', async ({ page }) => {
