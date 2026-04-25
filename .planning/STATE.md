@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 06-04-PLAN.md (Wave 3 — selection.js + clipboard.js + keyboard.js intercepts; 9/9 + 12/12 + 11/11 Wave 3 tests green)
-last_updated: "2026-04-25T14:15:04.860Z"
+stopped_at: Completed 06-05-PLAN.md (Wave 4 — session-log.js + Clear button; 7/7 + 4/4 Wave 4 tests green)
+last_updated: "2026-04-25T14:31:32.112Z"
 last_activity: 2026-04-25
 progress:
   total_phases: 6
   completed_phases: 5
   total_plans: 41
-  completed_plans: 37
-  percent: 90
+  completed_plans: 38
+  percent: 93
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-04-21)
 ## Current Position
 
 Phase: 06 (daily-driver-polish-session-deployment) — EXECUTING
-Plan: 5 of 8 (Plan 06-01 complete; ready for Plan 06-02 / Wave 1)
+Plan: 6 of 8 (Plan 06-01 complete; ready for Plan 06-02 / Wave 1)
 Status: Ready to execute
 Last activity: 2026-04-25
 
-Progress: [█████████░] 90%
+Progress: [█████████░] 93%
 
 ## Performance Metrics
 
@@ -96,6 +96,7 @@ Progress: [█████████░] 90%
 | Phase 06-daily-driver-polish-session-deployment P02 | 12min | 3 tasks tasks | 6 files files |
 | Phase 06-daily-driver-polish-session-deployment P03 | 8min | 2 tasks tasks | 5 files files |
 | Phase 06 P04 | 75min | 3 tasks tasks | 9 files files |
+| Phase 06 P05 | 35min | 2 tasks tasks | 6 files files |
 
 ## Accumulated Context
 
@@ -220,6 +221,10 @@ Recent decisions affecting current work:
 - Phase 6 Plan 04: Selection-clear-on-theme/phosphor/zoom (D-19) wired via main.js capture-phase listeners on themeButton + phosphorButtons + terminalWrapper — keeps wireChrome opts surface narrow rather than threading a selection-ref through
 - Phase 6 Plan 04: Click-count detection requires same (rowOffsetFromTail, col) AND <400ms — prevents slow drags from being misread as double/triple-click
 - Phase 6 Plan 04: Capture-phase clearSelection on Ctrl+{+,-,0} keydown attached to terminalWrapper — chrome.js's bubble-phase zoom handler runs after, so selection clears before the canvas repaints under the new zoom
+- Phase 6 Plan 05: session-log.js uses module-scope chunks: Uint8Array[] + totalBytes + connectStartIso; chunks pushed by reference (D-30); Blob constructor at download time only with 5s deferred URL.revokeObjectURL hygiene defense; bestialitty-{YYYYMMDD-HHMMSS}.bin filename grammar uses connect-time UTC stamp captured BEFORE setState('connected') so it precedes any byte arrival
+- Phase 6 Plan 05: read-loop append placed AFTER requestFrameFn() — last in the post-feed invariant (term.feed → sampleBell → drainHostReply → requestFrame → sessionLog.append); sessionLogRef.reset() called inside connectMicroBeast AND finishReconnect (silent reconnect treated as a new session per D-29) BEFORE setState('connected')
+- Phase 6 Plan 05: Clear button calls term.clear_visible() (Plan 06-02 wasm forwarder) NOT term.feed of \\x1B\\x4A — D-26 contract preserved; Shift+click cycles resize_scrollback(0)→(10000); both branches snap to live tail + request a frame; clear-screen.spec.js Test 3 is the regression gate (puts parser in EscState, clicks Clear, then feeds 'Z' — host_reply MUST contain ESC / K)
+- Phase 6 Plan 05: late-bound dependency injection pattern via getter thunk (getScrollState in wireChrome opts) preserves the documented module boot order (wireChrome step 5 / wireScrollState step 7 per RESEARCH §Architecture) without rippling reorder; the thunk resolves the live ref at click time, decoupling registration order from resolution order
 
 ### Pending Todos
 
@@ -244,8 +249,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-04-25T14:14:45.201Z
-Stopped at: Completed 06-04-PLAN.md (Wave 3 — selection.js + clipboard.js + keyboard.js intercepts; 9/9 + 12/12 + 11/11 Wave 3 tests green)
+Last session: 2026-04-25T14:31:32.105Z
+Stopped at: Completed 06-05-PLAN.md (Wave 4 — session-log.js + Clear button; 7/7 + 4/4 Wave 4 tests green)
 Resume file: None
 
 **Planned Phase:** 6 (Daily-Driver Polish, Session & Deployment) — 8 plans — 2026-04-25T13:14:27.851Z

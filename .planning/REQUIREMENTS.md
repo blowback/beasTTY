@@ -115,9 +115,11 @@ Requirements for initial release. Each maps to roadmap phases.
 - [x] **SESS-03
 
 **: User can paste clipboard content into the serial stream (subject to paste throttling)
-- [ ] **SESS-04
+- [x] **SESS-04
+
 **: Session logging captures the serial stream to a downloadable file, auto-started per connection
-- [ ] **SESS-05
+- [x] **SESS-05
+
 **: Mid-session "download current log" button without disconnecting
 - [x] **SESS-06
 
