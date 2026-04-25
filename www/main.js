@@ -97,7 +97,16 @@ const pasteCancelBtn      = document.getElementById('paste-cancel');
 const pasteTestBtn        = document.getElementById('paste-test');
 // Phase 6 Plan 05 (Wave 4) — session-log download button (D-31).
 const downloadLogBtn      = document.getElementById('download-log-button');
-wireChrome({ terminalWrapper, themeButton, phosphorButtons, phosphorGroup, bellOverlay, requestFrame });
+// Phase 6 Plan 05 (Wave 4) — wireChrome's Clear button needs scrollState
+// which is wired below; pass a getter thunk so the click handler resolves
+// the live ref at click time. scrollStateRef is set right after wireScrollState
+// returns; wireChrome receives the getter, not the value.
+let scrollStateRef = null;
+wireChrome({
+    terminalWrapper, themeButton, phosphorButtons, phosphorGroup, bellOverlay, requestFrame,
+    term,                                       // Phase 6 Plan 05 — clear_visible / resize_scrollback
+    getScrollState: () => scrollStateRef,
+});
 
 // ---- Phase 6 Plan 03 (Wave 2) — wire scrollback state machine ----
 // wireScrollState owns the wheel listener (attached to #terminal-wrapper),
@@ -115,6 +124,11 @@ const scrollState = wireScrollState({
     requestFrame,
     markAllRowsDirty,
 });
+// Phase 6 Plan 05 (Wave 4) — late-bind for chrome.js's Clear button.
+// wireChrome was called BEFORE wireScrollState (per RESEARCH §Architecture
+// boot order); the getScrollState thunk lets the Clear handler resolve the
+// live ref at click time without violating the documented module order.
+scrollStateRef = scrollState;
 // Test introspection (mirrors window.__testGridView precedent at main.js:55-64).
 // Plan 06-04 (keyboard chord intercepts) + Plan 06-06 (selection / clipboard)
 // will import scroll-state.js directly; this exposure is for Playwright tests.

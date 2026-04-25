@@ -50,12 +50,46 @@ function toggleTheme(ctx) {
 }
 
 export function wireChrome(opts) {
-    const { terminalWrapper, themeButton, phosphorButtons, phosphorGroup, bellOverlay, requestFrame } = opts;
+    const {
+        terminalWrapper, themeButton, phosphorButtons, phosphorGroup, bellOverlay, requestFrame,
+        // Phase 6 Plan 05 (Wave 4) — Clear button needs term + scrollState.
+        // scrollState is wired AFTER wireChrome in main.js (per RESEARCH
+        // §Architecture boot order); pass a getter thunk so the Clear handler
+        // resolves the live ref at click time, not at wireChrome time.
+        term: termArg,
+        getScrollState,
+    } = opts;
     const ctx = { terminalWrapper, themeButton, phosphorButtons, phosphorGroup, bellOverlay };
 
     // Initial paint of chrome side-effects (reflects canvas.js default state).
     applyThemeSideEffects(getActiveTheme().name, ctx);
     applyPhosphorSideEffects(getActivePhosphor(), phosphorButtons);
+
+    // ==== Phase 6 Plan 05 (Wave 4) — Top-bar Clear button (D-26) ====
+    // Plain click wipes the visible 80x24 grid via term.clear_visible() —
+    // direct Rust API call, NOT feeding \x1B\x4A. The remote VT52 state machine
+    // never sees a fabricated escape (T-06-05-03 mitigation; Plan 06-02 Test 4
+    // is the Rust-side gate). Shift+click ALSO clears scrollback by cycling
+    // resize_scrollback(0) → resize_scrollback(10000) (the Phase 1 D-12 default
+    // cap). Both flavours snap to the live tail (D-04 trigger) so the user
+    // doesn't end up reading an empty scrolled-back viewport.
+    const clearButton = document.getElementById('clear-button');
+    if (clearButton && termArg) {
+        clearButton.addEventListener('click', (e) => {
+            termArg.clear_visible();   // Phase 6 Plan 02 wasm forwarder — NOT \x1B\x4A.
+            if (e.shiftKey) {
+                // D-26 — Shift+click also wipes scrollback. Cycle through 0
+                // and back to the Phase 1 D-12 default cap (10000).
+                termArg.resize_scrollback(0);
+                termArg.resize_scrollback(10000);
+            }
+            const ss = getScrollState && getScrollState();
+            if (ss) ss.snapToBottom();   // D-04 trigger — clear is a snap-to-bottom action.
+            if (requestFrame) requestFrame();
+        });
+        // Phase 4 D-16 sacred — focus retention.
+        clearButton.addEventListener('mousedown', (e) => e.preventDefault());
+    }
 
     // ==== Theme toggle button (click) ====
     themeButton.addEventListener('click', () => {
