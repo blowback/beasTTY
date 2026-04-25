@@ -396,6 +396,16 @@
     }
     #top-bar #paste-progress-row #paste-confirm[hidden] { display: none; }
 
+    /* Phase 6 Plan 05 (D-31) — Download log button disabled-state hint.
+       The base button rule (#connection button) already styles padding /
+       border / hover. Disabled state lowers opacity + flips cursor so the
+       "no bytes yet" gating is glanceable without competing with the rest
+       of the connection-pane chrome. */
+    #download-log-button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
     /* Inline error log — fixed-height ring, newest-at-top */
     #error-log {
       font-family: inherit;
@@ -527,6 +537,10 @@
     </fieldset>
     <span id="serial-reconnect-hint" class="hint" hidden></span>
     <button id="serial-reset-preset" type="button">Reset to MicroBeast preset</button>
+    <!-- Phase 6 D-31 (Plan 06-05) — per-connection RX log download. Disabled
+         until the first byte arrives; tooltip cycles per session-log.js. -->
+    <button id="download-log-button" type="button" disabled
+            title="No bytes received yet">Download log</button>
     <p class="hint">MicroBeast default is 19200 8N1, no flow control. Single-tab ownership is enforced by Chromium — close any other BestialiTTY tab that holds this port first.</p>
 
     <p class="hint">Recent errors</p>
