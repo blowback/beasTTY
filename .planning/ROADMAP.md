@@ -113,14 +113,16 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. Unplugging the MicroBeast exits the read loop cleanly (via `reader.cancel()` before `port.close()`), surfaces port-lost in the UI, and replugging the same device auto-reconnects without a permission prompt (VID/PID matched); reload restores the previously-granted port via `navigator.serial.getPorts()`
   4. The serial-config UI exposes baud / data bits / stop bits / parity / flow-control overrides; pasting a large block of text into the terminal is rate-limited to serial line speed (no silent MicroBeast input-buffer overrun at 19200 baud)
   5. Loading the app in Firefox or Safari shows a polite "use a Chromium-based browser" message with no console errors and no crash; the read loop is a pure async `while(true) { await reader.read() }` that survives background-tab throttling without losing serial data
-**Plans**: 7 plans
+**Plans**: 9 plans
   - [x] 05-01-PLAN.md — Wave 0 scaffolding: Playwright navigator.serial mock + 7 spec stubs + testMatch extension + 05-HUMAN-UAT.md skeleton (Wave 0)
   - [x] 05-02-PLAN.md — Polite-fail gate first-line + Connection pane DOM + Connect button CSS + serial.js / paste-pump.js module skeletons (Wave 1)
   - [x] 05-03-PLAN.md — Core transport: requestPort + port.open + DTR/RTS safe defaults + pure-async read loop + cancel-before-close teardown + tx-sink writer coupling (Wave 2)
   - [x] 05-04-PLAN.md — Serial-config form wiring (baud / data bits / stop bits / parity / flow control + Reset to preset) (Wave 3)
   - [x] 05-05-PLAN.md — Auto-reconnect state machine + navigator.serial event listeners + error log ring-of-5 + VID/PID localStorage persistence (Wave 4)
   - [x] 05-06-PLAN.md — Paste pump setTimeout chain + CR/LF rewrite + Esc-cancel + progress observer + Paste test button (Wave 5)
-  - [ ] 05-07-PLAN.md — beforeunload handler + visibilitychange catch-up + remaining specs + 05-HUMAN-UAT.md checkpoint (Wave 6)
+  - [x] 05-07-PLAN.md — beforeunload handler + visibilitychange catch-up + remaining specs + 05-HUMAN-UAT.md checkpoint (Wave 6)
+  - [x] 05-08-PLAN.md — Gap 1 closure: beforeunload close-contract (release reader+writer locks before port.close + shuttingDown guard + lifecycle.spec.js) (Wave 7, gap_closure)
+  - [x] 05-09-PLAN.md — Gap 2 closure: paste-progress relocated from Connection pane to #top-bar + D-17 amended + UI-SPEC auto-expand rules table amended (Wave 7, gap_closure)
 **UI hint**: yes
 
 ### Phase 6: Daily-Driver Polish, Session & Deployment

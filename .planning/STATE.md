@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: "Completed 05-web-serial-transport 08 (Wave 7 — gap_closure: beforeunload close-contract, lifecycle.spec.js, 40 transport tests passing)"
-last_updated: "2026-04-25T00:16:46.769Z"
+stopped_at: "Completed 05-web-serial-transport 09 (Wave 7 — gap_closure: paste-progress relocated to top-bar, D-17 amended, 41 transport tests passing)"
+last_updated: "2026-04-25T00:28:31.548Z"
 last_activity: 2026-04-25
 progress:
   total_phases: 6
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 33
-  completed_plans: 32
-  percent: 97
+  completed_plans: 33
+  percent: 100
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-04-21)
 ## Current Position
 
 Phase: 05 (web-serial-transport) — EXECUTING
-Plan: 2 of 9
+Plan: 3 of 9
 Status: Ready to execute
 Last activity: 2026-04-25
 
-Progress: [██████████] 97%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -91,6 +91,7 @@ Progress: [██████████] 97%
 | Phase 05-web-serial-transport P06 | 6min | 3 tasks tasks | 5 files files |
 | Phase 05-web-serial-transport P07 | 6min | 4 tasks | 6 files |
 | Phase 05-web-serial-transport P08 | 5min | 2 tasks tasks | 3 files files |
+| Phase 05-web-serial-transport P09 | 7min | 3 tasks tasks | 6 files files |
 
 ## Accumulated Context
 
@@ -195,6 +196,10 @@ Recent decisions affecting current work:
 - Phase 5 Plan 08 (Wave 7 gap_closure): cancel() != releaseLock() — beforeunload now SYNCHRONOUSLY releases reader+writer locks before fire-and-forget port.close so the WHATWG Streams + Web Serial close-contract is satisfiable. Combined with module-scope shuttingDown flag + outer-while guard in runReadLoop, this eliminates the 'Page unresponsive' dialog on Ctrl+R while connected (UAT Test 3 blocker). Pre-existing teardown() helper untouched (its await-each-step posture is correct outside beforeunload's tight time budget)
 - Phase 5 Plan 08: window.__mockLockLog joins window.__mockWriterLog as the second test-only ordering-log on window — { op, ts } shape — so future ordering specs can introspect lifecycle ordering without bespoke instrumentation. lifecycle.spec.js (2 tests, 40 transport-suite total post-fix) is the regression anchor for the close-contract
 - Phase 5 grep-hygiene rule (5th occurrence): comments that reference load-bearing literals tracked by grep-count done-criteria MUST be paraphrased so the code occurrence is the single authoritative source. Plan 08 instance: 'Paired with the read-loop tear-down guard (module flag set below, checked at the top of runReadLoop's outer while)…' instead of literal 'shuttingDown guard' to keep the grep-count = 3 invariant
+- Phase 5 Plan 09 (Gap 2 fix): paste-progress UI relocated from inside <details id="connection"> to <div id="top-bar">; #top-bar is position:sticky;top:0 so a paste in flight rides the viewport top without displacing the canvas. preExpansionOpen variable + connectionPane.open mutations removed entirely from main.js paste observer. UAT Test 6 ~250-330 px lurch eliminated at code level; spec amended in same plan to prevent re-proposal.
+- Phase 5 Plan 09: D-27 (error-log auto-expand) KEPT — intentionally asymmetric with the amended D-17. Errors are rare + sticky + demand attention; pastes are frequent + transient. Asymmetry documented in BOTH the amended D-17 rationale paragraph (05-CONTEXT.md) AND the serial.js:441 comment block. Recurring asymmetry-pattern reference for future polish work.
+- Phase 5 Plan 09: spec-bug amendment pattern — when a CONTEXT decision is wrong on real hardware (proven via UAT), amend the decision IN PLACE with a dated 'AMENDED YYYY-MM-DD by Plan N' header, preserve the original text in a <details> superseded block for traceability, AND amend any UI-SPEC tables that cite the decision in the SAME plan/commit. 05-CONTEXT.md D-17 + 05-UI-SPEC.md auto-expand rules table + Paste-pump UI interactions table all amended together; original D-17 preserved verbatim. Prevents gsd-research / gsd-plan future runs from re-proposing the original behavior.
+- Phase 5 Plan 09 regression-test design lesson: 4 KB paste payload (~2.3 s at 19200 baud, 32B chunks at 18ms gap) chosen so the pump runs long enough to observe in-flight UI invariants without racing the 'Paste complete' transition; a short payload (e.g. 14 B) finished in <100 ms and reliably raced the assertion. Caught + fixed inline as a Rule 1 bug during Task 2 execution. Standing rule for any future paste-related Playwright regression: pick payload size by gap-ms × required-active-duration, not by the natural minimum size that exercises the code path.
 
 ### Pending Todos
 
@@ -219,8 +224,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-04-25T00:16:46.762Z
-Stopped at: Completed 05-web-serial-transport 08 (Wave 7 — gap_closure: beforeunload close-contract, lifecycle.spec.js, 40 transport tests passing)
+Last session: 2026-04-25T00:28:09.650Z
+Stopped at: Completed 05-web-serial-transport 09 (Wave 7 — gap_closure: paste-progress relocated to top-bar, D-17 amended, 41 transport tests passing)
 Resume file: None
 
 **Planned Phase:** 5 (Web Serial Transport) — 7 plans — 2026-04-23T00:45:32.678Z
