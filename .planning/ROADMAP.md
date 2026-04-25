@@ -140,8 +140,8 @@ Decimal phases appear between their surrounding integers in numeric order.
   - [x] 06-02-PLAN.md — Rust core APIs: Terminal::snapshot_grid_at(row_offset) + Terminal::clear_visible() + lib.rs wasm forwarders + boundary-shape pin (Wave 1)
   - [x] 06-03-PLAN.md — Scroll-state module: scroll-state.js + canvas tick branching + floating chip + [data-scrolled-back] (Wave 2)
   - [x] 06-04-PLAN.md — Selection + clipboard + keyboard chord intercepts: selection.js + clipboard.js + Ctrl+Shift+C/V + Shift+End/Home/PgUp/PgDn (Wave 3)
-  - [ ] 06-05-PLAN.md — Session log + Download log button + top-bar Clear button + clear_visible wiring (Wave 4)
-  - [ ] 06-06-PLAN.md — Prefs versioned blob + Settings rows (Reset prefs / Clear scrollback / Auto connect) + boot reorder + auto-connect path (Wave 5)
+  - [x] 06-05-PLAN.md — Session log + Download log button + top-bar Clear button + clear_visible wiring (Wave 4)
+  - [x] 06-06-PLAN.md — Prefs versioned blob + Settings rows (Reset prefs / Clear scrollback / Auto connect) + boot reorder + auto-connect path (Wave 5)
   - [ ] 06-07-PLAN.md — Deploy artifacts: LICENSE (MIT) + .github/workflows/pages.yml + www/_headers + www/.nojekyll + CSP meta-tag + README docs (Wave 6)
   - [ ] 06-08-PLAN.md — 06-SOAK.md (24-h memory protocol) + 06-HUMAN-UAT.md (8 daily-driver tests) (Wave 7)
 **UI hint**: yes
@@ -158,7 +158,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | 3. Canvas Renderer | 7/7 | Complete    | 2026-04-22 |
 | 4. Keyboard Input | 4/4 | Complete    | 2026-04-22 |
 | 5. Web Serial Transport | 7/7 | Complete    | 2026-04-23 |
-| 6. Daily-Driver Polish, Session & Deployment | 2/8 | Executing   | -          |
+| 6. Daily-Driver Polish, Session & Deployment | 6/8 | Executing   | -          |
 
 ---
 *Roadmap created: 2026-04-21*

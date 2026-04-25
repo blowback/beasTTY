@@ -127,9 +127,11 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Persistence
 
-- [ ] **PREF-01
+- [x] **PREF-01
+
 **: Theme, phosphor colour, font size, and last-used serial config persist in `localStorage`
-- [ ] **PREF-02
+- [x] **PREF-02
+
 **: Local echo and CR/LF override toggle states persist in `localStorage`
 
 ### Platform
@@ -140,7 +142,8 @@ Requirements for initial release. Each maps to roadmap phases.
 **: Clear "use a Chromium-based browser" message on unsupported browsers — polite fail, no crash
 - [ ] **PLAT-03**: Ships as a static site, self-hosted (GitHub Pages / Cloudflare Pages / own domain)
 - [ ] **PLAT-04**: Public repo under a permissive license (MIT or Apache-2.0)
-- [ ] **PLAT-05
+- [x] **PLAT-05
+
 **: First-open sane defaults — MicroBeast preset pre-selected; one click to connect
 
 ## v2 Requirements

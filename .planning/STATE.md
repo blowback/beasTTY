@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 06-05-PLAN.md (Wave 4 — session-log.js + Clear button; 7/7 + 4/4 Wave 4 tests green)
-last_updated: "2026-04-25T14:31:32.112Z"
+stopped_at: Completed 06-06-PLAN.md (Wave 5 — prefs.js + Settings rows + auto-connect; 14/14 prefs + 5/5 auto-connect tests green)
+last_updated: "2026-04-25T14:50:28.298Z"
 last_activity: 2026-04-25
 progress:
   total_phases: 6
   completed_phases: 5
   total_plans: 41
-  completed_plans: 38
-  percent: 93
+  completed_plans: 39
+  percent: 95
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-04-21)
 ## Current Position
 
 Phase: 06 (daily-driver-polish-session-deployment) — EXECUTING
-Plan: 6 of 8 (Plan 06-01 complete; ready for Plan 06-02 / Wave 1)
+Plan: 7 of 8 (Plan 06-01 complete; ready for Plan 06-02 / Wave 1)
 Status: Ready to execute
 Last activity: 2026-04-25
 
-Progress: [█████████░] 93%
+Progress: [██████████] 95%
 
 ## Performance Metrics
 
@@ -97,6 +97,7 @@ Progress: [█████████░] 93%
 | Phase 06-daily-driver-polish-session-deployment P03 | 8min | 2 tasks tasks | 5 files files |
 | Phase 06 P04 | 75min | 3 tasks tasks | 9 files files |
 | Phase 06 P05 | 35min | 2 tasks tasks | 6 files files |
+| Phase 06 P06 | 16min | 3 tasks tasks | 9 files files |
 
 ## Accumulated Context
 
@@ -225,6 +226,13 @@ Recent decisions affecting current work:
 - Phase 6 Plan 05: read-loop append placed AFTER requestFrameFn() — last in the post-feed invariant (term.feed → sampleBell → drainHostReply → requestFrame → sessionLog.append); sessionLogRef.reset() called inside connectMicroBeast AND finishReconnect (silent reconnect treated as a new session per D-29) BEFORE setState('connected')
 - Phase 6 Plan 05: Clear button calls term.clear_visible() (Plan 06-02 wasm forwarder) NOT term.feed of \\x1B\\x4A — D-26 contract preserved; Shift+click cycles resize_scrollback(0)→(10000); both branches snap to live tail + request a frame; clear-screen.spec.js Test 3 is the regression gate (puts parser in EscState, clicks Clear, then feeds 'Z' — host_reply MUST contain ESC / K)
 - Phase 6 Plan 05: late-bound dependency injection pattern via getter thunk (getScrollState in wireChrome opts) preserves the documented module boot order (wireChrome step 5 / wireScrollState step 7 per RESEARCH §Architecture) without rippling reorder; the thunk resolves the live ref at click time, decoupling registration order from resolution order
+- Phase 6 Plan 06: prefs.js storage key 'bestialitty.prefs' DISTINCT from Phase 5's 'bestialitty.port.preset' (D-32) — identity vs config separation. resetPrefs() ONLY removes bestialitty.prefs; port-preset key intentionally untouched (T-06-06-05 mitigation)
+- Phase 6 Plan 06: 250 ms debounce timer + beforeunload flush + version migration (>CURRENT_VERSION → wholesale fall-back, <CURRENT_VERSION → field-by-field upgrade); QuotaExceededError caught silently with in-memory prefs preserved
+- Phase 6 Plan 06: applyPrefs subscriber re-applies theme/phosphor/zoom/localEcho/crlfMode/serial-form on every flushPrefs + on resetPrefs() — D-35 in-place reset works without page reload; serial-config form mirroring is cosmetic only (Phase 5 D-08 reconnect-required hint owns mid-connection changes)
+- Phase 6 Plan 06: auto-connect path lives INSIDE wireSerial AFTER getPorts() lastPortRef discovery, gated on prefsRef.autoConnect && lastPortRef && state === 'disconnected' (Pitfall 3 race against user-click); failure → appendErrorLog + setState('disconnected'); no granted port → distinct log message
+- Phase 6 Plan 06 Rule 1 fix: addInitScript localStorage.removeItem('bestialitty.prefs') runs on EVERY navigation including page.reload(), erasing saved blob right before main.js loadPrefs() reads it. Removed all such calls; tests rely on Playwright's per-test fresh browser context default-empty localStorage
+- Phase 6 Plan 06: canvas.js setZoom(z) absolute setter alongside zoomStep(delta) — applyPrefs needs absolute path (zoomStep is delta-relative and would never converge to a stored fontZoom). Same clamp [1..4] + atlas evict + markAllRowsDirty side-effects as zoomStep; same-value short-circuit per chrome.js REVIEW warning 3 pattern
+- Phase 6 Plan 06: mock-serial.js test hooks via window — __preGrantPort (seeds granted port pre-boot for getPorts() match), __forceOpenReject (throws from MockSerialPort.open), __mockOpenCount (counts successful opens; race-guard regression). Init-script registration order matters: hook flag scripts MUST register BEFORE SERIAL_MOCK so the IIFE inspects them at install time
 
 ### Pending Todos
 
@@ -249,8 +257,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-04-25T14:31:32.105Z
-Stopped at: Completed 06-05-PLAN.md (Wave 4 — session-log.js + Clear button; 7/7 + 4/4 Wave 4 tests green)
+Last session: 2026-04-25T14:50:28.291Z
+Stopped at: Completed 06-06-PLAN.md (Wave 5 — prefs.js + Settings rows + auto-connect; 14/14 prefs + 5/5 auto-connect tests green)
 Resume file: None
 
 **Planned Phase:** 6 (Daily-Driver Polish, Session & Deployment) — 8 plans — 2026-04-25T13:14:27.851Z
