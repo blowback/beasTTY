@@ -16,6 +16,12 @@
 //   - window.__simulateReplug()  — dispatches 'connect' on navigator.serial.
 //   - window.__mockReaderPush(bytes) — simulates bytes arriving via reader.read().
 //   - window.__mockWriterLog     — array of { bytes, ts } recording every writer.write.
+//   - window.__mockLockLog       — Plan 05-08 — array of { op, ts } recording
+//                                  reader.cancel / reader.releaseLock /
+//                                  writer.releaseLock / port.close. Used by
+//                                  lifecycle.spec.js to assert the close-contract
+//                                  ordering (release-before-close) during the
+//                                  beforeunload tear-down path.
 //
 // Spec introspection:
 //   - navigator.serial._grantedPorts[0]._config   — last config passed to port.open().
@@ -28,6 +34,7 @@ export const SERIAL_MOCK = `
 
   // Module-scope state on window for spec introspection.
   window.__mockWriterLog = [];   // records { bytes: number[], ts: number } per write
+  window.__mockLockLog   = [];   // Plan 05-08 — records { op, ts } for releaseLock + close ordering specs
   window.__mockState     = { opened: false, port: null, listeners: {} };
 
   class MockReader {
@@ -43,10 +50,13 @@ export const SERIAL_MOCK = `
       return new Promise((resolve) => { this.waiter = resolve; });
     }
     async cancel() {
+      window.__mockLockLog.push({ op: 'reader-cancel', ts: performance.now() });
       this.cancelled = true;
       if (this.waiter) { this.waiter({ value: undefined, done: true }); this.waiter = null; }
     }
-    releaseLock() {}
+    releaseLock() {
+      window.__mockLockLog.push({ op: 'reader-release', ts: performance.now() });
+    }
   }
 
   class MockWriter {
@@ -55,7 +65,9 @@ export const SERIAL_MOCK = `
       window.__mockWriterLog.push({ bytes: Array.from(bytes), ts: performance.now() });
       return undefined;
     }
-    releaseLock() {}
+    releaseLock() {
+      window.__mockLockLog.push({ op: 'writer-release', ts: performance.now() });
+    }
   }
 
   class MockSerialPort extends EventTarget {
@@ -81,6 +93,7 @@ export const SERIAL_MOCK = `
       this.writable = { getWriter: () => writer };
     }
     async close() {
+      window.__mockLockLog.push({ op: 'close', ts: performance.now() });
       this._opened = false;
       this.readable = null;
       this.writable = null;
