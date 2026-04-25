@@ -62,6 +62,11 @@ let serialEls = null;
 // successful port.open so the connect-time UTC stamp is captured before any
 // byte arrives (D-29 / D-31).
 let sessionLogRef = null;
+// Phase 6 Plan 06 (Wave 5) — prefs ref + persist-on-form-change. Used by the
+// auto-connect path (D-34) and by the serial-config form change listener
+// to persist user choices via the prefs.js debounce.
+let prefsRef = null;
+let savePrefsFn = null;
 
 // --- Public API -----------------------------------------------------------
 
@@ -89,6 +94,8 @@ export async function wireSerial(opts) {
         portStatusEl: status, errorLogEl: log,
         serialConfigEls,                     // Wave 3 (D-08) — form refs
         sessionLog,                          // Phase 6 Plan 05 — { reset, append }
+        prefs,                               // Phase 6 Plan 06 (D-34) — auto-connect gate + form persist
+        savePrefs,                           // Phase 6 Plan 06 — debounced persist on form change
     } = opts;
     term = termArg;
     sampleBellFn = sampleBell;
@@ -100,6 +107,8 @@ export async function wireSerial(opts) {
     errorLogEl = log;
     serialEls = serialConfigEls || null;
     sessionLogRef = sessionLog || null;
+    prefsRef = prefs || null;
+    savePrefsFn = savePrefs || null;
 
     // D-26 — connect/disconnect listeners on navigator.serial (NOT port instances).
     // Registered ONCE at wireSerial boot time. Pitfall #11 — listening on a port
@@ -172,6 +181,48 @@ export async function wireSerial(opts) {
     // Render the empty-state error log on boot (D-27).
     renderErrorLog();
 
+    // Phase 6 Plan 06 (Wave 5) — Auto-connect path (D-34).
+    // RESEARCH §Pitfall 3 — gate on `state === 'disconnected'` to avoid race
+    // against a user-click. Off by default per D-36; only daily-driver users
+    // who opt in via the Settings checkbox reach this branch.
+    if (prefsRef && prefsRef.autoConnect === true) {
+        if (lastPortRef && state === 'disconnected') {
+            try {
+                // Silent open — mirrors connectMicroBeast body but skips
+                // requestPort() (no Chromium picker, no user gesture).
+                const cfg = (prefsRef.serial && typeof prefsRef.serial.baud === 'number')
+                    ? {
+                        baudRate: prefsRef.serial.baud,
+                        dataBits: prefsRef.serial.dataBits,
+                        stopBits: prefsRef.serial.stopBits,
+                        parity:   prefsRef.serial.parity,
+                        flowControl: prefsRef.serial.flowControl,
+                    }
+                    : PRESET_CONFIG;
+                await lastPortRef.open(cfg);
+                await lastPortRef.setSignals({ dataTerminalReady: false, requestToSend: false });
+                writer = lastPortRef.writable.getWriter();
+                registerWriter(writer);
+                port = lastPortRef;
+                lastConfig = cfg;
+                if (sessionLogRef) sessionLogRef.reset();   // D-29 — fresh per-connection buffer.
+                setState('connected');
+                updatePortStatusConnected();
+                runReadLoop(lastPortRef);
+            } catch (err) {
+                // Pitfall 3 fall-back — log + standard "click Connect" path.
+                appendErrorLog('auto-connect-failed', `Auto-connect failed: ${err.message}`);
+                setState('disconnected');
+            }
+        } else if (!lastPortRef) {
+            // No granted port found — user must click Connect to authorize.
+            appendErrorLog('auto-connect-failed', 'Auto-connect failed — no granted port found. Click Connect to authorize.');
+        }
+        // If state !== 'disconnected' (a race against user-click), the
+        // auto-connect is a no-op and the existing connectMicroBeast() click
+        // handler owns the flow.
+    }
+
     // Connect button click handler — D-01 stateful toggle.
     connectButton.addEventListener('click', onConnectButtonClick);
     connectButton.addEventListener('mousedown', (e) => e.preventDefault());  // UI-SPEC §Focus retention line 575
@@ -193,6 +244,16 @@ export async function wireSerial(opts) {
                                   || current.parity !== lastConfig.parity
                                   || current.flowControl !== lastConfig.flowControl);
                     if (differs) showReconnectHint(); else hideReconnectHint();
+                }
+                // Phase 6 Plan 06 (PREF-01) — persist serial config on every change.
+                // Schema mirrors prefs.serial (baud, not baudRate, etc. — match the
+                // D-32 blob shape so loadPrefs round-trips cleanly).
+                if (savePrefsFn) {
+                    const c = readFormConfig();
+                    savePrefsFn({ serial: {
+                        baud: c.baudRate, dataBits: c.dataBits, stopBits: c.stopBits,
+                        parity: c.parity, flowControl: c.flowControl,
+                    } });
                 }
             });
         }

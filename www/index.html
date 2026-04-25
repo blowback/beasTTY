@@ -208,6 +208,33 @@
     }
     #debug code { background: rgba(255,255,255,0.08); padding: 0 4px; border-radius: 2px; }
 
+    /* ==== Phase 6 Plan 06 (Wave 5) — Settings-pane new rows (D-15, D-34, D-35) ==== */
+    /* Verbatim from 06-UI-SPEC §"CSS additions" §"Settings-pane new rows". */
+    .settings-divider {
+      border: 0;
+      border-top: 1px solid var(--chrome-border);
+      margin: 16px 0 8px 0;
+    }
+    .settings-row {
+      margin: 8px 0;
+    }
+    .settings-row button {
+      font-family: inherit; font-size: 13px;
+      padding: 4px 8px;
+      background: transparent;
+      color: var(--chrome-fg);
+      border: 1px solid var(--chrome-border);
+      cursor: pointer;
+    }
+    .settings-row button:focus-visible {
+      border-color: var(--chrome-accent);
+      outline: none;
+    }
+    .settings-row button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
     /* ==== Settings details (Phase 4 D-13) — mirrors #debug rule ==== */
     #settings {
       margin: 16px auto; max-width: 90ch;
@@ -553,7 +580,7 @@
     <p class="hint">Recent errors</p>
     <pre id="error-log">(no recent errors)</pre>
 
-    <p class="hint">Connection details persist across reload for the same USB device. Full serial config persistence is a Phase 6 feature.</p>
+    <p class="hint">Connection details persist across reload for the same USB device. Serial config persists per the Settings → preferences blob.</p>
   </details>
 
   <!-- Terminal canvas + overlays. tabindex=0 on wrapper so keydown fires here. -->
@@ -591,6 +618,27 @@
       <summary>Browser-reserved Ctrl combinations</summary>
       <p class="hint">Ctrl+W, Ctrl+N, Ctrl+T are claimed by Chromium (close tab, new window, reopen closed tab) and cannot be intercepted by a web page. Use Ctrl+F4, Ctrl+Shift+N, or a different keybinding on the MicroBeast side if you need those control codes. Everything from Ctrl+A through Ctrl+Z (except W, N, T) is forwarded normally, as are Ctrl+@, Ctrl+[, Ctrl+\, Ctrl+], Ctrl+^, Ctrl+_.</p>
     </details>
+
+    <!-- Phase 6 Plan 06 (Wave 5) — Settings pane new rows (D-15, D-34, D-35).
+         Verbatim DOM + copy from 06-UI-SPEC §"Layout Contract" §"Settings pane".
+         DOM order: Clear scrollback -> Auto connect on load -> Reset all preferences
+         (action-scope gradient: narrow -> wide; reset is most consequential, last). -->
+    <hr class="settings-divider" />
+    <div class="settings-row">
+      <button id="clear-scrollback-button" type="button" title="Clear all stored history (no shortcut — deliberate friction)">Clear scrollback</button>
+      <p class="hint">Wipes the 10,000-line history. Visible screen is unaffected. Snaps to live tail if you're scrolled up.</p>
+    </div>
+    <div class="settings-row">
+      <label for="auto-connect-checkbox">
+        <input type="checkbox" id="auto-connect-checkbox">
+        Auto connect on load
+      </label>
+      <p class="hint">When enabled, BestialiTTY silently opens the previously-granted MicroBeast port on each page load. Off by default. On open failure, falls back to the standard "click Connect" flow with the failure logged.</p>
+    </div>
+    <div class="settings-row">
+      <button id="reset-prefs-button" type="button" title="Restore default theme, phosphor, font zoom, serial config, and toggles">Reset all preferences</button>
+      <p class="hint">Clears your saved preferences. Port permission and connection state are not affected.</p>
+    </div>
   </details>
 
   <!-- Debug harness (D-15) — retained Phase 2 SC-4 demonstration path. -->

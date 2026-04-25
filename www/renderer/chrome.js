@@ -18,6 +18,7 @@ import {
     setFocus,
     getActiveTheme,
     getActivePhosphor,
+    getActiveZoom as getActiveZoomFn,
 } from './canvas.js';
 
 function labelFor(destinationThemeName) {
@@ -58,6 +59,15 @@ export function wireChrome(opts) {
         // resolves the live ref at click time, not at wireChrome time.
         term: termArg,
         getScrollState,
+        // Phase 6 Plan 06 (Wave 5) — pref persistence + Settings new rows.
+        // prefs:        starting blob (loadPrefs() result) — used for the Auto
+        //               connect checkbox's initial DOM state at boot.
+        // savePrefs:    debounced merge-and-persist; called on every theme /
+        //               phosphor / zoom / Auto-connect change.
+        // resetPrefs:   D-35 reset-all-preferences trigger.
+        prefs,
+        savePrefs,
+        resetPrefs,
     } = opts;
     const ctx = { terminalWrapper, themeButton, phosphorButtons, phosphorGroup, bellOverlay };
 
@@ -95,6 +105,9 @@ export function wireChrome(opts) {
     // ==== Theme toggle button (click) ====
     themeButton.addEventListener('click', () => {
         toggleTheme(ctx);
+        // Phase 6 Plan 06 (PREF-01) — persist new theme. getActiveTheme().name
+        // reads the post-toggle value (toggleTheme already called setTheme above).
+        if (savePrefs) savePrefs({ theme: getActiveTheme().name });
     });
     // Phase 4 D-16 — focus retention: suppress native focus transfer on mouse
     // click so #terminal-wrapper keeps focus. mousedown fires BEFORE focus
@@ -113,6 +126,8 @@ export function wireChrome(opts) {
             if (color !== 'green' && color !== 'amber' && color !== 'white') return;
             setPhosphor(color);
             applyPhosphorSideEffects(color, phosphorButtons);
+            // Phase 6 Plan 06 (PREF-01) — persist phosphor choice.
+            if (savePrefs) savePrefs({ phosphor: color });
         });
         btn.addEventListener('mousedown', (e) => {
             e.preventDefault();            // Phase 4 D-16 — focus retention.
@@ -140,16 +155,19 @@ export function wireChrome(opts) {
             if (e.code === 'Equal' || e.code === 'NumpadAdd') {
                 e.preventDefault();
                 zoomStep(+1);
+                if (savePrefs) savePrefs({ fontZoom: getActiveZoomFn() });   // Phase 6 Plan 06 (PREF-01)
                 return;
             }
             if (e.code === 'Minus' || e.code === 'NumpadSubtract') {
                 e.preventDefault();
                 zoomStep(-1);
+                if (savePrefs) savePrefs({ fontZoom: getActiveZoomFn() });   // Phase 6 Plan 06 (PREF-01)
                 return;
             }
             if (e.code === 'Digit0' || e.code === 'Numpad0') {
                 e.preventDefault();
                 resetZoom();
+                if (savePrefs) savePrefs({ fontZoom: getActiveZoomFn() });   // Phase 6 Plan 06 (PREF-01)
                 return;
             }
         }
@@ -190,6 +208,64 @@ export function wireChrome(opts) {
         }
         if (!document.hidden && requestFrame) requestFrame();
     });
+
+    // ==== Phase 6 Plan 06 (Wave 5) — Settings 'Clear scrollback' button (D-15) ====
+    // Cycles term.resize_scrollback(0) -> term.resize_scrollback(10000) to flush
+    // the 10K-line ring buffer back to its Phase 1 D-12 default cap. Snaps to
+    // live tail (D-04 trigger) so a scrolled-up user does not end up reading
+    // an empty viewport. No keyboard shortcut — deliberate friction (D-15).
+    const clearScrollbackButton = document.getElementById('clear-scrollback-button');
+    if (clearScrollbackButton && termArg) {
+        clearScrollbackButton.addEventListener('click', () => {
+            termArg.resize_scrollback(0);
+            termArg.resize_scrollback(10000);
+            const ss = getScrollState && getScrollState();
+            if (ss) ss.snapToBottom();   // D-04 trigger.
+            if (requestFrame) requestFrame();
+        });
+        clearScrollbackButton.addEventListener('mousedown', (e) => e.preventDefault());
+    }
+
+    // ==== Phase 6 Plan 06 (Wave 5) — Auto connect checkbox (D-34) ====
+    // Toggle saves prefs.autoConnect; takes effect on NEXT page load (no
+    // immediate connect/disconnect on toggle). Initial DOM state mirrors the
+    // loaded blob so a fresh page always reflects persisted state.
+    const autoConnectCheckbox = document.getElementById('auto-connect-checkbox');
+    if (autoConnectCheckbox) {
+        autoConnectCheckbox.checked = !!(prefs && prefs.autoConnect);
+        autoConnectCheckbox.addEventListener('change', (e) => {
+            if (savePrefs) savePrefs({ autoConnect: e.target.checked });
+        });
+        autoConnectCheckbox.addEventListener('mousedown', (e) => e.preventDefault());
+    }
+
+    // ==== Phase 6 Plan 06 (Wave 5) — Reset prefs 2-click confirm (D-35) ====
+    // First click swaps label to "Click again to confirm (3 s)" and arms a
+    // 3-second timer that reverts. Second click within 3 s commits the reset:
+    // clears bestialitty.prefs, in-memory blob replaced with defaults,
+    // subscribers fire (applyPrefs in main.js re-applies defaults to chrome /
+    // canvas state in-place — NO page reload per D-35).
+    const resetPrefsButton = document.getElementById('reset-prefs-button');
+    const RESET_PREFS_IDLE_LABEL = 'Reset all preferences';
+    const RESET_PREFS_CONFIRM_LABEL = 'Click again to confirm (3 s)';
+    let resetPrefsConfirmTimer = null;
+    if (resetPrefsButton) {
+        resetPrefsButton.addEventListener('click', () => {
+            if (resetPrefsConfirmTimer === null) {
+                resetPrefsButton.textContent = RESET_PREFS_CONFIRM_LABEL;
+                resetPrefsConfirmTimer = setTimeout(() => {
+                    resetPrefsButton.textContent = RESET_PREFS_IDLE_LABEL;
+                    resetPrefsConfirmTimer = null;
+                }, 3000);
+            } else {
+                clearTimeout(resetPrefsConfirmTimer);
+                resetPrefsConfirmTimer = null;
+                if (resetPrefs) resetPrefs();
+                resetPrefsButton.textContent = RESET_PREFS_IDLE_LABEL;
+            }
+        });
+        resetPrefsButton.addEventListener('mousedown', (e) => e.preventDefault());
+    }
 
     // Auto-focus the wrapper at boot so cursor blinks and Ctrl+Shift+T works immediately.
     terminalWrapper.focus();

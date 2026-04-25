@@ -486,6 +486,23 @@ export function zoomStep(delta) {
     requestFrame();
 }
 
+// Phase 6 Plan 06 (Wave 5) — absolute setter used by prefs.subscribe(applyPrefs).
+// zoomStep(+/-1) is delta-relative and would never converge to a stored
+// fontZoom from arbitrary current state; applyPrefs needs an absolute path.
+// Same clamp + side-effects as zoomStep; same-value short-circuit per the
+// chrome.js REVIEW warning 3 pattern (no atlas thrash on identity apply).
+export function setZoom(z) {
+    const clamped = Math.max(1, Math.min(4, z | 0));
+    if (clamped === activeZoom) return;
+    activeZoom = clamped;
+    atlas.evict();
+    markAllRowsDirty();
+    resizeToTheme();
+    queueMicrotask(() => primeAscii(atlas, 1, makeRasteriserForTheme(activeTheme), activeZoom));
+    needsPaint = true;
+    requestFrame();
+}
+
 export function resetZoom() {
     if (activeZoom === 1) return;
     activeZoom = 1;

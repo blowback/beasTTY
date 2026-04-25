@@ -21,6 +21,20 @@ if (typeof navigator.serial === 'undefined') {
     throw new Error('__polite-fail__');   // abort module execution; wasm never initialises
 }
 
+// Phase 6 Plan 06 (Wave 5) — versioned prefs blob (D-32). loadPrefs() runs
+// SECOND in the boot sequence (after polite-fail; before wasm init), so
+// chrome / keyboard / serial all see the loaded prefs at boot rather than
+// defaults. Exposed on window.__prefs for Playwright session/prefs.spec.js.
+import {
+    loadPrefs,
+    savePrefs,
+    resetPrefs,
+    subscribe as prefsSubscribe,
+    getPrefs,
+} from './state/prefs.js';
+const prefs = loadPrefs();
+window.__prefs = { savePrefs, resetPrefs, getPrefs, subscribe: prefsSubscribe };
+
 import init, { Terminal } from './pkg/bestialitty_core.js';
 import {
     bootRenderer,
@@ -29,6 +43,7 @@ import {
     setPhosphor,
     zoomStep,
     resetZoom,
+    setZoom,                   // Phase 6 Plan 06 — absolute zoom setter for applyPrefs
     setFocus,
     getActiveTheme,
     getActivePhosphor,
@@ -102,10 +117,16 @@ const downloadLogBtn      = document.getElementById('download-log-button');
 // the live ref at click time. scrollStateRef is set right after wireScrollState
 // returns; wireChrome receives the getter, not the value.
 let scrollStateRef = null;
+// Phase 6 Plan 06 (Wave 5) — Settings-pane new rows (Clear scrollback / Auto
+// connect / Reset prefs). chrome.js owns the click handlers; main.js injects
+// resetPrefs + savePrefs + prefs so the handlers can persist user choices.
 wireChrome({
     terminalWrapper, themeButton, phosphorButtons, phosphorGroup, bellOverlay, requestFrame,
     term,                                       // Phase 6 Plan 05 — clear_visible / resize_scrollback
     getScrollState: () => scrollStateRef,
+    prefs,                                      // Phase 6 Plan 06 — Auto connect checkbox initial state
+    savePrefs,                                  // Phase 6 Plan 06 — persist Auto connect changes + theme/phosphor toggles
+    resetPrefs,                                 // Phase 6 Plan 06 — Reset all preferences 2-click confirm
 });
 
 // ---- Phase 6 Plan 03 (Wave 2) — wire scrollback state machine ----
@@ -367,6 +388,9 @@ await wireSerial({
     },
     // Phase 6 Plan 05 (Wave 4) — D-29 reset-on-Connect + D-30 read-loop append.
     sessionLog: { reset: sessionLogReset, append: sessionLogAppend },
+    // Phase 6 Plan 06 (Wave 5) — auto-connect path (D-34) + serial form persist.
+    prefs,
+    savePrefs,
 });
 
 // ---- Phase 4 Plan 03 — Settings controls ----
@@ -376,6 +400,7 @@ await wireSerial({
 // activation (Tab + Space).
 localEchoCheckbox.addEventListener('change', (e) => {
     setLocalEcho(e.target.checked);
+    savePrefs({ localEcho: e.target.checked });   // Phase 6 Plan 06 (PREF-02) — persist
 });
 // D-16 — mousedown preventDefault prevents focus transfer. For a native
 // <input type="checkbox">, the subsequent click event STILL toggles the
@@ -394,7 +419,10 @@ localEchoCheckbox.addEventListener('mousedown', (e) => {
 // mouse click.
 for (const radio of crlfRadios) {
     radio.addEventListener('change', (e) => {
-        if (e.target.checked) setCrlfMode(e.target.value);
+        if (e.target.checked) {
+            setCrlfMode(e.target.value);
+            savePrefs({ crlfMode: e.target.value });   // Phase 6 Plan 06 (PREF-02) — persist
+        }
     });
     // D-16 — mousedown preventDefault + explicit check + setCrlfMode.
     radio.addEventListener('mousedown', (e) => {
@@ -406,6 +434,7 @@ for (const radio of crlfRadios) {
             if (other !== radio) other.checked = false;
         }
         setCrlfMode(radio.value);
+        savePrefs({ crlfMode: radio.value });          // Phase 6 Plan 06 (PREF-02) — persist
     });
 }
 
@@ -518,6 +547,53 @@ document.getElementById('stress64k').addEventListener('click', () => {
 
     requestFrame();
 });
+
+// ---- Phase 6 Plan 06 (Wave 5) — pref subscribers ----
+// applyPrefs re-applies the loaded prefs to chrome / canvas / keyboard state.
+// Fires on every flushPrefs (after debounce) AND on resetPrefs() — the latter
+// is how the Settings 'Reset all preferences' 2-click confirm restores defaults
+// in-place WITHOUT a page reload (D-35). Serial config is NOT applied live —
+// Phase 5 D-08 reconnect-required hint owns "config changed mid-connection."
+// Auto-connect toggle takes effect on NEXT page load (D-34); no immediate connect.
+function applyPrefs(p) {
+    setTheme(p.theme);
+    // body[data-theme] drives scanline visibility + token overrides; chrome.js
+    // sets it on theme-toggle clicks but applyPrefs is called from prefsSubscribe
+    // (theme-toggle button doesn't fire — e.g. Reset prefs path).
+    document.body.setAttribute('data-theme', p.theme);
+    // Theme-button label shows the DESTINATION theme (UI-SPEC Copywriting).
+    themeButton.textContent = (p.theme === 'crt') ? 'Clean' : 'CRT';
+    // Phosphor group hidden in clean theme.
+    phosphorGroup.hidden = (p.theme !== 'crt');
+    setPhosphor(p.phosphor);
+    for (const btn of phosphorButtons) {
+        btn.setAttribute('aria-pressed', btn.dataset.phosphor === p.phosphor ? 'true' : 'false');
+    }
+    setZoom(p.fontZoom);
+    setLocalEcho(p.localEcho);
+    if (localEchoCheckbox.checked !== p.localEcho) localEchoCheckbox.checked = p.localEcho;
+    setCrlfMode(p.crlfMode);
+    for (const radio of crlfRadios) {
+        radio.checked = (radio.value === p.crlfMode);
+    }
+    // Auto-connect checkbox initial / reset state — chrome.js owns the change
+    // listener; applyPrefs only mirrors the stored value into the DOM so a
+    // resetPrefs() (D-35) restores the unchecked default in-place.
+    const autoConnectCheckbox = document.getElementById('auto-connect-checkbox');
+    if (autoConnectCheckbox) autoConnectCheckbox.checked = !!p.autoConnect;
+    // Serial-config form: mirror stored values so a fresh load shows the
+    // persisted config in the Connection-pane form. The Phase 5 D-08
+    // reconnect-required hint pattern handles live config changes.
+    if (p.serial) {
+        if (serialBaud)     serialBaud.value     = String(p.serial.baud);
+        if (serialDataBits) serialDataBits.value = String(p.serial.dataBits);
+        if (serialStopBits) serialStopBits.value = String(p.serial.stopBits);
+        if (serialParity)   serialParity.value   = p.serial.parity;
+        if (serialFlowCtl)  serialFlowCtl.value  = p.serial.flowControl;
+    }
+}
+prefsSubscribe(applyPrefs);
+applyPrefs(prefs);   // Apply once at boot so initial chrome state matches loaded prefs.
 
 // ---- Boot-complete log ----
 console.log('[boot] Harness ready. theme=', getActiveTheme().name, 'phosphor=', getActivePhosphor(), 'zoom=', getActiveZoom());
