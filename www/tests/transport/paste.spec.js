@@ -1,6 +1,15 @@
 // Phase 5 Plan 05-06 (Wave 5) — XPORT-09 + D-12..D-23/D-41 full paste-pump spec.
 // Source: 05-RESEARCH.md §Validation Architecture; 05-CONTEXT.md D-12..D-23, D-41.
 // Wave 0 seeded 8 test.fixme stubs; Wave 5 un-fixmes each as live assertions.
+//
+// Phase 5 Plan 09 (Gap 2 fix) — the original D-17 auto-expanded the Connection
+// pane on paste start, which produced a ~250-330 px canvas-lurch (UAT Test 6).
+// D-17 was amended: paste progress now renders in the sticky #top-bar slot,
+// the pump does NOT mutate the Connection pane's open state. The setup()
+// helper below intentionally leaves #connection collapsed for the regression
+// test so the pane-stays-collapsed invariant is verifiable end-to-end. Other
+// tests open #connection explicitly when they need the pane visible (e.g. to
+// click form controls); paste-progress visibility never depends on the pane.
 import { test, expect } from '@playwright/test';
 import { SERIAL_MOCK } from './mock-serial.js';
 
@@ -146,5 +155,51 @@ test.describe('XPORT-09 + D-12..D-23/D-41 — Paste pump', () => {
         await expect.poll(async () => {
             return await page.evaluate(() => window.__mockWriterLog.flatMap(e => e.bytes));
         }, { timeout: 3000 }).toEqual([0x0D, 0x0A]);
+    });
+
+    // Plan 09 amendment (Gap 2 regression): paste start must NOT auto-expand
+    // the Connection pane. The paste-progress slot lives in #top-bar (sticky)
+    // so visibility is achieved without displacing the canvas. Asserts the
+    // pane-stays-collapsed invariant end-to-end and that #paste-progress-row
+    // is a descendant of #top-bar (verifies the relocation).
+    //
+    // Uses a 4 KB paste so the pump runs long enough (4096 / 32 = 128 chunks
+    // × 18 ms ≈ 2.3 s at 19200 baud) for the assertions to land while the
+    // pump is still active — short pastes (e.g. 14 B) finish in <100 ms which
+    // races the toContainText('Pasting') assertion against 'Paste complete'.
+    test('paste does NOT auto-expand Connection pane (Gap 2 regression)', async ({ page }) => {
+        await setup(page);
+        await page.locator('#connect-button').click();
+        await expect(page.locator('#connect-button')).toHaveAttribute('data-state', 'connected');
+
+        // Ensure Connection pane is collapsed before paste (setup() opened it
+        // for prior fixtures; we collapse it here to test the invariant).
+        await page.locator('#connection').evaluate((el) => { el.open = false; });
+        const openBefore = await page.locator('#connection').evaluate((el) => el.open);
+        expect(openBefore).toBe(false);
+
+        // Trigger a paste large enough that the pump stays active long enough
+        // to observe the in-flight UI invariants.
+        await page.locator('#debug').evaluate((el) => { el.open = true; });
+        await page.locator('#input').fill('G'.repeat(4096));
+        await page.locator('#paste-test').click();
+
+        // Assert the top-bar paste-progress slot became visible mid-paste.
+        await expect(page.locator('#paste-progress-row')).toBeVisible({ timeout: 2000 });
+        await expect(page.locator('#paste-progress-text')).toContainText('Pasting', { timeout: 2000 });
+
+        // Assert the pane stayed collapsed throughout the paste — this is the
+        // load-bearing invariant for the Gap 2 fix.
+        await expect(page.locator('#connection')).not.toHaveAttribute('open', /.*/);
+
+        // Assert #paste-progress-row is a descendant of #top-bar (relocation invariant).
+        const isInTopBar = await page.locator('#top-bar #paste-progress-row').count();
+        expect(isInTopBar).toBe(1);
+
+        // Wait for the paste to finish; pane MUST still be collapsed — the
+        // pump truly does not mutate connectionPane.open in any branch.
+        await expect(page.locator('#paste-progress-text')).toContainText('Paste complete', { timeout: 10_000 });
+        const openAfter = await page.locator('#connection').evaluate((el) => el.open);
+        expect(openAfter).toBe(false);
     });
 });

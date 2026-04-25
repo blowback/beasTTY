@@ -296,16 +296,17 @@ txResetButton.addEventListener('mousedown', (e) => {
     resetTx();                                    // explicit action — mousedown suppressed native click path.
 });
 
-// ---- Phase 5 Wave 5 — paste progress observer + Cancel + Paste test ----
-// D-17 observer updates the Connection-pane progress line, auto-expands the
-// pane on start, and restores prior open/collapsed state on complete/cancel.
-// preExpansionOpen is module-scope-ish (closure-captured); null between
-// pastes so the next 'started' re-captures fresh pane state.
-let preExpansionOpen = null;
+// ---- Phase 5 Plan 09 (Gap 2 fix) — paste progress observer ----
+// Paste progress is surfaced in the #top-bar slot (index.html relocation),
+// NOT by auto-expanding the Connection pane. Per amended D-17 (05-CONTEXT.md
+// Plan 09 amendment) and the amended 05-UI-SPEC.md auto-expand rules table,
+// the pump does NOT mutate the Connection pane's open state — the top-bar is
+// sticky so visibility is achieved without displacing the terminal canvas.
+// The connectionPane DOM ref is still passed to wireSerial so serial.js's
+// D-27 error-log auto-expand path keeps working (intentionally asymmetric:
+// errors are rare and sticky, paste is frequent — see amended D-17 rationale).
 onPastePumpProgress((ev) => {
     if (ev.status === 'started') {
-        preExpansionOpen = connectionPane.open;
-        if (!connectionPane.open) connectionPane.open = true;
         pasteProgressRow.hidden = false;
         pasteProgressText.textContent = `Pasting ${ev.total} B — 0%`;
         return;
@@ -320,8 +321,6 @@ onPastePumpProgress((ev) => {
         setTimeout(() => {
             pasteProgressRow.hidden = true;
             pasteProgressText.textContent = '';
-            if (preExpansionOpen === false) connectionPane.open = false;
-            preExpansionOpen = null;
         }, 2000);
         return;
     }
@@ -330,8 +329,6 @@ onPastePumpProgress((ev) => {
         setTimeout(() => {
             pasteProgressRow.hidden = true;
             pasteProgressText.textContent = '';
-            if (preExpansionOpen === false) connectionPane.open = false;
-            preExpansionOpen = null;
         }, 2000);
         return;
     }
@@ -340,8 +337,6 @@ onPastePumpProgress((ev) => {
         setTimeout(() => {
             pasteProgressRow.hidden = true;
             pasteProgressText.textContent = '';
-            if (preExpansionOpen === false) connectionPane.open = false;
-            preExpansionOpen = null;
         }, 3000);
         return;
     }
