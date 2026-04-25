@@ -106,7 +106,8 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Session
 
-- [ ] **SESS-01
+- [x] **SESS-01
+
 **: Scrollback buffer retains N lines of prior output for review
 - [ ] **SESS-02
 **: User can select and copy text from the screen to the clipboard
@@ -116,7 +117,8 @@ Requirements for initial release. Each maps to roadmap phases.
 **: Session logging captures the serial stream to a downloadable file, auto-started per connection
 - [ ] **SESS-05
 **: Mid-session "download current log" button without disconnecting
-- [ ] **SESS-06
+- [x] **SESS-06
+
 **: Clear-screen local button (distinct from remote ESC J — wipes visible screen + optionally scrollback)
 
 ### Persistence

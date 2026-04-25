@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 06-01-PLAN.md (Wave 0 test scaffolding)
-last_updated: "2026-04-25T13:24:58.837Z"
-last_activity: 2026-04-25 -- Phase --phase execution started
+stopped_at: Completed 06-02-PLAN.md (Wave 1 Rust core APIs — snapshot_grid_at + clear_visible)
+last_updated: "2026-04-25T13:36:04.421Z"
+last_activity: 2026-04-25
 progress:
   total_phases: 6
   completed_phases: 5
   total_plans: 41
-  completed_plans: 34
-  percent: 83
+  completed_plans: 35
+  percent: 85
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-04-21)
 ## Current Position
 
 Phase: 06 (daily-driver-polish-session-deployment) — EXECUTING
-Plan: 2 of 8 (Plan 06-01 complete; ready for Plan 06-02 / Wave 1)
-Status: Executing Phase 6
-Last activity: 2026-04-25 — Completed Plan 06-01 (Wave 0 test scaffolding)
+Plan: 3 of 8 (Plan 06-01 complete; ready for Plan 06-02 / Wave 1)
+Status: Ready to execute
+Last activity: 2026-04-25
 
-Progress: [████████░░] 83%
+Progress: [█████████░] 85%
 
 ## Performance Metrics
 
@@ -93,6 +93,7 @@ Progress: [████████░░] 83%
 | Phase 05-web-serial-transport P08 | 5min | 2 tasks tasks | 3 files files |
 | Phase 05-web-serial-transport P09 | 7min | 3 tasks tasks | 6 files files |
 | Phase 06-daily-driver-polish-session-deployment P01 | 8min | 2 tasks tasks | 12 files files |
+| Phase 06-daily-driver-polish-session-deployment P02 | 12min | 3 tasks tasks | 6 files files |
 
 ## Accumulated Context
 
@@ -203,6 +204,10 @@ Recent decisions affecting current work:
 - Phase 5 Plan 09 regression-test design lesson: 4 KB paste payload (~2.3 s at 19200 baud, 32B chunks at 18ms gap) chosen so the pump runs long enough to observe in-flight UI invariants without racing the 'Paste complete' transition; a short payload (e.g. 14 B) finished in <100 ms and reliably raced the assertion. Caught + fixed inline as a Rule 1 bug during Task 2 execution. Standing rule for any future paste-related Playwright regression: pick payload size by gap-ms × required-active-duration, not by the natural minimum size that exercises the code path.
 - Phase 6 Plan 01 (Wave 0): test scaffolding landed BEFORE production code per Phase 5 Wave 0 discipline — 7 Playwright session/ specs (62 test.fixme stubs covering SESS-01..06 + PREF-01/02 + PLAT-05) + clipboard-mock fixture + 2 Rust integration test files (9 #[test] stubs for snapshot_grid_at + clear_visible) + playwright.config.js testMatch extension. Wave 0 commits land BEFORE Wave 1 (Plan 02) so production code has a fixed verification target.
 - Phase 6 Plan 01 Rule 3 fix: replaced verbatim 'let _ = &term;' placeholder (from PLAN.md + 06-PATTERNS.md) with 'let _ = &mut term;' in 9 Rust test stub bodies because clippy --tests -D warnings (an explicit acceptance criterion) flagged 'variable does not need to be mutable' on every fn. Mutable borrow legitimately requires mut, satisfying the unused-mut lint while preserving the let-mut-term declaration that Wave 1 needs for assertion expansion. Pattern propagated to 06-PATTERNS.md is now incorrect; future Phase 6 plans should use let _ = &mut x; for stubs that need mutable variables to compile under -D warnings.
+- Phase 6 Plan 02: Terminal::snapshot_grid_at(row_offset) reuses pack_buf via row-major memcpy from a different start offset; double saturating_sub clamps any usize::MAX without explicit min(); pointer-stable across calls (Phase 2 D-03 mirror)
+- Phase 6 Plan 02: Terminal::clear_visible() bypasses parser entirely (D-26 contract — JS does NOT feed a fake ESC J), wipes visible cells to Cell::BLANK, marks all rows dirty, homes cursor; load-bearing parser-state-preservation gate test (clear_visible_does_not_invoke_parser) is the regression anchor
+- Phase 6 Plan 02: boundary_api_shape pin uses BOTH compile-time fn-pointer coercion (let _: fn(&mut Terminal, usize) = Terminal::snapshot_grid_at) AND runtime smoke calls — fn-pointer typecheck catches signature drift even before test bodies compile; runtime confirms behavior; closes pre-existing fmt drift documented in deferred-items.md since this plan touches the file
+- Phase 6 Plan 02 deviation: plan's verbatim test bodies referenced accessors (term.dirty_byte_len/term.cursor_row/term.scrollback) not on the Phase 1/2 surface — used existing accessors (term.dirty()/term.cursor()/term.grid()) per the plan's explicit fall-back permission; test 1 of clear_visible asserted snap[off]==0 but Cell::BLANK.ch is 0x20 (space) — corrected to assert 0x20 against grid.rs's actual constant
 
 ### Pending Todos
 
@@ -227,8 +232,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-04-25T13:24:58.830Z
-Stopped at: Completed 06-01-PLAN.md (Wave 0 test scaffolding)
+Last session: 2026-04-25T13:36:04.414Z
+Stopped at: Completed 06-02-PLAN.md (Wave 1 Rust core APIs — snapshot_grid_at + clear_visible)
 Resume file: None
 
 **Planned Phase:** 6 (Daily-Driver Polish, Session & Deployment) — 8 plans — 2026-04-25T13:14:27.851Z
