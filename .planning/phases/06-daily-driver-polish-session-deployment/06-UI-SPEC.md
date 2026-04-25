@@ -86,6 +86,8 @@ Phase 6 reuses Phase 3 + Phase 4 + Phase 5's established typography. Sizes: 4 di
 
 **Pre-populated from:** Phase 3 UI-SPEC §Typography, Phase 4 UI-SPEC §Typography, Phase 5 UI-SPEC §Typography (inherited verbatim — Phase 6 adds zero new sizes).
 
+**Inherited-scale note (non-blocking — acknowledged from UI checker FLAG, 2026-04-25):** The 12 / 13 / 14 px rungs are 1px apart, which is tighter than a typical step-ratio scale would prescribe. This is a Phase 3 / Phase 4 / Phase 5 inheritance — the four-phase chrome typography was sized at 12 (hint), 13 (form-control / settings label), and 14 (top-bar body) before Phase 6 began. Phase 6 cannot re-tier these sizes without retroactively re-styling earlier phases (out of scope). The 1px gaps are a known constraint, not a Phase 6 introduction; recorded here for transparency.
+
 ---
 
 ## Color
@@ -488,7 +490,7 @@ Phase 6 adds CSS rule blocks that mirror existing Phase 3/4/5 patterns. Zero new
    Default state: hidden via [hidden] attribute. */
 #top-bar #paste-progress-row #paste-confirm {
   font-family: inherit; font-size: 12px;
-  padding: 2px 8px;
+  padding: 4px 8px;   /* fixed from 2px to 4px to honor 8-point spacing scale; matches Phase 5 #paste-cancel sibling for visual consistency */
   background: transparent;
   color: var(--chrome-fg);
   border: 1px solid var(--chrome-border);
