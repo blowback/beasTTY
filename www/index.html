@@ -307,16 +307,32 @@
     }
     #serial-reconnect-hint[hidden] { display: none; }
 
-    /* Paste progress row — flex layout so Cancel sits inline with text */
-    #paste-progress-row {
+    /* Paste progress row (Phase 5 Plan 09 — relocated to #top-bar to avoid
+       auto-expand lurch; Gap 2 fix, UAT Test 6). Rides the right edge of the
+       sticky top bar so paste status is visible without shifting the canvas
+       down. #top-bar is position:sticky;top:0 so a paste in flight never
+       displaces the terminal. */
+    #top-bar #paste-progress-row {
       display: flex; align-items: center; gap: 8px;
-      margin: 8px 0;
+      margin-left: auto;             /* push to right edge — Connect/theme/phosphor stay left */
     }
-    #paste-progress-row[hidden] { display: none; }
-    #paste-progress-text {
+    #top-bar #paste-progress-row[hidden] { display: none; }
+    #top-bar #paste-progress-text {
       font-size: 12px;
       color: var(--chrome-fg);
-      flex: 1;
+      white-space: nowrap;           /* keep the progress text on one line in the bar */
+    }
+    #top-bar #paste-progress-row button {
+      font-family: inherit; font-size: 12px;
+      padding: 2px 8px;
+      background: transparent;
+      color: var(--chrome-fg);
+      border: 1px solid var(--chrome-border);
+      cursor: pointer;
+    }
+    #top-bar #paste-progress-row button:focus-visible {
+      border-color: var(--chrome-accent);
+      outline: none;
     }
 
     /* Inline error log — fixed-height ring, newest-at-top */
@@ -380,6 +396,12 @@
 </head>
 <body data-theme="crt">
   <!-- Top bar — Connect button (Phase 5 D-01) + theme toggle + phosphor radio-group (D-12). -->
+  <!-- Phase 5 Plan 09 (Gap 2 fix): #paste-progress-row was relocated here from
+       inside the Connection pane so a paste-in-flight does not auto-expand the
+       pane and shift the terminal canvas down ~250-330 px. The sticky #top-bar
+       rides the viewport top so paste-progress text is visible without
+       displacing the terminal. See amended D-17 in 05-CONTEXT.md and the
+       auto-expand rules table in 05-UI-SPEC.md. -->
   <div id="top-bar">
     <button id="connect-button" type="button" data-state="disconnected"
             title="Connect to MicroBeast over Web Serial">Connect</button>
@@ -388,6 +410,10 @@
       <button type="button" data-phosphor="green" aria-pressed="true">Green</button>
       <button type="button" data-phosphor="amber" aria-pressed="false">Amber</button>
       <button type="button" data-phosphor="white" aria-pressed="false">White</button>
+    </div>
+    <div id="paste-progress-row" hidden>
+      <span id="paste-progress-text"></span>
+      <button id="paste-cancel" type="button">Cancel</button>
     </div>
   </div>
 
@@ -440,11 +466,6 @@
     <span id="serial-reconnect-hint" class="hint" hidden></span>
     <button id="serial-reset-preset" type="button">Reset to MicroBeast preset</button>
     <p class="hint">MicroBeast default is 19200 8N1, no flow control. Single-tab ownership is enforced by Chromium — close any other BestialiTTY tab that holds this port first.</p>
-
-    <div id="paste-progress-row" hidden>
-      <span id="paste-progress-text"></span>
-      <button id="paste-cancel" type="button">Cancel</button>
-    </div>
 
     <p class="hint">Recent errors</p>
     <pre id="error-log">(no recent errors)</pre>
