@@ -306,6 +306,23 @@ function snapPreset() {
     serialEls.stopBits.value = String(PRESET_CONFIG.stopBits);
     serialEls.parity.value   = PRESET_CONFIG.parity;
     serialEls.flowCtl.value  = PRESET_CONFIG.flowControl;
+    // Phase 6 Plan 06-09 (gap closure) — applyPrefs subscriber races against
+    // direct .value mutations on the serial-config form. Sync the cached
+    // prefs blob so the next flushPrefs cannot revert this reset. Field-name
+    // translation: PRESET_CONFIG uses SerialPort.open() shape (baudRate /
+    // flowControl); the prefs blob uses the persisted-form shape (baud /
+    // flowControl). See plan §interfaces for the historical rationale.
+    if (savePrefsFn) {
+        savePrefsFn({
+            serial: {
+                baud: PRESET_CONFIG.baudRate,
+                dataBits: PRESET_CONFIG.dataBits,
+                stopBits: PRESET_CONFIG.stopBits,
+                parity: PRESET_CONFIG.parity,
+                flowControl: PRESET_CONFIG.flowControl,
+            },
+        });
+    }
     hideReconnectHint();
 }
 
