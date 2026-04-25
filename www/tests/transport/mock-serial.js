@@ -122,6 +122,30 @@ export const SERIAL_MOCK = `
   const serial = new MockSerial();
   Object.defineProperty(navigator, 'serial', { value: serial, configurable: true });
 
+  // Phase 6 Plan 06 (Wave 5) — auto-connect.spec.js test hooks.
+  //
+  // __preGrantPort     — when set on window before SERIAL_MOCK installs, seed
+  //                      one MockSerialPort into _grantedPorts so navigator.serial
+  //                      .getPorts() returns a match at boot (auto-connect path
+  //                      depends on a previously-granted port being discoverable).
+  // __forceOpenReject  — when set on window to a string message, override
+  //                      MockSerialPort.prototype.open to reject with that
+  //                      message. Used by the open-reject branch test.
+  // __mockOpenCount    — incremented on every successful open(). Used by the
+  //                      Pitfall 3 race-guard regression to assert <= 1.
+  window.__mockOpenCount = 0;
+  if (window.__preGrantPort) {
+    serial._grantedPorts.push(new MockSerialPort(DEFAULT_INFO));
+  }
+  const _origOpen = MockSerialPort.prototype.open;
+  MockSerialPort.prototype.open = async function (config) {
+    if (typeof window.__forceOpenReject === 'string') {
+      throw new Error(window.__forceOpenReject);
+    }
+    window.__mockOpenCount++;
+    return _origOpen.call(this, config);
+  };
+
   // Test hooks — D-42.
   window.__simulateUnplug = () => {
     // Dispatch 'disconnect' on navigator.serial. event.target = the port that went away.
