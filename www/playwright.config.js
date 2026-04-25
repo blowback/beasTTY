@@ -4,7 +4,7 @@ import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
   testDir: './tests',
-  testMatch: ['**/render/*.spec.js', '**/input/*.spec.js', '**/transport/*.spec.js'], // Phase 5 Plan 01 — extends test discovery to include tests/transport/ specs.
+  testMatch: ['**/render/*.spec.js', '**/input/*.spec.js', '**/transport/*.spec.js', '**/session/*.spec.js'], // Phase 6 Plan 01 (Wave 0) — extends test discovery to include tests/session/ specs.
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
