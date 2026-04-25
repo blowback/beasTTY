@@ -246,19 +246,19 @@ Which phases cover which requirements. Updated during roadmap creation.
 | INPUT-03 | Phase 4 | Pending |
 | INPUT-04 | Phase 4 | Pending |
 | INPUT-05 | Phase 4 | Pending |
-| SESS-01 | Phase 6 | Pending |
-| SESS-02 | Phase 6 | Pending |
-| SESS-03 | Phase 6 | Pending |
-| SESS-04 | Phase 6 | Pending |
-| SESS-05 | Phase 6 | Pending |
-| SESS-06 | Phase 6 | Pending |
-| PREF-01 | Phase 6 | Pending |
-| PREF-02 | Phase 6 | Pending |
+| SESS-01 | Phase 6 | Complete |
+| SESS-02 | Phase 6 | Complete |
+| SESS-03 | Phase 6 | Complete |
+| SESS-04 | Phase 6 | Complete |
+| SESS-05 | Phase 6 | Complete |
+| SESS-06 | Phase 6 | Complete |
+| PREF-01 | Phase 6 | Complete |
+| PREF-02 | Phase 6 | Complete |
 | PLAT-01 | Phase 5 | Pending |
 | PLAT-02 | Phase 5 | Pending |
-| PLAT-03 | Phase 6 | Pending |
-| PLAT-04 | Phase 6 | Pending |
-| PLAT-05 | Phase 6 | Pending |
+| PLAT-03 | Phase 6 | Complete |
+| PLAT-04 | Phase 6 | Complete |
+| PLAT-05 | Phase 6 | Complete |
 
 **Coverage:**
 - v1 requirements: 54 total

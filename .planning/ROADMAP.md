@@ -26,7 +26,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 3: Canvas Renderer** - HiDPI canvas renderer with glyph atlas, dirty-row repaint, CRT and clean themes, visible cursor and focus, visible-bell flash
 - [ ] **Phase 4: Keyboard Input** - DOM keydown capture mapping PC keyboard to VT52 bytes, local-echo mode, CR/LF override toggle, browser-shortcut handling
 - [ ] **Phase 5: Web Serial Transport** - Chromium detection, port picker, cancellation-safe read loop, DTR/RTS-safe connect, auto-reconnect, paste throttling
-- [ ] **Phase 6: Daily-Driver Polish, Session & Deployment** - Copy/paste, scrollback UI, session log download, persistent preferences, static deploy under permissive license, 24-hour soak
+- [x] **Phase 6: Daily-Driver Polish, Session & Deployment** - Copy/paste, scrollback UI, session log download, persistent preferences, static deploy under permissive license, 24-hour soak (completed 2026-04-25)
 
 ## Phase Details
 
@@ -142,8 +142,8 @@ Decimal phases appear between their surrounding integers in numeric order.
   - [x] 06-04-PLAN.md — Selection + clipboard + keyboard chord intercepts: selection.js + clipboard.js + Ctrl+Shift+C/V + Shift+End/Home/PgUp/PgDn (Wave 3)
   - [x] 06-05-PLAN.md — Session log + Download log button + top-bar Clear button + clear_visible wiring (Wave 4)
   - [x] 06-06-PLAN.md — Prefs versioned blob + Settings rows (Reset prefs / Clear scrollback / Auto connect) + boot reorder + auto-connect path (Wave 5)
-  - [ ] 06-07-PLAN.md — Deploy artifacts: LICENSE (MIT) + .github/workflows/pages.yml + www/_headers + www/.nojekyll + CSP meta-tag + README docs (Wave 6)
-  - [ ] 06-08-PLAN.md — 06-SOAK.md (24-h memory protocol) + 06-HUMAN-UAT.md (8 daily-driver tests) (Wave 7)
+  - [x] 06-07-PLAN.md — Deploy artifacts: LICENSE (MIT) + .github/workflows/pages.yml + www/_headers + www/.nojekyll + CSP meta-tag + README docs (Wave 6)
+  - [x] 06-08-PLAN.md — 06-SOAK.md (24-h memory protocol) + 06-HUMAN-UAT.md (8 daily-driver tests) (Wave 7)
 **UI hint**: yes
 
 ## Progress
@@ -158,7 +158,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | 3. Canvas Renderer | 7/7 | Complete    | 2026-04-22 |
 | 4. Keyboard Input | 4/4 | Complete    | 2026-04-22 |
 | 5. Web Serial Transport | 7/7 | Complete    | 2026-04-23 |
-| 6. Daily-Driver Polish, Session & Deployment | 6/8 | Executing   | -          |
+| 6. Daily-Driver Polish, Session & Deployment | 8/8 | Complete    | 2026-04-25 |
 
 ---
 *Roadmap created: 2026-04-21*
