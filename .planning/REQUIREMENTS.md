@@ -109,9 +109,11 @@ Requirements for initial release. Each maps to roadmap phases.
 - [x] **SESS-01
 
 **: Scrollback buffer retains N lines of prior output for review
-- [ ] **SESS-02
+- [x] **SESS-02
+
 **: User can select and copy text from the screen to the clipboard
-- [ ] **SESS-03
+- [x] **SESS-03
+
 **: User can paste clipboard content into the serial stream (subject to paste throttling)
 - [ ] **SESS-04
 **: Session logging captures the serial stream to a downloadable file, auto-started per connection

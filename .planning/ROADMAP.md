@@ -138,8 +138,8 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans**: 8 plans
   - [x] 06-01-PLAN.md — Wave 0 test scaffolding: 7 Playwright session/ stubs + clipboard mock + 2 Rust integration test stubs + testMatch extension (Wave 0)
   - [x] 06-02-PLAN.md — Rust core APIs: Terminal::snapshot_grid_at(row_offset) + Terminal::clear_visible() + lib.rs wasm forwarders + boundary-shape pin (Wave 1)
-  - [ ] 06-03-PLAN.md — Scroll-state module: scroll-state.js + canvas tick branching + floating chip + [data-scrolled-back] (Wave 2)
-  - [ ] 06-04-PLAN.md — Selection + clipboard + keyboard chord intercepts: selection.js + clipboard.js + Ctrl+Shift+C/V + Shift+End/Home/PgUp/PgDn (Wave 3)
+  - [x] 06-03-PLAN.md — Scroll-state module: scroll-state.js + canvas tick branching + floating chip + [data-scrolled-back] (Wave 2)
+  - [x] 06-04-PLAN.md — Selection + clipboard + keyboard chord intercepts: selection.js + clipboard.js + Ctrl+Shift+C/V + Shift+End/Home/PgUp/PgDn (Wave 3)
   - [ ] 06-05-PLAN.md — Session log + Download log button + top-bar Clear button + clear_visible wiring (Wave 4)
   - [ ] 06-06-PLAN.md — Prefs versioned blob + Settings rows (Reset prefs / Clear scrollback / Auto connect) + boot reorder + auto-connect path (Wave 5)
   - [ ] 06-07-PLAN.md — Deploy artifacts: LICENSE (MIT) + .github/workflows/pages.yml + www/_headers + www/.nojekyll + CSP meta-tag + README docs (Wave 6)

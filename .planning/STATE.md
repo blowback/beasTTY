@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 06-03-PLAN.md (Wave 2 scrollback navigation UI — scroll-state module + canvas.js tick branching + chip + [data-scrolled-back])
-last_updated: "2026-04-25T13:49:53.701Z"
+stopped_at: Completed 06-04-PLAN.md (Wave 3 — selection.js + clipboard.js + keyboard.js intercepts; 9/9 + 12/12 + 11/11 Wave 3 tests green)
+last_updated: "2026-04-25T14:15:04.860Z"
 last_activity: 2026-04-25
 progress:
   total_phases: 6
   completed_phases: 5
   total_plans: 41
-  completed_plans: 36
-  percent: 88
+  completed_plans: 37
+  percent: 90
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-04-21)
 ## Current Position
 
 Phase: 06 (daily-driver-polish-session-deployment) — EXECUTING
-Plan: 4 of 8 (Plan 06-01 complete; ready for Plan 06-02 / Wave 1)
+Plan: 5 of 8 (Plan 06-01 complete; ready for Plan 06-02 / Wave 1)
 Status: Ready to execute
 Last activity: 2026-04-25
 
-Progress: [█████████░] 88%
+Progress: [█████████░] 90%
 
 ## Performance Metrics
 
@@ -95,6 +95,7 @@ Progress: [█████████░] 88%
 | Phase 06-daily-driver-polish-session-deployment P01 | 8min | 2 tasks tasks | 12 files files |
 | Phase 06-daily-driver-polish-session-deployment P02 | 12min | 3 tasks tasks | 6 files files |
 | Phase 06-daily-driver-polish-session-deployment P03 | 8min | 2 tasks tasks | 5 files files |
+| Phase 06 P04 | 75min | 3 tasks tasks | 9 files files |
 
 ## Accumulated Context
 
@@ -212,6 +213,13 @@ Recent decisions affecting current work:
 - Phase 6 Plan 03: scroll-state.js module-scope offset state machine + wheel listener (DOM_DELTA_LINE = 3 lines/notch with 24-line Shift; DOM_DELTA_PIXEL accumulator with 30 px threshold) + chip lifecycle (+counter reset on snap-to-bottom); wireScrollState(opts) shape mirrors wirePastePump verbatim; markAllRowsDirty injected via opts not window-glue
 - Phase 6 Plan 03: canvas.js tick() branches on scrollIsScrolledBack(); scrolled-back path calls term.snapshot_grid_at(offset), uses consumeNeedsRepaint() one-shot paint-once gate, skips clear_dirty + paintCursor; paintCursor + triggerBellFlash early-return while scrolled (D-09 + D-10)
 - Phase 6 Plan 03: 8 of 11 scrollback.spec.js stubs un-fixmed and green; 4 deferred to Plan 06-04 (Shift+PgUp/PgDn/Home keyboard chords + BEL no-overlay-flash visual regression). API-driven tests pass against Task 1's wireScrollState wiring; Task 2 GREEN canvas.js branching is required for user-facing daily-driver behavior but does not gate the existing API assertions
+- Phase 6 Plan 04: Selection endpoints stored as (rowOffsetFromTail, col) for stability across mid-drag scrollback growth; readRowText branches on whether row is currently visible (live grid + viewport row) vs in-scrollback (snapshot_grid_at + bottom row) — direct snapshot_grid_at clamp behavior on empty scrollback would otherwise return blank for currently-visible rows
+- Phase 6 Plan 04: readRowText hosted in canvas.js (single owner of gridView) and injected into selection.js via wireSelection({ readRow }) — avoids circular import while keeping snapshot lifecycle responsibilities co-located
+- Phase 6 Plan 04: Esc disambiguation priority order: 1) selection-drag cancel, 2) paste cancel (Phase 5 D-18), 3) encode 0x1B — locked in keyboard.js per UI-SPEC §Esc key disambiguation
+- Phase 6 Plan 04: isPureModifierKey filter on D-04 snap-on-TX-while-scrolled-back gate — without it, the leading Shift of Shift+PgDn snaps offset to 0 BEFORE the second key arrives. Filter excludes ShiftLeft/Right + ControlLeft/Right + AltLeft/Right + MetaLeft/Right
+- Phase 6 Plan 04: Selection-clear-on-theme/phosphor/zoom (D-19) wired via main.js capture-phase listeners on themeButton + phosphorButtons + terminalWrapper — keeps wireChrome opts surface narrow rather than threading a selection-ref through
+- Phase 6 Plan 04: Click-count detection requires same (rowOffsetFromTail, col) AND <400ms — prevents slow drags from being misread as double/triple-click
+- Phase 6 Plan 04: Capture-phase clearSelection on Ctrl+{+,-,0} keydown attached to terminalWrapper — chrome.js's bubble-phase zoom handler runs after, so selection clears before the canvas repaints under the new zoom
 
 ### Pending Todos
 
@@ -236,8 +244,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-04-25T13:49:53.695Z
-Stopped at: Completed 06-03-PLAN.md (Wave 2 scrollback navigation UI — scroll-state module + canvas.js tick branching + chip + [data-scrolled-back])
+Last session: 2026-04-25T14:14:45.201Z
+Stopped at: Completed 06-04-PLAN.md (Wave 3 — selection.js + clipboard.js + keyboard.js intercepts; 9/9 + 12/12 + 11/11 Wave 3 tests green)
 Resume file: None
 
 **Planned Phase:** 6 (Daily-Driver Polish, Session & Deployment) — 8 plans — 2026-04-25T13:14:27.851Z
