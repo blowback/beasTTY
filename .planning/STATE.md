@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-stopped_at: Completed 06-07-PLAN.md (Wave 6 — MIT LICENSE + GH Pages workflow + best-effort _headers + CSP meta-tag fallback + README deploy docs; both human-verify gates auto-approved under _auto_chain_active=true; PLAT-03 + PLAT-04 closed)
-last_updated: "2026-04-25T14:58:13.656Z"
+status: verifying
+stopped_at: "Completed 06-08-PLAN.md (Wave 7 — 06-SOAK.md 24-h memory-flat protocol + 06-HUMAN-UAT.md 8-test daily-driver checklist + 3 OOB supplementary checks; checkpoint:human-verify Task 3 auto-approved under _auto_chain_active=true; Phase 6 ready for /gsd-verify-phase 06)"
+last_updated: "2026-04-25T15:04:45.841Z"
 last_activity: 2026-04-25
 progress:
   total_phases: 6
-  completed_phases: 5
+  completed_phases: 6
   total_plans: 41
-  completed_plans: 40
-  percent: 98
+  completed_plans: 41
+  percent: 100
 ---
 
 # Project State
@@ -27,10 +27,10 @@ See: .planning/PROJECT.md (updated 2026-04-21)
 
 Phase: 06 (daily-driver-polish-session-deployment) — EXECUTING
 Plan: 8 of 8 (Plan 06-01 complete; ready for Plan 06-02 / Wave 1)
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-04-25
 
-Progress: [██████████] 98%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -99,6 +99,7 @@ Progress: [██████████] 98%
 | Phase 06 P05 | 35min | 2 tasks tasks | 6 files files |
 | Phase 06 P06 | 16min | 3 tasks tasks | 9 files files |
 | Phase 06 P07 | 3min | 4 tasks tasks | 6 files files |
+| Phase 06-daily-driver-polish-session-deployment P08 | 3min | 3 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -239,6 +240,9 @@ Recent decisions affecting current work:
 - Phase 6 Plan 07: dual-source CSP pattern — verbatim directives in BOTH www/_headers (full HTTP-header enforcement on Cloudflare/Netlify/self-hosted) AND <meta http-equiv> in www/index.html (GH-Pages fallback); frame-ancestors INERT in meta-tag form per CSP spec
 - Phase 6 Plan 07: action versions pinned to actions/checkout@v4 + actions/configure-pages@v5 + actions/upload-pages-artifact@v3 + actions/deploy-pages@v5 (verified 2026-04-25 per RESEARCH §Sources)
 - Phase 6 Plan 07: both checkpoint:human-verify gates auto-approved under _auto_chain_active=true; auto-approval log captured in 06-07-SUMMARY.md for later operator review
+- Phase 6 Plan 08: 24-hour soak sampler uses setInterval(60_000) NOT rAF — Pitfall 9 mandate (rAF throttles to ~1 Hz on hidden tabs); primary memory signal is wasm.memory.buffer.byteLength, performance.memory documented as supplementary fallback per RESEARCH A7
+- Phase 6 Plan 08: Pass criterion ±10% of t=10min byteLength is locked verbatim from CONTEXT D-40 (not tunable); 06-HUMAN-UAT.md format mirrors 05-HUMAN-UAT.md verbatim
+- Phase 6 Plan 08: Both 06-SOAK.md and 06-HUMAN-UAT.md explicitly OUT-OF-BAND — /gsd-verify-phase 06 does NOT block on the actual runs; checkpoint:human-verify Task 3 auto-approved under workflow._auto_chain_active=true
 
 ### Pending Todos
 
@@ -263,8 +267,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-04-25T14:58:13.649Z
-Stopped at: Completed 06-07-PLAN.md (Wave 6 — MIT LICENSE + GH Pages workflow + best-effort _headers + CSP meta-tag fallback + README deploy docs; both human-verify gates auto-approved under _auto_chain_active=true; PLAT-03 + PLAT-04 closed)
+Last session: 2026-04-25T15:04:45.834Z
+Stopped at: Completed 06-08-PLAN.md (Wave 7 — 06-SOAK.md 24-h memory-flat protocol + 06-HUMAN-UAT.md 8-test daily-driver checklist + 3 OOB supplementary checks; checkpoint:human-verify Task 3 auto-approved under _auto_chain_active=true; Phase 6 ready for /gsd-verify-phase 06)
 Resume file: None
 
 **Planned Phase:** 6 (Daily-Driver Polish, Session & Deployment) — 8 plans — 2026-04-25T13:14:27.851Z
