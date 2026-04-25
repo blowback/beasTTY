@@ -185,3 +185,69 @@ The wasm output for Phase 2 is typically in the 20-50 KB range (vte parser
 | `tests/` | yes | Phase 3 -- Playwright visual-regression tests |
 | `node_modules/` | NO | `npm install` output; gitignored |
 | `playwright-report/` | NO | Playwright HTML report; gitignored |
+| `_headers` | yes | Phase 6 -- best-effort hosting headers (Cloudflare/Netlify honor; GitHub Pages ignores) |
+| `.nojekyll` | yes | Phase 6 -- empty file disables Jekyll on GitHub Pages |
+
+## Deployment
+
+BestialiTTY ships as a static site. The recommended deploy target is GitHub Pages.
+
+### GitHub Pages
+
+A push to the `main` branch triggers `.github/workflows/pages.yml`, which:
+1. Installs the Rust toolchain + wasm-pack.
+2. Runs `./scripts/build.sh` to produce `www/pkg/`.
+3. Touches `www/.nojekyll` (committed file is also present as a redundancy).
+4. Uploads `www/` as a Pages artifact.
+5. Deploys via `actions/deploy-pages@v5`.
+
+The deployed URL is `https://<user>.github.io/<repo>/`.
+
+**One-time repo setting:** Before the workflow first runs, the repo owner must visit
+Settings -> Pages and set "Build and deployment -> Source: GitHub Actions" (not "Deploy
+from a branch"). Without this, the `actions/configure-pages` step fails on first push.
+This is a one-time setup; subsequent pushes auto-deploy.
+
+**CDN cache TTL:** GitHub Pages serves through a Fastly CDN with minute-grained TTL.
+After a push, expect ~5-15 minute propagation before the new artifact appears at the
+URL. Hard-refresh (Ctrl+Shift+R) is the user-side workaround. Cache-buster query string
+`?_=<unix-timestamp>` confirms a fresh fetch. (RESEARCH Pitfall 8.)
+
+### Custom HTTP headers
+
+`www/_headers` declares `Permissions-Policy` + `Content-Security-Policy` +
+`X-Content-Type-Options` + `Referrer-Policy` + a `pkg/*.wasm` MIME override.
+**GitHub Pages does NOT honor `_headers`**
+([GitHub Community 54257](https://github.com/orgs/community/discussions/54257) -- per
+GitHub staff, custom HTTP headers are not supported on GitHub Pages). The fallback is
+a `<meta http-equiv="Content-Security-Policy">` element in `www/index.html`. The
+meta-tag enforces every directive EXCEPT `frame-ancestors`, which requires an actual
+HTTP header to take effect (per CSP spec).
+
+Hosting on Cloudflare Pages or Netlify (which honor `_headers`) gives full enforcement
+of every directive in the file, including `frame-ancestors 'none'`. Self-hosting
+behind nginx/Caddy lets you replicate the `_headers` semantics directly in the server
+config.
+
+### License
+
+BestialiTTY is MIT-licensed (SPDX `MIT`). See `LICENSE` at the repo root. The MIT
+text is the canonical SPDX form with `Copyright (c) 2026 Ant Skelton`.
+
+### Other targets
+
+The static site is also deployable to:
+- **Cloudflare Pages** -- `_headers` and `_redirects` honored natively. After running
+  `./scripts/build.sh`, deploy with `wrangler pages deploy www/`.
+- **Netlify** -- same `_headers` syntax. `netlify deploy --dir=www`.
+- **Self-hosted nginx/Caddy** -- copy `www/` to the document root; replicate the
+  `_headers` directives in the server config.
+
+### Local development
+
+Run a static HTTP server pointed at `www/`:
+
+    cd www && python3 -m http.server 8000
+
+Then visit http://localhost:8000/. The wasm module loads via the existing `pkg/`
+directory produced by `./scripts/build.sh`.

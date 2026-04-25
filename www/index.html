@@ -3,6 +3,20 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- Phase 6 Plan 07 (Wave 6) D-39 + RESEARCH §"GitHub Community 54257" — meta-tag CSP because
+       GH Pages cannot serve custom headers. Defense-in-depth: same CSP as www/_headers (which
+       Cloudflare/Netlify honor). frame-ancestors is INERT in meta-tag form (must be HTTP header)
+       — listed for completeness so other deploy targets pick it up via _headers. -->
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self';
+                 script-src 'self' 'wasm-unsafe-eval';
+                 style-src 'self' 'unsafe-inline';
+                 img-src 'self' data:;
+                 font-src 'self';
+                 connect-src 'self';
+                 base-uri 'self';
+                 form-action 'none';
+                 frame-ancestors 'none'">
   <title>BestialiTTY</title>
   <!--
     Dev serving (same as Phase 2 — Chromium only per CLAUDE.md):
