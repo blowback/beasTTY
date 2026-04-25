@@ -476,6 +476,13 @@
   <div id="top-bar">
     <button id="connect-button" type="button" data-state="disconnected"
             title="Connect to MicroBeast over Web Serial">Connect</button>
+    <!-- Phase 6 D-26 (Plan 06-05) — local clear-screen distinct from remote
+         ESC J. Plain click wipes visible 80x24; Shift+click also clears
+         scrollback (resize_scrollback(0)→10000). NO CSS additions — inherits
+         #top-bar button rules. Slot between Connect and theme-toggle per
+         06-UI-SPEC §Element ordering. -->
+    <button id="clear-button" type="button"
+            title="Clear visible screen (Shift+click also clears scrollback)">Clear</button>
     <button id="theme-toggle" type="button" title="Toggle theme (Ctrl+Alt+T)">Clean</button>
     <div id="phosphor-group" role="radiogroup" aria-label="Phosphor color">
       <button type="button" data-phosphor="green" aria-pressed="true">Green</button>

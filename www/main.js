@@ -120,6 +120,12 @@ const scrollState = wireScrollState({
 // will import scroll-state.js directly; this exposure is for Playwright tests.
 window.__scrollState = scrollState;
 window.__term = term;
+// Phase 6 Plan 05 (Wave 4) — clear-screen.spec.js parser-state-preservation
+// regression test reads host_reply via raw memory, and the rest of the suite
+// drives manual feed → frame requests. Both window-only handles (no security
+// surface — Phase 4 D-15 precedent).
+window.__wasm = wasm;
+window.__requestFrame = requestFrame;
 
 // ---- Phase 6 Plan 04 (Wave 3) — wire selection state machine ----
 // wireSelection owns pointerdown/move/up handlers on the canvas + the
