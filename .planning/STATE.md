@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: verifying
-stopped_at: Completed 05-web-serial-transport 07 (Wave 6 — lifecycle hardening beforeunload+visibilitychange, 5 fixmes un-fixme'd, 05-HUMAN-UAT.md filled)
-last_updated: "2026-04-23T02:00:27.300Z"
-last_activity: 2026-04-23
+status: executing
+stopped_at: "Completed 05-web-serial-transport 08 (Wave 7 — gap_closure: beforeunload close-contract, lifecycle.spec.js, 40 transport tests passing)"
+last_updated: "2026-04-25T00:16:46.769Z"
+last_activity: 2026-04-25
 progress:
   total_phases: 6
-  completed_phases: 5
-  total_plans: 31
-  completed_plans: 31
-  percent: 100
+  completed_phases: 4
+  total_plans: 33
+  completed_plans: 32
+  percent: 97
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-21)
 
 **Core value:** A modern, reliable, in-browser VT52 emulator good enough to use as a daily driver with a real MicroBeast.
-**Current focus:** Phase 05 — Web Serial Transport
+**Current focus:** Phase 05 — web-serial-transport
 
 ## Current Position
 
-Phase: 05 (Web Serial Transport) — EXECUTING
-Plan: 7 of 7
-Status: Phase complete — ready for verification
-Last activity: 2026-04-23
+Phase: 05 (web-serial-transport) — EXECUTING
+Plan: 2 of 9
+Status: Ready to execute
+Last activity: 2026-04-25
 
-Progress: [██████████] 100%
+Progress: [██████████] 97%
 
 ## Performance Metrics
 
@@ -90,6 +90,7 @@ Progress: [██████████] 100%
 | Phase 05-web-serial-transport P05 | 5min | 3 tasks tasks | 3 files files |
 | Phase 05-web-serial-transport P06 | 6min | 3 tasks tasks | 5 files files |
 | Phase 05-web-serial-transport P07 | 6min | 4 tasks | 6 files |
+| Phase 05-web-serial-transport P08 | 5min | 2 tasks tasks | 3 files files |
 
 ## Accumulated Context
 
@@ -191,6 +192,9 @@ Recent decisions affecting current work:
 - Phase 5 Plan 07: requestFrame in wireChrome opts is defensively-optional (falsy guard) so tests that call wireChrome without it fall back to Phase 3 BEL-prefix-only behavior
 - Phase 5 Plan 07: Polite-fail setup uses Object.defineProperty(Navigator.prototype, 'serial', { get: () => undefined }) instead of 'delete navigator.serial' — the delete is a silent no-op in real Chromium because navigator.serial is a non-configurable getter. Rule 1 auto-fix caught during Task 2
 - Phase 5 Plan 07 Task 4: human-verify checkpoint auto-approved under auto_chain_active=true with honest 'auto-approved-in-auto-chain (pending real-hardware UAT)' result strings rather than fake 'pass' — distinguishes plan-level document verification from physical-hardware checklist execution
+- Phase 5 Plan 08 (Wave 7 gap_closure): cancel() != releaseLock() — beforeunload now SYNCHRONOUSLY releases reader+writer locks before fire-and-forget port.close so the WHATWG Streams + Web Serial close-contract is satisfiable. Combined with module-scope shuttingDown flag + outer-while guard in runReadLoop, this eliminates the 'Page unresponsive' dialog on Ctrl+R while connected (UAT Test 3 blocker). Pre-existing teardown() helper untouched (its await-each-step posture is correct outside beforeunload's tight time budget)
+- Phase 5 Plan 08: window.__mockLockLog joins window.__mockWriterLog as the second test-only ordering-log on window — { op, ts } shape — so future ordering specs can introspect lifecycle ordering without bespoke instrumentation. lifecycle.spec.js (2 tests, 40 transport-suite total post-fix) is the regression anchor for the close-contract
+- Phase 5 grep-hygiene rule (5th occurrence): comments that reference load-bearing literals tracked by grep-count done-criteria MUST be paraphrased so the code occurrence is the single authoritative source. Plan 08 instance: 'Paired with the read-loop tear-down guard (module flag set below, checked at the top of runReadLoop's outer while)…' instead of literal 'shuttingDown guard' to keep the grep-count = 3 invariant
 
 ### Pending Todos
 
@@ -215,8 +219,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-04-23T02:00:27.293Z
-Stopped at: Completed 05-web-serial-transport 07 (Wave 6 — lifecycle hardening beforeunload+visibilitychange, 5 fixmes un-fixme'd, 05-HUMAN-UAT.md filled)
+Last session: 2026-04-25T00:16:46.762Z
+Stopped at: Completed 05-web-serial-transport 08 (Wave 7 — gap_closure: beforeunload close-contract, lifecycle.spec.js, 40 transport tests passing)
 Resume file: None
 
 **Planned Phase:** 5 (Web Serial Transport) — 7 plans — 2026-04-23T00:45:32.678Z
