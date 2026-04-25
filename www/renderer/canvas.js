@@ -29,6 +29,13 @@ import {
     rasteriseVector,
     primeAscii,
 } from './atlas.js';
+// Phase 6 Plan 03 (Wave 2) — scrollback state machine. tick() branches on
+// scrollIsScrolledBack(); paintCursor() early-returns while scrolled.
+import {
+    isScrolledBack as scrollIsScrolledBack,
+    getOffset as scrollGetOffset,
+    consumeNeedsRepaint as scrollConsumeNeedsRepaint,
+} from './scroll-state.js';
 
 // ---- Phase 2 zero-copy contract (D-03 — verbatim from www/main.js:35-54) ----
 
@@ -187,6 +194,11 @@ function paintRow(r, cols) {
 }
 
 function paintCursor() {
+    // Phase 6 D-09 — cursor hidden while scrolled up. The cursor lives at a
+    // row in the live grid (offset 0); when scrolled up, painting it would
+    // place a cursor at a row that the user is not viewing, which is misleading.
+    if (scrollIsScrolledBack()) return;
+
     const z = activeZoom;
     const cellW = activeTheme.cellW * z;
     const cellH = activeTheme.cellH * z;
@@ -247,12 +259,20 @@ function tick() {
     rafPending = false;
     frameCount++;
 
-    // SNAPSHOT FIRST — term.snapshot_grid() may call wasm memory.grow on its
+    // Phase 6 D-07 — branch on scroll state.
+    //   offset == 0  →  Phase 3 live-tail snapshot_grid()
+    //   offset >  0  →  windowed snapshot_grid_at(offset)
+    // SNAPSHOT FIRST — term.snapshot_grid* may call wasm memory.grow on its
     // first invocation (or any time scrollback grows), which detaches any
     // Uint8Array view backed by the old wasm.memory.buffer. Deriving views
     // BEFORE the snapshot would leave gridView / dirtyView detached for this
     // frame (Chromium throws TypeError, rAF dies silently) — WR-01 in 03-REVIEW.
-    term.snapshot_grid();
+    const scrolledBack = scrollIsScrolledBack();
+    if (scrolledBack) {
+        term.snapshot_grid_at(scrollGetOffset());
+    } else {
+        term.snapshot_grid();
+    }
 
     // Re-derive if the snapshot's memory.grow swapped the backing buffer.
     reDeriveViews();
@@ -271,9 +291,29 @@ function tick() {
     // Chromium's ~1 Hz rAF throttling when the document is hidden, which would
     // otherwise make the BEL-while-hidden UAT test flaky.
 
-    // Dirty-row repaint.
     const rows = term.rows();
     const cols = term.cols();
+
+    if (scrolledBack) {
+        // Phase 6 D-08 — paint-once-then-idle while scrolled. Skip dirty-row
+        // pipeline because historical rows can't change. consumeNeedsRepaint
+        // returns true exactly once per scroll-state change (paint-once gate);
+        // subsequent ticks while scrolled-back are no-ops.
+        if (scrollConsumeNeedsRepaint()) {
+            for (let r = 0; r < rows; r++) paintRow(r, cols);
+        }
+        // Phase 6 D-09 — cursor hidden while scrolled up (paintCursor early-returns).
+        // Phase 6 D-10 — BEL viewport flash suppressed while scrolled up. The
+        // bell flash is triggered from main.js's sampleBell() which calls
+        // triggerBellFlash() — that function reads scrollIsScrolledBack() and
+        // skips the overlay class toggle when scrolled (title prefix unchanged).
+        // Do NOT clear_dirty — the live grid is still accumulating dirty rows
+        // and we want them to flush via the normal Phase 3 path on snap-to-bottom.
+        return;
+    }
+
+    // Phase 3 live path — unchanged.
+    // Dirty-row repaint.
     for (let r = 0; r < rows; r++) {
         if (dirtyView[r] !== 0) paintRow(r, cols);
     }
@@ -420,6 +460,11 @@ export function getActivePhosphor() { return activePhosphor; }
 export function getActiveZoom() { return activeZoom; }
 
 export function triggerBellFlash() {
+    // Phase 6 D-10 — suppress viewport flash while scrolled up. The rows
+    // causing the BEL aren't in view, so flashing those rows is misleading.
+    // Title prefix (the document.title (!) decoration) lives in main.js's
+    // sampleBell and is unaffected — only the visible overlay is gated here.
+    if (scrollIsScrolledBack()) return;
     const el = bellOverlayEl || document.getElementById('bell-overlay');
     if (!el) return;   // chrome may not be mounted yet during early boot
     if (bellFlashTimer !== null) clearTimeout(bellFlashTimer);
