@@ -505,15 +505,25 @@ body.polite-fail .muted {
 
 **Justification for Connect button as leftmost in top-bar:** The Connect button carries the phase's primary state signal via its border color. Leftmost position exploits left-to-right reading order — the user's first visual anchor in the top bar is "am I connected?". Theme toggle and phosphor group are rarely-changed settings; connection state changes multiple times per work session.
 
-### Connection pane auto-expand rules (CONTEXT D-06, D-17)
+### Connection pane auto-expand rules (CONTEXT D-06, D-17 amended, D-27)
 
 | Trigger | Behavior | Restore |
 |---------|----------|---------|
-| Paste starts (`enqueuePaste` called, pane is collapsed) | `details.open = true` | On paste complete/cancel, pane returns to its previous collapsed state (remember the `open` value at paste-start time) |
+| ~~Paste starts (`enqueuePaste` called, pane is collapsed)~~ **[SUPERSEDED BY PLAN 09 — see amended D-17]** | ~~`details.open = true`~~ NO auto-expand; paste progress renders in `#top-bar` sticky slot instead | n/a — pane state is not modified during paste |
 | New error appended (log region receives new entry) | `details.open = true` | Pane stays open (errors are sticky; user must manually close) |
 | User clicks `<summary>` | native toggle, no auto-expand interference | n/a |
 
-**Implementation hint for executor:** store `preExpansionOpen` boolean when auto-expanding, restore on paste end. Do NOT fight user clicks — if the user closes the pane during a paste, respect that and don't re-open.
+**Amendment note (Plan 09, 2026-04-23):** The paste-start auto-expand row
+was superseded by Plan 09 to fix UAT Test 6 (canvas lurch on paste).
+Paste progress now renders in the sticky `#top-bar` so visibility does
+not displace the terminal. D-27 (error-log auto-expand) is intentionally
+KEPT — see amended D-17 rationale for the asymmetry.
+
+**Implementation hint for executor:** the paste observer in main.js no
+longer reads or writes `connectionPane.open`. The DOM ref is still passed
+to wireSerial because `serial.js` D-27 (error-log auto-expand) continues
+to use it. Do NOT fight user clicks — if the user opens or closes the
+pane during a paste, respect that.
 
 ---
 
@@ -557,7 +567,7 @@ These are the load-bearing interaction rules Phase 5 MUST implement. Mostly invi
 
 | Trigger | UI reaction |
 |---------|-------------|
-| `enqueuePaste(bytes)` called while pane collapsed | Pane auto-expands (CONTEXT D-17); `#paste-progress-row` becomes visible; text reads `Pasting {N} B — 0%` |
+| `enqueuePaste(bytes)` called | `#paste-progress-row` (in `#top-bar`) becomes visible; text reads `Pasting {N} B — 0%` (Plan 09 amendment — see amended D-17; pane state is irrelevant, no auto-expand) |
 | Each chunk written | `#paste-progress-text` updates to new progress value |
 | Click `#paste-cancel` | `pastePump.cancelPaste()`; text becomes `Paste cancelled` for 2s then row hides; pane returns to pre-paste open/collapsed state |
 | Press Escape while pump active | Same as clicking Cancel (CONTEXT D-18) — `keyboard.js` Esc handler calls `pastePump.cancelPaste()` and does NOT emit 0x1B |

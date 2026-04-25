@@ -438,7 +438,13 @@ function appendErrorLog(code, message) {
     if (errorLog.length > ERROR_LOG_CAP) errorLog.length = ERROR_LOG_CAP;
     renderErrorLog();
     console.error('[serial]', `${ts} ${code}: ${message}`);
-    if (connectionPane) connectionPane.open = true;      // D-27 auto-expand on error
+    // D-27 auto-expand on error (KEPT, intentionally asymmetric with D-17).
+    // Plan 09 (Gap 2 fix) amended D-17 so paste progress does NOT auto-expand
+    // the Connection pane (progress rides the sticky #top-bar instead). D-27
+    // stays as-is because errors are rare + sticky + demand attention — the
+    // red border on Connect button is the primary signal; the pane-expand is
+    // a secondary pull-focus that is acceptable once per error.
+    if (connectionPane) connectionPane.open = true;
 }
 
 function renderErrorLog() {

@@ -185,14 +185,45 @@ PLAT-02, and all five Phase 5 ROADMAP success criteria.
   through `enqueuePaste` → pump → tx-sink → writer. Verifiable against
   a real MicroBeast via 05-HUMAN-UAT.md and against the Playwright mock
   writer via timing assertions (D-39).
-- **D-17:** Paste progress UI: the Connection pane shows a single line
-  `Pasting 5120 B — 43%` with a `Cancel` button next to it while the
-  pump is active. If the Connection pane is collapsed when
-  `enqueuePaste` is called, open it automatically. When the pump
-  finishes (or is cancelled), the progress line clears and the pane
-  returns to its prior expanded/collapsed state. Progress text updates
-  on every chunk write (~55 Hz at 32B/18ms), no rAF tie-in (keeps pump
-  independent of render loop per XPORT-11).
+- **D-17 (AMENDED 2026-04-23 by Plan 09 — Gap 2 fix):** Paste progress UI
+  renders as a `[hidden]`-toggled flex item in `#top-bar` (which is
+  `position: sticky; top: 0`), NOT inside the Connection pane. The progress
+  line reads `Pasting 5120 B — 43%` with a `Cancel` button inline, and is
+  visible without mutating `details.open` or causing any canvas movement.
+  When the pump finishes (or is cancelled), the `[hidden]` attribute is
+  restored after the existing 2 s (complete / cancelled) or 3 s
+  (cancelled-port-lost) timeout. Progress text updates on every chunk write
+  (~55 Hz at 32 B / 18 ms), no rAF tie-in (keeps pump independent of render
+  loop per XPORT-11).
+
+  **Rationale for amendment:** The original D-17 auto-expanded the
+  Connection pane on paste start. In real-hardware UAT (05-HUMAN-UAT.md
+  Test 6) the expanding pane (~250-330 px height delta) pushed the terminal
+  canvas down the viewport — the user described it as "alarming lurch."
+  The spec was wrong on real hardware; the fix relocates the progress UI
+  to the sticky top-bar so visibility is achieved without displacement.
+  Debug session: `.planning/debug/paste-auto-expands-pane-lurches-canvas.md`.
+
+  **Contrast with D-27 (error-log auto-expand):** D-27 auto-expands the
+  Connection pane when a new error is appended. D-27 is KEPT (not amended)
+  because errors are rare, sticky, and demand user attention; the red
+  border on the Connect button is the primary signal, the pane-expand is
+  a secondary pull-focus. Pastes are frequent and transient — auto-expand
+  costs more than it buys. The two behaviors are intentionally asymmetric.
+
+  <details>
+  <summary>Superseded original D-17 (kept for traceability)</summary>
+
+  > **D-17 (original, 2026-04-22):** Paste progress UI: the Connection
+  > pane shows a single line `Pasting 5120 B — 43%` with a `Cancel` button
+  > next to it while the pump is active. If the Connection pane is
+  > collapsed when `enqueuePaste` is called, open it automatically. When
+  > the pump finishes (or is cancelled), the progress line clears and the
+  > pane returns to its prior expanded/collapsed state. Progress text
+  > updates on every chunk write (~55 Hz at 32B/18ms), no rAF tie-in
+  > (keeps pump independent of render loop per XPORT-11).
+
+  </details>
 - **D-18:** Cancel paths: **Cancel button + Esc key**. Cancel button
   lives next to the progress line (D-17). Esc cancels **only while the
   pump is active** — `keyboard.js` checks `pastePump.isActive()` at the
