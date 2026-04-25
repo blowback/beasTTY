@@ -192,6 +192,31 @@ impl Terminal {
         }
     }
 
+    /// Snapshot the visible_rows-tall window starting `row_offset` rows BACK
+    /// from the live tail. Out-of-range clamps to `min(row_offset, total_len)`
+    /// — never panics (Phase 6 D-06). Reuses pack_buf — no new memory layout.
+    /// Pointer remains stable across this call (matches snapshot_grid contract
+    /// from Phase 2 D-03). row_offset = 0 produces the same result as
+    /// `snapshot_grid()`.
+    pub fn snapshot_grid_at(&mut self, row_offset: usize) {
+        let cols = self.scrollback.cols();
+        let visible_rows = self.scrollback.visible_rows();
+        let total = self.scrollback.total_len();
+        // Live tail viewport starts at total - visible_rows. Offset N moves it
+        // back by N rows (capped so we never read before row 0).
+        let tail_start = total.saturating_sub(visible_rows);
+        let start = tail_start.saturating_sub(row_offset);
+        let needed = visible_rows * cols;
+        if self.pack_buf.len() != needed {
+            self.pack_buf.resize(needed, Cell::BLANK);
+        }
+        for r in 0..visible_rows {
+            let src = self.scrollback.row_at_absolute(start + r).as_slice();
+            let dst_start = r * cols;
+            self.pack_buf[dst_start..dst_start + cols].copy_from_slice(src);
+        }
+    }
+
     /// Pointer to the pack buffer's first byte. Stable across `feed()`,
     /// `push_line`, and `resize_scrollback` (D-03). Invalidated by
     /// `resize(rows, cols)` — JS must re-derive its `Uint8Array` view after.

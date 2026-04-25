@@ -117,6 +117,13 @@ impl Scrollback {
         &mut self.rows[start + visible_idx]
     }
 
+    /// Direct VecDeque index (0 = oldest retained row, total_len-1 = newest).
+    /// Caller (terminal::snapshot_grid_at) is responsible for clamping `idx` to
+    /// `< self.rows.len()`. Phase 6 D-06.
+    pub fn row_at_absolute(&self, idx: usize) -> &Row {
+        &self.rows[idx]
+    }
+
     pub fn total_len(&self) -> usize {
         self.rows.len()
     }
