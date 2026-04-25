@@ -37,6 +37,9 @@ let writer = null;
 let state = 'disconnected';
 let lastConfig = null;
 let lastPortRef = null;
+let shuttingDown = false;   // Gap 1 fix — set true in beforeunload so runReadLoop's
+                            // outer while(p.readable) does not re-acquire a fresh reader
+                            // during tear-down. Paired with the beforeunload handler.
 const stateObservers = [];
 const errorLog = [];                              // D-27 — ring of last 5 entries (newest-first)
 
@@ -95,19 +98,45 @@ export async function wireSerial(opts) {
     navigator.serial.addEventListener('connect', onNavSerialConnect);
     navigator.serial.addEventListener('disconnect', onNavSerialDisconnect);
 
-    // D-30 — best-effort teardown on page unload. All awaits are .catch(()=>{});
-    // beforeunload has a tight browser time budget, so we fire-and-forget each
-    // step (Pattern 3 beforeunload variant in 05-RESEARCH). DO NOT use the
-    // shared teardown() helper here — teardown awaits each step, and beforeunload
-    // cannot afford that latency. This is the only code path that intentionally
-    // bypasses the shared teardown. If state === 'disconnected' the handler is
-    // a no-op (port/reader are null); safe to register unconditionally.
+    // D-30 (Gap 1 fix — UAT Test 3 blocker) — best-effort teardown on page unload.
+    //
+    // Contract note: SerialPort.close() ONLY resolves once port.readable AND
+    // port.writable are unlocked — i.e. reader.releaseLock() and
+    // writer.releaseLock() have been called. reader.cancel() alone is NOT enough:
+    // it resolves the pending read() with { done: true } but does NOT release the
+    // lock on port.readable. An earlier version of this handler called cancel()
+    // and close() without the releaseLock() calls; the close() promise could
+    // never resolve, stalling Chromium's renderer tear-down and surfacing as the
+    // "Page unresponsive..." dialog on reload while connected.
+    //
+    // This handler mirrors the teardown() helper's ORDER but uses fire-and-forget
+    // for every await (beforeunload has a tight browser time budget; teardown
+    // awaits each step which is unsafe here). The SYNCHRONOUS releaseLock + close
+    // steps are what make the contract satisfiable. If state === 'disconnected'
+    // the handler is a no-op (port/reader/writer are null); safe to register
+    // unconditionally.
+    //
+    // Paired with the read-loop tear-down guard (module flag set below, checked
+    // at the top of runReadLoop's outer while) so the loop does not re-acquire
+    // a fresh reader after our cancel.
     window.addEventListener('beforeunload', () => {
+        shuttingDown = true;
         if (port && port.writable) {
             port.setSignals({ dataTerminalReady: false, requestToSend: false }).catch(() => {});
         }
-        if (reader) reader.cancel().catch(() => {});
-        if (port)   port.close().catch(() => {});
+        if (reader) {
+            reader.cancel().catch(() => {});
+            try { reader.releaseLock(); } catch {}
+            reader = null;
+        }
+        if (writer) {
+            try { writer.releaseLock(); } catch {}
+            writer = null;
+            unregisterWriter();
+        }
+        if (port) {
+            port.close().catch(() => {});
+        }
     });
 
     // D-05 / D-31 — on boot, read stored preset + scan getPorts() + stash match.
@@ -302,6 +331,8 @@ export function getWriter() { return writer; }
 // directly to the parser via term.feed — no byte-to-string coercion on the read path.
 async function runReadLoop(p) {
     while (p.readable) {
+        if (shuttingDown) break;     // Gap 1 fix — paired with beforeunload handler;
+                                      // prevents re-acquiring a fresh reader during unload.
         reader = p.readable.getReader();
         try {
             while (true) {
