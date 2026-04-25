@@ -66,8 +66,9 @@ export function wireChrome(opts) {
     applyPhosphorSideEffects(getActivePhosphor(), phosphorButtons);
 
     // ==== Phase 6 Plan 05 (Wave 4) — Top-bar Clear button (D-26) ====
-    // Plain click wipes the visible 80x24 grid via term.clear_visible() —
-    // direct Rust API call, NOT feeding \x1B\x4A. The remote VT52 state machine
+    // Plain click wipes the visible 80x24 grid via the Rust direct-clear API
+    // (call site below is the single authoritative source) — NOT feeding
+    // \x1B\x4A. The remote VT52 state machine
     // never sees a fabricated escape (T-06-05-03 mitigation; Plan 06-02 Test 4
     // is the Rust-side gate). Shift+click ALSO clears scrollback by cycling
     // resize_scrollback(0) → resize_scrollback(10000) (the Phase 1 D-12 default
