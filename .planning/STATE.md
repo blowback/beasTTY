@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: "Completed 05-web-serial-transport 09 (Wave 7 — gap_closure: paste-progress relocated to top-bar, D-17 amended, 41 transport tests passing)"
-last_updated: "2026-04-25T00:28:31.548Z"
+stopped_at: Phase 6 context gathered (48 decisions across scrollback, copy/paste/clear, session log, prefs+deploy)
+last_updated: "2026-04-25T11:48:46.529Z"
 last_activity: 2026-04-25
 progress:
   total_phases: 6
@@ -224,8 +224,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-04-25T00:28:09.650Z
-Stopped at: Completed 05-web-serial-transport 09 (Wave 7 — gap_closure: paste-progress relocated to top-bar, D-17 amended, 41 transport tests passing)
-Resume file: None
+Last session: --stopped-at
+Stopped at: Phase 6 context gathered (48 decisions across scrollback, copy/paste/clear, session log, prefs+deploy)
+Resume file: --resume-file
 
 **Planned Phase:** 5 (Web Serial Transport) — 7 plans — 2026-04-23T00:45:32.678Z
