@@ -36,6 +36,9 @@ import {
     getOffset as scrollGetOffset,
     consumeNeedsRepaint as scrollConsumeNeedsRepaint,
 } from './scroll-state.js';
+// Phase 6 Plan 04 (Wave 3) — selection overlay. Late-bound import so canvas.js
+// stays loadable in test contexts where selection.js is not yet wired.
+import { getActiveRange as selectionGetActiveRange } from '../input/selection.js';
 
 // ---- Phase 2 zero-copy contract (D-03 — verbatim from www/main.js:35-54) ----
 
@@ -70,6 +73,44 @@ export function markAllRowsDirty() {
     if (!dirtyView) return;
     const rows = dirtyView.length;
     for (let r = 0; r < rows; r++) dirtyView[r] = 1;
+}
+
+// Phase 6 Plan 04 (Wave 3) — readRowText decodes a single grid row at a
+// scrollback-tail-relative offset into an ASCII string. selection.js calls
+// this for word boundaries (double-click) and full-row text (triple-click,
+// copy). Lives here because canvas.js owns gridView + the snapshot lifecycle.
+//
+// Strategy: the tail-relative coord T maps into the LIVE viewport at row R =
+// (visibleRows - 1) - T (when T < visibleRows). For currently-visible rows we
+// read directly from snapshot_grid() — this is the common case. Rows in
+// scrollback (T >= visibleRows AND scrollback non-empty) require
+// snapshot_grid_at(T - (visibleRows - 1)) so the row at offset T lands at the
+// bottom of the snapshot. canvas.js's tick() re-snapshots on the next rAF, so
+// any in-test snapshot side effect is transient.
+export function readRowText(rowOffsetFromTail) {
+    if (!term) return '';
+    const cols = term.cols();
+    const visibleRows = term.rows();
+    let viewportRow;
+    if (rowOffsetFromTail < visibleRows) {
+        // Currently-visible (live tail viewport).
+        term.snapshot_grid();
+        viewportRow = (visibleRows - 1) - rowOffsetFromTail;
+    } else {
+        // Row lives in scrollback above the visible window. Snapshot the
+        // window ending at this offset; the row lands at bottom (visibleRows-1).
+        term.snapshot_grid_at(rowOffsetFromTail - (visibleRows - 1));
+        viewportRow = visibleRows - 1;
+    }
+    reDeriveViews();
+    if (gridView.byteLength !== term.grid_byte_len()) rebuildViews();
+    let s = '';
+    for (let c = 0; c < cols; c++) {
+        const idx = (viewportRow * cols + c) * CELL_SIZE;
+        const byte = gridView[idx];
+        s += (byte === 0 || byte < 0x20) ? ' ' : String.fromCharCode(byte);
+    }
+    return s;
 }
 
 // ---- Module-local renderer state ----
@@ -302,6 +343,10 @@ function tick() {
         if (scrollConsumeNeedsRepaint()) {
             for (let r = 0; r < rows; r++) paintRow(r, cols);
         }
+        // Phase 6 Plan 04 (Wave 3) — selection works across history (D-17).
+        // Paint the overlay AFTER the row paint so inverted glyphs sit on top
+        // of the historical grid render.
+        paintSelectionOverlay();
         // Phase 6 D-09 — cursor hidden while scrolled up (paintCursor early-returns).
         // Phase 6 D-10 — BEL viewport flash suppressed while scrolled up. The
         // bell flash is triggered from main.js's sampleBell() which calls
@@ -318,6 +363,10 @@ function tick() {
         if (dirtyView[r] !== 0) paintRow(r, cols);
     }
     term.clear_dirty();
+
+    // Phase 6 Plan 04 (Wave 3) — selection overlay at live tail. Painted
+    // BEFORE paintCursor so the cursor inversion still wins on cell collision.
+    paintSelectionOverlay();
 
     // Cursor as overdraw (always — cheap at 80×24; uses atlas.getInverted so
     // steady-state allocation is zero after the first cursor frame).
@@ -458,6 +507,40 @@ export function setFocus(focused) {
 export function getActiveTheme() { return activeTheme; }
 export function getActivePhosphor() { return activePhosphor; }
 export function getActiveZoom() { return activeZoom; }
+
+// Phase 6 Plan 04 — exposed so wireSelection / Playwright tests can resolve
+// the current cell-size in CSS pixels (cellW * activeZoom × cellH * activeZoom).
+export function getActiveCellSize() {
+    return {
+        cellW: activeTheme.cellW * activeZoom,
+        cellH: activeTheme.cellH * activeZoom,
+    };
+}
+
+// Phase 6 Plan 04 (Wave 3) — paint the selection overlay using inverted glyphs
+// (D-20). Reuses atlas.getInverted, the exact code path Phase 3 paintCursor
+// already exercises — zero new render primitives. Selection works at both the
+// live tail and within scrolled-back history (D-17), so this is called from
+// BOTH branches of tick().
+export function paintSelectionOverlay() {
+    const range = selectionGetActiveRange();
+    if (!range) return;
+    const z = activeZoom;
+    const cellW = activeTheme.cellW * z;
+    const cellH = activeTheme.cellH * z;
+    const cols = term.cols();
+    const visibleRows = term.rows();
+    const invRast = makeInvRasteriserForTheme(activeTheme);
+    for (const cell of range.cells()) {
+        const { row, col } = cell;
+        if (row < 0 || row >= visibleRows || col < 0 || col >= cols) continue;
+        const idx = (row * cols + col) * CELL_SIZE;
+        let ch = gridView[idx];
+        if (ch === 0 || ch < 0x20) ch = 0x20;
+        const tile = atlas.getInverted(ch, /*fg=*/1, invRast, z);
+        ctx.drawImage(tile, col * cellW, row * cellH, cellW, cellH);
+    }
+}
 
 export function triggerBellFlash() {
     // Phase 6 D-10 — suppress viewport flash while scrolled up. The rows

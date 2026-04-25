@@ -35,9 +35,12 @@ import {
     getActiveZoom,
     triggerBellFlash,          // Plan 03 owns bell sampling; canvas.js provides the CSS helper
     markAllRowsDirty,          // Phase 6 Plan 03 — passed to wireScrollState for snap-to-bottom repaint
+    getActiveCellSize,         // Phase 6 Plan 04 — selection / tests resolve px-cell math via this
+    readRowText,               // Phase 6 Plan 04 — selection asks canvas for decoded row text
 } from './renderer/canvas.js';
 import { wireChrome } from './renderer/chrome.js';
 import { wireScrollState } from './renderer/scroll-state.js';
+import { wireSelection } from './input/selection.js';
 import { wireKeyboard, setLocalEcho, setCrlfMode } from './input/keyboard.js';
 import { registerTxObserver, formatHexStrip, resetTx } from './input/tx-sink.js';
 import { wireSerial } from './transport/serial.js';
@@ -107,6 +110,46 @@ const scrollState = wireScrollState({
 // will import scroll-state.js directly; this exposure is for Playwright tests.
 window.__scrollState = scrollState;
 window.__term = term;
+
+// ---- Phase 6 Plan 04 (Wave 3) — wire selection state machine ----
+// wireSelection owns pointerdown/move/up handlers on the canvas + the
+// scrollback-tail-relative endpoint storage (D-17). Slotted AFTER
+// wireScrollState so scrollState.onChange is available for D-19's
+// "selection clears on post-drag scroll" observer.
+const selection = wireSelection({
+    canvas: document.getElementById('terminal'),
+    scrollState,
+    term,
+    requestFrame,
+    getCellW: () => getActiveCellSize().cellW,
+    getCellH: () => getActiveCellSize().cellH,
+    terminalWrapper,
+    readRow: readRowText,
+});
+window.__selection = selection;
+window.__getActiveCellSize = getActiveCellSize;
+
+// D-19 — selection clears on theme/phosphor/zoom toggle. The theme + phosphor
+// + zoom-keyboard chords land via chrome.js handlers we don't own; rather than
+// thread an onChange callback through wireChrome's API, we register our own
+// click listeners in capture phase to fire BEFORE the toggle handler runs.
+// Selection observers don't depend on the toggle outcome — clearing pre-emptively
+// is correct (the Phase 3 side-effects will repaint the canvas afterwards).
+themeButton.addEventListener('click', () => selection.clearSelection(), true);
+for (const btn of phosphorButtons) {
+    btn.addEventListener('click', () => selection.clearSelection(), true);
+}
+// Ctrl+{+,-,0} zoom keyboard chord — chrome.js handles it; clear selection in
+// capture phase from the wrapper.
+terminalWrapper.addEventListener('keydown', (e) => {
+    if (e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey) {
+        if (e.code === 'Equal' || e.code === 'NumpadAdd'
+                || e.code === 'Minus' || e.code === 'NumpadSubtract'
+                || e.code === 'Digit0' || e.code === 'Numpad0') {
+            selection.clearSelection();
+        }
+    }
+}, true);
 
 // ---- Phase 4 Plan 01 — test harness hook (unconditionally exposed) ----
 // Plan 04-04's local-echo spec uses __testGridView() to read grid bytes back
