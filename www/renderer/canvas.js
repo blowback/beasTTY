@@ -55,7 +55,11 @@ function reDeriveViews() {
 // watchDPR — otherwise the dirty-row optimisation leaves the canvas blank
 // (atlas flushed + dirty-bitmap still all-zero → paint loop paints nothing).
 // UAT gaps 3, 5, 6 all share this root cause.
-function markAllRowsDirty() {
+//
+// Phase 6 Plan 03 — exported so scroll-state.js can call it on snap-to-bottom
+// (offset > 0 → 0). Without this the live grid would not repaint until a row
+// changed, leaving the previously-painted scrollback view on screen.
+export function markAllRowsDirty() {
     if (!dirtyView) return;
     const rows = dirtyView.length;
     for (let r = 0; r < rows; r++) dirtyView[r] = 1;

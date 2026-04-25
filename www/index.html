@@ -104,6 +104,50 @@
       border-color: var(--chrome-accent);
       outline: none;                        /* suppress UA default */
     }
+
+    /* ==== [data-scrolled-back] border tint on #terminal-wrapper (Phase 6 D-13) ==== */
+    /* When the user has scrolled up the viewport, tint the canvas border with a
+       40%-alpha accent so the "you are reading history" state is glanceable
+       without competing with the focus indicator above. Mirrors the [data-focused]
+       attribute pattern; set by www/renderer/scroll-state.js setOffset. */
+    #terminal-wrapper[data-scrolled-back="true"] {
+      border-color: color-mix(in srgb, var(--chrome-accent) 40%, transparent);
+    }
+    [data-theme="crt"] #terminal-wrapper[data-scrolled-back="true"] {
+      border-color: color-mix(in srgb, var(--phosphor-fg) 40%, transparent);
+    }
+
+    /* ==== Floating "↓ N new lines" chip (Phase 6 D-03) ==== */
+    /* Lives inside #terminal-wrapper; chip appears INSTANTLY on the 1st new
+       line while scrolled up (no debounce, no transition). Click snaps to
+       bottom (D-04 trigger 1). pointer-events: none while [hidden]. */
+    #scrollback-indicator {
+      position: absolute;
+      bottom: 8px;
+      right: 8px;
+      z-index: 5;
+      font-family: inherit;
+      font-size: 12px;
+      padding: 4px 8px;
+      background: rgba(0, 0, 0, 0.65);
+      color: var(--chrome-accent);
+      border: 1px solid var(--chrome-accent);
+      border-radius: 4px;
+      cursor: pointer;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+    }
+    [data-theme="crt"] #scrollback-indicator {
+      color: var(--phosphor-fg);
+      border-color: var(--phosphor-fg);
+    }
+    #scrollback-indicator[hidden] { display: none; }
+    #scrollback-indicator:focus-visible {
+      outline: 2px solid var(--chrome-accent);
+      outline-offset: 2px;
+    }
+    #scrollback-indicator:hover {
+      background: rgba(0, 0, 0, 0.8);
+    }
     /* Keyboard-only :focus-visible still applied to top-bar buttons (unchanged). */
     #terminal { display: block; }
 
@@ -478,6 +522,13 @@
     <canvas id="terminal" tabindex="-1"></canvas>
     <div id="bell-overlay"></div>
     <div id="scanlines"></div>
+    <!-- Phase 6 D-03 — floating "↓ N new lines" chip. Appears instantly on
+         the 1st new line while scrolled up; click snaps to live tail. Lifecycle
+         owned by www/renderer/scroll-state.js (refreshChip). -->
+    <button id="scrollback-indicator" type="button" hidden
+            title="Click to scroll to live output" aria-label="0 new lines below">
+      <span id="scrollback-indicator-text"><span aria-hidden="true">↓</span> 0 new lines</span>
+    </button>
   </div>
 
   <!-- Settings pane (Phase 4 D-13/D-14) — default-collapsed; local echo + CR/LF + reserved note. -->

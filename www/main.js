@@ -34,8 +34,10 @@ import {
     getActivePhosphor,
     getActiveZoom,
     triggerBellFlash,          // Plan 03 owns bell sampling; canvas.js provides the CSS helper
+    markAllRowsDirty,          // Phase 6 Plan 03 — passed to wireScrollState for snap-to-bottom repaint
 } from './renderer/canvas.js';
 import { wireChrome } from './renderer/chrome.js';
+import { wireScrollState } from './renderer/scroll-state.js';
 import { wireKeyboard, setLocalEcho, setCrlfMode } from './input/keyboard.js';
 import { registerTxObserver, formatHexStrip, resetTx } from './input/tx-sink.js';
 import { wireSerial } from './transport/serial.js';
@@ -83,6 +85,28 @@ const pasteProgressText   = document.getElementById('paste-progress-text');
 const pasteCancelBtn      = document.getElementById('paste-cancel');
 const pasteTestBtn        = document.getElementById('paste-test');
 wireChrome({ terminalWrapper, themeButton, phosphorButtons, phosphorGroup, bellOverlay, requestFrame });
+
+// ---- Phase 6 Plan 03 (Wave 2) — wire scrollback state machine ----
+// wireScrollState owns the wheel listener (attached to #terminal-wrapper),
+// the trackpad accumulator, the [data-scrolled-back] attribute on
+// #terminal-wrapper, and the floating "↓ N new lines" chip lifecycle.
+// Slotted AFTER wireChrome so the [data-focused] focus listener registers
+// first; both attribute setters operate on #terminal-wrapper without conflict.
+const scrollbackIndicatorEl     = document.getElementById('scrollback-indicator');
+const scrollbackIndicatorTextEl = document.getElementById('scrollback-indicator-text');
+const scrollState = wireScrollState({
+    term,
+    canvasWrapper: terminalWrapper,
+    indicator: scrollbackIndicatorEl,
+    indicatorText: scrollbackIndicatorTextEl,
+    requestFrame,
+    markAllRowsDirty,
+});
+// Test introspection (mirrors window.__testGridView precedent at main.js:55-64).
+// Plan 06-04 (keyboard chord intercepts) + Plan 06-06 (selection / clipboard)
+// will import scroll-state.js directly; this exposure is for Playwright tests.
+window.__scrollState = scrollState;
+window.__term = term;
 
 // ---- Phase 4 Plan 01 — test harness hook (unconditionally exposed) ----
 // Plan 04-04's local-echo spec uses __testGridView() to read grid bytes back
