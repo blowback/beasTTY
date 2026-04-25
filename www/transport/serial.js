@@ -55,6 +55,13 @@ let errorLogEl = null;
 // Wave 3 (D-08) — serial-config form refs:
 //   { baud, dataBits, stopBits, parity, flowCtl, resetBtn, reconnectHintEl }
 let serialEls = null;
+// Phase 6 Plan 05 (Wave 4) — session log handle: { reset, append }. The read
+// loop calls sessionLogRef.append(value) AFTER the post-feed invariant so the
+// per-connection RX byte log captures every chunk that reached term.feed.
+// connectMicroBeast + finishReconnect call sessionLogRef.reset() on every
+// successful port.open so the connect-time UTC stamp is captured before any
+// byte arrives (D-29 / D-31).
+let sessionLogRef = null;
 
 // --- Public API -----------------------------------------------------------
 
@@ -81,6 +88,7 @@ export async function wireSerial(opts) {
         connectButton: btn, connectionPane: pane,
         portStatusEl: status, errorLogEl: log,
         serialConfigEls,                     // Wave 3 (D-08) — form refs
+        sessionLog,                          // Phase 6 Plan 05 — { reset, append }
     } = opts;
     term = termArg;
     sampleBellFn = sampleBell;
@@ -91,6 +99,7 @@ export async function wireSerial(opts) {
     portStatusEl = status;
     errorLogEl = log;
     serialEls = serialConfigEls || null;
+    sessionLogRef = sessionLog || null;
 
     // D-26 — connect/disconnect listeners on navigator.serial (NOT port instances).
     // Registered ONCE at wireSerial boot time. Pitfall #11 — listening on a port
@@ -273,6 +282,10 @@ export async function connectMicroBeast(configOverride) {
         await selectedPort.open(config);
         // D-11 — de-assert DTR/RTS immediately after open (Pitfall #12).
         await selectedPort.setSignals({ dataTerminalReady: false, requestToSend: false });
+        // Phase 6 Plan 05 (D-29) — fresh session-log buffer per Connect; UTC
+        // stamp captured here BEFORE any byte arrives so the filename reflects
+        // when the session started, not when the user clicks Download.
+        if (sessionLogRef) sessionLogRef.reset();
     } catch (err) {
         // D-29 — InvalidStateError ("port is in use" / "already open") is a
         // distinct user-facing message (another BestialiTTY tab owns the port).
@@ -342,6 +355,12 @@ async function runReadLoop(p) {
                 sampleBellFn();                          // Phase 3 post-feed invariant
                 drainHostReplyFn('serial');              // Phase 2 host-reply accessor drain
                 requestFrameFn();                        // Phase 3 dirty-repaint wake
+                // Phase 6 Plan 05 (D-30) — append by reference; no copy. Last
+                // step in the post-feed invariant so a parser failure (very
+                // rare — feed never throws) does not silently lose the bytes
+                // for the log either way: the log records what reached the
+                // wire, regardless of how the parser interpreted it.
+                if (sessionLogRef) sessionLogRef.append(value);
             }
         } catch (err) {
             handleReadError(err);
@@ -584,6 +603,10 @@ async function finishReconnect(target) {
     registerWriter(writer);
     port = target;
     lastPortRef = target;
+    // Phase 6 Plan 05 (D-29) — reconnect is a new session per the per-connection
+    // lifecycle contract; capture a fresh connect-time UTC stamp BEFORE setState
+    // so the read loop's first append finds an empty buffer and a current stamp.
+    if (sessionLogRef) sessionLogRef.reset();
     setState('connected');
     updatePortStatusConnected();
     runReadLoop(target);

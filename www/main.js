@@ -51,6 +51,13 @@ import {
     wirePastePump,
 } from './input/paste-pump.js';
 import { wireClipboard, copySelection, pasteFromClipboard } from './input/clipboard.js';
+import {
+    wireSessionLog,
+    reset as sessionLogReset,
+    append as sessionLogAppend,
+    download as sessionLogDownload,
+    getCurrentBytes as sessionLogBytes,
+} from './transport/session-log.js';
 
 // ---- init + construction (Phase 2 — unchanged) ----
 const wasm = await init();                             // top-level-await: Chromium >=89
@@ -88,6 +95,8 @@ const pasteProgressRow    = document.getElementById('paste-progress-row');
 const pasteProgressText   = document.getElementById('paste-progress-text');
 const pasteCancelBtn      = document.getElementById('paste-cancel');
 const pasteTestBtn        = document.getElementById('paste-test');
+// Phase 6 Plan 05 (Wave 4) — session-log download button (D-31).
+const downloadLogBtn      = document.getElementById('download-log-button');
 wireChrome({ terminalWrapper, themeButton, phosphorButtons, phosphorGroup, bellOverlay, requestFrame });
 
 // ---- Phase 6 Plan 03 (Wave 2) — wire scrollback state machine ----
@@ -297,6 +306,22 @@ wireClipboard({
 window.__copySelection = copySelection;
 window.__pasteFromClipboard = pasteFromClipboard;
 
+// ---- Phase 6 Plan 05 (Wave 4) — wire session log accumulator ----
+// wireSessionLog owns the chunks-by-reference buffer + Blob download trigger
+// (D-30 / D-31). Slotted BEFORE wireSerial so the read-loop append callback
+// is bound by the time the first chunk arrives. The Connection-pane
+// #download-log-button is registered here; sessionLog.reset() runs inside
+// wireSerial's connectMicroBeast / finishReconnect paths.
+wireSessionLog({ downloadButton: downloadLogBtn });
+// Test introspection — Playwright drives append/reset/download via the spec
+// to assert per-connection lifecycle without touching real Web Serial.
+window.__sessionLog = {
+    append: sessionLogAppend,
+    reset: sessionLogReset,
+    download: sessionLogDownload,
+    getCurrentBytes: sessionLogBytes,
+};
+
 // Phase 5 — wire Web Serial transport. opts mirror Phase 4 wireKeyboard
 // shape for sampleBell/drainHostReply/requestFrame discipline (D-35 post-feed
 // invariant). await because wireSerial awaits navigator.serial.getPorts() on
@@ -320,6 +345,8 @@ await wireSerial({
         resetBtn: serialReset,
         reconnectHintEl: serialReconnectHint,
     },
+    // Phase 6 Plan 05 (Wave 4) — D-29 reset-on-Connect + D-30 read-loop append.
+    sessionLog: { reset: sessionLogReset, append: sessionLogAppend },
 });
 
 // ---- Phase 4 Plan 03 — Settings controls ----
