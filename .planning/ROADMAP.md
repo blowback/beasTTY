@@ -136,7 +136,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   4. Theme, phosphor colour, font size, last-used serial config, local-echo toggle, and CR/LF override toggle all persist across browser reloads via `localStorage`; first-open with no saved state loads sane defaults (MicroBeast preset pre-selected, one click to connect)
   5. The built app deploys as a static site to a self-hosted target (GitHub Pages / Cloudflare Pages / own domain), the public repo carries an MIT or Apache-2.0 LICENSE file, and author uses BestialiTTY as the only terminal for a full MicroBeast work session without reaching for anything else
 **Plans**: 8 plans
-  - [ ] 06-01-PLAN.md — Wave 0 test scaffolding: 7 Playwright session/ stubs + clipboard mock + 2 Rust integration test stubs + testMatch extension (Wave 0)
+  - [x] 06-01-PLAN.md — Wave 0 test scaffolding: 7 Playwright session/ stubs + clipboard mock + 2 Rust integration test stubs + testMatch extension (Wave 0)
   - [ ] 06-02-PLAN.md — Rust core APIs: Terminal::snapshot_grid_at(row_offset) + Terminal::clear_visible() + lib.rs wasm forwarders + boundary-shape pin (Wave 1)
   - [ ] 06-03-PLAN.md — Scroll-state module: scroll-state.js + canvas tick branching + floating chip + [data-scrolled-back] (Wave 2)
   - [ ] 06-04-PLAN.md — Selection + clipboard + keyboard chord intercepts: selection.js + clipboard.js + Ctrl+Shift+C/V + Shift+End/Home/PgUp/PgDn (Wave 3)
@@ -158,7 +158,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | 3. Canvas Renderer | 7/7 | Complete    | 2026-04-22 |
 | 4. Keyboard Input | 4/4 | Complete    | 2026-04-22 |
 | 5. Web Serial Transport | 7/7 | Complete    | 2026-04-23 |
-| 6. Daily-Driver Polish, Session & Deployment | 0/TBD | Not started | - |
+| 6. Daily-Driver Polish, Session & Deployment | 1/8 | Executing   | -          |
 
 ---
 *Roadmap created: 2026-04-21*

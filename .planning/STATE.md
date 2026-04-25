@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 6 context gathered (48 decisions across scrollback, copy/paste/clear, session log, prefs+deploy)
-last_updated: "2026-04-25T11:48:46.529Z"
-last_activity: 2026-04-25
+stopped_at: Completed 06-01-PLAN.md (Wave 0 test scaffolding)
+last_updated: "2026-04-25T13:24:58.837Z"
+last_activity: 2026-04-25 -- Phase --phase execution started
 progress:
   total_phases: 6
   completed_phases: 5
-  total_plans: 33
-  completed_plans: 33
-  percent: 100
+  total_plans: 41
+  completed_plans: 34
+  percent: 83
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-21)
 
 **Core value:** A modern, reliable, in-browser VT52 emulator good enough to use as a daily driver with a real MicroBeast.
-**Current focus:** Phase 05 — web-serial-transport
+**Current focus:** Phase --phase — 6
 
 ## Current Position
 
-Phase: 05 (web-serial-transport) — EXECUTING
-Plan: 3 of 9
-Status: Ready to execute
-Last activity: 2026-04-25
+Phase: 06 (daily-driver-polish-session-deployment) — EXECUTING
+Plan: 2 of 8 (Plan 06-01 complete; ready for Plan 06-02 / Wave 1)
+Status: Executing Phase 6
+Last activity: 2026-04-25 — Completed Plan 06-01 (Wave 0 test scaffolding)
 
-Progress: [██████████] 100%
+Progress: [████████░░] 83%
 
 ## Performance Metrics
 
@@ -92,6 +92,7 @@ Progress: [██████████] 100%
 | Phase 05-web-serial-transport P07 | 6min | 4 tasks | 6 files |
 | Phase 05-web-serial-transport P08 | 5min | 2 tasks tasks | 3 files files |
 | Phase 05-web-serial-transport P09 | 7min | 3 tasks tasks | 6 files files |
+| Phase 06-daily-driver-polish-session-deployment P01 | 8min | 2 tasks tasks | 12 files files |
 
 ## Accumulated Context
 
@@ -200,6 +201,8 @@ Recent decisions affecting current work:
 - Phase 5 Plan 09: D-27 (error-log auto-expand) KEPT — intentionally asymmetric with the amended D-17. Errors are rare + sticky + demand attention; pastes are frequent + transient. Asymmetry documented in BOTH the amended D-17 rationale paragraph (05-CONTEXT.md) AND the serial.js:441 comment block. Recurring asymmetry-pattern reference for future polish work.
 - Phase 5 Plan 09: spec-bug amendment pattern — when a CONTEXT decision is wrong on real hardware (proven via UAT), amend the decision IN PLACE with a dated 'AMENDED YYYY-MM-DD by Plan N' header, preserve the original text in a <details> superseded block for traceability, AND amend any UI-SPEC tables that cite the decision in the SAME plan/commit. 05-CONTEXT.md D-17 + 05-UI-SPEC.md auto-expand rules table + Paste-pump UI interactions table all amended together; original D-17 preserved verbatim. Prevents gsd-research / gsd-plan future runs from re-proposing the original behavior.
 - Phase 5 Plan 09 regression-test design lesson: 4 KB paste payload (~2.3 s at 19200 baud, 32B chunks at 18ms gap) chosen so the pump runs long enough to observe in-flight UI invariants without racing the 'Paste complete' transition; a short payload (e.g. 14 B) finished in <100 ms and reliably raced the assertion. Caught + fixed inline as a Rule 1 bug during Task 2 execution. Standing rule for any future paste-related Playwright regression: pick payload size by gap-ms × required-active-duration, not by the natural minimum size that exercises the code path.
+- Phase 6 Plan 01 (Wave 0): test scaffolding landed BEFORE production code per Phase 5 Wave 0 discipline — 7 Playwright session/ specs (62 test.fixme stubs covering SESS-01..06 + PREF-01/02 + PLAT-05) + clipboard-mock fixture + 2 Rust integration test files (9 #[test] stubs for snapshot_grid_at + clear_visible) + playwright.config.js testMatch extension. Wave 0 commits land BEFORE Wave 1 (Plan 02) so production code has a fixed verification target.
+- Phase 6 Plan 01 Rule 3 fix: replaced verbatim 'let _ = &term;' placeholder (from PLAN.md + 06-PATTERNS.md) with 'let _ = &mut term;' in 9 Rust test stub bodies because clippy --tests -D warnings (an explicit acceptance criterion) flagged 'variable does not need to be mutable' on every fn. Mutable borrow legitimately requires mut, satisfying the unused-mut lint while preserving the let-mut-term declaration that Wave 1 needs for assertion expansion. Pattern propagated to 06-PATTERNS.md is now incorrect; future Phase 6 plans should use let _ = &mut x; for stubs that need mutable variables to compile under -D warnings.
 
 ### Pending Todos
 
@@ -224,8 +227,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: --stopped-at
-Stopped at: Phase 6 context gathered (48 decisions across scrollback, copy/paste/clear, session log, prefs+deploy)
-Resume file: --resume-file
+Last session: 2026-04-25T13:24:58.830Z
+Stopped at: Completed 06-01-PLAN.md (Wave 0 test scaffolding)
+Resume file: None
 
-**Planned Phase:** 5 (Web Serial Transport) — 7 plans — 2026-04-23T00:45:32.678Z
+**Planned Phase:** 6 (Daily-Driver Polish, Session & Deployment) — 8 plans — 2026-04-25T13:14:27.851Z
