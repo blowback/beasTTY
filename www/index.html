@@ -379,6 +379,23 @@
       outline: none;
     }
 
+    /* Phase 6 Plan 04 — large-paste inline confirm chip (UI-SPEC §Large-paste inline confirm chip).
+       Reuses the existing #paste-progress-row layout; the confirm button only appears when paste
+       size is >= 4096 bytes. Mirrors the Phase 5 #paste-cancel sibling to keep visual rhythm. */
+    #top-bar #paste-progress-row #paste-confirm {
+      font-family: inherit; font-size: 12px;
+      padding: 4px 8px;
+      background: transparent;
+      color: var(--chrome-fg);
+      border: 1px solid var(--chrome-border);
+      cursor: pointer;
+    }
+    #top-bar #paste-progress-row #paste-confirm:focus-visible {
+      border-color: var(--chrome-accent);
+      outline: none;
+    }
+    #top-bar #paste-progress-row #paste-confirm[hidden] { display: none; }
+
     /* Inline error log — fixed-height ring, newest-at-top */
     #error-log {
       font-family: inherit;
@@ -458,6 +475,7 @@
     <div id="paste-progress-row" hidden>
       <span id="paste-progress-text"></span>
       <button id="paste-cancel" type="button">Cancel</button>
+      <button id="paste-confirm" type="button" hidden>Paste</button>
     </div>
   </div>
 
