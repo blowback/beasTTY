@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 06-02-PLAN.md (Wave 1 Rust core APIs — snapshot_grid_at + clear_visible)
-last_updated: "2026-04-25T13:36:04.421Z"
+stopped_at: Completed 06-03-PLAN.md (Wave 2 scrollback navigation UI — scroll-state module + canvas.js tick branching + chip + [data-scrolled-back])
+last_updated: "2026-04-25T13:49:53.701Z"
 last_activity: 2026-04-25
 progress:
   total_phases: 6
   completed_phases: 5
   total_plans: 41
-  completed_plans: 35
-  percent: 85
+  completed_plans: 36
+  percent: 88
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-04-21)
 ## Current Position
 
 Phase: 06 (daily-driver-polish-session-deployment) — EXECUTING
-Plan: 3 of 8 (Plan 06-01 complete; ready for Plan 06-02 / Wave 1)
+Plan: 4 of 8 (Plan 06-01 complete; ready for Plan 06-02 / Wave 1)
 Status: Ready to execute
 Last activity: 2026-04-25
 
-Progress: [█████████░] 85%
+Progress: [█████████░] 88%
 
 ## Performance Metrics
 
@@ -94,6 +94,7 @@ Progress: [█████████░] 85%
 | Phase 05-web-serial-transport P09 | 7min | 3 tasks tasks | 6 files files |
 | Phase 06-daily-driver-polish-session-deployment P01 | 8min | 2 tasks tasks | 12 files files |
 | Phase 06-daily-driver-polish-session-deployment P02 | 12min | 3 tasks tasks | 6 files files |
+| Phase 06-daily-driver-polish-session-deployment P03 | 8min | 2 tasks tasks | 5 files files |
 
 ## Accumulated Context
 
@@ -208,6 +209,9 @@ Recent decisions affecting current work:
 - Phase 6 Plan 02: Terminal::clear_visible() bypasses parser entirely (D-26 contract — JS does NOT feed a fake ESC J), wipes visible cells to Cell::BLANK, marks all rows dirty, homes cursor; load-bearing parser-state-preservation gate test (clear_visible_does_not_invoke_parser) is the regression anchor
 - Phase 6 Plan 02: boundary_api_shape pin uses BOTH compile-time fn-pointer coercion (let _: fn(&mut Terminal, usize) = Terminal::snapshot_grid_at) AND runtime smoke calls — fn-pointer typecheck catches signature drift even before test bodies compile; runtime confirms behavior; closes pre-existing fmt drift documented in deferred-items.md since this plan touches the file
 - Phase 6 Plan 02 deviation: plan's verbatim test bodies referenced accessors (term.dirty_byte_len/term.cursor_row/term.scrollback) not on the Phase 1/2 surface — used existing accessors (term.dirty()/term.cursor()/term.grid()) per the plan's explicit fall-back permission; test 1 of clear_visible asserted snap[off]==0 but Cell::BLANK.ch is 0x20 (space) — corrected to assert 0x20 against grid.rs's actual constant
+- Phase 6 Plan 03: scroll-state.js module-scope offset state machine + wheel listener (DOM_DELTA_LINE = 3 lines/notch with 24-line Shift; DOM_DELTA_PIXEL accumulator with 30 px threshold) + chip lifecycle (+counter reset on snap-to-bottom); wireScrollState(opts) shape mirrors wirePastePump verbatim; markAllRowsDirty injected via opts not window-glue
+- Phase 6 Plan 03: canvas.js tick() branches on scrollIsScrolledBack(); scrolled-back path calls term.snapshot_grid_at(offset), uses consumeNeedsRepaint() one-shot paint-once gate, skips clear_dirty + paintCursor; paintCursor + triggerBellFlash early-return while scrolled (D-09 + D-10)
+- Phase 6 Plan 03: 8 of 11 scrollback.spec.js stubs un-fixmed and green; 4 deferred to Plan 06-04 (Shift+PgUp/PgDn/Home keyboard chords + BEL no-overlay-flash visual regression). API-driven tests pass against Task 1's wireScrollState wiring; Task 2 GREEN canvas.js branching is required for user-facing daily-driver behavior but does not gate the existing API assertions
 
 ### Pending Todos
 
@@ -232,8 +236,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-04-25T13:36:04.414Z
-Stopped at: Completed 06-02-PLAN.md (Wave 1 Rust core APIs — snapshot_grid_at + clear_visible)
+Last session: 2026-04-25T13:49:53.695Z
+Stopped at: Completed 06-03-PLAN.md (Wave 2 scrollback navigation UI — scroll-state module + canvas.js tick branching + chip + [data-scrolled-back])
 Resume file: None
 
 **Planned Phase:** 6 (Daily-Driver Polish, Session & Deployment) — 8 plans — 2026-04-25T13:14:27.851Z
