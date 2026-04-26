@@ -24,14 +24,18 @@
 import { BITMAP_FONT } from './bitmap-font.js';
 import { VT52_ROM_FONT } from './vt52-rom-font.js';
 import { INSIGBYTE_FONT } from './insigbyte-font.js';
+import { YOU_SQUARED_FONT } from './you-squared-font.js';
+import { CUSHION_FONT } from './cushion-font.js';
 
 // Font registry: id → 2048-byte glyph table (128 chars × 16 rows).
 // Adding a font: import its Uint8Array and register it here. No other change
 // in this file is needed — rasteriseBitmap reads activeFont, not BITMAP_FONT.
 const FONTS = Object.freeze({
-    'modern':    BITMAP_FONT,     // hand-drawn 8×16, project default (Phase 3 D-01)
-    'vt52':      VT52_ROM_FONT,   // original DEC VT52 character ROM, expanded to 16-row footprint
-    'insigbyte': INSIGBYTE_FONT,  // Insigbyte Bold 8×8, MicroBeast-adjacent
+    'modern':      BITMAP_FONT,       // hand-drawn 8×16, project default (Phase 3 D-01)
+    'vt52':        VT52_ROM_FONT,     // original DEC VT52 character ROM, expanded to 16-row footprint
+    'insigbyte':   INSIGBYTE_FONT,    // Insigbyte 8×8, MicroBeast-adjacent
+    'you-squared': YOU_SQUARED_FONT,  // You Squared 8×8, MicroBeast-adjacent
+    'cushion':     CUSHION_FONT,      // Cushion 8×8, MicroBeast-adjacent
 });
 
 export const FONT_IDS = Object.freeze(Object.keys(FONTS));
