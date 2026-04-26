@@ -1,12 +1,20 @@
 # BestialiTTY
 
-#![BestialiTTY logo](images/bestialiTTY.png)
+![BestialiTTY logo](images/bestialiTTY.png)
 
 A [VT52](https://en.wikipedia.org/wiki/VT52) emulator in the browser, for use with the [Feersum Technology MicroBeast](https://feersumbeasts.com/microbeast.html) z80 retrocomputer.
 
-Fun police: The name is a terrible pun! It's a *TTY* for the Micro*Beast* -- geddit? 
+**Fun police**: The name is a terrible pun! It's a *TTY* for the Micro*Beast* -- geddit? 
 
-#![BestialiTTY screenshot](images/screener.png)
+![BestialiTTY screenshot](images/screener.png)
+
+## How do I use it?
+
+Plug in your retrocomputer then visit https://blowback.github.io/beasTTY/ in  a Chrome-based browser.
+
+## I don't like chrome, can I use $BROWSER?
+
+You may not. Only Chrome supports WebSerial, upon which this TTY is based.
 
 ## Display styles
 
@@ -24,4 +32,19 @@ including the special "Graphics mode" characters accessible by `ESC F`. This fon
 
 The fonts Cushion, Insigbyte, and You Square come from the excellent [ZX Origins](https://damieng.com/typography/zx-origins/) 
 where there are many many more examples of DamienG's meticulous work. 
+
+## Can I run it locally?
+
+Yes, download the repo then build it:
+
+```
+scripts/build.sh
+```
+
+then run it with:
+
+```
+python3 -m http.server -d www 8000
+```
+
 
