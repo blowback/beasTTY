@@ -35,6 +35,57 @@ including the special "Graphics mode" characters accessible by `ESC F`. This fon
 The fonts Cushion, Insigbyte, and You Square come from the excellent [ZX Origins](https://damieng.com/typography/zx-origins/) 
 where there are many many more examples of DamienG's meticulous work. 
 
+## Keyboard shortcuts
+
+All shortcuts are intercepted only when the terminal area has focus. Bare keys
+(no modifier listed) encode normally to the host as VT52 bytes — the table only
+lists chords and special keys with UI-side meaning.
+
+### UI / clipboard
+
+| Shortcut             | Action                                              |
+|----------------------|-----------------------------------------------------|
+| Ctrl+Alt+T           | Toggle theme (CRT ↔ Clean)                          |
+| Ctrl+= / Ctrl++      | Zoom in (1× → 4×)                                   |
+| Ctrl+-               | Zoom out                                            |
+| Ctrl+0               | Reset zoom to 1×                                    |
+| Ctrl+Shift+C         | Copy current selection to clipboard                 |
+| Ctrl+Shift+V         | Paste from clipboard (subject to rate limit)        |
+| Ctrl+Shift+Esc       | Clear an established selection                      |
+
+
+### Scrollback navigation
+
+| Shortcut             | Action                                              |
+|----------------------|-----------------------------------------------------|
+| Shift+PageUp         | Scroll back one page                                |
+| Shift+PageDown       | Scroll forward one page                             |
+| Shift+Home           | Jump to oldest scrollback line                      |
+| Shift+End            | Snap to live tail (cancel scroll-back)              |
+
+
+Any keypress that produces an outbound byte while scrolled-back also snaps the
+viewport to the live tail before the byte is sent.
+
+### Esc key behaviour
+
+Esc is context-sensitive. The first matching rule wins:
+
+
+| Context                                 | Effect of Esc                  |
+|-----------------------------------------|--------------------------------|
+| **Ctrl+Shift+Esc** (any time)           | Clear established selection    |
+| Mid-drag (mouse button still down)      | Cancel the in-flight selection |
+| Paste pump still running                | Cancel paste                   |
+| Otherwise                               | Encode `0x1B` to host          |
+
+
+### Browser-reserved chords (cannot be intercepted)
+
+Chromium claims `Ctrl+W` (close tab), `Ctrl+N` (new window), `Ctrl+T` (new tab)
+and `Ctrl+Shift+T` (reopen closed tab) at the OS layer. Map those control codes
+to a different chord on the MicroBeast side if you need them.
+
 ## Can I run it locally?
 
 Yes, download the repo then build it:

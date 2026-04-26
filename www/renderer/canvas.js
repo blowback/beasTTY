@@ -569,21 +569,56 @@ export function getActiveCellSize() {
 // already exercises — zero new render primitives. Selection works at both the
 // live tail and within scrolled-back history (D-17), so this is called from
 // BOTH branches of tick().
+//
+// Stale-overlay erase: the dirty-row tick loop only repaints rows Rust marked
+// dirty, so cells that USED to be inverted but no longer are will keep their
+// inverted overdraw forever. Track which visible rows the previous overlay
+// touched and repaint them from gridView before painting the new overlay.
+let prevSelectionVisibleRows = new Set();
+
 export function paintSelectionOverlay() {
     const range = selectionGetActiveRange();
+    const cols = term.cols();
+    const visibleRows = term.rows();
+
+    // Discover which rows the new overlay will touch (cheap — bounded by
+    // selection extent, and the iterator is fresh each call).
+    const newRows = new Set();
+    if (range) {
+        for (const cell of range.cells()) {
+            if (cell.row >= 0 && cell.row < visibleRows) newRows.add(cell.row);
+        }
+    }
+
+    // Erase prior overlay on EVERY row that had selection last frame, even if
+    // the new overlay also touches that row. Skipping the repaint when the row
+    // is in both sets leaves the previous frame's wider inversion underneath
+    // (e.g. select a full line, then drag a sub-range inside it — without
+    // unconditional repaint, the whole line stays inverted because the new
+    // narrow inverted overdraw doesn't cancel the old wide one).
+    for (const r of prevSelectionVisibleRows) {
+        paintRow(r, cols);
+    }
+
+    prevSelectionVisibleRows = newRows;
     if (!range) return;
+
+    // Paint the inverted overdraw for the current selection.
     const z = activeZoom;
     const cellW = activeTheme.cellW * z;
     const cellH = activeTheme.cellH * z;
-    const cols = term.cols();
-    const visibleRows = term.rows();
     const invRast = makeInvRasteriserForTheme(activeTheme);
     for (const cell of range.cells()) {
         const { row, col } = cell;
         if (row < 0 || row >= visibleRows || col < 0 || col >= cols) continue;
         const idx = (row * cols + col) * CELL_SIZE;
         let ch = gridView[idx];
-        if (ch === 0 || ch < 0x20) ch = 0x20;
+        const flags = gridView[idx + 6];
+        if ((flags & 0x04) && ch >= 0x60 && ch <= 0x7F) {
+            ch = ch - 0x60;          // graphics-mode remap (matches paintRow / paintCursor)
+        } else if (ch === 0 || ch < 0x20) {
+            ch = 0x20;
+        }
         const tile = atlas.getInverted(ch, /*fg=*/1, invRast, z);
         ctx.drawImage(tile, col * cellW, row * cellH, cellW, cellH);
     }

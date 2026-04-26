@@ -26,6 +26,7 @@ import { copySelection, pasteFromClipboard } from './clipboard.js';
 import {
     isDragging as selectionIsDragging,
     cancelDrag as selectionCancelDrag,
+    clearSelection as selectionClear,
 } from './selection.js';
 import {
     isScrolledBack as scrollIsScrolledBack,
@@ -197,6 +198,16 @@ export function wireKeyboard(opts) {
         // D-06 belt-and-braces — ignore during composition (some Chromium
         // versions set isComposing on first post-commit keydown).
         if (isComposing || e.isComposing) return;
+
+        // Ctrl+Shift+Esc — clear an established (non-dragging) selection
+        // without sending 0x1B to the remote. Bare Esc is preserved for VT52
+        // workloads (CP/M, vi, MicroBeast TUIs); the chord is unambiguously
+        // UI-only and Chromium does not reserve it on a focused page.
+        if (e.code === 'Escape' && e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey) {
+            e.preventDefault();
+            selectionClear();
+            return;
+        }
 
         // Phase 6 D-19 — Esc cancels in-flight selection drag (PRIORITY:
         // before paste-cancel). 06-UI-SPEC §Esc key disambiguation locks the
