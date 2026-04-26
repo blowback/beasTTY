@@ -268,7 +268,17 @@ impl Terminal {
         // MicroBeast capture may reveal different behavior, record as follow-up).
         let row_ref = self.scrollback.row_mut(row);
         if col < row_ref.len() {
-            row_ref.as_mut_slice()[col] = Cell::with_byte(byte);
+            // Graphics-mode (ESC F / ESC G): bytes 0x60..=0x7F are remapped to
+            // the special graphics character set at font positions 0..=0x1F.
+            // We store the original byte and set Cell.flags bit 2 so the JS
+            // renderer can perform the remap at paint time without losing the
+            // raw input. Bytes outside 0x60..=0x7F print normally even in
+            // graphics mode (DEC VT52 spec).
+            let mut cell = Cell::with_byte(byte);
+            if self.graphics_mode && (0x60..=0x7F).contains(&byte) {
+                cell.flags |= 0x04; // Bit 2 = graphics_mode (per grid.rs Cell docs)
+            }
+            row_ref.as_mut_slice()[col] = cell;
         }
         self.dirty.mark(row);
         if self.cursor_col + 1 < cols {
@@ -450,6 +460,34 @@ mod tests {
         assert_eq!(r.as_slice()[1].ch, b'B' as u32);
         assert_eq!(r.as_slice()[2].ch, b'C' as u32);
         assert_eq!(term.dirty()[0], 1);
+    }
+
+    #[test]
+    fn esc_f_then_print_in_remap_range_sets_graphics_flag() {
+        let mut term = t();
+        term.feed(b"\x1b\x46\x61"); // ESC F + 'a'
+        assert!(term.graphics_mode(), "ESC F should enter graphics mode");
+        let cell = term.grid().row(0).as_slice()[0];
+        assert_eq!(cell.ch, 0x61, "ch must preserve the raw byte");
+        assert_eq!(cell.flags & 0x04, 0x04, "graphics flag must be set");
+    }
+
+    #[test]
+    fn esc_g_clears_graphics_mode_and_subsequent_print_has_no_flag() {
+        let mut term = t();
+        term.feed(b"\x1b\x46\x61\x1b\x47\x62"); // ESC F a ESC G b
+        assert!(!term.graphics_mode());
+        let row = term.grid().row(0);
+        assert_eq!(row.as_slice()[0].flags & 0x04, 0x04, "first cell graphics");
+        assert_eq!(row.as_slice()[1].flags & 0x04, 0, "second cell normal");
+    }
+
+    #[test]
+    fn graphics_mode_does_not_flag_bytes_outside_remap_range() {
+        let mut term = t();
+        term.feed(b"\x1b\x46\x21"); // ESC F + '!' (0x21, outside 0x60..=0x7F)
+        let cell = term.grid().row(0).as_slice()[0];
+        assert_eq!(cell.flags & 0x04, 0, "non-remap byte must NOT carry flag");
     }
 
     #[test]

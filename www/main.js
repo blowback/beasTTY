@@ -41,6 +41,7 @@ import {
     requestFrame,
     setTheme,
     setPhosphor,
+    setFont,                   // bitmap-font swap (CRT theme); applyPrefs path
     zoomStep,
     resetZoom,
     setZoom,                   // Phase 6 Plan 06 — absolute zoom setter for applyPrefs
@@ -568,6 +569,11 @@ function applyPrefs(p) {
     setPhosphor(p.phosphor);
     for (const btn of phosphorButtons) {
         btn.setAttribute('aria-pressed', btn.dataset.phosphor === p.phosphor ? 'true' : 'false');
+    }
+    if (p.font) {
+        setFont(p.font);
+        const fontSelect = document.getElementById('font-select');
+        if (fontSelect && fontSelect.value !== p.font) fontSelect.value = p.font;
     }
     setZoom(p.fontZoom);
     setLocalEcho(p.localEcho);

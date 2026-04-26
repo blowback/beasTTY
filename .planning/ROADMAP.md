@@ -135,7 +135,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. Session logging auto-starts per connection to a raw byte buffer; author can download the current log mid-session without disconnecting, and again on disconnect
   4. Theme, phosphor colour, font size, last-used serial config, local-echo toggle, and CR/LF override toggle all persist across browser reloads via `localStorage`; first-open with no saved state loads sane defaults (MicroBeast preset pre-selected, one click to connect)
   5. The built app deploys as a static site to a self-hosted target (GitHub Pages / Cloudflare Pages / own domain), the public repo carries an MIT or Apache-2.0 LICENSE file, and author uses BestialiTTY as the only terminal for a full MicroBeast work session without reaching for anything else
-**Plans**: 8 plans
+**Plans**: 9 plans
   - [x] 06-01-PLAN.md — Wave 0 test scaffolding: 7 Playwright session/ stubs + clipboard mock + 2 Rust integration test stubs + testMatch extension (Wave 0)
   - [x] 06-02-PLAN.md — Rust core APIs: Terminal::snapshot_grid_at(row_offset) + Terminal::clear_visible() + lib.rs wasm forwarders + boundary-shape pin (Wave 1)
   - [x] 06-03-PLAN.md — Scroll-state module: scroll-state.js + canvas tick branching + floating chip + [data-scrolled-back] (Wave 2)
@@ -144,6 +144,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   - [x] 06-06-PLAN.md — Prefs versioned blob + Settings rows (Reset prefs / Clear scrollback / Auto connect) + boot reorder + auto-connect path (Wave 5)
   - [x] 06-07-PLAN.md — Deploy artifacts: LICENSE (MIT) + .github/workflows/pages.yml + www/_headers + www/.nojekyll + CSP meta-tag + README docs (Wave 6)
   - [x] 06-08-PLAN.md — 06-SOAK.md (24-h memory protocol) + 06-HUMAN-UAT.md (8 daily-driver tests) (Wave 7)
+  - [ ] 06-09-PLAN.md — Gap closure: chrome-buttons blocker fix (snapPreset syncs cached prefs + flushPrefs no longer fires subscribers) (Wave 8, gap_closure)
 **UI hint**: yes
 
 ## Progress

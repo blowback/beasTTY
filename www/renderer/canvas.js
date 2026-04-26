@@ -28,6 +28,8 @@ import {
     rasteriseBitmap,
     rasteriseVector,
     primeAscii,
+    setActiveFont as atlasSetActiveFont,
+    getActiveFontId as atlasGetActiveFontId,
 } from './atlas.js';
 // Phase 6 Plan 03 (Wave 2) — scrollback state machine. tick() branches on
 // scrollIsScrolledBack(); paintCursor() early-returns while scrolled.
@@ -226,8 +228,16 @@ function paintRow(r, cols) {
     for (let c = 0; c < cols; c++) {
         const i = (r * cols + c) * CELL_SIZE;
         // ch is u32 LE — for printable ASCII only the low byte matters.
+        // Cell.flags lives at byte offset 6 (per grid.rs #[repr(C)] layout).
+        // Bit 2 of flags = graphics_mode: byte was written under ESC F, remap
+        // 0x60..0x7F to the special graphics-set font positions 0..0x1F.
         let ch = gridView[i];
-        if (ch === 0 || ch < 0x20) ch = 0x20;   // Blank non-printables as space (D-01 bitmap).
+        const flags = gridView[i + 6];
+        if ((flags & 0x04) && ch >= 0x60 && ch <= 0x7F) {
+            ch = ch - 0x60;
+        } else if (ch === 0 || ch < 0x20) {
+            ch = 0x20;                            // Blank non-printables as space (D-01 bitmap).
+        }
         const fg = 1;                             // VT52 is monochrome; single-fg palette index.
         const tile = atlas.get(ch, fg, rast, z);
         ctx.drawImage(tile, c * cellW, r * cellH, cellW, cellH);
@@ -266,7 +276,12 @@ function paintCursor() {
 
     const i = (row * term.cols() + col) * CELL_SIZE;
     let ch = gridView[i];
-    if (ch === 0 || ch < 0x20) ch = 0x20;
+    const cellFlags = gridView[i + 6];
+    if ((cellFlags & 0x04) && ch >= 0x60 && ch <= 0x7F) {
+        ch = ch - 0x60;                         // Graphics-mode remap (same logic as paintRow).
+    } else if (ch === 0 || ch < 0x20) {
+        ch = 0x20;
+    }
 
     if (!blinkOn) {
         // Blink-OFF: erase the previously-painted cursor block by repainting the
@@ -520,6 +535,21 @@ export function setFocus(focused) {
     needsPaint = true;
     requestFrame();
 }
+
+// Switch the active bitmap font (CRT theme). Same-value short-circuit + full
+// atlas flush + reprime + repaint, mirroring setTheme / setPhosphor.
+// Only affects the bitmap rasteriser; vector (clean theme) is font-agnostic.
+export function setFont(id) {
+    if (id === atlasGetActiveFontId()) return;
+    if (!atlasSetActiveFont(id)) return;
+    atlas.evict();
+    markAllRowsDirty();
+    queueMicrotask(() => primeAscii(atlas, 1, makeRasteriserForTheme(activeTheme), activeZoom));
+    needsPaint = true;
+    requestFrame();
+}
+
+export function getActiveFont() { return atlasGetActiveFontId(); }
 
 export function getActiveTheme() { return activeTheme; }
 export function getActivePhosphor() { return activePhosphor; }

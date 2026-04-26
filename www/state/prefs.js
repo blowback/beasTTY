@@ -19,6 +19,7 @@ const DEFAULTS = Object.freeze({
     version: CURRENT_VERSION,
     theme: 'crt',
     phosphor: 'green',
+    font: 'modern',
     fontZoom: 1,
     serial: { baud: 19200, dataBits: 8, stopBits: 1, parity: 'none', flowControl: 'none' },
     localEcho: false,

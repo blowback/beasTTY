@@ -614,6 +614,16 @@
   <!-- Settings pane (Phase 4 D-13/D-14) — default-collapsed; local echo + CR/LF + reserved note. -->
   <details id="settings">
     <summary>Settings</summary>
+    <div id="font-row" class="settings-row">
+      <label for="font-select">CRT font</label>
+      <select id="font-select">
+        <option value="modern">Modern (8×16, hand-drawn)</option>
+        <option value="vt52">VT52 ROM (8×8, original DEC)</option>
+        <option value="insigbyte">Insigbyte (8×8)</option>
+      </select>
+      <p class="hint">Bitmap glyph table used by the CRT theme. The VT52 ROM is the original DEC character set with the special-graphics block (ESC F / ESC G); Insigbyte is an 8×8 MicroBeast-adjacent face. Modern is the project default. Clean theme renders vector glyphs and ignores this setting.</p>
+    </div>
+
     <label for="local-echo">
       <input type="checkbox" id="local-echo">
       Local echo

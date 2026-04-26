@@ -13,11 +13,13 @@
 import {
     setTheme,
     setPhosphor,
+    setFont,
     zoomStep,
     resetZoom,
     setFocus,
     getActiveTheme,
     getActivePhosphor,
+    getActiveFont,
     getActiveZoom as getActiveZoomFn,
 } from './canvas.js';
 
@@ -31,6 +33,9 @@ function applyThemeSideEffects(newTheme, { themeButton, phosphorGroup }) {
     document.body.setAttribute('data-theme', newTheme);
     // Phosphor group is hidden in clean theme (D-12).
     phosphorGroup.hidden = (newTheme !== 'crt');
+    // Bitmap font selector is CRT-only — clean theme renders vector glyphs.
+    const fontRow = document.getElementById('font-row');
+    if (fontRow) fontRow.hidden = (newTheme !== 'crt');
     // Button label shows the OTHER theme name (UI-SPEC Copywriting).
     const destination = (newTheme === 'crt') ? 'clean' : 'crt';
     themeButton.textContent = labelFor(destination);
@@ -224,6 +229,25 @@ export function wireChrome(opts) {
             if (requestFrame) requestFrame();
         });
         clearScrollbackButton.addEventListener('mousedown', (e) => e.preventDefault());
+    }
+
+    // ==== Bitmap font selector (CRT-only) ====
+    // Same-value short-circuit lives inside setFont; persists via savePrefs so
+    // the choice survives a reload. Initial DOM value mirrors the loaded blob
+    // so a fresh page reflects persisted state. Hidden in clean theme by
+    // applyThemeSideEffects above (vector rasteriser ignores font selection).
+    const fontSelect = document.getElementById('font-select');
+    if (fontSelect) {
+        fontSelect.value = (prefs && prefs.font) || getActiveFont();
+        fontSelect.addEventListener('change', (e) => {
+            setFont(e.target.value);
+            if (savePrefs) savePrefs({ font: e.target.value });
+            // Restore wrapper focus after the dropdown closes — Phase 4 D-16.
+            // <select> needs the native focus transfer to open its picker, so
+            // we cannot use the mousedown-preventDefault pattern that buttons
+            // and radios use; restore focus on change instead.
+            if (terminalWrapper) terminalWrapper.focus();
+        });
     }
 
     // ==== Phase 6 Plan 06 (Wave 5) — Auto connect checkbox (D-34) ====

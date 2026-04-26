@@ -22,6 +22,34 @@
 // cursor is always consistent with the current grid colouring.
 
 import { BITMAP_FONT } from './bitmap-font.js';
+import { VT52_ROM_FONT } from './vt52-rom-font.js';
+import { INSIGBYTE_FONT } from './insigbyte-font.js';
+
+// Font registry: id → 2048-byte glyph table (128 chars × 16 rows).
+// Adding a font: import its Uint8Array and register it here. No other change
+// in this file is needed — rasteriseBitmap reads activeFont, not BITMAP_FONT.
+const FONTS = Object.freeze({
+    'modern':    BITMAP_FONT,     // hand-drawn 8×16, project default (Phase 3 D-01)
+    'vt52':      VT52_ROM_FONT,   // original DEC VT52 character ROM, expanded to 16-row footprint
+    'insigbyte': INSIGBYTE_FONT,  // Insigbyte Bold 8×8, MicroBeast-adjacent
+});
+
+export const FONT_IDS = Object.freeze(Object.keys(FONTS));
+export const DEFAULT_FONT_ID = 'modern';
+
+let activeFont = FONTS[DEFAULT_FONT_ID];
+let activeFontId = DEFAULT_FONT_ID;
+
+export function setActiveFont(id) {
+    if (!(id in FONTS)) return false;
+    activeFont = FONTS[id];
+    activeFontId = id;
+    return true;
+}
+
+export function getActiveFontId() {
+    return activeFontId;
+}
 
 export class Atlas {
     constructor() {
@@ -102,7 +130,7 @@ export function rasteriseBitmap(ch, fgColor, bgColor, cellW, cellH, z, dpr) {
     const pxH = cellH / 16;                             // 32/16 = 2 at z=1; 64/16 = 4 at z=2
     const base = (ch & 0x7F) * 16;                      // 16 bytes per glyph; mask to ASCII
     for (let row = 0; row < 16; row++) {
-        const bits = BITMAP_FONT[base + row];
+        const bits = activeFont[base + row];
         for (let col = 0; col < 8; col++) {
             if (bits & (0x80 >> col)) {                 // MSB-left bit test
                 ctx.fillRect(col * pxW, row * pxH, pxW, pxH);
