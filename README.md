@@ -30,6 +30,8 @@ As well as it's own builtin 16x8 font, the TTY includes a version of the origina
 including the special "Graphics mode" characters accessible by `ESC F`. This font comes from 
 [the fritzm/vt52 github repo](https://github.com/fritzm/vt52).
 
+![Special Graphics characters](images/graphics.png)
+
 The fonts Cushion, Insigbyte, and You Square come from the excellent [ZX Origins](https://damieng.com/typography/zx-origins/) 
 where there are many many more examples of DamienG's meticulous work. 
 
