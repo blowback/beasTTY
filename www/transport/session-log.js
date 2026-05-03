@@ -88,15 +88,15 @@ export function getCurrentBytes() {
     return totalBytes;
 }
 
-// bestialitty-{YYYYMMDD-HHMMSS}.bin (UTC stamp at download-click time).
+// beastty-{YYYYMMDD-HHMMSS}.bin (UTC stamp at download-click time).
 // Strict alphanumeric + dashes — no user input on this path (T-06-05-04
 // path-traversal mitigation).
 function filenameForNow() {
     const d = new Date();
     const pad = (n) => String(n).padStart(2, '0');
     const stamp = `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}` +
-                  `-${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}${pad(d.getUTCSeconds())}`;
-    return `bestialitty-${stamp}.bin`;
+        `-${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}${pad(d.getUTCSeconds())}`;
+    return `beastty-${stamp}.bin`;
 }
 
 function setButtonState(enabled) {

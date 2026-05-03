@@ -1,12 +1,11 @@
-# BestialiTTY
+# BeasTTY
 
-![BestialiTTY logo](images/bestialiTTY.png)
+![BeasTTY logo](images/beasTTY.png)
 
 A [VT52](https://en.wikipedia.org/wiki/VT52) emulator in the browser, for use with the [Feersum Technology MicroBeast](https://feersumbeasts.com/microbeast.html) z80 retrocomputer.
 
-**Fun police**: The name is a terrible pun! It's a *TTY* for the Micro*Beast* -- geddit? 
 
-![BestialiTTY screenshot](images/screener.png)
+![BeasTTY screenshot](images/screener.png)
 
 ## How do I use it?
 
