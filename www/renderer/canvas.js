@@ -244,6 +244,15 @@ function paintRow(r, cols) {
     }
 }
 
+// Track the cell paintCursor last drew into so cursor motion that doesn't
+// write a character at the OLD position (CR, LF, ESC Y, etc.) doesn't leave
+// a ghost block. The dirty-row pipeline only repaints rows Rust marked dirty,
+// and Rust dirties on print, not on cursor motion — so without this trail we
+// rely on something later (a print, a scroll-induced full-grid dirty) to wipe
+// the stale block, which can take many seconds in the first 24 lines.
+let prevCursorRow = -1;
+let prevCursorCol = -1;
+
 function paintCursor() {
     // Phase 6 D-09 — cursor hidden while scrolled up. The cursor lives at a
     // row in the live grid (offset 0); when scrolled up, painting it would
@@ -258,6 +267,30 @@ function paintCursor() {
     const col = packed & 0xFFFF;
     const x = col * cellW;
     const y = row * cellH;
+
+    // Erase a ghost cursor at the previous position if we've moved. Read the
+    // underlying glyph from gridView and repaint over the stale cursor block.
+    if (prevCursorRow !== -1
+            && (prevCursorRow !== row || prevCursorCol !== col)
+            && prevCursorRow < term.rows() && prevCursorCol < term.cols()) {
+        const pi = (prevCursorRow * term.cols() + prevCursorCol) * CELL_SIZE;
+        let pch = gridView[pi];
+        const pflags = gridView[pi + 6];
+        if ((pflags & 0x04) && pch >= 0x60 && pch <= 0x7F) {
+            pch = pch - 0x60;
+        } else if (pch === 0 || pch < 0x20) {
+            pch = 0x20;
+        }
+        const px = prevCursorCol * cellW;
+        const py = prevCursorRow * cellH;
+        ctx.fillStyle = activeTheme.bg;
+        ctx.fillRect(px, py, cellW, cellH);
+        const rast = makeRasteriserForTheme(activeTheme);
+        const tile = atlas.get(pch, /*fg=*/1, rast, z);
+        ctx.drawImage(tile, px, py, cellW, cellH);
+    }
+    prevCursorRow = row;
+    prevCursorCol = col;
 
     if (!canvasHasFocus) {
         // Blurred: steady 1 px outlined block (D-07 / UI-SPEC Cursor table).
