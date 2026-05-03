@@ -397,7 +397,19 @@ export async function connectMicroBeast(configOverride) {
 }
 
 export async function disconnect() {
-    await teardown({ deassertSignals: true });
+    // Set shuttingDown BEFORE cancelling the reader so runReadLoop's outer
+    // while(p.readable) loop sees the flag and breaks — otherwise the loop
+    // re-acquires a fresh reader between cancel() resolving and port.close()
+    // running, the new reader holds the lock, port.close() silently rejects,
+    // and the user-clicked Disconnect appears to do nothing. (The same flag
+    // also short-circuits the beforeunload teardown for the same reason.)
+    shuttingDown = true;
+    try {
+        await teardown({ deassertSignals: true });
+    } finally {
+        // Restore the flag so a subsequent Connect can start a fresh read loop.
+        shuttingDown = false;
+    }
     setState('disconnected');
     updatePortStatusDisconnected();
 }
