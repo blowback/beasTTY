@@ -18,7 +18,6 @@
 // Module-scope state.
 let chunks = [];
 let totalBytes = 0;
-let connectStartIso = null;
 let downloadBtnRef = null;
 
 // Verbatim tooltip strings — UI-SPEC §Connection-pane Download log button.
@@ -40,13 +39,11 @@ export function wireSessionLog(opts) {
     setButtonState(false);
 }
 
-// D-29 — reset on each Connect. Captures connect-time UTC stamp BEFORE any
-// byte arrives so the filename reflects when the session started, not when
-// the user clicked Download (which may be hours later).
+// D-29 — reset on each Connect. Filename is generated at download-click time
+// (UTC) so repeat downloads in the same session produce distinct filenames.
 export function reset() {
     chunks = [];
     totalBytes = 0;
-    connectStartIso = new Date().toISOString();
     setButtonState(false);
 }
 
@@ -70,7 +67,11 @@ export function download() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = filenameFromConnectStart(connectStartIso);
+    // Filename uses the download-click time (UTC) so repeat downloads in the
+    // same session produce distinct filenames. Earlier behaviour pinned the
+    // stamp to connect-start, which made every mid-session download share the
+    // same name and overwrote prior captures on re-download.
+    a.download = filenameForNow();
     a.style.display = 'none';
     document.body.appendChild(a);
     a.click();
@@ -87,11 +88,11 @@ export function getCurrentBytes() {
     return totalBytes;
 }
 
-// D-31 — bestialitty-{YYYYMMDD-HHMMSS}.bin (UTC stamp from connect time).
+// bestialitty-{YYYYMMDD-HHMMSS}.bin (UTC stamp at download-click time).
 // Strict alphanumeric + dashes — no user input on this path (T-06-05-04
 // path-traversal mitigation).
-function filenameFromConnectStart(iso) {
-    const d = iso ? new Date(iso) : new Date();
+function filenameForNow() {
+    const d = new Date();
     const pad = (n) => String(n).padStart(2, '0');
     const stamp = `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}` +
                   `-${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}${pad(d.getUTCSeconds())}`;
