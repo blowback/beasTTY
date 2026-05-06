@@ -17,6 +17,7 @@ pub mod dirty;
 pub mod grid;
 pub mod key;
 pub mod scrollback;
+pub mod slide;
 pub mod terminal;
 pub mod vt52;
 
