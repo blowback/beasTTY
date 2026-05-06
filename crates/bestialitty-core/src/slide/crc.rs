@@ -24,12 +24,20 @@
 /// Per CONTEXT D-03: `pub(crate)` — framer-only consumer. Integration tests
 /// reach this via the `slide/tests_only.rs` `#[cfg(test)] pub use` re-export
 /// shim that Plan 07-02 will add.
-pub(crate) fn crc16_ccitt(_data: &[u8]) -> u16 {
-    // RED-phase stub: returns a deliberately wrong value so the
-    // catalogue-vector and empty-input tests both fail. Replaced with the
-    // verbatim slide-rs/protocol.rs:16-30 implementation in the GREEN-phase
-    // commit. Do not ship this stub.
-    0
+pub(crate) fn crc16_ccitt(data: &[u8]) -> u16 {
+    let mut crc: u16 = 0xFFFF;
+    for &byte in data {
+        crc ^= (byte as u16) << 8;
+        for _ in 0..8 {
+            if crc & 0x8000 != 0 {
+                crc = (crc << 1) ^ 0x1021;
+            } else {
+                crc <<= 1;
+            }
+            crc &= 0xFFFF;
+        }
+    }
+    crc
 }
 
 #[cfg(test)]
