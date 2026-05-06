@@ -1,17 +1,17 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.0
-milestone_name: Integration
-status: Ready for /gsd-discuss-phase 7
-stopped_at: Phase 7 context gathered
-last_updated: "2026-05-06T21:49:51.235Z"
-last_activity: 2026-05-06 — v1.1 FileTransfer roadmap appended (Phases 7–12); all 42 SLIDE requirements mapped
+milestone: v1.1
+milestone_name: FileTransfer
+status: executing
+stopped_at: Phase 7 Plan 01 complete
+last_updated: "2026-05-07T22:57:39Z"
+last_activity: 2026-05-07 Phase 7 Plan 01 (slide/ skeleton + CRC) committed
 progress:
   total_phases: 12
   completed_phases: 6
-  total_plans: 42
-  completed_plans: 42
-  percent: 100
+  total_plans: 47
+  completed_plans: 43
+  percent: 91
 ---
 
 # Project State
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-05-06)
 
 ## Current Position
 
-Phase: 7 (SLIDE Rust Core — Framer, CRC, State Machine)
-Plan: — (not yet planned)
-Status: Ready for /gsd-discuss-phase 7
-Last activity: 2026-05-06 — v1.1 FileTransfer roadmap appended (Phases 7–12); all 42 SLIDE requirements mapped
+Phase: 7 (SLIDE Rust Core — Framer, CRC, State Machine) — EXECUTING
+Plan: 2 of 5 (07-01 complete; 07-02 framer next)
+Status: Executing Phase 7
+Last activity: 2026-05-07 Phase 7 Plan 01 (slide/ module skeleton + CRC primitive + Cargo.toml D-01 audit) committed (3 commits: 2ed1c60 RED, de4312d GREEN, bce2cdb chore)
 
-Progress: [█████     ] 50% (6 of 12 phases complete; v1.0 milestone shipped, v1.1 phases 7–12 not started)
+Progress: [█████▌    ] 52% (6 of 12 phases complete + 1 of 5 plans in Phase 7; v1.1 SLIDE milestone in progress)
 
 ## Performance Metrics
 
@@ -50,7 +50,7 @@ Progress: [█████     ] 50% (6 of 12 phases complete; v1.0 milestone sh
 | 4. Keyboard Input | 4/4 | — | — |
 | 5. Web Serial Transport | 9/9 | — | — |
 | 6. Polish & Deployment | 8/8 | — | — |
-| 7. SLIDE Rust Core | 0/TBD | — | — |
+| 7. SLIDE Rust Core | 1/5 | — | — |
 | 8. Wasm Boundary, Dispatcher & Wakeup | 0/TBD | — | — |
 | 9. SLIDE Sender | 0/TBD | — | — |
 | 10. SLIDE Receiver & Cancellation | 0/TBD | — | — |
@@ -102,6 +102,7 @@ Progress: [█████     ] 50% (6 of 12 phases complete; v1.0 milestone sh
 | Phase 06 P06 | 16min | 3 tasks tasks | 9 files files |
 | Phase 06 P07 | 3min | 4 tasks tasks | 6 files files |
 | Phase 06-daily-driver-polish-session-deployment P08 | 3min | 3 tasks | 2 files |
+| Phase 07-slide-rust-core-framer-crc-state-machine P01 | 4min | 2 tasks (TDD: RED+GREEN+chore = 3 commits) | 4 files |
 
 ## Accumulated Context
 
@@ -117,6 +118,8 @@ Recent decisions affecting current work:
 - v1.1 roadmap (2026-05-06): 42 SLIDE requirements mapped across 6 new phases (7–12); phase boundaries follow research SUMMARY §5 Ph A–F mapping with the chip + integration concerns landing in Phase 11 rather than splitting them across the receiver phase
 - v1.1 phase boundary rationale: Phase 7 (Rust core, native cargo test) — Phase 8 (boundary + dispatcher + wakeup, the Phase B integration gate) — Phase 9 (sender end-to-end, no chip yet) — Phase 10 (receiver + cancellation, full state-machine exercise) — Phase 11 (JS bridge: chip + prefs + session-log pause + paste-pump gate + port-lost + auto-type echo + Z80 fallback) — Phase 12 (polish: collision UX + drop isolation + safety validation + docs + real-hardware UAT)
 - v1.1 chip placement: SLIDE chip lives in Phase 11 (JS bridge), not Phase 10 (receiver), because the chip is integration-layer; receiver-mode tests in Phase 10 can run without a visible chip and surface progress via Playwright `__slideProgress` hook
+- Phase 7 Plan 01 (2026-05-07): CRC implementation is verbatim from /home/ant/src/microbeast/SLIDE/slide-rs/src/protocol.rs:16-30 per CONTEXT D-01; visibility narrowed to pub(crate) per D-03; reference vector b"123456789" -> 0x29B1 pinned (D-04(a) non-negotiable). Cargo.toml records the rejected `crc = "=3.4"` crate as audit-trail comment with no [dependencies] entry. lib.rs `pub mod slide;` was pulled forward into Task 1 RED commit (Rule 3 deviation) so Task 1's verify command could run. Transient `#[allow(dead_code)]` on crc16_ccitt with explicit Plan 07-02 removal note (framer wires the call site there)
+- Phase 7 Plan 01 partial-requirement-completion note: SLIDE-01 (slide/ module exists) and SLIDE-03 (CRC variant correct + reference vector pinned) are partially addressed; full completion of both requires the framer (07-02) for SLIDE-spec scope CRC coverage and slide-rs build_frame fixture cross-validation, plus the wasm-bindgen Slide struct (Phase 8) for SLIDE-01's "exposed via wasm-bindgen Slide struct" clause. Marking complete only at end of Phase 7 (07-04/07-05).
 
 (All v1.0 phase decisions retained; truncated here for readability — see prior STATE.md history in git log if needed.)
 
@@ -146,8 +149,8 @@ Items acknowledged and carried forward from v1.0 milestone close:
 
 ## Session Continuity
 
-Last session: --stopped-at
-Stopped at: Phase 7 context gathered
-Resume file: --resume-file
+Last session: 2026-05-07T22:57:39Z
+Stopped at: Phase 7 Plan 01 complete
+Resume file: .planning/phases/07-slide-rust-core-framer-crc-state-machine/07-02-PLAN.md
 
-**Planned Phase:** 7 (SLIDE Rust Core — Framer, CRC, State Machine) — TBD plans — 2026-05-06T20:00:00.000Z
+**Next Plan:** 07-02 (Framer DFA + tests_only.rs fixture pinning + slide_reference_corpus integration tests, Wave 2). Plan 07-01 unblocks 07-02 (framer can `use crate::slide::crc::crc16_ccitt`).
