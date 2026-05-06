@@ -6,6 +6,9 @@
 //!
 //! - `crc` — CRC-16-CCITT primitive. `pub(crate)` per D-03; consumed by
 //!   `framer` only. Hand-rolled (D-01) — no `crc` crate dependency.
+//! - `framer` — byte-fed DFA that consumes SLIDE wire bytes and emits
+//!   packed-u32 events (EVT_RDY, EVT_FIN, EVT_CAN, EVT_ACK, EVT_NAK,
+//!   EVT_DATA_FRAME, EVT_CRC_ERROR). `pub` surface — Phase 8 wasm boundary.
 //!
 //! Architectural rule (CLAUDE.md + CONTEXT D-20): NO `wasm_bindgen`,
 //! NO `web_sys`, NO `js_sys`, NO `std::time`. Phase 8's `lib.rs:wasm_boundary`
@@ -15,3 +18,4 @@
 //! `std::time` (RESEARCH §Open Questions #2).
 
 pub mod crc;
+pub mod framer;
