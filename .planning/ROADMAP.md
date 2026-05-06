@@ -36,7 +36,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 4: Keyboard Input** - DOM keydown capture mapping PC keyboard to VT52 bytes, local-echo mode, CR/LF override toggle, browser-shortcut handling
 - [ ] **Phase 5: Web Serial Transport** - Chromium detection, port picker, cancellation-safe read loop, DTR/RTS-safe connect, auto-reconnect, paste throttling
 - [x] **Phase 6: Daily-Driver Polish, Session & Deployment** - Copy/paste, scrollback UI, session log download, persistent preferences, static deploy under permissive license, 24-hour soak (completed 2026-04-25)
-- [ ] **Phase 7: SLIDE Rust Core — Framer, CRC, State Machine** - Pure-Rust SLIDE state machine in a new `slide/` module: byte-fed framer, CRC-16-CCITT exact-match, sliding-window send/recv handshakes; all verified by native `cargo test`
+- [x] **Phase 7: SLIDE Rust Core — Framer, CRC, State Machine** - Pure-Rust SLIDE state machine in a new `slide/` module: byte-fed framer, CRC-16-CCITT exact-match, sliding-window send/recv handshakes; all verified by native `cargo test` (completed 2026-05-06)
 - [ ] **Phase 8: Wasm Boundary, JS Dispatcher & ESC^ Wakeup** - `Slide` wasm-bindgen exports sibling to `Terminal`; JS dispatcher routes Web Serial chunks to terminal parser OR SLIDE state machine; 7-byte wakeup detected across chunk boundaries; TX writer ownership handoff
 - [ ] **Phase 9: SLIDE Sender — Host → Z80 Send** - File picker + drag-drop + auto-typed `B:SLIDE R` command; CP/M filename uppercase + 8.3 truncation + character-set validation; sender-side sliding-window TX with `writer.ready` discipline
 - [ ] **Phase 10: SLIDE Receiver & Cancellation** - Z80 → PC end-to-end receive: per-file Chrome download (anchor-click + `showDirectoryPicker` opt-in), zero-byte/sub-frame/binary edge cases, memory-bounded chunked reassembly; CTRL_CAN cancel protocol with neutral-wire post-cancel handshake; idempotent re-entrant wakeup handling
@@ -175,9 +175,9 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans**: 5 plans
   - [x] 07-01-PLAN.md — slide/ module skeleton + CRC primitive + lib.rs mod-tree + Cargo.toml D-01 audit (Wave 1)
   - [x] 07-02-PLAN.md — Framer DFA + tests_only.rs fixture pinning + slide_reference_corpus integration tests (Wave 2)
-  - [ ] 07-03-PLAN.md — Slide struct + SlideState + receiver SM + cancel/force_idle + module-level smokes (Wave 3)
+  - [x] 07-03-PLAN.md — Slide struct + SlideState + receiver SM + cancel/force_idle + module-level smokes (Wave 3)
   - [x] 07-04-PLAN.md — Integration tests: torn-chunk corpus + idempotent re-entry + Phase 8 boundary-shape pin (Wave 4)
-  - [ ] 07-05-PLAN.md — ADR-003 (CAN bidirectional amendment) + std::time hardening of core_02_no_browser_deps (Wave 4)
+  - [x] 07-05-PLAN.md — ADR-003 (CAN bidirectional amendment) + std::time hardening of core_02_no_browser_deps (Wave 4)
 
 ### Phase 8: Wasm Boundary, JS Dispatcher & ESC^ Wakeup
 **Goal**: Expose the Phase 7 state machine across the wasm boundary as a `Slide` struct sibling to `Terminal`; route Web Serial chunks to either the terminal parser OR the SLIDE state machine via a JS dispatcher; detect the 7-byte `ESC ^ S L I D E` wakeup robustly across chunk boundaries; hand off TX writer ownership cleanly without breaking Phase 5's writer contract.

@@ -1,17 +1,17 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.0
-milestone_name: Integration
+milestone: v1.1
+milestone_name: FileTransfer
 status: executing
-stopped_at: Phase 7 Plan 04 complete
-last_updated: "2026-05-06T23:34:17.119Z"
+stopped_at: Phase 7 complete (all 5 plans shipped); Phase 8 next
+last_updated: "2026-05-06T23:40:09Z"
 last_activity: 2026-05-06
 progress:
   total_phases: 12
-  completed_phases: 6
+  completed_phases: 7
   total_plans: 47
-  completed_plans: 46
-  percent: 98
+  completed_plans: 47
+  percent: 58
 ---
 
 # Project State
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-05-06)
 
 ## Current Position
 
-Phase: 7 (SLIDE Rust Core — Framer, CRC, State Machine) — EXECUTING
-Plan: 5 of 5 (07-01 + 07-02 + 07-03 complete; 07-04 integration tests + boundary pin next)
-Status: Ready to execute
+Phase: 7 (SLIDE Rust Core — Framer, CRC, State Machine) — COMPLETE
+Plan: 5 of 5 (07-01 + 07-02 + 07-03 + 07-04 + 07-05 all complete)
+Status: Phase 7 closed; Phase 8 (Wasm Boundary, Dispatcher & Wakeup) next
 Last activity: 2026-05-06
 
-Progress: [██████████] 98%
+Progress: [██████░░░░] 58% (7/12 phases)
 
 ## Performance Metrics
 
@@ -50,7 +50,7 @@ Progress: [██████████] 98%
 | 4. Keyboard Input | 4/4 | — | — |
 | 5. Web Serial Transport | 9/9 | — | — |
 | 6. Polish & Deployment | 8/8 | — | — |
-| 7. SLIDE Rust Core | 2/5 | — | — |
+| 7. SLIDE Rust Core | 5/5 | — | — |
 | 8. Wasm Boundary, Dispatcher & Wakeup | 0/TBD | — | — |
 | 9. SLIDE Sender | 0/TBD | — | — |
 | 10. SLIDE Receiver & Cancellation | 0/TBD | — | — |
@@ -106,6 +106,7 @@ Progress: [██████████] 98%
 | Phase 07-slide-rust-core-framer-crc-state-machine P02 | 7min | 2 tasks | 5 files |
 | Phase 07-slide-rust-core-framer-crc-state-machine P03 | 6min | 2 tasks tasks | 4 files files |
 | Phase 07-slide-rust-core-framer-crc-state-machine P04 | 3min | 3 tasks tasks | 3 files files |
+| Phase 07-slide-rust-core-framer-crc-state-machine P05 | 3min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -129,6 +130,7 @@ Recent decisions affecting current work:
 - Phase 7 Plan 02 (2026-05-06): Framer DFA shipped with 8 FramerState variants and packed-u32 events; framer surface declared pub (NOT pub(crate)) — Phase 8 wasm boundary surface per D-03 narrow scope (CRC primitive only). tests_only module is unconditionally pub with #[doc(hidden)] (NOT #[cfg(test)] gated) because integration tests under tests/ compile against the lib in non-test mode; thin pub fn wrapper widens crc16_ccitt's pub(crate) to pub for integration tests (pub use of pub(crate) fails E0364). Two Rule 3 deviations both rooted in plan-as-written #[cfg(test)] misunderstanding; both fixes preserve every functional intent.
 - Phase 7 Plan 03 (2026-05-06): Slide receiver SM shipped with cancel/force_idle (D-05/D-06/D-07); receiver-only scope per RESEARCH §SM Scope Recommendation since receiver exercises every SLIDE control byte; sender SM deferred to Phase 9. Hybrid event surface: feed_byte returns packed-u32 + feed_chunk returns event count + take_event_packed ring drain. Auto-fix Rule 1: EVT_CRC_ERROR match arms required `e & 0xFFFF_0000 == EVT_CRC_ERROR` guard pattern (same as EVT_DATA_FRAME) because framer emits EVT_CRC_ERROR | seq, not bare EVT_CRC_ERROR; bare match never fired so NAK_BUDGET never exhausted; caught by nak_budget_exhaustion test.
 - Phase 7 Plan 04 (2026-05-06): Three integration test files shipped (slide_torn_chunk.rs / slide_idempotent_reentry.rs / slide_boundary_shape.rs); 22 new tests pass on first run. Test-only plan ships as single test(...) commit per task — RED-then-GREEN cycle is signal-free when implementation pre-exists. Multi-frame torn-chunk explicitly tested (torn_multi_frame_rdy_then_header) extends within-frame torn-chunk safety to across-frame splits, critical for Web Serial multi-frame chunks. Log-scale split for max-payload fixture (1030 bytes) per RESEARCH Assumption A5. Boundary-shape file pins SlideState variant integer values 0..7 explicitly + EVT_* packing convention (kind << 16) — Phase 8's JS unpacker uses (evt >>> 16) for kind. T-07-02 / T-07-05 / T-07-06 mitigated at integration boundary; Phase 8 wasm-boundary surface shape pinned via fn-pointer coercion.
+- Phase 7 Plan 05 (2026-05-06): ADR-003 (`.planning/decisions/ADR-003-slide-v0-2-1-can-amendment.md`, 190 lines, Nygard structure) formalises 07-CONTEXT.md D-05/D-06/D-07/D-08 with cited slide-rs evidence (protocol.rs:104, protocol.rs:199-206, slide-py/common.py:64-71, RDY/FIN symmetry argument); CTRL_CAN wire format pinned as raw single byte 0x18 (NOT a wrapped frame); upstream PR target (github.com/blowback/slide) recorded for Phase 12 coordination per REQUIREMENTS.md SLIDE-40; force_idle() escape hatch tolerates stock slide.com that doesn't yet support the v0.2.1 amendment. tests/core_02_no_browser_deps.rs FORBIDDEN_TOKENS_WITH_EXEMPTIONS extended with `("std::time", &[])` — promotes the no-`std::time`-in-core invariant from convention to CI-enforced gate. Phase 7 deliverable list closed: 5/5 plans complete; whole crate 232 tests green; native build warning-free; ROADMAP Phase 7 main checkbox flipped to [x].
 
 ### Pending Todos
 
@@ -156,8 +158,8 @@ Items acknowledged and carried forward from v1.0 milestone close:
 
 ## Session Continuity
 
-Last session: 2026-05-06T23:34:17.113Z
-Stopped at: Phase 7 Plan 04 complete
+Last session: 2026-05-06T23:40:09Z
+Stopped at: Phase 7 Plan 05 complete (Phase 7 closed)
 Resume file: None
 
-**Next Plan:** 07-03 (Slide struct + SlideState + receiver SM + cancel/force_idle + module-level smokes, Wave 3). Plan 07-02 unblocks 07-03 (the receiver SM in `slide/state.rs` drives a `Framer` instance from inside `Slide::feed_byte`/`feed_chunk`).
+**Next Phase:** Phase 8 — Wasm Boundary, JS Dispatcher & ESC^ Wakeup. Phase 7 delivered the pure-Rust SLIDE state machine; Phase 8 wraps `Slide` in `lib.rs:wasm_boundary` with `feed_byte` / `feed_chunk` / `outbound_ptr/_len/clear_outbound` / `state` / `cancel` / `force_idle` exports (per ARCHITECTURE.md §1). The `Slide` struct shape is pinned via `tests/slide_boundary_shape.rs` fn-pointer coercion (Plan 07-04) so any drift fails at compile time. ADR-003 (Plan 07-05) is the canonical document for the v0.2.1 CAN-bidirectional amendment that Phase 8's wasm wrapper exposes to JS.

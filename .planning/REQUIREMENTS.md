@@ -331,10 +331,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | PLAT-03 | Phase 6 | Complete |
 | PLAT-04 | Phase 6 | Complete |
 | PLAT-05 | Phase 6 | Complete |
-| SLIDE-01 | Phase 7 | Pending |
-| SLIDE-02 | Phase 7 | Pending |
-| SLIDE-03 | Phase 7 | Pending |
-| SLIDE-04 | Phase 7 | Pending |
+| SLIDE-01 | Phase 7 | Complete |
+| SLIDE-02 | Phase 7 | Complete |
+| SLIDE-03 | Phase 7 | Complete |
+| SLIDE-04 | Phase 7 | Complete |
 | SLIDE-05 | Phase 8 | Pending |
 | SLIDE-06 | Phase 8 | Pending |
 | SLIDE-07 | Phase 9 | Pending |
