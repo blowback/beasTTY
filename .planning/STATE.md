@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: Integration
 status: executing
-stopped_at: Phase 7 Plan 03 complete
-last_updated: "2026-05-06T23:25:31.346Z"
+stopped_at: Phase 7 Plan 04 complete
+last_updated: "2026-05-06T23:34:17.119Z"
 last_activity: 2026-05-06
 progress:
   total_phases: 12
   completed_phases: 6
   total_plans: 47
-  completed_plans: 45
-  percent: 96
+  completed_plans: 46
+  percent: 98
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-05-06)
 ## Current Position
 
 Phase: 7 (SLIDE Rust Core — Framer, CRC, State Machine) — EXECUTING
-Plan: 4 of 5 (07-01 + 07-02 + 07-03 complete; 07-04 integration tests + boundary pin next)
+Plan: 5 of 5 (07-01 + 07-02 + 07-03 complete; 07-04 integration tests + boundary pin next)
 Status: Ready to execute
 Last activity: 2026-05-06
 
-Progress: [██████████] 96%
+Progress: [██████████] 98%
 
 ## Performance Metrics
 
@@ -105,6 +105,7 @@ Progress: [██████████] 96%
 | Phase 07-slide-rust-core-framer-crc-state-machine P01 | 4min | 2 tasks (TDD: RED+GREEN+chore = 3 commits) | 4 files |
 | Phase 07-slide-rust-core-framer-crc-state-machine P02 | 7min | 2 tasks | 5 files |
 | Phase 07-slide-rust-core-framer-crc-state-machine P03 | 6min | 2 tasks tasks | 4 files files |
+| Phase 07-slide-rust-core-framer-crc-state-machine P04 | 3min | 3 tasks tasks | 3 files files |
 
 ## Accumulated Context
 
@@ -127,6 +128,7 @@ Recent decisions affecting current work:
 
 - Phase 7 Plan 02 (2026-05-06): Framer DFA shipped with 8 FramerState variants and packed-u32 events; framer surface declared pub (NOT pub(crate)) — Phase 8 wasm boundary surface per D-03 narrow scope (CRC primitive only). tests_only module is unconditionally pub with #[doc(hidden)] (NOT #[cfg(test)] gated) because integration tests under tests/ compile against the lib in non-test mode; thin pub fn wrapper widens crc16_ccitt's pub(crate) to pub for integration tests (pub use of pub(crate) fails E0364). Two Rule 3 deviations both rooted in plan-as-written #[cfg(test)] misunderstanding; both fixes preserve every functional intent.
 - Phase 7 Plan 03 (2026-05-06): Slide receiver SM shipped with cancel/force_idle (D-05/D-06/D-07); receiver-only scope per RESEARCH §SM Scope Recommendation since receiver exercises every SLIDE control byte; sender SM deferred to Phase 9. Hybrid event surface: feed_byte returns packed-u32 + feed_chunk returns event count + take_event_packed ring drain. Auto-fix Rule 1: EVT_CRC_ERROR match arms required `e & 0xFFFF_0000 == EVT_CRC_ERROR` guard pattern (same as EVT_DATA_FRAME) because framer emits EVT_CRC_ERROR | seq, not bare EVT_CRC_ERROR; bare match never fired so NAK_BUDGET never exhausted; caught by nak_budget_exhaustion test.
+- Phase 7 Plan 04 (2026-05-06): Three integration test files shipped (slide_torn_chunk.rs / slide_idempotent_reentry.rs / slide_boundary_shape.rs); 22 new tests pass on first run. Test-only plan ships as single test(...) commit per task — RED-then-GREEN cycle is signal-free when implementation pre-exists. Multi-frame torn-chunk explicitly tested (torn_multi_frame_rdy_then_header) extends within-frame torn-chunk safety to across-frame splits, critical for Web Serial multi-frame chunks. Log-scale split for max-payload fixture (1030 bytes) per RESEARCH Assumption A5. Boundary-shape file pins SlideState variant integer values 0..7 explicitly + EVT_* packing convention (kind << 16) — Phase 8's JS unpacker uses (evt >>> 16) for kind. T-07-02 / T-07-05 / T-07-06 mitigated at integration boundary; Phase 8 wasm-boundary surface shape pinned via fn-pointer coercion.
 
 ### Pending Todos
 
@@ -154,8 +156,8 @@ Items acknowledged and carried forward from v1.0 milestone close:
 
 ## Session Continuity
 
-Last session: 2026-05-06T23:25:21.107Z
-Stopped at: Phase 7 Plan 03 complete
+Last session: 2026-05-06T23:34:17.113Z
+Stopped at: Phase 7 Plan 04 complete
 Resume file: None
 
 **Next Plan:** 07-03 (Slide struct + SlideState + receiver SM + cancel/force_idle + module-level smokes, Wave 3). Plan 07-02 unblocks 07-03 (the receiver SM in `slide/state.rs` drives a `Framer` instance from inside `Slide::feed_byte`/`feed_chunk`).
