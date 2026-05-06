@@ -24,6 +24,11 @@
 /// Per CONTEXT D-03: `pub(crate)` — framer-only consumer. Integration tests
 /// reach this via the `slide/tests_only.rs` `#[cfg(test)] pub use` re-export
 /// shim that Plan 07-02 will add.
+//
+// `#[allow(dead_code)]` is a Phase 7 Plan 01 -> 07-02 transient: this
+// plan ships only the CRC primitive; the framer that calls it lands in
+// Plan 07-02. Remove the allow when 07-02's framer wires up the call site.
+#[allow(dead_code)]
 pub(crate) fn crc16_ccitt(data: &[u8]) -> u16 {
     let mut crc: u16 = 0xFFFF;
     for &byte in data {

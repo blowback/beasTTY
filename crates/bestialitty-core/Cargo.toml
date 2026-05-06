@@ -21,6 +21,14 @@ trace-malformed = []
 # signature out from under us — see ADR-001 "Negative" consequences.
 vte = "=0.15"
 
+# SLIDE Phase 7 (CONTEXT D-01): the `crc = "=3.4"` crate was REJECTED in
+# favour of a ~30-line hand-roll in src/slide/crc.rs verbatim from
+# /home/ant/src/microbeast/SLIDE/slide-rs/src/protocol.rs:16-30. Zero new
+# dependencies, byte-for-byte cross-validation against slide-rs is 1:1.
+# See `.planning/decisions/ADR-003-slide-v0-2-1-can-amendment.md` (created
+# in Plan 07-05) and 07-CONTEXT.md §D-01. Do NOT add `crc = ...` here
+# without re-opening that decision.
+
 [dev-dependencies]
 # Keep minimal; std alone is sufficient for Phase 1 tests.
 
