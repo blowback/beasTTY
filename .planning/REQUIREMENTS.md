@@ -327,53 +327,53 @@ Which phases cover which requirements. Updated during roadmap creation.
 | PLAT-03 | Phase 6 | Complete |
 | PLAT-04 | Phase 6 | Complete |
 | PLAT-05 | Phase 6 | Complete |
-| SLIDE-01 | TBD (v1.1) | Pending |
-| SLIDE-02 | TBD (v1.1) | Pending |
-| SLIDE-03 | TBD (v1.1) | Pending |
-| SLIDE-04 | TBD (v1.1) | Pending |
-| SLIDE-05 | TBD (v1.1) | Pending |
-| SLIDE-06 | TBD (v1.1) | Pending |
-| SLIDE-07 | TBD (v1.1) | Pending |
-| SLIDE-08 | TBD (v1.1) | Pending |
-| SLIDE-09 | TBD (v1.1) | Pending |
-| SLIDE-10 | TBD (v1.1) | Pending |
-| SLIDE-11 | TBD (v1.1) | Pending |
-| SLIDE-12 | TBD (v1.1) | Pending |
-| SLIDE-13 | TBD (v1.1) | Pending |
-| SLIDE-14 | TBD (v1.1) | Pending |
-| SLIDE-15 | TBD (v1.1) | Pending |
-| SLIDE-16 | TBD (v1.1) | Pending |
-| SLIDE-17 | TBD (v1.1) | Pending |
-| SLIDE-18 | TBD (v1.1) | Pending |
-| SLIDE-19 | TBD (v1.1) | Pending |
-| SLIDE-20 | TBD (v1.1) | Pending |
-| SLIDE-21 | TBD (v1.1) | Pending |
-| SLIDE-22 | TBD (v1.1) | Pending |
-| SLIDE-23 | TBD (v1.1) | Pending |
-| SLIDE-24 | TBD (v1.1) | Pending |
-| SLIDE-25 | TBD (v1.1) | Pending |
-| SLIDE-26 | TBD (v1.1) | Pending |
-| SLIDE-27 | TBD (v1.1) | Pending |
-| SLIDE-28 | TBD (v1.1) | Pending |
-| SLIDE-29 | TBD (v1.1) | Pending |
-| SLIDE-30 | TBD (v1.1) | Pending |
-| SLIDE-31 | TBD (v1.1) | Pending |
-| SLIDE-32 | TBD (v1.1) | Pending |
-| SLIDE-33 | TBD (v1.1) | Pending |
-| SLIDE-34 | TBD (v1.1) | Pending |
-| SLIDE-35 | TBD (v1.1) | Pending |
-| SLIDE-36 | TBD (v1.1) | Pending |
-| SLIDE-37 | TBD (v1.1) | Pending |
-| SLIDE-38 | TBD (v1.1) | Pending |
-| SLIDE-39 | TBD (v1.1) | Pending |
-| SLIDE-40 | TBD (v1.1) | Pending |
-| SLIDE-41 | TBD (v1.1) | Pending |
-| SLIDE-42 | TBD (v1.1) | Pending |
+| SLIDE-01 | Phase 7 | Pending |
+| SLIDE-02 | Phase 7 | Pending |
+| SLIDE-03 | Phase 7 | Pending |
+| SLIDE-04 | Phase 7 | Pending |
+| SLIDE-05 | Phase 8 | Pending |
+| SLIDE-06 | Phase 8 | Pending |
+| SLIDE-07 | Phase 9 | Pending |
+| SLIDE-08 | Phase 9 | Pending |
+| SLIDE-09 | Phase 9 | Pending |
+| SLIDE-10 | Phase 9 | Pending |
+| SLIDE-11 | Phase 11 | Pending |
+| SLIDE-12 | Phase 12 | Pending |
+| SLIDE-13 | Phase 9 | Pending |
+| SLIDE-14 | Phase 11 | Pending |
+| SLIDE-15 | Phase 9 | Pending |
+| SLIDE-16 | Phase 9 | Pending |
+| SLIDE-17 | Phase 8 | Pending |
+| SLIDE-18 | Phase 10 | Pending |
+| SLIDE-19 | Phase 10 | Pending |
+| SLIDE-20 | Phase 10 | Pending |
+| SLIDE-21 | Phase 10 | Pending |
+| SLIDE-22 | Phase 10 | Pending |
+| SLIDE-23 | Phase 10 | Pending |
+| SLIDE-24 | Phase 10 | Pending |
+| SLIDE-25 | Phase 11 | Pending |
+| SLIDE-26 | Phase 11 | Pending |
+| SLIDE-27 | Phase 10 | Pending |
+| SLIDE-28 | Phase 11 | Pending |
+| SLIDE-29 | Phase 10 | Pending |
+| SLIDE-30 | Phase 10 | Pending |
+| SLIDE-31 | Phase 11 | Pending |
+| SLIDE-32 | Phase 11 | Pending |
+| SLIDE-33 | Phase 11 | Pending |
+| SLIDE-34 | Phase 10 | Pending |
+| SLIDE-35 | Phase 11 | Pending |
+| SLIDE-36 | Phase 12 | Pending |
+| SLIDE-37 | Phase 11 | Pending |
+| SLIDE-38 | Phase 12 | Pending |
+| SLIDE-39 | Phase 11 | Pending |
+| SLIDE-40 | Phase 12 | Pending |
+| SLIDE-41 | Phase 12 | Pending |
+| SLIDE-42 | Phase 12 | Pending |
 
 **Coverage:**
 - v1.0 requirements: 54 total (54 mapped, 100% — all complete)
-- v1.1 requirements: 42 total (mapping deferred to roadmapper in Step 10)
-- Grand total: 96 requirements
+- v1.1 requirements: 42 total (42 mapped, 100%)
+- Grand total: 96 requirements (96 mapped, 100%)
 
 **Per-phase counts:**
 - Phase 1 (Rust Core): 10 requirements
@@ -382,7 +382,13 @@ Which phases cover which requirements. Updated during roadmap creation.
 - Phase 4 (Keyboard Input): 5 requirements
 - Phase 5 (Web Serial Transport): 13 requirements
 - Phase 6 (Polish & Deployment): 11 requirements
+- Phase 7 (SLIDE Rust Core): 4 requirements
+- Phase 8 (Wasm Boundary, Dispatcher, Wakeup): 3 requirements
+- Phase 9 (SLIDE Sender): 7 requirements
+- Phase 10 (SLIDE Receiver & Cancellation): 11 requirements
+- Phase 11 (SLIDE JS Bridge & Integration): 11 requirements
+- Phase 12 (SLIDE UX Polish, Docs & UAT): 6 requirements
 
 ---
 *Requirements defined: 2026-04-21*
-*Last updated: 2026-05-06 — added 42 SLIDE-* requirements for v1.1 FileTransfer milestone (mapping to phases TBD by roadmapper)*
+*Last updated: 2026-05-06 — 42 SLIDE-* requirements mapped to Phases 7–12 by roadmapper (v1.1 FileTransfer milestone)*
