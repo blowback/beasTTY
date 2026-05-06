@@ -21,6 +21,9 @@ pub mod crc;
 pub mod framer;
 pub mod state;
 
+#[cfg(test)]
+mod tests;
+
 // `tests_only` is unconditionally `pub` because integration tests under
 // `tests/slide_*.rs` compile against the lib in NON-test mode and so cannot
 // see `#[cfg(test)]` modules. `#[doc(hidden)]` flags it as internal-use-only;
