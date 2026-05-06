@@ -83,9 +83,13 @@ driver with a real MicroBeast — nothing else matters if that doesn't hold.
 
 <!-- Current scope. Building toward these. -->
 
-(All v1 active requirements moved to Validated after Phase 6 completion. The 24-h
+v1.1 FileTransfer milestone — see `## Current Milestone` below. v1.1 requirements will
+be enumerated in `.planning/REQUIREMENTS.md` (SLIDE-* and DROP-* IDs) once the milestone
+roadmap is built.
+
+All v1.0 active requirements moved to Validated after Phase 6 completion. The 24-h
 memory-flat soak and daily-driver full-session UAT are documented as out-of-band
-manual sign-off items in `06-HUMAN-UAT.md` and `06-SOAK.md`.)
+manual sign-off items in `06-HUMAN-UAT.md` and `06-SOAK.md`.
 
 ### Out of Scope
 
@@ -177,5 +181,47 @@ check (one-time repo setting + push), 24-hour memory-flat soak (`06-SOAK.md` pro
 and full daily-driver work session (`06-HUMAN-UAT.md` 8-test checklist). These do not
 block code completion; they confirm the daily-driver experience on real hardware.
 
+A small post-v1.0 polish stream landed afterwards (font system with selectable bitmap
+fonts, ESC F/G graphics-mode wiring, copy-paste UX fixes, disconnect race fix, cursor
+ghosting fix, optional unfiltered serial picker, log-filename rotation, Ctrl+Shift+Esc
+clear-selection chord). Tracked in commit history; no separate phase.
+
+## Current Milestone: v1.1 FileTransfer
+
+**Goal:** Add browser-side SLIDE protocol so users can transfer files between PC and
+MicroBeast without leaving BestialiTTY — both directions, multi-file, with progress
+feedback.
+
+**Target features:**
+- Host-initiated send: file picker → optional auto-typed `B:SLIDE R` → frame-perfect
+  upload to Z80
+- Z80-initiated receive: detect `ESC ^` wakeup → consume session → save each file via
+  Chrome download
+- Drag-and-drop onto the canvas to trigger host-initiated send
+- Floating SLIDE chip (mirroring the Phase 6 scrollback `↓ N new lines` pattern) — file
+  count, byte count, progress, cancel
+- Settings: configurable auto-send command (default `B:SLIDE R`), with "off / type
+  manually" option
+
+**Architecture (locked):**
+- **Rust core (wasm)** owns SLIDE state machine: framer, CRC-16-CCITT (poly 0x1021,
+  init 0xFFFF), sliding-window send/receive, RDY/ACK/NAK/CAN/FIN handshakes
+- **JS shell** owns Web Serial bytes in/out, File API + drag-drop, browser downloads,
+  the floating chip UI, the auto-send command emitter
+- During a SLIDE session the terminal parser is fully suspended — SLIDE owns the wire
+  from `ESC ^` (`0x1B 0x5E`) to FIN-FIN; stray bytes abort the session
+
+**Z80-side change** (separate repo, github.com/blowback/slide):
+- Modify `slide.asm` to emit `ESC ^` at the start of every send-mode session, before
+  the existing RDY. `slide-rs` and `slide-py` ignore everything until they see RDY, so
+  this is forward-compatible with the existing PC tools.
+
+**Out of scope for v1.1:**
+- Bulk save / batch download UI (one-per-file is enough)
+- IndexedDB virtual filesystem
+- Long-filename support beyond CP/M 8.3 — auto-uppercase + truncate on send
+- Wildcard expansion in the auto-send command (rely on Z80's CP/M shell behaviour)
+- Slack / GitHub Issues notifications when transfer finishes
+
 ---
-*Last updated: 2026-04-25 after Phase 6 (Daily-Driver Polish, Session & Deployment) completion — v1.0 code-complete*
+*Last updated: 2026-05-06 starting v1.1 FileTransfer milestone (v1.0 code-complete since 2026-04-25)*

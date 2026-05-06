@@ -1,36 +1,36 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.0
-milestone_name: milestone
-status: executing
-stopped_at: "Completed 06-08-PLAN.md (Wave 7 — 06-SOAK.md 24-h memory-flat protocol + 06-HUMAN-UAT.md 8-test daily-driver checklist + 3 OOB supplementary checks; checkpoint:human-verify Task 3 auto-approved under _auto_chain_active=true; Phase 6 ready for /gsd-verify-phase 06)"
-last_updated: "2026-04-25T16:43:02.275Z"
-last_activity: 2026-04-25 -- Phase --phase execution started
+milestone: v1.1
+milestone_name: FileTransfer
+status: defining-requirements
+stopped_at: "Milestone v1.1 FileTransfer started — defining requirements"
+last_updated: "2026-05-06T19:30:00.000Z"
+last_activity: 2026-05-06 -- Milestone v1.1 FileTransfer started
 progress:
-  total_phases: 6
-  completed_phases: 5
-  total_plans: 42
-  completed_plans: 41
-  percent: 98
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-04-21)
+See: .planning/PROJECT.md (updated 2026-05-06)
 
 **Core value:** A modern, reliable, in-browser VT52 emulator good enough to use as a daily driver with a real MicroBeast.
-**Current focus:** Phase --phase — 06
+**Current focus:** Milestone v1.1 FileTransfer — defining requirements
 
 ## Current Position
 
-Phase: --phase (06) — EXECUTING
-Plan: 1 of --name
-Status: Executing Phase --phase
-Last activity: 2026-04-25 -- Phase --phase execution started
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-05-06 — Milestone v1.1 FileTransfer started
 
-Progress: [██████████] 100%
+Progress: [          ] 0%
 
 ## Performance Metrics
 
