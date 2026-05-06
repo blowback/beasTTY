@@ -19,3 +19,11 @@
 
 pub mod crc;
 pub mod framer;
+
+// `tests_only` is unconditionally `pub` because integration tests under
+// `tests/slide_*.rs` compile against the lib in NON-test mode and so cannot
+// see `#[cfg(test)]` modules. `#[doc(hidden)]` flags it as internal-use-only;
+// Phase 8's `#[wasm_bindgen]` façade in `lib.rs` does not wrap anything from
+// this module, so production wasm bundles do not surface it.
+#[doc(hidden)]
+pub mod tests_only;
