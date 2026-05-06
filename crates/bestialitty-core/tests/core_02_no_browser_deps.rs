@@ -60,10 +60,18 @@ const FORBIDDEN_CRATES: &[&str] = &[
 /// `js_sys` remain forbidden in every file, including `lib.rs`. Do NOT replace
 /// this with a path-based early-continue — that would regress D-07 by also
 /// exempting lib.rs from `web_sys` / `js_sys`.
+///
+/// Phase 7 (07-CONTEXT.md D-06/D-07 + ARCHITECTURE.md anti-pattern 4):
+/// `std::time` is forbidden everywhere in the core crate. All timing logic
+/// lives in JS; Rust SM is purely event-driven. `slide/` has no exemption;
+/// `lib.rs` does not need one either (Phase 1+2 don't import std::time).
+/// See ADR-003 (`.planning/decisions/ADR-003-slide-v0-2-1-can-amendment.md`)
+/// for the full rationale.
 const FORBIDDEN_TOKENS_WITH_EXEMPTIONS: &[(&str, &[&str])] = &[
     ("wasm_bindgen", &["lib.rs"]),
     ("web_sys", &[]),
     ("js_sys", &[]),
+    ("std::time", &[]),
 ];
 
 #[test]
