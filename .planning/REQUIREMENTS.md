@@ -148,6 +148,74 @@ Requirements for initial release. Each maps to roadmap phases.
 
 **: First-open sane defaults — MicroBeast preset pre-selected; one click to connect
 
+## v1.1 Requirements (FileTransfer milestone)
+
+Browser-side SLIDE protocol — Rust core state machine + JS shell file API + drag-drop.
+Architecture, table-stakes, and pitfalls grounded in `.planning/research/{STACK,FEATURES,ARCHITECTURE,PITFALLS,SUMMARY}.md`.
+
+### SLIDE protocol — Rust framer + state machine + wasm boundary
+
+- [ ] **SLIDE-01**: Rust core implements byte-fed SLIDE state machine in a new `slide/` module, exposed via wasm-bindgen `Slide` struct sibling to `Terminal`
+- [ ] **SLIDE-02**: Frame parser handles arbitrary Web Serial chunk boundaries (torn-chunk safe across SOF/SEQ/LEN/PAYLOAD/CRC); native `cargo test` torn-chunk corpus green
+- [ ] **SLIDE-03**: CRC-16-CCITT matches SLIDE v0.2 spec exactly (poly 0x1021, init 0xFFFF, big-endian on wire, covers SEQ+LEN_H+LEN_L+PAYLOAD); reference vector `crc16_ccitt(b"123456789") == 0x29B1`; byte-for-byte equality with slide-rs `build_frame` fixtures
+- [ ] **SLIDE-04**: Sliding-window state machine (4 frames × 1024 bytes) handles RDY / ACK / NAK / CAN / FIN / CTRL_FIN per SLIDE v0.2 plus the v0.2.1 CAN-bidirectional amendment
+- [ ] **SLIDE-05**: JS dispatcher (`transport/slide.js:dispatchInbound`) routes Web Serial chunks to terminal parser OR SLIDE state machine based on session mode; detects 7-byte wakeup `ESC ^ S L I D E` across chunk boundaries via single-byte carry flag
+- [ ] **SLIDE-06**: TX writer ownership handoff — `tx-sink.js:setWireOwner('slide')` blocks `pushTxBytes` keystroke writes during active session; SLIDE writes via separate `writeSlideFrame` path that bypasses the keystroke ring
+
+### SLIDE host → Z80 send
+
+- [ ] **SLIDE-07**: User can initiate file send via a multi-file picker (`<input type="file" multiple>`)
+- [ ] **SLIDE-08**: User can initiate file send by drag-and-drop onto `#terminal-wrapper`
+- [ ] **SLIDE-09**: Drag-over visual feedback shows dashed-border overlay + faint tint + "Drop file(s) to send via SLIDE" message
+- [ ] **SLIDE-10**: Non-file drags (text/URL) rejected at `dragenter` via `dataTransfer.types.includes('Files')` filter
+- [ ] **SLIDE-11**: Drops during an active SLIDE session rejected with chip "Transfer in progress — cancel first"
+- [ ] **SLIDE-12**: Drag-drop coexists with v1.0 pointer-select — `selection.js:onPointerDown` early-returns when drop overlay is active
+- [ ] **SLIDE-13**: BestialiTTY auto-types configured command (default `B:SLIDE R\r`) before opening session; configurable via Settings; empty string disables auto-type
+- [ ] **SLIDE-14**: Auto-typed command's CP/M echo is swallowed for ~500 ms via swallow-echo filter so the typed command doesn't double-print in the terminal
+- [ ] **SLIDE-15**: Filenames auto-uppercased + truncated to CP/M 8.3 in JS before reaching the Rust state machine; chip displays the rewrite (`my-doc.txt → MY-DOC.TXT`)
+- [ ] **SLIDE-16**: CP/M filename validation rejects characters CP/M doesn't allow (`<>.,;:=?*[]`); error chip surfaces before session opens
+
+### SLIDE Z80 → PC receive
+
+- [ ] **SLIDE-17**: BestialiTTY detects 7-byte wakeup `ESC ^ S L I D E` emitted by patched slide.com and enters receive mode
+- [ ] **SLIDE-18**: Each completed file delivered via Chrome download (anchor-click); `showDirectoryPicker` opt-in fallback for batches > 1 file (one user gesture saves all subsequent files into the chosen folder)
+- [ ] **SLIDE-19**: Multi-file batches stagger downloads with ≥ 250 ms inter-file gap to avoid Chrome multi-download throttling
+- [ ] **SLIDE-20**: Received files retain their CP/M 8.3 uppercase names verbatim
+- [ ] **SLIDE-21**: Empty (zero-byte) files transfer cleanly — header → immediate EOF; no data frames
+- [ ] **SLIDE-22**: Sub-frame files (< 1024 bytes) transfer cleanly — single data frame + EOF
+- [ ] **SLIDE-23**: Binary content (`.COM`, `.HEX`, raw bytes) round-trips via `Uint8Array` end-to-end with no text-encoding step
+- [ ] **SLIDE-24**: Receive memory stays bounded for 1 MB+ files via `chunks: Uint8Array[]` + `new Blob(chunks)` (NOT naive concatenation)
+
+### SLIDE floating chip + cancellation
+
+- [ ] **SLIDE-25**: Floating SLIDE chip at `bottom: 8px; left: 8px` (opposite corner from scrollback chip) shows direction + filename + "File N of M" + percent + byte count
+- [ ] **SLIDE-26**: Chip throughput display uses 2-second sliding window; first 2 seconds show `—`
+- [ ] **SLIDE-27**: Chip Cancel button emits CTRL_CAN, drains wire, restores parser; Esc key (slot 2 of 4 in the disambiguation chain) is equivalent
+- [ ] **SLIDE-28**: Post-cancel chip shows "Cancelled — N of M files transferred" for 5 seconds then auto-hides
+- [ ] **SLIDE-29**: Hard-fail recovery — CRC retries exhausted, port lost, or wire desync → chip shows error with "Retry" hint; state machine resets cleanly
+- [ ] **SLIDE-30**: Cancel mid-frame leaves wire neutral (Promise.allSettled in-flight writes ≤ 200 ms → CTRL_CAN → wait ≤ 500 ms for Z80 echo → drain 100 ms → re-arm framer); never calls `reader.cancel()` or `port.close()`
+
+### SLIDE integration with existing v1.0 systems
+
+- [ ] **SLIDE-31**: Tab close mid-transfer — `visibilitychange` listener emits best-effort CTRL_CAN; partial-file recovery documented in human-UAT
+- [ ] **SLIDE-32**: Phase 5 port-lost flow includes SLIDE pump (`slidePumpOnPortLost` symmetric with `pastePumpOnPortLost`) in `serial.js` teardown / `handleReadError` / `onNavSerialDisconnect`
+- [ ] **SLIDE-33**: Session-log append paused during active SLIDE session (binary frame bytes don't pollute the RX log); resumes on session end
+- [ ] **SLIDE-34**: Spurious mid-stream `ESC ^ S L I D E` while session is active → chip warning "Z80 reset detected; cancelling current transfer" + clean reset (idempotent state-machine entry)
+- [ ] **SLIDE-35**: Auto-type "Z80 didn't respond" timeout (~3 s) chip with `[Retry] [Cancel] [Force start (legacy slide.com)]` options for users running pre-v0.2.1 slide.com without wakeup signature
+- [ ] **SLIDE-36**: Filename collisions on send (case-insensitive + 8.3 truncation produces duplicates) detected in JS pre-flight; user prompted to auto-rename (`NAME.TXT, NAME~1.TXT, NAME~2.TXT`), refuse, or send-only-first
+
+### SLIDE settings & persistence
+
+- [ ] **SLIDE-37**: User-configurable auto-send command persists in `bestialitty.prefs.slideAutoSendCommand`; default `B:SLIDE R\r`; empty string = disabled
+- [ ] **SLIDE-38**: Auto-send command validated for safety — alphanumeric + `:` + `\r` only; rejects `;`, pipes, non-`\r` control characters; first-use confirmation chip for non-default values
+- [ ] **SLIDE-39**: Settings pane exposes auto-send command (text input) + "show transfer summary chip" checkbox + optional `Compatibility mode` selector for legacy slide.com fallback, following the Phase 6 Settings-row pattern
+
+### SLIDE Z80 coordination & docs
+
+- [ ] **SLIDE-40**: `docs/SLIDE_Z80_REQUIREMENT.md` documents (a) the slide.asm `ESC ^ S L I D E` wakeup requirement, (b) the v0.2.1 protocol amendment (PC-initiated CTRL_CAN with Z80 echo), (c) the `B:SLIDE R` command convention, (d) links to the upstream `github.com/blowback/slide` PR
+- [ ] **SLIDE-41**: README.md "Keyboard shortcuts" section extended with drag-drop and file-picker references; new "File transfer" section documents the SLIDE protocol summary and links to SPEC-v0.2.1
+- [ ] **SLIDE-42**: Real-hardware UAT protocol (`docs/SLIDE-UAT.md` mirroring `06-HUMAN-UAT.md`) for end-to-end verification against patched MicroBeast
+
 ## v2 Requirements
 
 Deferred to future release. Tracked but not in current roadmap.
@@ -259,11 +327,53 @@ Which phases cover which requirements. Updated during roadmap creation.
 | PLAT-03 | Phase 6 | Complete |
 | PLAT-04 | Phase 6 | Complete |
 | PLAT-05 | Phase 6 | Complete |
+| SLIDE-01 | TBD (v1.1) | Pending |
+| SLIDE-02 | TBD (v1.1) | Pending |
+| SLIDE-03 | TBD (v1.1) | Pending |
+| SLIDE-04 | TBD (v1.1) | Pending |
+| SLIDE-05 | TBD (v1.1) | Pending |
+| SLIDE-06 | TBD (v1.1) | Pending |
+| SLIDE-07 | TBD (v1.1) | Pending |
+| SLIDE-08 | TBD (v1.1) | Pending |
+| SLIDE-09 | TBD (v1.1) | Pending |
+| SLIDE-10 | TBD (v1.1) | Pending |
+| SLIDE-11 | TBD (v1.1) | Pending |
+| SLIDE-12 | TBD (v1.1) | Pending |
+| SLIDE-13 | TBD (v1.1) | Pending |
+| SLIDE-14 | TBD (v1.1) | Pending |
+| SLIDE-15 | TBD (v1.1) | Pending |
+| SLIDE-16 | TBD (v1.1) | Pending |
+| SLIDE-17 | TBD (v1.1) | Pending |
+| SLIDE-18 | TBD (v1.1) | Pending |
+| SLIDE-19 | TBD (v1.1) | Pending |
+| SLIDE-20 | TBD (v1.1) | Pending |
+| SLIDE-21 | TBD (v1.1) | Pending |
+| SLIDE-22 | TBD (v1.1) | Pending |
+| SLIDE-23 | TBD (v1.1) | Pending |
+| SLIDE-24 | TBD (v1.1) | Pending |
+| SLIDE-25 | TBD (v1.1) | Pending |
+| SLIDE-26 | TBD (v1.1) | Pending |
+| SLIDE-27 | TBD (v1.1) | Pending |
+| SLIDE-28 | TBD (v1.1) | Pending |
+| SLIDE-29 | TBD (v1.1) | Pending |
+| SLIDE-30 | TBD (v1.1) | Pending |
+| SLIDE-31 | TBD (v1.1) | Pending |
+| SLIDE-32 | TBD (v1.1) | Pending |
+| SLIDE-33 | TBD (v1.1) | Pending |
+| SLIDE-34 | TBD (v1.1) | Pending |
+| SLIDE-35 | TBD (v1.1) | Pending |
+| SLIDE-36 | TBD (v1.1) | Pending |
+| SLIDE-37 | TBD (v1.1) | Pending |
+| SLIDE-38 | TBD (v1.1) | Pending |
+| SLIDE-39 | TBD (v1.1) | Pending |
+| SLIDE-40 | TBD (v1.1) | Pending |
+| SLIDE-41 | TBD (v1.1) | Pending |
+| SLIDE-42 | TBD (v1.1) | Pending |
 
 **Coverage:**
-- v1 requirements: 54 total
-- Mapped to phases: 54 (100%)
-- Unmapped: 0
+- v1.0 requirements: 54 total (54 mapped, 100% — all complete)
+- v1.1 requirements: 42 total (mapping deferred to roadmapper in Step 10)
+- Grand total: 96 requirements
 
 **Per-phase counts:**
 - Phase 1 (Rust Core): 10 requirements
@@ -275,4 +385,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 ---
 *Requirements defined: 2026-04-21*
-*Last updated: 2026-04-22 after Phase 3 gap-closure plans 03-05/03-06/03-07 — all 12 RENDER-* requirements regression-guarded*
+*Last updated: 2026-05-06 — added 42 SLIDE-* requirements for v1.1 FileTransfer milestone (mapping to phases TBD by roadmapper)*
