@@ -253,7 +253,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 4. Keyboard Input | 4/4 | Complete    | 2026-04-22 |
 | 5. Web Serial Transport | 7/7 | Complete    | 2026-04-23 |
 | 6. Daily-Driver Polish, Session & Deployment | 8/8 | Complete    | 2026-04-25 |
-| 7. SLIDE Rust Core — Framer, CRC, State Machine | 2/5 | In progress | - |
+| 7. SLIDE Rust Core — Framer, CRC, State Machine | 3/5 | In progress | - |
 | 8. Wasm Boundary, JS Dispatcher & ESC^ Wakeup | 0/TBD | Not started | - |
 | 9. SLIDE Sender — Host → Z80 Send | 0/TBD | Not started | - |
 | 10. SLIDE Receiver & Cancellation | 0/TBD | Not started | - |

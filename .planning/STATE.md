@@ -1,17 +1,17 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.1
-milestone_name: FileTransfer
+milestone: v1.0
+milestone_name: Integration
 status: executing
-stopped_at: Phase 7 Plan 02 complete
-last_updated: "2026-05-06T23:13:05Z"
-last_activity: 2026-05-06 Phase 7 Plan 02 (framer DFA + tests_only fixture corpus + slide_reference_corpus integration tests) committed
+stopped_at: Phase 7 Plan 03 complete
+last_updated: "2026-05-06T23:25:31.346Z"
+last_activity: 2026-05-06
 progress:
   total_phases: 12
   completed_phases: 6
   total_plans: 47
-  completed_plans: 44
-  percent: 94
+  completed_plans: 45
+  percent: 96
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-05-06)
 ## Current Position
 
 Phase: 7 (SLIDE Rust Core — Framer, CRC, State Machine) — EXECUTING
-Plan: 3 of 5 (07-01 + 07-02 complete; 07-03 receiver SM next)
-Status: Executing Phase 7
-Last activity: 2026-05-06 Phase 7 Plan 02 (framer DFA + 7 reference fixtures + 13 integration tests) committed (4 commits: e972bc8 RED, 4a8b2e4 GREEN, 94b09f7 RED, 34194f2 GREEN)
+Plan: 4 of 5 (07-01 + 07-02 + 07-03 complete; 07-04 integration tests + boundary pin next)
+Status: Ready to execute
+Last activity: 2026-05-06
 
-Progress: [█████████░] 94% (6 of 12 phases complete + 2 of 5 plans in Phase 7; v1.1 SLIDE milestone in progress)
+Progress: [██████████] 96%
 
 ## Performance Metrics
 
@@ -104,6 +104,7 @@ Progress: [█████████░] 94% (6 of 12 phases complete + 2 of 5
 | Phase 06-daily-driver-polish-session-deployment P08 | 3min | 3 tasks | 2 files |
 | Phase 07-slide-rust-core-framer-crc-state-machine P01 | 4min | 2 tasks (TDD: RED+GREEN+chore = 3 commits) | 4 files |
 | Phase 07-slide-rust-core-framer-crc-state-machine P02 | 7min | 2 tasks | 5 files |
+| Phase 07-slide-rust-core-framer-crc-state-machine P03 | 6min | 2 tasks tasks | 4 files files |
 
 ## Accumulated Context
 
@@ -125,6 +126,7 @@ Recent decisions affecting current work:
 (All v1.0 phase decisions retained; truncated here for readability — see prior STATE.md history in git log if needed.)
 
 - Phase 7 Plan 02 (2026-05-06): Framer DFA shipped with 8 FramerState variants and packed-u32 events; framer surface declared pub (NOT pub(crate)) — Phase 8 wasm boundary surface per D-03 narrow scope (CRC primitive only). tests_only module is unconditionally pub with #[doc(hidden)] (NOT #[cfg(test)] gated) because integration tests under tests/ compile against the lib in non-test mode; thin pub fn wrapper widens crc16_ccitt's pub(crate) to pub for integration tests (pub use of pub(crate) fails E0364). Two Rule 3 deviations both rooted in plan-as-written #[cfg(test)] misunderstanding; both fixes preserve every functional intent.
+- Phase 7 Plan 03 (2026-05-06): Slide receiver SM shipped with cancel/force_idle (D-05/D-06/D-07); receiver-only scope per RESEARCH §SM Scope Recommendation since receiver exercises every SLIDE control byte; sender SM deferred to Phase 9. Hybrid event surface: feed_byte returns packed-u32 + feed_chunk returns event count + take_event_packed ring drain. Auto-fix Rule 1: EVT_CRC_ERROR match arms required `e & 0xFFFF_0000 == EVT_CRC_ERROR` guard pattern (same as EVT_DATA_FRAME) because framer emits EVT_CRC_ERROR | seq, not bare EVT_CRC_ERROR; bare match never fired so NAK_BUDGET never exhausted; caught by nak_budget_exhaustion test.
 
 ### Pending Todos
 
@@ -152,8 +154,8 @@ Items acknowledged and carried forward from v1.0 milestone close:
 
 ## Session Continuity
 
-Last session: 2026-05-06T23:12:55Z
-Stopped at: Phase 7 Plan 02 complete
-Resume file: .planning/phases/07-slide-rust-core-framer-crc-state-machine/07-03-PLAN.md
+Last session: 2026-05-06T23:25:21.107Z
+Stopped at: Phase 7 Plan 03 complete
+Resume file: None
 
 **Next Plan:** 07-03 (Slide struct + SlideState + receiver SM + cancel/force_idle + module-level smokes, Wave 3). Plan 07-02 unblocks 07-03 (the receiver SM in `slide/state.rs` drives a `Framer` instance from inside `Slide::feed_byte`/`feed_chunk`).
