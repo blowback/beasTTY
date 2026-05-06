@@ -156,8 +156,10 @@ Architecture, table-stakes, and pitfalls grounded in `.planning/research/{STACK,
 ### SLIDE protocol — Rust framer + state machine + wasm boundary
 
 - [ ] **SLIDE-01**: Rust core implements byte-fed SLIDE state machine in a new `slide/` module, exposed via wasm-bindgen `Slide` struct sibling to `Terminal`
-- [ ] **SLIDE-02**: Frame parser handles arbitrary Web Serial chunk boundaries (torn-chunk safe across SOF/SEQ/LEN/PAYLOAD/CRC); native `cargo test` torn-chunk corpus green
-- [ ] **SLIDE-03**: CRC-16-CCITT matches SLIDE v0.2 spec exactly (poly 0x1021, init 0xFFFF, big-endian on wire, covers SEQ+LEN_H+LEN_L+PAYLOAD); reference vector `crc16_ccitt(b"123456789") == 0x29B1`; byte-for-byte equality with slide-rs `build_frame` fixtures
+- [x] **SLIDE-02
+**: Frame parser handles arbitrary Web Serial chunk boundaries (torn-chunk safe across SOF/SEQ/LEN/PAYLOAD/CRC); native `cargo test` torn-chunk corpus green
+- [x] **SLIDE-03
+**: CRC-16-CCITT matches SLIDE v0.2 spec exactly (poly 0x1021, init 0xFFFF, big-endian on wire, covers SEQ+LEN_H+LEN_L+PAYLOAD); reference vector `crc16_ccitt(b"123456789") == 0x29B1`; byte-for-byte equality with slide-rs `build_frame` fixtures
 - [ ] **SLIDE-04**: Sliding-window state machine (4 frames × 1024 bytes) handles RDY / ACK / NAK / CAN / FIN / CTRL_FIN per SLIDE v0.2 plus the v0.2.1 CAN-bidirectional amendment
 - [ ] **SLIDE-05**: JS dispatcher (`transport/slide.js:dispatchInbound`) routes Web Serial chunks to terminal parser OR SLIDE state machine based on session mode; detects 7-byte wakeup `ESC ^ S L I D E` across chunk boundaries via single-byte carry flag
 - [ ] **SLIDE-06**: TX writer ownership handoff — `tx-sink.js:setWireOwner('slide')` blocks `pushTxBytes` keystroke writes during active session; SLIDE writes via separate `writeSlideFrame` path that bypasses the keystroke ring

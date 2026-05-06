@@ -174,7 +174,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   5. The new module has zero browser dependencies — `cargo build --target x86_64-unknown-linux-gnu` and `cargo test` both succeed; the existing `tests/core_02_no_browser_deps.rs` invariant remains green for the whole crate
 **Plans**: 5 plans
   - [x] 07-01-PLAN.md — slide/ module skeleton + CRC primitive + lib.rs mod-tree + Cargo.toml D-01 audit (Wave 1)
-  - [ ] 07-02-PLAN.md — Framer DFA + tests_only.rs fixture pinning + slide_reference_corpus integration tests (Wave 2)
+  - [x] 07-02-PLAN.md — Framer DFA + tests_only.rs fixture pinning + slide_reference_corpus integration tests (Wave 2)
   - [ ] 07-03-PLAN.md — Slide struct + SlideState + receiver SM + cancel/force_idle + module-level smokes (Wave 3)
   - [ ] 07-04-PLAN.md — Integration tests: torn-chunk corpus + idempotent re-entry + Phase 8 boundary-shape pin (Wave 4)
   - [ ] 07-05-PLAN.md — ADR-003 (CAN bidirectional amendment) + std::time hardening of core_02_no_browser_deps (Wave 4)
@@ -253,7 +253,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 4. Keyboard Input | 4/4 | Complete    | 2026-04-22 |
 | 5. Web Serial Transport | 7/7 | Complete    | 2026-04-23 |
 | 6. Daily-Driver Polish, Session & Deployment | 8/8 | Complete    | 2026-04-25 |
-| 7. SLIDE Rust Core — Framer, CRC, State Machine | 1/5 | In progress | - |
+| 7. SLIDE Rust Core — Framer, CRC, State Machine | 2/5 | In progress | - |
 | 8. Wasm Boundary, JS Dispatcher & ESC^ Wakeup | 0/TBD | Not started | - |
 | 9. SLIDE Sender — Host → Z80 Send | 0/TBD | Not started | - |
 | 10. SLIDE Receiver & Cancellation | 0/TBD | Not started | - |
