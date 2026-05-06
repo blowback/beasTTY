@@ -19,6 +19,7 @@
 
 pub mod crc;
 pub mod framer;
+pub mod state;
 
 // `tests_only` is unconditionally `pub` because integration tests under
 // `tests/slide_*.rs` compile against the lib in NON-test mode and so cannot
@@ -27,3 +28,11 @@ pub mod framer;
 // this module, so production wasm bundles do not surface it.
 #[doc(hidden)]
 pub mod tests_only;
+
+// Top-level re-exports so callers can write `slide::Slide` instead of
+// `slide::state::Slide`. Mirror of lib.rs top-level shape.
+pub use state::{Slide, SlideRole, SlideState};
+pub use framer::{
+    EVT_NONE, EVT_RDY, EVT_ACK, EVT_NAK, EVT_FIN, EVT_CAN,
+    EVT_DATA_FRAME, EVT_CRC_ERROR,
+};

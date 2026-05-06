@@ -50,6 +50,8 @@ pub use crate::slide::framer::{
     FramerState, Framer,
 };
 
+pub use crate::slide::state::{Slide, SlideRole, SlideState};
+
 // ===== D-04(b) reference corpus: 7 fixtures pasted from RESEARCH §Test Corpus =====
 // Each fixture's CRC was independently re-computed against slide-py/common.py
 // (line-for-line equivalent to slide-rs/protocol.rs:16-30 algorithmically).
