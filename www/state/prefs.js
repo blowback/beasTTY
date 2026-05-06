@@ -25,6 +25,7 @@ const DEFAULTS = Object.freeze({
     localEcho: false,
     crlfMode: 'cr',
     autoConnect: false,
+    showAllSerialDevices: false,
 });
 
 let cached = null;

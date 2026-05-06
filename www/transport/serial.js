@@ -13,6 +13,10 @@
 
 import { registerWriter, unregisterWriter } from '../input/tx-sink.js';
 import { onPortLost as pastePumpOnPortLost } from '../input/paste-pump.js';
+// Live read of prefs.showAllSerialDevices at picker time. Cannot use the
+// boot-time `prefsRef` snapshot because savePrefs replaces the cached object —
+// prefsRef would still point at the original blob and miss subsequent toggles.
+import { getPrefs } from '../state/prefs.js';
 
 // Constants -----------------------------------------------------------------
 const VID_MICROBEAST = 0x10c4;   // D-02 — Silicon Labs (CP2102N)
@@ -344,11 +348,16 @@ export async function connectMicroBeast(configOverride) {
     setState('connecting');
     let selectedPort;
     try {
-        // D-02 — filter-narrowed native picker (literal VID/PID so grep-anchored
-        // done-criteria can verify the CP2102N identity without indirection).
-        selectedPort = await navigator.serial.requestPort({
-            filters: [{ usbVendorId: 0x10c4, usbProductId: 0xea60 }],
-        });
+        // D-02 — narrow the native picker to the CP2102N MicroBeast bridge by
+        // default. When the user opts in via Connection → "Show all serial
+        // devices" (e.g. MicroBeast clone using FTDI/CH340/CP2104, or virtual
+        // COM port), drop the filter and show every available port. Read the
+        // pref live (getPrefs()) — a boot-time snapshot would miss toggles.
+        const livePrefs = getPrefs() || {};
+        const requestOpts = livePrefs.showAllSerialDevices
+            ? {}
+            : { filters: [{ usbVendorId: VID_MICROBEAST, usbProductId: PID_MICROBEAST }] };
+        selectedPort = await navigator.serial.requestPort(requestOpts);
     } catch (err) {
         // User cancelled picker OR no-match rejection.
         setState('disconnected');

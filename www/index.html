@@ -585,6 +585,11 @@
     </fieldset>
     <span id="serial-reconnect-hint" class="hint" hidden></span>
     <button id="serial-reset-preset" type="button">Reset to MicroBeast preset</button>
+    <label for="show-all-serial-devices">
+      <input type="checkbox" id="show-all-serial-devices">
+      Show all serial devices in picker
+    </label>
+    <p class="hint">Off by default — the picker only lists the Silicon Labs CP2102N (the chip on stock MicroBeast hardware). Turn this on if your MicroBeast uses a different USB-serial bridge (FTDI, CH340, CP2104) or you're connecting via a virtual COM port (USB-IP, Bluetooth-SPP, ser2net). Takes effect on the next Connect click.</p>
     <!-- Phase 6 D-31 (Plan 06-05) — per-connection RX log download. Disabled
          until the first byte arrives; tooltip cycles per session-log.js. -->
     <button id="download-log-button" type="button" disabled

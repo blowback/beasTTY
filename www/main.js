@@ -587,6 +587,12 @@ function applyPrefs(p) {
     // resetPrefs() (D-35) restores the unchecked default in-place.
     const autoConnectCheckbox = document.getElementById('auto-connect-checkbox');
     if (autoConnectCheckbox) autoConnectCheckbox.checked = !!p.autoConnect;
+    // Show-all-serial-devices checkbox — same mirror-only pattern. The change
+    // listener is wired below at boot; serial.js reads the live pref via
+    // getPrefs() at requestPort time, so this checkbox does not need a click
+    // to take effect on the next Connect.
+    const showAllSerialCheckbox = document.getElementById('show-all-serial-devices');
+    if (showAllSerialCheckbox) showAllSerialCheckbox.checked = !!p.showAllSerialDevices;
     // Serial-config form: mirror stored values so a fresh load shows the
     // persisted config in the Connection-pane form. The Phase 5 D-08
     // reconnect-required hint pattern handles live config changes.

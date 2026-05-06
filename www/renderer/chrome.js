@@ -263,6 +263,21 @@ export function wireChrome(opts) {
         autoConnectCheckbox.addEventListener('mousedown', (e) => e.preventDefault());
     }
 
+    // ==== "Show all serial devices" checkbox ====
+    // When on, the Connect picker drops the CP2102N VID/PID filter so users
+    // with non-stock USB-serial bridges (FTDI, CH340, CP2104) or virtual COM
+    // ports can see their device. serial.js reads the live pref via getPrefs()
+    // at requestPort time, so the checkbox takes effect on the next Connect
+    // click without needing a reload.
+    const showAllSerialCheckbox = document.getElementById('show-all-serial-devices');
+    if (showAllSerialCheckbox) {
+        showAllSerialCheckbox.checked = !!(prefs && prefs.showAllSerialDevices);
+        showAllSerialCheckbox.addEventListener('change', (e) => {
+            if (savePrefs) savePrefs({ showAllSerialDevices: e.target.checked });
+        });
+        showAllSerialCheckbox.addEventListener('mousedown', (e) => e.preventDefault());
+    }
+
     // ==== Phase 6 Plan 06 (Wave 5) — Reset prefs 2-click confirm (D-35) ====
     // First click swaps label to "Click again to confirm (3 s)" and arms a
     // 3-second timer that reverts. Second click within 3 s commits the reset:
