@@ -1,549 +1,503 @@
-# Pitfalls Research
+# PITFALLS Research — SLIDE Browser-Side File Transfer
 
-**Domain:** In-browser VT52 terminal emulator (Rust/wasm core + JS/Web Serial shell) as daily driver for MicroBeast Z80
-**Researched:** 2026-04-21
-**Confidence:** HIGH for Web Serial, wasm boundary, canvas HiDPI (verified across MDN, Chrome docs, WICG issues). MEDIUM for VT52 parser edge cases (VT52 is a small target, so most guidance is inferred from DEC manuals + related state-machine parsers). MEDIUM for daily-driver endurance (drawn from xterm.js/VSCode issue trackers and Chrome throttling docs).
-
-## Critical Pitfalls
-
-### Pitfall 1: The Web Serial Reader-Lock Deadlock on Disconnect
-
-**What goes wrong:**
-The JS shell calls `port.readable.getReader()` and enters a `while (true) { await reader.read() }` loop. When the MicroBeast is unplugged, or when the user clicks "Disconnect", calling `port.close()` throws because `readable` is locked to a reader; calling `reader.releaseLock()` throws because a `read()` is still pending; and the pending `read()` never resolves (there's nothing on the wire). The UI gets stuck in a half-connected state that a page reload is the only way to escape.
-
-**Why it happens:**
-The reader lock is held for the entire lifetime of the read loop, but `read()` is blocking indefinitely. Developers instinctively think "await read then release lock" — but you can't release a lock while a read is outstanding, and you can't stop the read except by cancelling the reader. WICG/serial#112 is the definitive reference for this deadlock.
-
-**How to avoid:**
-Stash the reader in a module-scoped variable at loop start. On any disconnect path (user click, `disconnect` event, error), call `reader.cancel()` *first*. That causes the pending `read()` to resolve with `{value: undefined, done: true}`, the loop exits, `reader.releaseLock()` succeeds, and `port.close()` works. Always call `cancel()` from the disconnect handler — never try to `close()` first.
-
-**Warning signs:**
-- During manual testing: unplug USB, UI says "disconnected" but reconnecting doesn't work, dev console shows "port already open" or "readable is locked".
-- In code review: any `getReader()` without a matching `cancel()` path on *every* disconnect branch.
-- Reload is required to recover from disconnect in manual smoke tests.
-
-**Phase to address:**
-Serial transport phase. Must have a cancellation-aware read loop from day one — retrofitting it later means rewriting the entire transport layer.
+**Domain:** Adding a binary, framed, sliding-window file-transfer protocol over Web Serial to an existing terminal emulator (BestialiTTY v1.0 → v1.1).
+**Researched:** 2026-05-06
+**Confidence:** HIGH for SLIDE protocol shape and Web Serial behavior. MEDIUM for Chrome download-throttle behavior. HIGH for re-entrancy and chip-collision risks.
 
 ---
 
-### Pitfall 2: Escape Sequence Split Across Chunk Boundaries
+## Critical Pitfalls (BLOCKING — will lose data, hang the wire, or corrupt files)
+
+### Pitfall 1: Frame-at-a-time parsing assuming Web Serial chunks align with SLIDE frames
+
+**Severity:** BLOCKING
 
 **What goes wrong:**
-The MicroBeast sends `ESC Y 040 047` (direct cursor address to row 0 col 7). The OS delivers it to Web Serial as two chunks: `ESC Y 040` and `047`. If the VT52 parser is stateless per chunk — e.g., "scan for ESC, then switch on next byte" — it sees `ESC Y` plus a partial row byte, panics or emits garbage, and loses the column byte entirely. Screen corrupts. Worse: it might "work" in local testing at 9600 baud with an in-tree fake and break only on a real MicroBeast under load.
+SLIDE wire is `[SOF=0x01] [SEQ] [LEN_H] [LEN_L] [PAYLOAD ≤1024B] [CRC_H] [CRC_L]` — frames up to 1031 bytes. Web Serial delivers `Uint8Array` chunks at *whatever* size the OS USB driver chose: 1 byte, 64 bytes (one CDC packet), 4 KB (one URB completion). **Zero alignment** between chunk boundaries and SLIDE frames. Naive `parseFrame(chunk)` per `reader.read()` resolution will:
+- Bail when chunk ends mid-payload — state lost; next chunk seen as garbage.
+- Mis-parse a chunk containing 1.5 frames.
+- Miss control bytes (ACK/NAK/RDY) arriving with the next frame.
 
-**Why it happens:**
-Two related mistakes:
-1. VT52 has exactly one multi-byte sequence (`ESC Y <row> <col>`) that's easy to forget when you're pattern-matching single-character escapes.
-2. Web Serial chunks are *not* message-framed. Any boundary is legal. TCP programmers learn this the hard way; serial programmers sometimes don't because on slow links chunks *usually* align to commands.
+**Manifestation:**
+- Transfer succeeds at low payload sizes (≤64 bytes that fit in a single CDC packet) but fails when OS coalesces.
+- "CRC mismatch" errors that disappear when you `console.log` the chunks.
+- Heisenbugs at ~2KB+ files; success on ≤1KB files.
 
-**How to avoid:**
-- Design the Rust parser as a byte-at-a-time state machine with explicit states (`Ground`, `Escape`, `CursorRow`, `CursorCol`). Never do "scan forward for the next byte" — always consume exactly one byte and transition. Paul Williams' state machine model (vt100.net/emu/dec_ansi_parser) is the right mental model even for VT52.
-- Feed the parser byte-at-a-time from the wasm boundary — OR batch a whole chunk into the boundary call and iterate byte-at-a-time *inside* Rust (preferred — see Pitfall 4).
-- Unit-test the parser with torn chunks: for every multi-byte sequence, split it at every internal offset and verify output is identical to the unsplit case.
+**Prevention:**
+Rust core MUST own a streaming framer with these properties:
+1. **Append-only feed:** JS calls `slide.feed_bytes(uint8array)`; Rust appends to internal buffer.
+2. **State machine drives consumption:** explicit states `WaitingSof / GotSof_NeedSeq / GotSeq_NeedLenH / ... / Reading_Payload(remaining: usize) / Reading_CrcH / Reading_CrcL_Validate`.
+3. **`drain_events()` accessor** returns 0..N completed frames + 0..N control byte events as a batch.
+4. **No JS-side framing logic at all.**
 
-**Warning signs:**
-- Parser has any code that looks at "next byte" without a state transition in between.
-- Tests pass with full-sequence input but never exercise split input.
-- Visual corruption (cursor goes to wrong cell, stray characters) appears at high baud rates or bursty output but not slow output.
+Code guard location: `crates/bestialitty-core/src/slide/framer.rs`. Test with a torn-chunk corpus (mirror Phase 1's `tests/torn_chunk.rs` pattern).
 
-**Phase to address:**
-Parser phase. The torn-chunk unit test is the single highest-leverage test in the whole project and must be written on day one of the parser.
+**Phase to address:** Phase 1 of v1.1 (Rust framer).
 
 ---
 
-### Pitfall 3: VT52 Cursor Addressing Byte Offset Mistake (`ESC Y` +32 bias)
+### Pitfall 2: `ESC ^` wakeup detection that doesn't span chunk boundaries
+
+**Severity:** BLOCKING
 
 **What goes wrong:**
-`ESC Y <row> <col>` uses ASCII bytes offset by 040 octal (0x20, 32 decimal, the space character). Row 0 is sent as byte 040 (space). Row 1 is 041 (`!`). Row 23 is 067 (`7`). Developers frequently:
-- Subtract 0x20 from the wrong byte (swap row/col order — VT52 is row-first, unlike some terminals).
-- Treat the bytes as ASCII digits (`'0'` == 48, not 32) and get rows off by 16.
-- Forget that the offset applies to the raw byte, not a parsed integer — so byte 0x41 (`A`) becomes row 33, not an error.
-- Fail to clamp: if the MicroBeast sends bytes < 040 (bug in host software) the row/col underflow into huge values and the cursor-position state corrupts.
+Wakeup is two bytes: `0x1B 0x5E`. Naive per-chunk scan misses across boundaries, AND `ESC ^` is a valid VT52 sequence ("enter graphics mode") that some Z80 programs may emit accidentally.
 
-This exact bug has shipped in production terminal emulators — see mintty#1299 where VT52 `ESC Y` positioning was broken for years.
+**Manifestation:**
+- Failure 1: transfer never starts when slide.com runs; user sees `RDY` bytes (`0x11 0x11 0x11`) bleed into terminal display.
+- Failure 2: terminal locks into SLIDE mode after some innocent program output.
 
-**Why it happens:**
-VT52 is from 1975 and its encoding predates common conventions. DEC picked 040 because printable-ASCII-minus-space gives 94 valid positions, enough for 80x24. Modern developers assume "ASCII digits" or "binary" and get it wrong.
+**Prevention:**
+1. **Detection lives in the Rust parser, not in JS.** Extend the existing escape state.
+2. **Consider extending wakeup signature:** `ESC ^ S L I D E` (7 bytes — near-zero collision risk).
+3. **Forward-compat fallback:** if user runs old slide.com that emits only `ESC ^`, wait ~50ms after `ESC ^` for confirmation bytes (RDY 0x11 next byte = legit; anything else = treat as VT52 graphics mode escape).
+4. **Z80 version detection:** capture slide.asm version in wakeup payload (`ESC ^ S L 0 2` → "SLIDE v0.2").
 
-**How to avoid:**
-- Read the DEC VT52 manual (vt100.net/docs/vt52-mm/chapter3.html) *before* writing the parser, not after.
-- Implement as: `row = raw_byte.saturating_sub(0x20).min(MAX_ROW)` and same for col. Explicit saturation on underflow and clamp on overflow.
-- Unit test with every edge: `ESC Y 0x20 0x20` → (0,0), `ESC Y 0x37 0x6F` → (23, 79), `ESC Y 0x1F 0x20` → clamped to (0,0), `ESC Y 0x7F 0x7F` → clamped to max.
-- Test order: VT52 is row-then-col. Write a failing test that proves this before writing the state machine.
+How ZMODEM-over-xterm.js solves it (ecosystem precedent): ZMODEM uses `**\x18B00` (5 bytes including ZDLE) — much longer signature for exactly this reason.
 
-**Warning signs:**
-- `vi`, `less`, or any full-screen MicroBeast program positions cursor in the wrong row by exactly 16 or 48 (0x30 vs 0x20 offset bug).
-- Cursor "teleports off-screen" when a program tries to address the bottom of the screen.
-- Bottom half of screen never gets written to.
-
-**Phase to address:**
-Parser phase. First visible end-to-end test should be running a full-screen MicroBeast program and seeing correct positioning.
+**Phase to address:** Phase 2 (parser integration).
 
 ---
 
-### Pitfall 4: wasm↔JS Boundary Chattiness Tanking Performance
+### Pitfall 3: CRC-16-CCITT poly direction / init / byte-order confusion
+
+**Severity:** BLOCKING
 
 **What goes wrong:**
-The obvious architecture — "JS reads a byte from serial, calls `wasm.feed_byte(b)`, wasm returns a render delta, JS applies it" — performs catastrophically. Every call across the JS/wasm boundary has non-trivial overhead (serialization, stack frames, memory copies). At 115200 baud that's 11.5k boundary crossings per second, plus returned objects being allocated and GC'd. Typing feels fine, but a `cat bigfile` from the MicroBeast tanks the frame rate or pegs a core.
+"CRC-16-CCITT" is not one algorithm — it's a family of variants that disagree on:
+- **Polynomial direction:** 0x1021 (msb-first, "standard") vs 0x8408 (lsb-first, bit-reversed).
+- **Initial value:** 0xFFFF (CCITT-FALSE, what SLIDE uses) vs 0x0000 (XMODEM) vs 0x1D0F (CCITT-AUG).
+- **RefIn / RefOut:** whether each input byte and final CRC are bit-reversed.
+- **Byte order on wire:** big-endian (CRC_H first, what SLIDE uses) vs little-endian.
 
-**Why it happens:**
-wasm-bindgen's idiomatic "call a function with arguments" pattern hides the boundary cost. Small functions look cheap. Training material often uses small demos where chattiness doesn't matter. See rustwasm/wasm-bindgen#1119 for a textbook example of this exact mistake tanking performance.
+slide-rs and slide-py use **CCITT-FALSE specifically: poly 0x1021, init 0xFFFF, no refin/refout, xorout 0x0000, big-endian on wire**. Many "CRC-16-CCITT" libraries default to one of OTHER variants.
 
-**How to avoid:**
-- Design the wasm API in batches, not bytes: `feed_bytes(chunk: &[u8])` and `render_into(buf: &mut [u8])`. One boundary crossing per serial chunk, not per byte.
-- Return render data via shared memory, not JS objects. Expose a "dirty cells" bitmap or a grid buffer in wasm linear memory, let JS read it via `Uint8Array` views on `wasm.memory.buffer`. Don't build JS objects in Rust.
-- Keep string construction on the JS side. Don't allocate `String` in Rust and pass it out per-frame.
-- Profile early: add a "1 MB dump" benchmark (`cat /dev/urandom | head -c 1048576` equivalent on MicroBeast) and measure throughput. Target: sustain at least 10x the configured baud rate.
+**Manifestation:**
+- Every frame NAK'd → 15 retries → transfer aborts.
+- Or worse: ~50% frames pass → looks like noisy USB cable → user blames hardware.
+- Test fails: `crc16_ccitt(b"123456789")` MUST return `0x29B1`. Any other value = wrong variant.
 
-**Warning signs:**
-- Frame rate drops during bulk output (scrolling a long file, a directory listing).
-- Chrome DevTools Performance tab shows lots of time in `__wbindgen_*` or `wasm-bindgen` glue.
-- Memory growth visible during bulk output — pointing at per-byte allocations.
+**Prevention:**
+1. **Hand-roll the CRC in Rust core**, copy-paste from slide-rs `protocol.rs:16-30` exactly. (Or use the `crc` crate v3.4 with predefined `CRC_16_IBM_3740` — SLIDE's CRC is exactly this catalogue entry. STACK research confirms.)
+2. **Pin a wire-compatibility test** that asserts byte-for-byte equality against slide-rs `build_frame` output for fixed corpus.
+3. **CRC bytes on wire are big-endian** (CRC_H first).
+4. **CRC covers SEQ + LEN_H + LEN_L + PAYLOAD** — NOT including SOF, NOT including CRC bytes themselves.
 
-**Phase to address:**
-Interop design phase, before writing any parser code. The boundary shape is load-bearing and expensive to change later.
+Code guard location: `crates/bestialitty-core/src/slide/crc.rs` with reference-corpus test.
+
+**Phase to address:** Phase 1.
 
 ---
 
-### Pitfall 5: Canvas Rendering Goes Blurry on HiDPI
+### Pitfall 4: Backpressure ignored — `writer.write()` chained without `await writer.ready`
+
+**Severity:** BLOCKING (sliding-window throughput) → HIGH (correctness if combined with cancellation)
 
 **What goes wrong:**
-Terminal on a Retina MacBook or a 4K monitor looks fuzzy. Crisp bitmap phosphor aesthetic looks like mud. CRT theme has the opposite of its intended effect — the scanlines become smeared rather than sharp. Developer looks at it on their 1080p dev monitor and thinks it's fine.
+SLIDE sends sliding window: WIN_SIZE=4 frames × 1024 = ~4 KB rapidly. Web Serial's `writer.write(bytes)` returns Promise that resolves when *internal queue* accepts bytes — NOT when bytes leave USB port. If consumer (CP2102N + Z80) is slow, OS USB buffer fills, WritableStream queue fills, `writer.write()` Promises take arbitrary time.
 
-**Why it happens:**
-A `<canvas>` with `width="800" height="600"` at 1x DPR gets 800x600 backing pixels. At 2x DPR (Retina) that same canvas is still 800x600 backing pixels, stretched to cover a 1600x1200 CSS-pixel area — it's bilinearly upsampled by the browser. Monospace text and scanlines are exactly the kind of content where upsampling is most visible.
+Two failure modes:
+1. **Naive parallel writes:** all 4 promises fire simultaneously; if receiver NAKs frame 2, frames 3-4 already queued — can't pull back. NAK-driven retransmit becomes incoherent.
+2. **Sequential await without `writer.ready`:** seems safe, but `writer.write()` resolves on queue-accept, not byte-out. If receiver hangs, Promise never resolves — cancellation can't proceed.
 
-**How to avoid:**
-- At init and on every resize: read `window.devicePixelRatio`, set `canvas.width = cssWidth * dpr` and `canvas.height = cssHeight * dpr`, set CSS width/height explicitly, and call `ctx.scale(dpr, dpr)` (or do the math yourself when drawing).
-- Listen for DPR changes via `matchMedia("(resolution: ...)").addEventListener("change", ...)` — users can drag the window between monitors with different DPRs.
-- Disable `imageSmoothingEnabled` for the phosphor/bitmap theme to keep pixels sharp.
-- For a terminal with a fixed glyph cell, consider rendering each glyph once into an off-screen canvas at DPR-correct size and blitting — avoids repeated text-shaping and keeps pixels integer-aligned.
+**Manifestation:**
+- Looks fine in single-frame tests; explodes at multi-frame windows.
+- Throughput at 19200 baud should be ~1900 B/s. If you see 200 B/s, backpressure is mishandled.
+- Cancel button doesn't work — write loop stuck in `await writer.write()`.
 
-**Warning signs:**
-- QA on any non-1x-DPR display immediately reveals blur.
-- Text looks softer than native macOS/Windows terminal apps side-by-side.
-- Visual regression: screenshots differ between machines.
+**Prevention:**
+1. **Use `writer.ready` as the gate, not the write Promise.**
+2. **Race the write against an AbortSignal-driven Promise** for cancellation.
+3. **Track in-flight write Promises in a Set** so cancellation can `Promise.allSettled` them on a teardown timeout.
+4. Ban `await writer.write()` via code-review gate; the legitimate idiom is `await writer.ready; writer.write(bytes)`.
 
-**Phase to address:**
-Rendering phase. Build the HiDPI-correct resize handler before you draw any glyphs. Retrofitting it is a rendering rewrite.
+Code guard location: `www/transport/slide.js` sender-side write loop.
+
+**Phase to address:** Phase 3 (sender-side wire driver).
 
 ---
 
-### Pitfall 6: Background-Tab Throttling Silently Loses Serial Data
+### Pitfall 5: Cancellation race — frame in flight when user clicks Cancel
+
+**Severity:** BLOCKING
 
 **What goes wrong:**
-User switches tabs during a long MicroBeast build/assembly. Chrome throttles the tab: `requestAnimationFrame` pauses, timers run once per minute, the render loop stops. Meanwhile the serial reader is still receiving — but if the JS pump is rAF-driven, bytes accumulate in the Web Serial internal buffer, then in a JS buffer, then eventually backpressure stalls reads. When the user switches back they see either a flood of delayed output (if everything was queued) or a hole in the session log (if the read loop stalled and the MicroBeast kept sending into the void). For a daily driver this means "I switched to my browser for 2 minutes and my build output is mangled."
+User clicks Cancel mid-transfer:
+- A frame is mid-write (~512 bytes already on wire).
+- Reader is mid-read.
+- Receiver (Z80) is mid-frame-receive on its end.
 
-**Why it happens:**
-Chrome 57+ background throttling limits background timer CPU budgets to ~1% (developer.chrome.com/blog/background_tabs and blog/timer-throttling-in-chrome-88). Most web devs drive all their work from rAF because that's idiomatic for games/animations. Terminal-as-app doesn't fit that pattern — reads are I/O driven, not display driven.
+Naive `reader.cancel()` + `writer.releaseLock()` leaves wire in unknown state. Z80 sees partial frame, eventually times out, NAK arrives AFTER teardown — bytes pile up in OS buffer. Next SLIDE session sees `0x15 0x__` as garbage SOF-search and consumes random bytes.
 
-**How to avoid:**
-- **Decouple the serial read loop from rAF.** The read loop is `await reader.read()` forever, running independently of render. Rendering is rAF-driven, but reading is not.
-- Use a separate append-only internal buffer (a ring buffer, or just a `Vec<u8>` in wasm) that the reader pushes into and the renderer drains. This way data is captured even when rendering is throttled.
-- On `visibilitychange` → `visible`, trigger a catch-up render. Expect the dirty buffer to be large; make sure render-one-frame can handle it without blocking.
-- For session logging (if you write to a file/`showSaveFilePicker`): flush writes on visibility change and on disconnect, not only on buffer-full — throttled tabs may never hit buffer-full.
+Worse: SLIDE protocol defines `CTRL_CAN = 0x18` but slide-rs/slide-py never SEND it — only treat as "Z80 reported disk error". No defined PC→Z80 cancel signal.
 
-**Warning signs:**
-- Data loss after tab switch in manual testing.
-- rAF callbacks appearing on the Performance timeline only when tab is active.
-- Session log files have gaps corresponding to when the tab was backgrounded.
-- User reports: "I left it running overnight, output is missing / garbled."
+**Manifestation:**
+- Cancel "succeeds" but next transfer fails with "CRC mismatch" on first frame.
+- Z80 hangs at SLIDE prompt — slide.com waits 30 seconds for retry.
+- "Reload page" required to recover.
 
-**Phase to address:**
-Reliability/daily-driver hardening phase, but the architectural decision (read loop independent of render loop) must be made during transport design. Retrofitting this is a substantial refactor.
+**Prevention:**
+1. **Define cancellation protocol amendment** for SLIDE v0.2.1: PC sends `CTRL_CAN`, Z80 acknowledges with CAN echo, both sides drain. **Z80-side change.**
+2. **Cancellation order:**
+   1. Set `cancelRequested = true` flag.
+   2. Wait for in-flight `writer.write()` to settle (Promise.allSettled, 200ms timeout).
+   3. Send `CTRL_CAN` byte.
+   4. Wait up to 500ms for Z80's CAN echo.
+   5. Drain remaining bytes (100ms reader.read loop).
+   6. **Do NOT call reader.cancel() or port.close()** — keep terminal session alive.
+3. **Re-arm framer** by calling `slide.reset()`.
+4. **AbortController everywhere** — propagates into `writer.ready` race and framer event loop.
+
+Code guard location: `crates/bestialitty-core/src/slide/state.rs` `cancel()` API + `www/transport/slide.js` wire-level CAN exchange.
+
+**Phase to address:** Phase 4 (state machine + cancellation). Playwright test: simulate Cancel at mid-frame, mid-window-ack — assert wire returns to neutral.
 
 ---
 
-### Pitfall 7: Scrollback Unbounded Growth During Long Sessions
+## High-Severity Pitfalls
+
+### Pitfall 6: Tab close mid-transfer — `beforeunload` doesn't fire reliably
+
+**Severity:** HIGH
 
 **What goes wrong:**
-Author runs the emulator as their daily driver. Over a 6-hour work session they run long builds, watch logs, have `tail -f` style output. Scrollback grows without bound. At 80 cols × 1M lines × ~12 bytes/cell × cell overhead, memory hits 1-2 GB. Chrome tab OOMs, or the machine swaps, or the browser silently freezes during GC. This is the exact failure mode xterm.js#518 and related issues documented — a 160x24 × 5000 line buffer already uses ~34 MB, and it scales linearly.
+Phase 5 relies on `beforeunload` for teardown. Doesn't reliably fire for:
+- Browser crash, OS kill, hardware shutdown.
+- Mobile-style tab eviction (Chromium discards background tabs).
+- Closing entire browser window with multiple tabs.
 
-**Why it happens:**
-"Infinite scrollback" sounds great until it isn't. Simple data structures (array of row objects) have significant per-cell overhead. Each cell often carries color/attribute state even when the whole session is amber-on-black. Plus: in a naive implementation, the render loop may be walking the scrollback every frame for no good reason.
+Mid-transfer leaves wire in undefined state; Z80 file write may be partial garbage on disk.
 
-**How to avoid:**
-- Set a default scrollback cap (say, 10000 lines = ~2.5 MB at 80 cols with tight encoding) with a clearly documented user-configurable override.
-- Use a ring buffer, not a growable array. When full, oldest line is evicted in O(1).
-- Encode cells tightly: `(u8 glyph, u8 attr)` is 2 bytes. For single-color VT52, arguably just `u8 glyph` + a sparse attr overlay. Don't use JS objects per cell.
-- Store scrollback in wasm linear memory, not in JS objects. Keeps GC pressure near zero and memory dense.
-- Never walk the full scrollback on every render — only the visible viewport.
-- If session logging is a separate feature: route log writes to a file, not into scrollback. Scrollback is for scrolling; logging is for archiving.
+**Prevention:**
+1. **`visibilitychange` listener** in addition to `beforeunload`: send CAN if active session.
+2. **Header frame includes transaction ID** (random UUID). Z80 writes file as `SLIDE.TMP`, renames to final after EOF ACK. Atomic. **Z80-side change.**
+3. **Document failure mode** in human-UAT: "Closing browser mid-transfer may leave partial file on Z80 — cleanup with `era *.tmp`".
+4. **Receive direction (Z80 → PC):** failure benign — partial file in JS memory dies with tab.
 
-**Warning signs:**
-- Memory graph in DevTools climbs monotonically during use.
-- Scrolling feels laggy after a long session (GC pauses).
-- DevTools Memory snapshot shows huge arrays of small objects.
-- Tab crash with "out of memory" after extended use.
-
-**Phase to address:**
-Scrollback implementation phase — decide the encoding and cap up front. Reliability hardening phase — verify 24+ hour continuous-use doesn't grow memory.
+**Phase to address:** Phase 5 (integration).
 
 ---
 
-### Pitfall 8: Font Not Loaded When First Frame Renders
+### Pitfall 7: Filename collision after CP/M 8.3 uppercase truncation
+
+**Severity:** HIGH
 
 **What goes wrong:**
-Page loads, wasm initializes, MicroBeast sends a welcome banner, renderer draws it — in the browser's fallback font (Times New Roman or whatever). A moment later the custom font finishes loading but the banner stays in the fallback font until it scrolls off. Looks unprofessional, breaks the retrocomputing aesthetic, and for the phosphor CRT theme it just looks broken.
+slide-rs/slide-py uppercase but don't truncate. Z80-side does the truncation. Multi-file exposes this:
+- `report.txt` + `Report.txt` + `REPORT.TXT` all uppercase to `REPORT.TXT`; Z80 silently overwrites.
+- `verylongname.text` + `verylongother.text` truncate to `VERYLONG.TEX`; same overwrite.
 
-**Why it happens:**
-`@font-face` loads lazily — the font isn't fetched until it's actually needed. Canvas text rendering doesn't trigger the load. By the time `ctx.fillText("...", x, y)` is called, the font descriptor might exist but the actual font data hasn't arrived.
+User has no visual feedback that overwrites are happening.
 
-**How to avoid:**
-- Before initializing the renderer, `await document.fonts.load("16px MyTermFont")` for each font actually used. Block the "ready to render" signal on font load.
-- Use `document.fonts.ready` for a global "all fonts loaded" signal.
-- Bundle the font with the static site (self-host) — don't rely on Google Fonts CDN (adds latency, privacy leak, external dep for a self-hosted daily driver).
-- Use a `FontFace` object directly if you want precise control and explicit error handling.
-- During dev: artificially delay font loading (DevTools Network tab → throttle) and verify the first render waits.
+**Manifestation:**
+- User uploads 5 files; only 1-2 land on Z80.
+- Silent data loss.
 
-**Warning signs:**
-- First few frames render in a system font, then switch.
-- Layout shift at render-start when font dimensions change.
-- Visual regression testing catches pre- vs post-font-load differences.
+**Prevention:**
+1. **JS-side pre-flight collision check.** Compute post-truncation 8.3 form before opening session. If duplicates, surface chip:
+   ```
+   3 files would collide on the Z80 (REPORT.TXT × 3):
+   [Cancel] [Send only first] [Auto-rename: REPORT.TXT, REPORT~1.TXT, REPORT~2.TXT]
+   ```
+2. **Auto-rename pattern:** Windows convention `NAME.EXT`, `NAME~1.EXT`, `NAME~2.EXT`. Bounded to 9 collisions.
+3. **Reject non-ASCII filenames** at JS layer.
+4. **Settings option:** `Filename collision policy: [Auto-rename | Refuse | Prompt]`. Default = Prompt.
 
-**Phase to address:**
-Rendering phase. Trivial to fix if caught early, embarrassing if it ships.
+**Phase to address:** Phase 6 (UX polish).
 
 ---
 
-### Pitfall 9: Browser Intercepting Critical Ctrl-Key Shortcuts
+### Pitfall 8: Drag-drop event collision with existing canvas pointer-selection
+
+**Severity:** HIGH
 
 **What goes wrong:**
-User is editing with `vi` or `ed` on the MicroBeast over the emulator. They press `Ctrl+W` to delete a word. Chrome closes the tab. Or `Ctrl+N` to open a new file → Chrome opens a new window. Or `Ctrl+T` to transpose → Chrome opens a new tab. Or `Ctrl+L` in emacs → Chrome focuses the URL bar. For a daily driver this is immediately disqualifying — the user loses work and trust.
+v1.0 canvas has pointerdown/move/up handlers in `selection.js`. Drag-drop uses `dragenter/over/drop`. Different event types — but on Chrome the order when dropping a file:
+1. `dragenter` fires.
+2. `drop` fires.
+3. `pointerdown` MAY fire (depends on drag source).
 
-**Why it happens:**
-Browsers reserve some keyboard shortcuts for themselves. Calling `preventDefault()` in a `keydown` handler works for some (Ctrl+S, Ctrl+F, Ctrl+D) but does *not* work for others: Ctrl+W, Ctrl+N, Ctrl+T, Ctrl+Tab, Ctrl+Q and the whole Cmd-prefixed family on macOS are browser-exclusive unless you use the Keyboard Lock API — which only works in fullscreen. Cockpit project hit this exact issue (cockpit-project/cockpit#14545, #7956).
+Risk: `pointerdown` calls `setPointerCapture` and starts drag-select state. Both handlers run; selection state left dirty.
 
-**How to avoid:**
-- Capture keyboard events at `keydown` with `preventDefault()` for *every* key you want to forward to the MicroBeast. Do it synchronously in the handler, not in an async callback.
-- Document the unrecoverable shortcuts clearly in a "Known Quirks" section of the UI. Users expect Ctrl+W to work; if it can't, tell them.
-- Offer `navigator.keyboard.lock(['KeyW', 'KeyN', 'KeyT'])` when entering fullscreen mode (Keyboard Lock API — Chrome-only, works only in fullscreen). Provide an F11/"Enter Fullscreen" button so users who want Ctrl+W in vi can get it.
-- Provide a chord alternative for the un-capturable cases: e.g., "Press `Esc w` to send Ctrl+W" (like tmux prefix keys). Not pretty, but functional.
-- Be especially careful on macOS: Cmd+W closes the tab. Neither preventDefault nor Keyboard Lock save you. Document this.
+**Manifestation:**
+- Dropping file highlights random row of text after drop.
+- Ghost cursor / inverse-text artifact at drop location.
+- Inconsistent across Chromium versions.
 
-**Warning signs:**
-- User testing: any time a Ctrl-combo closes the tab.
-- Keyboard layout discrepancy between OSes.
-- Reports of "I lost my work when I pressed Ctrl+W."
+**Prevention:**
+1. **Drag-drop handler at wrapper level, not canvas:** attach to `#terminal-wrapper`; aggressive `e.preventDefault()`.
+2. **Drop visual signal at wrapper level:** semi-transparent overlay div with `pointer-events: none`.
+3. **Suppress pointer-selection while drop overlay visible:** in `selection.js:onPointerDown`, early-return if `slideDrop.isActiveOverlay()`.
+4. **Test in Playwright:** fire dragenter/dragover/drop manually; assert no selection range exists post-drop.
 
-**Phase to address:**
-Keyboard input phase. Must document the constraint up front — affects feature scope (fullscreen mode, keyboard-lock support).
+**Phase to address:** Phase 6.
 
 ---
 
-### Pitfall 10: Binary/High-Bit Bytes Corrupted by UTF-8 Decoder
+### Pitfall 9: Re-entrant `ESC ^` mid-session — state machine double-entry
+
+**Severity:** HIGH
 
 **What goes wrong:**
-Naive implementation: `const text = new TextDecoder('utf-8').decode(chunk); wasm.feed_string(text)`. The MicroBeast sends a byte > 0x7F — perhaps a block-drawing char from a program, perhaps a bit-flip glitch, perhaps a BEL followed by a raw byte. TextDecoder sees invalid UTF-8 and either throws (`fatal: true`) or silently replaces it with U+FFFD. Byte is lost. Parser never sees it. Worse: if a multi-byte partial sequence straddles a chunk boundary, TextDecoder holds state — and the held bytes come out "later" in the wrong chunk.
+Z80 mid-receive. CP/M shell or buggy program emits `ESC ^` accidentally (or Z80 reboots and slide.com auto-runs from RAMdisk). Parser sees `ESC ^` while in `SlideMode { ReceivingFile { seq: 5 } }`:
+1. Wakeup re-entry: parser resets to `Initial`; in-flight transfer's state lost.
+2. Wakeup ignored: Z80 has actually started new session; we miss new RDY handshake.
 
-**Why it happens:**
-Serial bytes aren't text. VT52 is a 7-bit protocol but the byte stream is 8-bit. Control characters are bytes, escape sequences are bytes, BEL is a byte. Treating the stream as a string is a category error that happens because TextDecoder is the "obvious" way to handle binary-to-string in the browser.
+**Manifestation:**
+- "Transfer randomly fails halfway" on Z80 reboots.
+- "Z80 says it sent the file but BestialiTTY shows no progress."
 
-**How to avoid:**
-- Pass raw bytes to wasm. Period. `Uint8Array` at the JS boundary, `&[u8]` in Rust. Never convert to `String` before feeding the parser.
-- Keep the parser purely byte-oriented. ASCII printable bytes (0x20-0x7E) become glyphs; control bytes (0x00-0x1F, 0x7F) drive the state machine; high-bit bytes (0x80+) get a policy decision (drop? treat as printable box-drawing? pass through?) — but it's the *parser's* decision, not the transport's.
-- Only convert to string at the *output* stage, per-glyph, when writing into the cell grid. Even there, many terminals just store the byte.
+**Prevention:**
+1. **Idempotent wakeup detection** in framer:
+   - Currently `Idle` → enter SLIDE mode.
+   - In `SlideMode { Initial }` → ignore (double wakeup, no harm).
+   - In `SlideMode { active }` → emit warning chip "Z80 reset detected; cancelling current transfer", call `reset()`.
+2. **Explicit session ID** in wakeup payload (random byte from Z80). Different ID → hard reset.
+3. **State entry/exit logged** to inline error log.
+4. **Don't auto-resume.** User clicks "Send again" if they want retry. Fail loudly, never silently.
 
-**Warning signs:**
-- Missing bell/beeps (BEL 0x07 survives UTF-8 but some control bytes don't if a decoder is in fatal mode).
-- Garbled output when the MicroBeast sends anything non-ASCII.
-- Intermittent missing characters at chunk boundaries (the TextDecoder "holding" partial-UTF8 bug).
-
-**Phase to address:**
-Transport phase. Decide "bytes end-to-end" as a design principle before writing the read loop. Cheap to get right, expensive to undo.
+**Phase to address:** Phase 4 (state machine).
 
 ---
 
-### Pitfall 11: Serial Port Identity Mismatch on Reconnect
+### Pitfall 10: Chrome download throttling on multi-file receive
+
+**Severity:** HIGH
 
 **What goes wrong:**
-User plugs MicroBeast into USB-A port, grants permission, uses it for a while, unplugs, later plugs into USB-C port. The `disconnect` event fired, `connect` event fires for the new plug, but the SerialPort instance may be new/different (depending on USB addressing) — or worse: the user has also been tinkering with an Arduino, and when BestialiTTY auto-reconnects it picks the Arduino (same VID/PID family, different device) and dumps MicroBeast output into a surprised Arduino. Or calls `requestPort()` again and pops a modal every reconnect (annoying for a daily driver).
+Receiving 10 files = 10 `URL.createObjectURL(blob)` + synthetic anchor click sequences. Chrome's "Multiple downloads" prompt appears at >= 2 downloads in short window:
+- 1st: silent.
+- 2nd within ~10s: address bar prompt "This site wants to download multiple files. Allow / Block."
+- Block → all subsequent silently fail.
 
-**Why it happens:**
-The Web Serial API exposes a `SerialPort` object per device. Permissions are persisted per-origin by user grant. `getPorts()` returns already-granted ports. But matching "the port I was using before" to "the port that just reconnected" requires USB VID/PID info (`port.getInfo()`) and even then can be ambiguous if the user has two of the same device. WICG/serial#156 is the open issue on this.
+Threshold not documented; varies across Chromium versions.
 
-**How to avoid:**
-- On first connect: record `port.getInfo()` (`usbVendorId`, `usbProductId`) in `localStorage`.
-- On `connect` event: find the port via `getPorts()`, match by VID/PID, check there's exactly one match. If ambiguous, prompt the user. If unambiguous, auto-reconnect silently.
-- Show the matched VID/PID + name in the UI so the user can see *which* device is connected.
-- Never call `requestPort()` from auto-reconnect. Only call it from an explicit user click (security + UX).
-- Handle the case where `getPorts()` returns empty even after a grant — rare but happens on some platforms after certain sleep/wake cycles. Fall back to a "click to grant" prompt.
+**Manifestation:**
+- Multi-file works for first 1-2 files, then silently stops.
+- User sees "Transfer complete" chip but only 1 file in Downloads.
+- No JS-visible error.
 
-**Warning signs:**
-- Auto-reconnect picks the wrong device in a multi-serial-device setup.
-- Modal permission prompts appear on every reconnect.
-- "Connected" state says yes but no bytes flow.
+**Prevention (priority order):**
+1. **Bundle multi-file receives into single ZIP** using `fflate` (~10KB MIT). One Blob, one download, no prompt. Trade-off: one new dependency.
+2. **Throttle downloads to once per ~3 seconds** to stay below threshold. Won't help for 10 files but helps for 2-3.
+3. **Use File System Access API** (`showSaveFilePicker` / `showDirectoryPicker`): user picks destination once, all files saved there with no prompt. Chromium-only; aligns with stance.
 
-**Phase to address:**
-Transport/reliability phase. If the author has only ever one serial device plugged in, this bug won't surface until they do — design for correctness from the start.
+**Recommendation:** Ship `showDirectoryPicker` for v1.1. Already Chromium-only.
+
+**Phase to address:** Phase 6.
 
 ---
 
-### Pitfall 12: DTR/RTS State Accidentally Resets MicroBeast on Connect
+### Pitfall 11: Echo of auto-typed `B:SLIDE R\r` confused for protocol bytes
+
+**Severity:** HIGH
 
 **What goes wrong:**
-User connects. MicroBeast *resets* — they see the boot banner again, losing whatever state they had. Or it locks up because RTS went low and the MicroBeast's UART sees "stop sending" forever. Or on disconnect, DTR going low triggers a spurious event on the MicroBeast.
+PC→Z80 send flow:
+1. User drops file.
+2. BestialiTTY auto-types `B:SLIDE R\r`.
+3. CP/M echoes back: `B:SLIDE R\r\n`.
+4. CP/M loads slide.com.
+5. slide.com emits `ESC ^` then `RDY`.
 
-**Why it happens:**
-On many USB-serial adapters (FTDI, CH340, CP2102, common in retrocomputing), DTR and RTS are wired to GPIOs that the retro system uses for resets or flow control. Arduino boards famously auto-reset when DTR toggles. Whether the MicroBeast does this depends on how its serial adapter is wired — and the user may not know. Default `port.open()` behavior for DTR/RTS isn't specified precisely; different OSes behave differently.
+Risk: if `ESC ^` arrives in same chunk as the echo, eager wakeup detection might match and switch ALL preceding bytes (the echo) to SLIDE mode — corrupting the echo into "framer ate my command echo".
 
-**How to avoid:**
-- Explicitly set DTR and RTS state *immediately* after `port.open()`. Use `await port.setSignals({ dataTerminalReady: false, requestToSend: false })` as a safe default unless the user configures otherwise. Document this choice.
-- Expose DTR/RTS state as user-configurable in the serial config UI — a MicroBeast user might actually *want* DTR-pulse-on-connect as their reset mechanism.
-- Expose a "Send break" button (many retrocomputing workflows need it). Web Serial has no direct break API, so: either use `port.setSignals({ break: true })` where supported, or document the limitation. Check MDN/Chromium docs at time of implementation; this has evolved.
-- On disconnect: explicitly de-assert DTR/RTS *before* close, rather than letting the close do it implicitly.
+Second risk: BestialiTTY's auto-typed `B:SLIDE R\r` contains `S L I D E` — looks like wakeup tail signature. UNLIKELY because `\x1B\x5E` prefix isn't there, but worth flagging.
 
-**Warning signs:**
-- MicroBeast resets on connect (boot banner appears).
-- MicroBeast locks up on connect (no bytes flow until power cycle).
-- Behavior differs between users reporting otherwise identical setups (tell: it's OS-dependent).
+**Manifestation:**
+- "Auto-send command appears twice in terminal" (echo not suppressed).
+- "Sometimes transfer starts, sometimes I see garbage."
+- Triple-printing if local-echo also enabled.
 
-**Phase to address:**
-Transport phase — specifically serial config UI. Don't ship v1 without DTR/RTS control because the author's own MicroBeast might be fine but shipping this to other MicroBeast owners will surface the issue.
+**Prevention:**
+1. **Auto-type sets a "swallow echo" flag** for ~500ms. Parser emits bytes to swallow-buffer, compares against typed text; matches silently consumed; non-matches flush to screen.
+2. **Wakeup detection in parser is single-pass byte-by-byte** (Pitfall 2's discipline). Parser sees echo bytes as terminal bytes UNTIL it hits `\x1B`.
+3. **Auto-type is JS-side, not Rust-side.**
+4. **Configurable timeout for auto-type:** if `\x1B\x5E` doesn't arrive within ~3s of auto-type completion, surface chip "Z80 didn't start SLIDE — is `slide.com` on B:?"
+
+**Phase to address:** Phase 5.
 
 ---
 
-### Pitfall 13: Focus Loss Stops the World
+## Medium-Severity Pitfalls
+
+### Pitfall 12: Memory growth on large file receive
+
+**Severity:** MEDIUM
 
 **What goes wrong:**
-User alt-tabs away to grab a doc, comes back. They start typing, but keys don't register — the terminal is visibly focused but the browser has moved focus to the URL bar or some parent element. They click the terminal; it "takes" focus; they keep typing. But during those seconds the user was confused. Worse: if the page uses a contenteditable or a hidden input for key capture, focus can land on the wrong element after alt-tab and swallow keys silently.
+Receiving 1 MB file in 1024-byte frames. Naive concatenation:
+```js
+const next = new Uint8Array(buffer.length + frame.length);
+next.set(buffer); next.set(frame, buffer.length);
+buffer = next;
+```
+That's O(n²) memory churn — total ~512 MB allocated to receive 1 MB.
 
-**Why it happens:**
-Canvas itself is not focusable. You need a focus target (hidden textarea, `tabindex=0` canvas, or a wrapping div with `tabindex`). The focus management must survive tab switches, clicks on scrollback, clicks on toolbar buttons. Most naive "hidden input" implementations lose focus on any button click.
+**Prevention:**
+1. **Mirror Phase 6 session-log pattern**: `chunks: Uint8Array[]`, append by reference, Blob assembled at end.
+2. SLIDE-receive: `chunks.push(frame.payload); const blob = new Blob(chunks, { type: 'application/octet-stream' });`
+3. **Test memory under load** in Playwright.
 
-**How to avoid:**
-- Use `<canvas tabindex="0">` or wrap with a `tabindex` div. Style `:focus` visibly (even a subtle outline) so the user can see focus state.
-- On every button/control click in the toolbar: call `canvas.focus()` after handling the click (don't let focus stay on the button).
-- On `visibilitychange` → visible: re-focus the canvas (optional, but nice for daily driver).
-- On keyboard event: only handle keys when focus is on the terminal. If using a hidden input, make sure it's re-focused on toolbar interactions.
-- Show the focus state explicitly in the UI — a subtle indicator that says "terminal has focus" / "click to focus". Retro terminals had a hardware-indicator light; modern replicas benefit from the equivalent.
-
-**Warning signs:**
-- Keys dropped after alt-tab or after clicking UI chrome.
-- User confusion about "why isn't typing working."
-- No visible focus state, or focus state inconsistent with actual keyboard behavior.
-
-**Phase to address:**
-Keyboard/UI phase. Low-tech, high-impact — catching this during UX review prevents daily-driver frustration.
+**Phase to address:** Phase 4.
 
 ---
 
-### Pitfall 14: Full-Screen Canvas Redraw Per Byte
+### Pitfall 13: Test isolation — mock Web Serial peer that knows SLIDE protocol
+
+**Severity:** MEDIUM
 
 **What goes wrong:**
-Every byte arrives → parser updates state → renderer redraws all 80×24 cells. At 115200 baud that's potentially 60fps worth of full redraws just from text, then another 60fps from rAF, and the whole screen's cell text is re-laid-out on every frame. CPU pegs, battery drains, laptop fans spin. For the CRT theme (which may layer scanlines, glow, persistence), it's worse.
+Mock peer needs to bidirectionally implement SLIDE (validate CRC, send ACK/NAK, handle handshake/FIN, inject errors). Naive: write parallel SLIDE in JS — could DRIFT from canonical Rust impl. Tests pass, deployment fails.
 
-**Why it happens:**
-Canvas doesn't track dirty regions for you. The "easy" approach is to clear + redraw. Developers from the JS/React world may not realize that "full redraw is fast" (true for simple demos) doesn't hold at 30+ fps for text-heavy content on HiDPI.
+**Prevention:**
+1. **Reuse Rust core via wasm in test harness.** Same `slide` module compiled to wasm acts as "other end". CRC single-source.
+2. **Or:** mock peer is Python subprocess running `slide-py/slide/recv.py` against virtual serial pair. Real reference impl. Slower but rock-solid.
+3. **Mock-only for fault-injection tests** (deliberately corrupt CRC, inject CAN). Clearly comment "DELIBERATE BUGS — do not use as reference."
+4. **Wire-trace fixture corpus:** capture real wire traces, replay as fixed-byte-stream tests.
 
-**How to avoid:**
-- Mark cells dirty during parser execution. Only redraw dirty cells.
-- Pre-render glyphs into a glyph-atlas canvas (one glyph per attribute combo). Blit with `drawImage` — 10-100x faster than `fillText`.
-- Decouple parser ticks from render ticks. Parser processes all pending bytes; renderer draws once per rAF.
-- For effects (scanlines, glow): render them into a static off-screen overlay canvas, composite over the cell grid. Don't recompute per-frame.
-- Cap render to rAF. Never render synchronously from the read loop.
-- Profile at bulk-output. Target: 60fps at `cat bigfile` output without dropped frames.
-
-**Warning signs:**
-- Fan ramps up during heavy output.
-- FPS drops in DevTools Performance during bulk text.
-- Laptop battery dies noticeably faster than when browser is idle.
-- "Feels laggy" after a long output.
-
-**Phase to address:**
-Rendering phase. Architect the dirty-region + glyph-cache pattern up front; the cost of retrofitting is a rendering rewrite.
+**Phase to address:** Phase 1 (test harness).
 
 ---
 
-## Technical Debt Patterns
+### Pitfall 14: Floating SLIDE chip lifecycle conflicts with scrollback chip
 
-Shortcuts that seem reasonable but create long-term problems.
+**Severity:** MEDIUM
 
-| Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
-|----------|-------------------|----------------|-----------------|
-| Feed bytes one at a time across wasm boundary | Simple API, easy unit tests | Chattiness tanks throughput; rearchitecting the boundary is painful | Never — design batched from day 1 |
-| `TextDecoder`-based transport | Works for ASCII, looks clean | Loses bytes; breaks on chunk boundary partial UTF-8; silently corrupts serial stream | Never for this project |
-| Growable `Array` of row objects for scrollback | Easy to reason about, easy to index | 10-30x memory overhead vs tight encoding; GC pressure; OOM on long sessions | Prototyping only; rewrite before daily-driver use |
-| Full canvas redraw every frame | Easy rendering code | CPU/battery drain; HiDPI blur if not careful; can't scale to CRT effects | Acceptable for first end-to-end demo; replace before shipping v1 |
-| Keyboard handling via document-level listener without focus management | Catches all keys | Loses keys when focus moves; confusing UX | Never in daily-driver app |
-| `JSON.stringify` for session log format | Human-readable, trivial to write | Balloons to 3-10x raw bytes; slow to flush; not a replayable format | Debug-only log; raw-byte log is the daily-driver format |
-| Hardcoded 9600 baud MicroBeast preset, no UI override | Ships faster | Different MicroBeast firmware revisions use different defaults; user can't recover | Acceptable *if* UI override ships in same v1 (already in PROJECT.md scope) |
-| Skip DTR/RTS control UI | Saves a config screen | MicroBeast resets unexpectedly; other users can't use at all | Never — ship with explicit control |
-| Auto-reconnect without VID/PID match | Fewer clicks | Wrong device reconnects silently, data dumped into wrong serial peer | Never — always match by VID/PID |
-| No scrollback cap | "Infinite" scrollback sells well | OOM on long sessions | Never — always cap with configurable override |
+**What goes wrong:**
+v1.0 scrollback chip lives bottom-right. v1.1 SLIDE chip lives in same region. Conflicts:
+1. Z-index / overlap if both visible simultaneously.
+2. Snap-to-bottom: does SLIDE auto-type count as TX? If yes, scrolled-up users yanked to bottom on every auto-type.
+3. Click target collision.
 
-## Integration Gotchas
+**Prevention:**
+1. **Stack chips at opposite corners** (right + left).
+2. **Define explicit collision policy:**
+   - Both visible: stack vertically.
+   - SLIDE active: scrollback chip suppressed.
+   - Scrollback chip click does NOT cancel SLIDE.
+3. **Mirror Phase 6 chip CSS pattern.**
+4. **Snap-to-bottom on auto-type:** YES, treat as TX (consistent with paste).
 
-| Integration | Common Mistake | Correct Approach |
-|-------------|----------------|------------------|
-| Web Serial `reader.read()` | Calling `port.close()` while read is pending → deadlock | Always `reader.cancel()` first, then close; keep reader reference module-scoped |
-| Web Serial chunks | Assuming each chunk is a complete message | Treat as arbitrary byte stream; parser must be torn-chunk safe |
-| Web Serial `setSignals()` | Not calling it on open → OS/driver default chosen, may reset device | Explicitly set DTR/RTS on open; expose in UI |
-| Web Serial `disconnect` event | Listening only on the SerialPort instance | Listen on `navigator.serial` too (catches cases where the instance is swapped) |
-| Web Serial `getPorts()` return | Assuming it returns a specific device | Match returned ports by VID/PID; handle empty-array case |
-| wasm-bindgen `&str` arg | Thinking "string" is cheap | Each string pass does a UTF-8 encode + memory copy; batch and prefer `&[u8]` |
-| wasm-bindgen returning JS objects from Rust per-frame | Looks idiomatic | GC churn; use shared memory views via `wasm.memory.buffer` |
-| wasm-pack `--target bundler` for static site | Default in docs | Use `--target web` for raw ES module import on a static site; easier to self-host |
-| wasm-pack async init | Blocking first render on import | `await init()` before rendering; load screen until ready |
-| Canvas `ctx.font = "14px Mono"` | Calling before font is loaded | `await document.fonts.load("14px Mono")` first |
-| Canvas `ctx.scale(dpr, dpr)` | Calling once at init | Re-apply on every resize and DPR change |
-| `KeyboardEvent.keyCode` | Used for mapping, deprecated | Use `event.code` (physical key) for shortcuts; `event.key` for character input |
-| `KeyboardEvent.preventDefault()` | In async handler | Must be synchronous in handler — async doesn't work |
+**Phase to address:** Phase 6.
 
-## Performance Traps
+---
 
-| Trap | Symptoms | Prevention | When It Breaks |
-|------|----------|------------|----------------|
-| Per-byte wasm boundary calls | CPU pegged during bulk output; GC pauses | Batch bytes; one boundary call per serial chunk | Any output >~1 KB/s sustained (so, always in practice) |
-| Full-screen canvas redraw every byte | Fan ramps; FPS drops | Dirty-cell tracking + glyph atlas + decouple parse from render | Any sustained bulk output, or typing-fast |
-| Scrollback as JS object array | Memory climbs; GC stalls | Tight byte encoding in wasm linear memory; ring buffer | After ~1000 lines, linearly worse after |
-| Allocating a render delta object per byte | Memory climbs; GC stalls | Use shared-memory views; mutate in place | Any sustained output |
-| Re-layout text on every redraw | `ctx.fillText` dominates profile | Glyph atlas / pre-rendered per-glyph canvas | Any output that scrolls |
-| `ctx.clearRect` then redraw all | CPU for no reason | Dirty regions or cell-grid-only redraw | Always — avoid from day 1 |
-| TextDecoder with partial-multibyte holding | Bytes appear "late" or not at all | Stay in bytes end-to-end | Chunk boundaries (so, often) |
-| Session log as JS string concatenation | Memory climbs linearly with session | Stream to file handle (`showSaveFilePicker`); flush on visibility change | After ~100 KB of output |
-| Rendering during background tab | Render loop stalled, data loss | Decouple reader from renderer; read loop is pure async | Any tab switch |
+### Pitfall 15: Z80-side version skew — old slide.com doesn't emit `ESC ^`
 
-## Security Mistakes
+**Severity:** MEDIUM
 
-| Mistake | Risk | Prevention |
-|---------|------|------------|
-| Auto-requesting serial permission on page load | User phishing-style bypass of intent | Only call `requestPort()` on explicit user click |
-| Persisting granted-port identity in localStorage without user visibility | User doesn't know which device is being auto-connected to | Show matched VID/PID + port name in UI; let user revoke |
-| Inline eval / dynamic script for escape-sequence handling | XSS-style risk if MicroBeast output is ever logged to HTML | Parser is pure bytes→grid; never treat MicroBeast output as HTML |
-| Session log stored without user opt-in | Privacy: terminal sessions may contain secrets/passwords | Make session logging explicit opt-in with a visible indicator when recording |
-| Pasting clipboard straight to serial | Paste may contain control chars / escape codes that surprise | Offer a "bracketed paste" mode or at least show what's being pasted for multi-line pastes |
-| `unload` handler not closing serial | Device left in weird state; next session harder | Close port on `beforeunload` (best effort — browsers limit what's allowed) |
-| Not scoping Permissions-Policy | Embedded iframes gain serial access | Ship with `Permissions-Policy: serial=(self)` on self-hosted deployment |
+**What goes wrong:**
+v1.1 depends on slide.asm change. Users may have:
+- Old slide.com (v0.2 without wakeup) — BestialiTTY never enters SLIDE mode.
+- Mismatched versions.
+- Wrong drive (`A:SLIDE R` works, `B:SLIDE R` doesn't if slide.com only on A:).
 
-## UX Pitfalls
+Silent failure — BestialiTTY just keeps waiting for `ESC ^`.
 
-| Pitfall | User Impact | Better Approach |
-|---------|-------------|-----------------|
-| No visible connection/focus state | User types, nothing happens, doesn't know why | Always-visible "connected to VID:PID" and "terminal has focus" indicators |
-| Silent permission-denied | User clicks connect, nothing visible changes | Show explicit "no port selected" / "permission denied" with retry button |
-| No "reset / reconnect" button | User stuck after transient error, must reload | Prominent reconnect button; one-click recovery |
-| Scrollback scrolls while new output arrives | User reviewing history has it yanked away | Detect user scroll; pause auto-scroll until bottom reached again |
-| No copy-paste affordance | User has to guess how to copy (Ctrl+C is a control code in terminals!) | Dedicated copy button, or Ctrl+Shift+C for copy (mimicking GNOME Terminal) |
-| No way to send break | Retrocomputing workflows need it, user can't recover | Explicit "Send Break" button |
-| Config lost on reload | User re-configures baud every time | Persist serial config in localStorage |
-| CRT theme on low-contrast monitor unreadable | Aesthetic trumps readability | User-toggleable; default to clean modern theme |
-| Font size fixed or tied to window | Unreadable on 4K / too big on laptop | User-adjustable font size (Ctrl+/- or zoom) |
-| No indication of "the thing crashed" | Dead terminal looks identical to idle | Show connection errors and read-loop exceptions visibly |
-| Modifier+character sent wrong on non-US layout | German/French users type wrong codes | Test with at least a couple of non-US layouts; document known quirks |
+**Prevention:**
+1. **Auto-type fallback:** if `ESC ^` doesn't arrive within ~5s, surface chip:
+   ```
+   Z80 didn't respond. Possible causes:
+   - slide.com is older than v0.2.1
+   - slide.com isn't on B: drive
+   - Z80 isn't at CP/M prompt
+   [Retry] [Cancel] [Force start (assume Z80 is ready)]
+   ```
+2. **Wakeup includes version byte:** `ESC ^ S L 0 2 1`.
+3. **Document slide.com version requirement** in README and Settings pane.
+4. **Settings option:** `Compatibility mode: [Auto | Wakeup-required | Force-start (legacy)]`. Default = Auto.
 
-## "Looks Done But Isn't" Checklist
+**Phase to address:** Phase 5.
 
-- [ ] **VT52 parser:** Often missing torn-chunk handling — verify by splitting every multi-byte sequence at every boundary in unit tests
-- [ ] **VT52 parser:** Often missing correct `ESC Y` byte offset (0x20 bias) — verify with end-to-end test against real MicroBeast full-screen program
-- [ ] **Web Serial transport:** Often missing `reader.cancel()` in disconnect path — verify by simulating unplug and confirming port can be reopened
-- [ ] **Web Serial transport:** Often missing visibility-change handling — verify data continues flowing and is not lost when tab is backgrounded for minutes
-- [ ] **Web Serial transport:** Often missing VID/PID-matched auto-reconnect — verify plugging into a different USB port reconnects same device
-- [ ] **Web Serial transport:** Often missing DTR/RTS explicit state on open — verify MicroBeast does not reset on connect
-- [ ] **Canvas rendering:** Often missing `devicePixelRatio` handling — verify crisp rendering on HiDPI displays and on window drag to external monitor
-- [ ] **Canvas rendering:** Often missing font-load gate — verify first frame uses correct font (throttle network to catch this)
-- [ ] **Canvas rendering:** Often missing dirty-region optimization — verify CPU stays low during bulk output
-- [ ] **wasm interop:** Often missing batched API — verify throughput of at least 10× baud rate on a 1 MB dump benchmark
-- [ ] **wasm interop:** Often missing shared-memory render path — verify no per-frame JS object allocations in DevTools
-- [ ] **Keyboard input:** Often missing `preventDefault()` for every forwarded key — verify Ctrl+F doesn't open find, Ctrl+S doesn't save page, etc.
-- [ ] **Keyboard input:** Often missing arrow-keys-in-alternate-keypad-mode — verify ESC A/B/C/D behavior after `ESC =` / `ESC >`
-- [ ] **Keyboard input:** Often missing IME awareness — verify `event.isComposing` check so IME doesn't double-emit
-- [ ] **Scrollback:** Often missing cap — verify 24-hour session doesn't grow memory unbounded
-- [ ] **Scrollback:** Often missing "stick to bottom unless user scrolled" — verify user can scroll up to read without being yanked back
-- [ ] **Session log:** Often missing flush on visibility change / disconnect — verify log file is complete after tab close / unplug
-- [ ] **Focus management:** Often missing re-focus after toolbar clicks — verify typing works after clicking any UI button
-- [ ] **Reliability:** Often missing 24-hour soak test — verify daily-driver endurance before declaring v1 done
-- [ ] **Reliability:** Often missing break-signal control — verify `Send Break` button exists and works on real MicroBeast
-- [ ] **Connection UX:** Often missing "no Chromium" polite-fail — verify Firefox/Safari shows the intended message, not a stack trace
+---
 
-## Recovery Strategies
+## Low-Severity Pitfalls
 
-| Pitfall | Recovery Cost | Recovery Steps |
-|---------|---------------|----------------|
-| Reader-lock deadlock on disconnect | LOW | Add `cancel()` path; retrofit read loop to a known-safe pattern; smoke test unplug |
-| Split-chunk parser bug | MEDIUM | Add torn-chunk tests for each multi-byte sequence; fix parser; regression via tests going forward |
-| `ESC Y` offset bug | LOW | One-line fix if the test suite is right; major embarrassment if a user hit it first |
-| wasm boundary chattiness | HIGH | Redesign API surface; likely rewrite parser entry; measure before claiming fixed |
-| HiDPI blur | LOW-MEDIUM | Add DPR handling + resize handler; if rendering already non-trivial, integrate carefully to avoid double-scale bugs |
-| Background-tab data loss | HIGH | Decouple read loop from render loop; this is an architecture change, not a patch |
-| Unbounded scrollback OOM | MEDIUM | Add cap + ring buffer; migrate scrollback storage to wasm linear memory |
-| Font not loaded | LOW | Add `await document.fonts.load()` gate before first render |
-| Ctrl-key intercept | MEDIUM | `preventDefault()` audit; Keyboard Lock API integration for fullscreen; document un-capturable cases |
-| UTF-8 decoder byte loss | MEDIUM | Rip out TextDecoder; switch to byte end-to-end; re-test all escape sequences |
-| Wrong-device reconnect | LOW | Add VID/PID matching; manually tested with two devices |
-| DTR/RTS resets device | LOW | Add `setSignals` call on open + UI toggle |
-| Focus loss | LOW | Add `tabindex`, focus-on-click, focus-on-toolbar-button |
-| Full-redraw performance | HIGH | Add dirty-cell + glyph atlas; likely a rendering rewrite |
+### Pitfall 16: SLIDE bytes leaking into session log
 
-## Pitfall-to-Phase Mapping
+**Severity:** LOW
 
-| Pitfall | Prevention Phase | Verification |
-|---------|------------------|--------------|
-| Reader-lock deadlock | Transport (serial I/O) | Smoke test: unplug USB, re-plug, re-open port successfully without reload |
-| Split-chunk escape sequence | Parser | Unit test: split each multi-byte VT52 sequence at every internal offset, assert identical result |
-| `ESC Y` offset bug | Parser | Unit test: all edges of cursor address encoding; end-to-end test with a real MicroBeast full-screen program |
-| wasm boundary chattiness | Interop design (pre-parser) | Benchmark: 1 MB dump throughput ≥ 10× baud rate; DevTools shows few boundary crossings per chunk |
-| HiDPI blur | Rendering | Visual check on ≥ 2× DPR display; drag-between-monitors test |
-| Background-tab data loss | Transport + reliability hardening | Switch tabs for 2+ minutes during `cat bigfile`; verify all bytes logged |
-| Unbounded scrollback | Scrollback implementation | 24-hour soak test, memory graph flat |
-| Font not loaded race | Rendering | DevTools network throttle → first frame is correct font |
-| Ctrl-key intercept | Keyboard input | Press every likely terminal shortcut; verify Chrome doesn't hijack or document the quirk |
-| UTF-8 decoder byte loss | Transport design (pre-parser) | Binary smoke test: send full 0x00-0xFF range, verify all bytes reach parser |
-| Wrong-device reconnect | Transport (reliability) | Two-device test: plug MicroBeast and Arduino, unplug/replug MicroBeast, verify correct device rebound |
-| DTR/RTS device reset | Transport / serial config UI | Connect → verify MicroBeast does not re-banner; test with DTR/RTS toggles in UI |
-| Focus loss | Keyboard / UX | Click every toolbar button, verify typing still works; alt-tab and back, verify typing still works |
-| Full-redraw performance | Rendering | Profile during bulk output; fan doesn't spin; FPS stable |
-| IME double-emit | Keyboard | Test with Japanese IME enabled (even if not in daily-driver use, prevents ugly bug reports) |
-| Break signal support | Transport / UX | Click "Send Break" while connected to MicroBeast; verify expected interrupt behavior |
-| Session log gaps | Reliability | Back-grounded tab during long output, verify log file complete |
-| Chromium-only polite fail | Deployment / landing page | Load in Firefox, Safari; verify clean message, no stack traces |
+Phase 6 D-30 session log appends every RX byte. During SLIDE transfer, thousands of binary frame bytes would land in session log file.
+
+**Prevention:** Suspend session-log append while SLIDE active. Add `sessionLogRef.pause()` / `.resume()` API.
+
+**Phase to address:** Phase 5.
+
+---
+
+### Pitfall 17: Settings pane "Auto-send command" injection vector
+
+**Severity:** LOW
+
+User sets auto-send to `B:RM *.* ; SLIDE R\r` (joke or hostile config). BestialiTTY auto-types this on every drop, deleting Z80 files. Or paste from hostile webpage.
+
+**Prevention:**
+1. **Validate auto-send command:** alphanumeric + `:` + `\r` only. Reject `;`, pipes, control characters.
+2. **Confirm prompt on first non-default value.**
+3. **Display command before send:** "About to type `B:SLIDE R` to Z80 — [Cancel] [Send]". Suppressible via "don't ask again."
+
+**Phase to address:** Phase 6.
+
+---
+
+### Pitfall 18: SLIDE-progress chip vs paste-pump progress overlap
+
+**Severity:** LOW
+
+User pastes mid-SLIDE-transfer. Paste-pump tries to write but writer is gated by SLIDE owner.
+
+**Prevention:**
+1. **Paste-pump checks `slide.isActive()` before enqueueing:** refuse with chip "Wait for transfer to finish before pasting."
+2. **Keyboard typing during SLIDE:** suppress writer.write call; queue or refuse.
+
+**Phase to address:** Phase 5.
+
+---
+
+## Pitfall-to-Phase Mapping Summary
+
+| v1.1 Phase | Primary Pitfalls Addressed | Verification Gate |
+|------------|---------------------------|-------------------|
+| **Phase 1: Rust framer + CRC + drain-events API** | #1, #3, #13 | Torn-chunk corpus green; CRC reference vector `crc16_ccitt(b"123456789") == 0x29B1`; byte-for-byte equality with slide-rs fixtures |
+| **Phase 2: Parser integration (`ESC ^` wakeup)** | #2, #11 | Wakeup detected across chunk boundaries; spurious ESC^ doesn't trigger; auto-type echo not consumed |
+| **Phase 3: Sender-side wire driver** | #4, #5 | `await writer.ready` discipline; cancellation mid-frame leaves wire neutral; CAN exchange clean |
+| **Phase 4: Receiver-side state machine** | #5, #9, #12 | State machine cancels cleanly; double-wakeup handled idempotently; 1MB receive memory bounded |
+| **Phase 5: JS bridge + Web Serial integration** | #6, #11, #15, #16, #18 | beforeunload cleanup; auto-type fallback chip; session log paused; paste-pump gated |
+| **Phase 6: UX polish** | #7, #8, #10, #14, #17 | Filename collision UX; drop event isolated; download throttle handled; chip stacking |
+
+## Severity Rollup
+
+- **BLOCKING (5):** #1 frame parsing, #2 wakeup detection, #3 CRC variant, #4 backpressure, #5 cancellation race
+- **HIGH (6):** #6 tab close, #7 filename collision, #8 drop collision, #9 re-entrant wakeup, #10 download throttle, #11 echo confusion
+- **MEDIUM (4):** #12 memory growth, #13 test mock divergence, #14 chip overlap, #15 Z80 version skew
+- **LOW (3):** #16 session log pollution, #17 settings injection, #18 paste-during-SLIDE
+
+## Confidence Assessment
+
+| Pitfall area | Confidence | Notes |
+|--------------|------------|-------|
+| Web Serial chunk behavior | HIGH | Verified against Phase 5 RESEARCH chunk-handling discipline |
+| CRC variant specifics | HIGH | Source-verified against slide-rs and slide-py |
+| Wakeup detection across chunks | HIGH | Phase 1 parser already maintains escape state across chunks |
+| Cancellation protocol | MEDIUM | SLIDE has CTRL_CAN defined but not bidirectionally implemented; v1.1 needs to extend |
+| Chrome download throttle | MEDIUM | Empirical only — not documented by Chromium |
+| `showDirectoryPicker` availability | HIGH | Chromium-only, BestialiTTY is Chromium-only — clean fit |
+| Z80 echo timing | MEDIUM | Depends on CP/M version, baud, RTS/CTS state — UAT-only verifiable |
+| Re-entrant wakeup behavior | HIGH | Logic problem, not API problem |
 
 ## Sources
 
-- [WICG/serial#112 — Need method to break/terminate reader](https://github.com/WICG/serial/issues/112) — the canonical reader-lock deadlock issue
-- [WICG/serial#156 — Auto-reconnecting guidance needed](https://github.com/WICG/serial/issues/156) — reconnection identity
-- [WICG/serial#128 — Need to identify previously used port](https://github.com/WICG/serial/issues/128) — VID/PID matching
-- [Chrome for Developers: Read from and write to a serial port](https://developer.chrome.com/docs/capabilities/serial) — official reader.cancel() pattern
-- [MDN: SerialPort.setSignals()](https://developer.mozilla.org/en-US/docs/Web/API/SerialPort/setSignals) — DTR/RTS control
-- [MDN: SerialPort disconnect event](https://developer.mozilla.org/en-US/docs/Web/API/SerialPort/disconnect_event)
-- [MDN: Serial.requestPort()](https://developer.mozilla.org/en-US/docs/Web/API/Serial/requestPort) and [Serial.getPorts()](https://developer.mozilla.org/en-US/docs/Web/API/Serial/getPorts)
-- [Web Serial API spec (WICG)](https://wicg.github.io/serial/)
-- [rustwasm/wasm-bindgen#1119 — Very poor Rust/WASM performance vs JavaScript](https://github.com/rustwasm/wasm-bindgen/issues/1119) — canonical boundary-chattiness case study
-- [wasm-bindgen performance guide](https://github.com/rustwasm/wasm-bindgen/blob/main/guide/src/examples/performance.md)
-- [wasm-bindgen: Without a Bundler](https://rustwasm.github.io/docs/wasm-bindgen/examples/without-a-bundler.html) — `--target web` deployment
-- [wasm-bindgen deployment guide](https://wasm-bindgen.github.io/wasm-bindgen/reference/deployment.html)
-- [Hacker News: Faster wasm-bindgen for high-frequency JS↔Rust calls](https://news.ycombinator.com/item?id=45664341)
-- [MDN: Window.devicePixelRatio](https://developer.mozilla.org/en-US/docs/Web/API/Window/devicePixelRatio)
-- [web.dev: High DPI Canvas](https://web.dev/articles/canvas-hidipi)
-- [web.dev: Improving HTML5 Canvas performance](https://web.dev/articles/canvas-performance)
-- [MDN: Optimizing canvas](https://developer.mozilla.org/en-US/docs/Web/API/Canvas_API/Tutorial/Optimizing_canvas)
-- [MDN: CanvasRenderingContext2D.font](https://developer.mozilla.org/en-US/docs/Web/API/CanvasRenderingContext2D/font)
-- [Chrome for Developers: Background tabs in Chrome 57](https://developer.chrome.com/blog/background_tabs) — background throttling
-- [Chrome for Developers: Heavy throttling in Chrome 88](https://developer.chrome.com/blog/timer-throttling-in-chrome-88)
-- [MDN: Page Visibility API](https://developer.mozilla.org/en-US/docs/Web/API/Page_Visibility_API)
-- [VT100.net: VT52 DECscope Maintenance Manual, Chapter 3](https://vt100.net/docs/vt52-mm/chapter3.html) — authoritative VT52 escape sequence reference
-- [VT100.net: VT52 DECscope Maintenance Manual, Chapter 1](https://vt100.net/docs/vt52-mm/chapter1.html)
-- [Wikipedia: VT52](https://en.wikipedia.org/wiki/VT52)
-- [VT100.net: Paul Williams ANSI parser state machine](https://vt100.net/emu/dec_ansi_parser) — parser design
-- [microsoft/terminal#2017 — First draft of a spec for VT52 escape sequences](https://github.com/microsoft/terminal/pull/2017)
-- [microsoft/terminal: VT52 escape sequences spec](https://github.com/microsoft/terminal/blob/main/doc/specs/%23976%20-%20VT52%20escape%20sequences.md)
-- [mintty#1299 — VT52 ESC Y cursor addressing broken](https://github.com/mintty/mintty/issues/1299) — real-world case of the `ESC Y` offset bug shipping
-- [xterm.js#518 — Setting scrollback to infinite](https://github.com/xtermjs/xterm.js/issues/518) — scrollback memory cost data
-- [xterm.js#791 — Buffer performance improvements](https://github.com/xtermjs/xterm.js/issues/791)
-- [xterm.js#1518 — Prevent memory leaks when Terminal.dispose is called](https://github.com/xtermjs/xterm.js/issues/1518)
-- [microsoft/vscode#155232 — Integrated terminal still leaks GPU memory](https://github.com/microsoft/vscode/issues/155232)
-- [cockpit-project/cockpit#14545 — Terminal: Provide way to input Ctrl+W](https://github.com/cockpit-project/cockpit/issues/14545)
-- [cockpit-project/cockpit#7956 — terminal: protect against Ctrl+W closing the tab](https://github.com/cockpit-project/cockpit/issues/7956)
-- [Chrome for Developers: Keyboard Lock API](https://developer.chrome.com/docs/capabilities/web-apis/keyboard-lock)
-- [MDN: Element keydown event](https://developer.mozilla.org/en-US/docs/Web/API/Element/keydown_event)
-- [MDN: KeyboardEvent.ctrlKey](https://developer.mozilla.org/en-US/docs/Web/API/KeyboardEvent/ctrlKey)
-- [Not Rocket Science: Handling IME events in JavaScript](https://www.stum.de/2016/06/24/handling-ime-events-in-javascript/)
-- [MDN: TextDecoderStream](https://developer.mozilla.org/en-US/docs/Web/API/TextDecoderStream) — and why it's the wrong tool for 8-bit serial
-- [Terry Koziniec: Sending a BREAK signal in Serial Terminal Applications](https://www.koziniec.com/howto/2024/02/10/Sending-a-BREAK-signal-in-Terminal-Applications.html)
-- [Wikipedia: Data Terminal Ready (DTR)](https://en.wikipedia.org/wiki/Data_Terminal_Ready)
-- [MDN: Permissions-Policy: serial](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Permissions-Policy/serial)
-
----
-*Pitfalls research for: in-browser VT52 terminal emulator (Rust/wasm + Web Serial) as daily driver for MicroBeast Z80*
-*Researched: 2026-04-21*
+- `/home/ant/src/microbeast/SLIDE/SPEC-v0.2.md`
+- `/home/ant/src/microbeast/SLIDE/slide-rs/src/protocol.rs` (Rust ref impl)
+- `/home/ant/src/microbeast/SLIDE/slide-rs/src/send.rs` (sender state machine)
+- `/home/ant/src/microbeast/SLIDE/slide-rs/src/recv.rs` (receiver state machine)
+- `/home/ant/src/microbeast/SLIDE/slide-py/slide/common.py` (Python ref impl)
+- `/home/ant/src/microbeast/SLIDE/README.md` (RTS/CTS hardware flow control note)
+- `.planning/PROJECT.md` (v1.1 milestone scope)
+- `www/transport/serial.js` (Phase 5 teardown/beforeunload/error-log)
+- `www/renderer/scroll-state.js` (chip pattern precedent)
+- `www/input/selection.js` (pointer-event ownership)
+- `www/input/paste-pump.js` (backpressure pattern precedent)
+- `.planning/phases/05-web-serial-transport/05-RESEARCH.md` (Phase 5 pitfall corpus)
+- `.planning/phases/06-daily-driver-polish-session-deployment/06-RESEARCH.md` (Phase 6 chip + memory patterns)
