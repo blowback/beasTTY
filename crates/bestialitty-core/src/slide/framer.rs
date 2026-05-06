@@ -83,10 +83,99 @@ impl Framer {
         std::mem::take(&mut self.payload_buf)
     }
 
-    /// Single-byte step. RED-stub: returns EVT_NONE always; tests will fail.
-    /// GREEN commit replaces with the real DFA.
-    pub fn step(&mut self, _b: u8) -> u32 {
-        EVT_NONE
+    /// Single-byte step. Returns a packed event word per RESEARCH §Pattern 3.
+    pub fn step(&mut self, b: u8) -> u32 {
+        match self.state {
+            FramerState::Idle => match b {
+                SOF => {
+                    self.state = FramerState::WaitingSeq;
+                    // Reset rolling CRC scope buf at frame start.
+                    self.crc_input_buf.clear();
+                    self.payload_buf.clear();
+                    EVT_NONE
+                }
+                CTRL_RDY => EVT_RDY,
+                CTRL_FIN => EVT_FIN,
+                CTRL_CAN => EVT_CAN,
+                CTRL_ACK => {
+                    self.state = FramerState::AfterAckOrNak(CTRL_ACK);
+                    EVT_NONE
+                }
+                CTRL_NAK => {
+                    self.state = FramerState::AfterAckOrNak(CTRL_NAK);
+                    EVT_NONE
+                }
+                // Phase 1 D-15: silent discard on malformed bytes.
+                _ => EVT_NONE,
+            },
+
+            FramerState::AfterAckOrNak(ctrl) => {
+                // The next byte is the seq number for ACK/NAK.
+                self.state = FramerState::Idle;
+                match ctrl {
+                    CTRL_ACK => EVT_ACK | (b as u32),
+                    CTRL_NAK => EVT_NAK | (b as u32),
+                    _ => EVT_NONE,  // unreachable in practice
+                }
+            }
+
+            FramerState::WaitingSeq => {
+                // Push SEQ as the first byte of CRC scope.
+                self.crc_input_buf.push(b);
+                self.state = FramerState::WaitingLenHi { seq: b };
+                EVT_NONE
+            }
+
+            FramerState::WaitingLenHi { seq } => {
+                self.crc_input_buf.push(b);
+                self.state = FramerState::WaitingLenLo { seq, len_hi: b };
+                EVT_NONE
+            }
+
+            FramerState::WaitingLenLo { seq, len_hi } => {
+                self.crc_input_buf.push(b);
+                let len = ((len_hi as usize) << 8) | (b as usize);
+                if len == 0 {
+                    // Zero-payload frame (e.g. EOF marker, empty header)
+                    // skip ReadingPayload entirely.
+                    self.state = FramerState::WaitingCrcHi { seq };
+                } else {
+                    self.state = FramerState::ReadingPayload { seq, remaining: len };
+                }
+                EVT_NONE
+            }
+
+            FramerState::ReadingPayload { seq, remaining } => {
+                self.crc_input_buf.push(b);
+                self.payload_buf.push(b);
+                if remaining == 1 {
+                    self.state = FramerState::WaitingCrcHi { seq };
+                } else {
+                    self.state = FramerState::ReadingPayload { seq, remaining: remaining - 1 };
+                }
+                EVT_NONE
+            }
+
+            FramerState::WaitingCrcHi { seq } => {
+                // CRC bytes are NOT pushed into crc_input_buf — scope ends at payload.
+                self.state = FramerState::WaitingCrcLo { seq, crc_hi: b };
+                EVT_NONE
+            }
+
+            FramerState::WaitingCrcLo { seq, crc_hi } => {
+                let received_crc = ((crc_hi as u16) << 8) | (b as u16);
+                let expected_crc = crc16_ccitt(&self.crc_input_buf);
+                self.state = FramerState::Idle;
+                self.crc_input_buf.clear();
+                if received_crc == expected_crc {
+                    EVT_DATA_FRAME | (seq as u32)
+                } else {
+                    // CRC mismatch: payload is invalid; clear payload_buf.
+                    self.payload_buf.clear();
+                    EVT_CRC_ERROR | (seq as u32)
+                }
+            }
+        }
     }
 }
 
