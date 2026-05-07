@@ -36,6 +36,7 @@ mod wasm_boundary {
     use wasm_bindgen::prelude::*;
 
     use crate::key::{self, KeyEvent, unpack_keycode, unpack_mods};
+    use crate::slide::Slide as CoreSlide;
     use crate::terminal::Terminal as CoreTerminal;
 
     /// Wasm-exported VT52 terminal. Thin façade over `crate::terminal::Terminal`.
@@ -170,6 +171,116 @@ mod wasm_boundary {
         /// fabricated escape.
         pub fn clear_visible(&mut self) {
             self.inner.clear_visible();
+        }
+    }
+
+    /// Wasm-exported SLIDE receiver-side state machine. Thin façade over
+    /// `crate::slide::Slide` (the Phase 7 receiver SM). One-line forwards to
+    /// the inner type — every method body is `self.inner.METHOD(args)`.
+    ///
+    /// JS-side shape (from `www/transport/slide.js`):
+    ///
+    /// ```js
+    /// import init, { Slide } from './pkg/bestialitty_core.js';
+    /// const wasm = await init();
+    /// const slide = new Slide();
+    /// slide.enter_recv_mode();
+    /// slide.feed_chunk(bytes);
+    /// const out = new Uint8Array(wasm.memory.buffer,
+    ///                            slide.outbound_ptr(), slide.outbound_len());
+    /// const owned = out.slice();        // JS-owned copy (Pitfall 5)
+    /// slide.clear_outbound();
+    /// ```
+    ///
+    /// The inner-type alias `CoreSlide` resolves the name collision between
+    /// the wasm-exported `Slide` and `crate::slide::Slide` (Pitfall 6;
+    /// mirror of the existing `Terminal` / `CoreTerminal` pair at lib.rs:39).
+    #[wasm_bindgen]
+    pub struct Slide {
+        inner: CoreSlide,
+    }
+
+    #[wasm_bindgen]
+    impl Slide {
+        /// JS `new Slide()` constructor — one Slide instance per recv session.
+        /// Per-session lifecycle (per Phase 8 Claude's Discretion default) —
+        /// no Slide::reset() singleton optimization; allocation cost is ~1 KB
+        /// per session, irrelevant at SLIDE's session cadence.
+        #[wasm_bindgen(constructor)]
+        pub fn new() -> Slide {
+            Slide { inner: CoreSlide::new() }
+        }
+
+        /// Enter receiver mode — call once per session after `new Slide()`.
+        /// Phase 8 D-09: dispatcher calls this in the same tick as
+        /// `setWireOwner('slide')` after the 7-byte wakeup match.
+        pub fn enter_recv_mode(&mut self) {
+            self.inner.enter_recv_mode();
+        }
+
+        /// Feed one byte through the framer (used for cargo tests + edge cases;
+        /// JS hot path uses feed_chunk per RESEARCH §Pattern: "feed_chunk is
+        /// the hot path").
+        pub fn feed_byte(&mut self, b: u8) -> u32 {
+            self.inner.feed_byte(b)
+        }
+
+        /// Feed a byte chunk through the framer. ONE boundary call per Web
+        /// Serial chunk (RESEARCH Anti-Pattern: per-byte FFI through
+        /// feed_byte in the recv hot path).
+        pub fn feed_chunk(&mut self, bytes: &[u8]) -> u32 {
+            self.inner.feed_chunk(bytes)
+        }
+
+        /// Drain one event from the ring. Returns EVT_NONE (0) when empty.
+        /// Packed convention: `(kind << 16) | aux` — JS unpacks via
+        /// `(evt >>> 16)` for kind and `evt & 0xFFFF` for aux. Authority for
+        /// kind values: tests/slide_boundary_shape.rs:slide_event_constants_pinned.
+        pub fn take_event_packed(&mut self) -> u32 {
+            self.inner.take_event_packed()
+        }
+
+        /// Current state machine state — SlideState repr(u32). 0=Idle, 1=WaitingRdy,
+        /// 2=HeaderPhase, 3=DataPhase, 4=FinPending, 5=CancelPending, 6=Done,
+        /// 7=Error. Pinned by tests/slide_wasm_boundary_shape.rs.
+        pub fn state(&self) -> u32 {
+            self.inner.state()
+        }
+
+        /// Pointer into the outbound buffer (ACK / NAK / CTRL_CAN echo bytes
+        /// the SM produces). Stable across feed_byte / feed_chunk in steady
+        /// state (Phase 7 OUTBOUND_RESERVE = 16 bytes pre-reserved). JS
+        /// re-derives the Uint8Array view only when wasm.memory.buffer
+        /// changes (Pitfall 4 — mirror of host_reply pattern at lib.rs:84).
+        pub fn outbound_ptr(&self) -> *const u8 {
+            self.inner.outbound_ptr()
+        }
+
+        /// Length of pending outbound bytes; 0 when nothing to send.
+        pub fn outbound_len(&self) -> usize {
+            self.inner.outbound_len()
+        }
+
+        /// Ack outbound — resets length to 0, preserves capacity. JS calls
+        /// this AFTER copying bytes via `view.slice()` and writing via
+        /// `txSink.writeSlideFrame(owned)` (Pitfall 5 — slice before write).
+        pub fn clear_outbound(&mut self) {
+            self.inner.clear_outbound();
+        }
+
+        /// Initiate cancel sequence — emits CTRL_CAN per ADR-003 v0.2.1
+        /// bidirectional CAN amendment. JS handles the 200/500/100 ms timing
+        /// windows (Phase 10 wires the cancel chip; Phase 8 exposes the
+        /// boundary so the contract is in place).
+        pub fn cancel(&mut self) {
+            self.inner.cancel();
+        }
+
+        /// Force the SM back to Idle without protocol exchange — the escape
+        /// hatch for stock slide.com that doesn't yet support v0.2.1 CAN echo
+        /// (per ADR-003 §Decision: tolerate-stock-slide.com path).
+        pub fn force_idle(&mut self) {
+            self.inner.force_idle();
         }
     }
 
