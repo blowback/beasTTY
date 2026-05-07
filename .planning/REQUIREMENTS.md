@@ -163,8 +163,8 @@ Architecture, table-stakes, and pitfalls grounded in `.planning/research/{STACK,
 **: CRC-16-CCITT matches SLIDE v0.2 spec exactly (poly 0x1021, init 0xFFFF, big-endian on wire, covers SEQ+LEN_H+LEN_L+PAYLOAD); reference vector `crc16_ccitt(b"123456789") == 0x29B1`; byte-for-byte equality with slide-rs `build_frame` fixtures
 - [x] **SLIDE-04
 **: Sliding-window state machine (4 frames × 1024 bytes) handles RDY / ACK / NAK / CAN / FIN / CTRL_FIN per SLIDE v0.2 plus the v0.2.1 CAN-bidirectional amendment
-- [ ] **SLIDE-05**: JS dispatcher (`transport/slide.js:dispatchInbound`) routes Web Serial chunks to terminal parser OR SLIDE state machine based on session mode; detects 7-byte wakeup `ESC ^ S L I D E` across chunk boundaries via single-byte carry flag
-- [ ] **SLIDE-06**: TX writer ownership handoff — `tx-sink.js:setWireOwner('slide')` blocks `pushTxBytes` keystroke writes during active session; SLIDE writes via separate `writeSlideFrame` path that bypasses the keystroke ring
+- [x] **SLIDE-05**: JS dispatcher (`transport/slide.js:dispatchInbound`) routes Web Serial chunks to terminal parser OR SLIDE state machine based on session mode; detects 7-byte wakeup `ESC ^ S L I D E` across chunk boundaries via single-byte carry flag
+- [x] **SLIDE-06**: TX writer ownership handoff — `tx-sink.js:setWireOwner('slide')` blocks `pushTxBytes` keystroke writes during active session; SLIDE writes via separate `writeSlideFrame` path that bypasses the keystroke ring
 
 ### SLIDE host → Z80 send
 
@@ -181,7 +181,7 @@ Architecture, table-stakes, and pitfalls grounded in `.planning/research/{STACK,
 
 ### SLIDE Z80 → PC receive
 
-- [ ] **SLIDE-17**: BestialiTTY detects 7-byte wakeup `ESC ^ S L I D E` emitted by patched slide.com and enters receive mode
+- [x] **SLIDE-17**: BestialiTTY detects 7-byte wakeup `ESC ^ S L I D E` emitted by patched slide.com and enters receive mode
 - [ ] **SLIDE-18**: Each completed file delivered via Chrome download (anchor-click); `showDirectoryPicker` opt-in fallback for batches > 1 file (one user gesture saves all subsequent files into the chosen folder)
 - [ ] **SLIDE-19**: Multi-file batches stagger downloads with ≥ 250 ms inter-file gap to avoid Chrome multi-download throttling
 - [ ] **SLIDE-20**: Received files retain their CP/M 8.3 uppercase names verbatim
@@ -335,8 +335,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SLIDE-02 | Phase 7 | Complete |
 | SLIDE-03 | Phase 7 | Complete |
 | SLIDE-04 | Phase 7 | Complete |
-| SLIDE-05 | Phase 8 | Pending |
-| SLIDE-06 | Phase 8 | Pending |
+| SLIDE-05 | Phase 8 | Complete |
+| SLIDE-06 | Phase 8 | Complete |
 | SLIDE-07 | Phase 9 | Pending |
 | SLIDE-08 | Phase 9 | Pending |
 | SLIDE-09 | Phase 9 | Pending |
@@ -347,7 +347,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SLIDE-14 | Phase 11 | Pending |
 | SLIDE-15 | Phase 9 | Pending |
 | SLIDE-16 | Phase 9 | Pending |
-| SLIDE-17 | Phase 8 | Pending |
+| SLIDE-17 | Phase 8 | Complete |
 | SLIDE-18 | Phase 10 | Pending |
 | SLIDE-19 | Phase 10 | Pending |
 | SLIDE-20 | Phase 10 | Pending |

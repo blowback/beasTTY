@@ -190,10 +190,10 @@ Decimal phases appear between their surrounding integers in numeric order.
   4. `tx-sink.js` gains a `setWireOwner('slide')` handoff that silently drops `pushTxBytes` keystroke writes during an active session; SLIDE writes via a separate `writeSlideFrame` path that bypasses the keystroke ring; unit / Playwright tests prove keystrokes during a session do not corrupt the wire
   5. Detected wakeup transitions BestialiTTY into receive mode: terminal parser is suspended, SLIDE state machine owns the wire, and `dispatchInbound` continues to feed only the bytes after the wakeup signature to the SLIDE state machine
 **Plans**: 4 plans
-  - [ ] 08-01-PLAN.md — Wave 0 scaffolding: slide_wasm_boundary_shape.rs + 3 Playwright stub specs (Wave 1)
+  - [x] 08-01-PLAN.md — Wave 0 scaffolding: slide_wasm_boundary_shape.rs + 3 Playwright stub specs (Wave 1)
   - [x] 08-02-PLAN.md — Slide #[wasm_bindgen] façade in lib.rs + wasm-pack rebuild (Wave 2)
-  - [ ] 08-03-PLAN.md — slide.js dispatcher + tx-sink owner state + serial.js single-line edit + main.js boot wiring (Wave 3)
-  - [ ] 08-04-PLAN.md — Fill Wave 0 stubs with real Playwright assertions (SC#2/#3/#4/#5 verification) (Wave 4)
+  - [x] 08-03-PLAN.md — slide.js dispatcher + tx-sink owner state + serial.js single-line edit + main.js boot wiring (Wave 3)
+  - [x] 08-04-PLAN.md — Fill Wave 0 stubs with real Playwright assertions (SC#2/#3/#4/#5 verification) (Wave 4)
 
 ### Phase 9: SLIDE Sender — Host → Z80 Send
 **Goal**: Deliver a complete host-initiated send path: user picks files (multi-file input or drag-drop onto the canvas), BestialiTTY auto-types the configured `B:SLIDE R\r` command, then frames + ships the files via the Phase 7 state machine with proper `writer.ready` backpressure discipline. Filenames are auto-uppercased + truncated to CP/M 8.3 and validated for the CP/M character set before any frame leaves the wire.
