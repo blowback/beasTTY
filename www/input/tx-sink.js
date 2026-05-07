@@ -26,9 +26,29 @@ const observers = [];
 // keyboard.js is completely unaware of the coupling.
 let registeredWriter = null;
 
+// Phase 8 D-08 — wire-owner state for TX handoff during SLIDE sessions.
+// During mode='recv', the dispatcher (transport/slide.js) calls
+// setWireOwner('slide'); pushTxBytes early-returns (silent drop); SLIDE writes
+// go via writeSlideFrame which bypasses the keystroke ring.
+// Sources:
+//   - 08-CONTEXT.md D-08 + D-09.
+//   - 08-RESEARCH.md §"Pattern 2: TX Owner Handoff".
+//   - ARCHITECTURE.md Anti-Pattern 5 (multi-KB binary frames don't belong in
+//     the keystroke diagnostics ring).
+//
+// Default 'terminal'; flipped to 'slide' by transport/slide.js:dispatchInbound
+// on successful 7-byte wakeup match (D-09); flipped back to 'terminal' on
+// slide.state() === Done or Error (D-09).
+let owner = 'terminal';
+
 // --- Public API -----------------------------------------------------------
 
 export function pushTxBytes(bytes) {
+    // Phase 8 D-08 — silent drop during active SLIDE session. Chip messaging
+    // ("Transfer in progress — cancel first") is Phase 11's concern. Here
+    // we simply ensure keystrokes don't corrupt the wire mid-frame.
+    if (owner === 'slide') return;
+
     // Accept Uint8Array or plain Array<number>. Fast path for typed arrays.
     const len = bytes.length;
     for (let i = 0; i < len; i++) {
@@ -79,6 +99,31 @@ export function resetTx() {
 // after port.open() succeeds; unregisterWriter() in teardown.
 export function registerWriter(writer) { registeredWriter = writer; }
 export function unregisterWriter()     { registeredWriter = null; }
+
+// Phase 8 D-08 — wire-owner accessors. transport/slide.js calls these in
+// lockstep with mode transitions (D-09 — synchronous handoff, no race window).
+export function setWireOwner(o) {
+    if (o !== 'terminal' && o !== 'slide') {
+        throw new Error(`[tx-sink] invalid owner: ${o}`);
+    }
+    owner = o;
+}
+export function getWireOwner() { return owner; }
+
+// Phase 8 D-08 — bypass the keystroke ring entirely for binary frames. SLIDE
+// frame bytes (1024-byte payload + 6-byte header) are O(KB) per call; pushing
+// them through the 1024-byte keystroke ring would clobber Phase 4 D-15
+// hex-strip diagnostics for zero benefit. Mirror of the existing Phase 5 D-21
+// writer.write(...).catch(...) shape inside pushTxBytes.
+export function writeSlideFrame(bytes) {
+    if (!registeredWriter) {
+        console.error('[tx-sink] writeSlideFrame: no writer registered');
+        return;
+    }
+    registeredWriter.write(bytes).catch((err) => {
+        console.error('[tx-sink] writeSlideFrame failed:', err);
+    });
+}
 
 // --- Internals ------------------------------------------------------------
 
