@@ -69,7 +69,7 @@ multiples of 4.
 | Token | Value | Usage in Phase 9 |
 |-------|-------|------------------|
 | xs | 4px | Top-bar `[↑ Send file]` button internal vertical padding (matches existing top-bar buttons); modal `<ul>` item vertical padding; modal `<li>` rewrite-arrow inline gap; `[data-drop-target]` overlay dashed-border dash + gap (4px on / 4px off) |
-| sm | 8px | Top-bar `[↑ Send file]` button internal horizontal padding (matches existing top-bar buttons); modal `<button>` internal padding (matches Phase 5 `#connection button`); modal action-row `gap: 8px` between `[Cancel]` and `[Send N file(s)]`; `[data-drop-target]` overlay dashed border `1px` (sub-4 acceptable — see exceptions); modal `<ul>` outer margin |
+| sm | 8px | Top-bar `[↑ Send file]` button internal horizontal padding (matches existing top-bar buttons); modal `<button>` internal padding (matches Phase 5 `#connection button`); modal action-row `gap: 8px` between `[Don't send]` and `[Send N file(s)]`; `[data-drop-target]` overlay dashed border `1px` (sub-4 acceptable — see exceptions); modal `<ul>` outer margin |
 | md | 16px | Modal outer padding (`16px 24px`); modal `<header>` bottom margin; modal `<footer>` top margin; vertical gap between modal sections (header / list / footer) |
 | lg | 24px | Modal horizontal padding (`16px 24px`) — wider on the X-axis so long filenames don't crowd the dialog edge |
 | xl | 32px | (unused in Phase 9) |
@@ -103,7 +103,7 @@ values (14px, 13px, 12px). Weights: 1 distinct value (regular 400).
 
 | Role | Size | Weight | Line Height | Usage in Phase 9 |
 |------|------|--------|-------------|------------------|
-| Body | 14px | 400 | 1.4 | Top-bar `[↑ Send file]` button label (matches existing top-bar buttons); modal `<header>` title (`Sending N files via SLIDE`); modal `[Cancel]` and `[Send N file(s)]` action-row buttons; drop-overlay centered text (`Drop file(s) to send via SLIDE`) |
+| Body | 14px | 400 | 1.4 | Top-bar `[↑ Send file]` button label (matches existing top-bar buttons); modal `<header>` title (`Sending N files via SLIDE`); modal `[Don't send]` and `[Send N file(s)]` action-row buttons; drop-overlay centered text (`Drop file(s) to send via SLIDE`) |
 | Label | 13px | 400 | 1.4 | (unused in Phase 9 — modal action buttons use Body 14px to match top-bar weight; modal list items use Hint 12px to keep many-files mode scannable) |
 | Hint | 12px | 400 | 1.5 | Modal `<ul>` `<li>` rewrite/rejection items (`my-doc.txt → MY-DOC.TXT` and `bad?file.txt — rejected: invalid CP/M character '?'`); modal "All files rejected — see details below" disabled-state hint |
 | Display | (unused in Phase 9) | — | — | Phase 5 reserves 20px Display for polite-fail page only; not used here |
@@ -144,11 +144,11 @@ for the drop-overlay tint.
 | Role | Value | Usage in Phase 9 |
 |------|-------|------------------|
 | Dominant (60%) | `var(--chrome-bg)` — `#1e242c` (clean) / `#0a0a0a` (CRT) | Top-bar `[↑ Send file]` button background (transparent — inherits top-bar bg); modal `<dialog>` background; drop-overlay backdrop is **not** dominant — it is a faint accent tint over the existing canvas (see Drop Overlay row below) |
-| Secondary (30%) | `var(--chrome-border)` — `rgba(255,255,255,0.08)` | Top-bar `[↑ Send file]` button border (matches all other top-bar buttons); modal `<dialog>` border (1px); modal `[Cancel]` and `[Send N file(s)]` button borders (mirror Phase 5 `#connection button`); modal section dividers (`<hr>` between header / list / footer if used) |
+| Secondary (30%) | `var(--chrome-border)` — `rgba(255,255,255,0.08)` | Top-bar `[↑ Send file]` button border (matches all other top-bar buttons); modal `<dialog>` border (1px); modal `[Don't send]` and `[Send N file(s)]` button borders (mirror Phase 5 `#connection button`); modal section dividers (`<hr>` between header / list / footer if used) |
 | Accent (10%) | `var(--chrome-accent)` — `#7fdbca` (clean) / `var(--phosphor-fg)` (CRT) | **Reserved for** (explicit list — never "all interactive elements"): (1) `:focus-visible` outline + hover border on top-bar `[↑ Send file]` button (matches `#top-bar button:hover, #top-bar button:focus-visible` rule at `index.html:83-86`); (2) `:focus-visible` outline + hover border on modal action buttons; (3) drop-overlay dashed-border color (literal `var(--chrome-accent)`); (4) drop-overlay tint alpha-blend (`color-mix(in srgb, var(--chrome-accent) 10%, transparent)` — see Drop Overlay row); (5) modal `<header>` does NOT use accent (stays `var(--chrome-fg)`) |
 | Foreground (text) | `var(--chrome-fg)` — `#e4e8ee` (clean) / `var(--phosphor-fg)` (CRT) | Top-bar `[↑ Send file]` button label (including the `↑` arrow); modal `<header>` title; modal `<li>` rewrite arrow (`→`); drop-overlay centered text |
 | Hint / muted | `rgba(255,255,255,0.6)` | Modal `<li>` rejection-reason text (`— rejected: invalid CP/M character '?'`) — the rejected-reason segment after the em-dash is muted so the filename remains scan-readable while the reason is supportive context; modal "All files rejected" disabled-state hint |
-| Destructive | **not used in Phase 9** | No destructive actions. `[Cancel]` is not destructive (closes modal, no state mutation). Send-button-disabled-when-all-rejected is not destructive (it is a guard, not an action). |
+| Destructive | **not used in Phase 9** | No destructive actions. `[Don't send]` is not destructive (closes modal, no state mutation). Send-button-disabled-when-all-rejected is not destructive (it is a guard, not an action). |
 | State color | **not used in Phase 9** | The Connect-button amber/red/green from Phase 5 is **not** reused. The `[↑ Send file]` button has only two states — enabled (default border) and disabled (50% opacity + grayed-out via `:disabled` selector inheriting from the existing `#top-bar button:disabled` pattern). No state-color encoding. |
 
 ### Drop Overlay color treatment (CONTEXT D-03)
@@ -260,13 +260,13 @@ strings — no paraphrasing.
 | Modal `<ul>` rewrite item | `{original} → {uppercase-truncated}` — runtime-formatted, e.g. `my-doc.txt → MY-DOC.TXT` or `REPORT-2024.csv → REPORT-2.CSV` |
 | Modal `<ul>` rejection item | `{original} — rejected: invalid CP/M character '{char}'` — runtime-formatted, e.g. `bad?file.txt — rejected: invalid CP/M character '?'` |
 | Modal `<ul>` rejection item (non-character reason — multiple sub-cases) | `{original} — rejected: empty filename` (leading-dot dotfile per CONTEXT D-07); `{original} — rejected: non-ASCII byte 0x{HH}` (any byte ≥ 0x80 per CONTEXT D-06); `{original} — rejected: control character 0x{HH}` (any byte < 0x20 per CONTEXT D-06) |
-| Modal `[Cancel]` button label | `Cancel` |
+| Modal `[Don't send]` button label | `Don't send` |
 | Modal `[Send N file(s)]` button label, all surviving (no rejection) — singular | `Send 1 file` |
 | Modal `[Send N file(s)]` button label, all surviving (no rejection) — plural | `Send {N} files` (runtime-formatted) |
 | Modal `[Send N file(s)]` button label, mixed (some rejected) — singular | `Send 1 file` |
 | Modal `[Send N file(s)]` button label, mixed (some rejected) — plural | `Send {surviving-count} files` (runtime-formatted, count excludes rejected) |
 | Modal disabled-state Send button label (all rejected — see special copy below) | `Send 0 files` — text remains "Send 0 files" but `disabled` attribute is set; visual state via 50% opacity. Spec rationale: keep the button label numerically truthful so accessibility tooling reads accurately; the disabled attribute is the affordance signal. |
-| Modal all-rejected disabled-state hint (above the Cancel/Send action row) | `All files rejected — see details below.` — short single sentence, sets user expectation that the only path forward is Cancel + retry. Hidden when `surviving > 0`. |
+| Modal all-rejected disabled-state hint (above the Don't send / Send action row) | `All files rejected — see details below.` — short single sentence, sets user expectation that the only path forward is Don't send + retry. Hidden when `surviving > 0`. |
 
 **Plural rules:**
 
@@ -287,7 +287,7 @@ Sending 3 files via SLIDE
   • REPORT-2024.csv → REPORT-2.CSV
   • bad?file.txt — rejected: invalid CP/M character '?'
 
-                              [Cancel]  [Send 2 files]
+                              [Don't send]  [Send 2 files]
 ```
 
 ```
@@ -297,7 +297,7 @@ Sending 1 file via SLIDE
 
   All files rejected — see details below.
 
-                              [Cancel]  [Send 0 files]   (disabled)
+                              [Don't send]  [Send 0 files]   (disabled)
 ```
 
 ### Empty / error / destructive states
@@ -310,7 +310,7 @@ Sending 1 file via SLIDE
 | Error state — Z80 doesn't respond | **deferred to Phase 11 SLIDE-35.** Phase 9 ships with the `[↑ Send file]` button stuck in the disabled `(sending…)` state indefinitely if no wakeup arrives. CONTEXT D-15 locks this; the SLIDE-35 chip provides remediation in Phase 11. |
 | Error state — auto-type fails (writer not registered, port lost, etc.) | Currently routes through Phase 5 `error-log` ring (event code: `write-error`). Phase 9 does not add a new error code or surface; the existing inline error log is the channel. The button auto-recovers (returns to enabled) when the abort path completes via the existing dispatcher cancel handling (CONTEXT D-19). |
 | Error state — sender mid-send port lost | Same as above — Phase 5 error log + button auto-recovers. Phase 11 SLIDE-32 will add the proper `slidePumpOnPortLost` symmetric to `pastePumpOnPortLost`. |
-| Destructive confirmation | n/a — no destructive actions in Phase 9. Cancel modal closes the modal; opening the picker / dropping files / clicking Send all advance state without destroying anything that wasn't already in flight. |
+| Destructive confirmation | n/a — no destructive actions in Phase 9. Don't send modal closes the modal; opening the picker / dropping files / clicking Send all advance state without destroying anything that wasn't already in flight. |
 
 ### Copywriting invariants (inherited from Phase 5 + Phase 6, preserved here)
 
@@ -418,7 +418,7 @@ default semantics (centered viewport overlay).
     All files rejected — see details below.
   </p>
   <footer>
-    <button id="send-modal-cancel" type="button">Cancel</button>
+    <button id="send-modal-cancel" type="button">Don't send</button>
     <button id="send-modal-send" type="button">Send {N} files</button>
   </footer>
 </dialog>
@@ -697,10 +697,10 @@ true, the drop is silently consumed (no overlay, no modal, no chip). The
 |---------|----------|
 | `<dialog>.showModal()` | Modal opens centered viewport-overlay; backdrop dims rest of page; focus trapped inside dialog (native behavior) |
 | Initial focus on open | **`#send-modal-cancel` button** (the safer of the two — pressing Enter on a freshly-opened modal should NOT trigger a destructive-feeling Send action). User Tab-advances to Send button; Tab-cycles wrap. |
-| Tab order inside modal | (1) `#send-modal-cancel` → (2) `#send-modal-send` → (back to Cancel via Tab-cycle wrap or Shift+Tab). The `<ul>` items are NOT tabbable (read-only content). |
-| Esc key | Native `<dialog>` Esc-to-cancel behavior. Fires `cancel` event then `close` event. Phase 9 attaches a `cancel` listener that simply re-enables the top-bar button (since clicking Cancel and pressing Esc are the same outcome). |
+| Tab order inside modal | (1) `#send-modal-cancel` → (2) `#send-modal-send` → (back to Don't send via Tab-cycle wrap or Shift+Tab). The `<ul>` items are NOT tabbable (read-only content). |
+| Esc key | Native `<dialog>` Esc-to-cancel behavior. Fires `cancel` event then `close` event. Phase 9 attaches a `cancel` listener that simply re-enables the top-bar button (since clicking Don't send and pressing Esc are the same outcome). |
 | Click outside modal (on `<dialog>::backdrop`) | **Closes the modal** (treated as Cancel). Standard click handler: `dialog.addEventListener('click', e => { if (e.target === dialog) dialog.close('cancel'); })` — works because clicks on the backdrop pass through to the dialog itself (native browser behavior). |
-| Click `[Cancel]` | `dialog.close('cancel')` — modal closes, no SLIDE session opens, top-bar button stays enabled, `FileList` discarded |
+| Click `[Don't send]` | `dialog.close('cancel')` — modal closes, no SLIDE session opens, top-bar button stays enabled, `FileList` discarded |
 | Click `[Send N file(s)]` (when surviving > 0) | `dialog.close('send')` — modal closes; surviving files are packed into metadata via `packSendMetadata`; `enterSendMode({ files })` called; auto-type fires; top-bar button transitions to disabled |
 | Click `[Send 0 files]` (disabled — all rejected) | (no-op — disabled attribute blocks click) |
 | Modal long-list overflow (rejection list > 60vh) | Internal scroll on `#send-modal ul` (CSS `overflow-y: auto` on the `<ul>`). The `<header>` and `<footer>` stay pinned via flex-column layout. Smooth-scroll behavior is browser-default; no custom polyfill. |
@@ -925,7 +925,7 @@ fallback chain, not assets. **Phase 9 ships zero new external assets.**
 | Drop overlay `[data-drop-target]` attribute idiom | 09-CONTEXT.md D-03; mirrors Phase 3 `[data-focused]` (`index.html:117-120`) and Phase 6 `[data-scrolled-back]` (`index.html:127-132`) |
 | Non-file drag rejection silent (no chip flash) | 09-CONTEXT.md D-04 |
 | Native `<dialog>` confirm modal | 09-CONTEXT.md D-05 |
-| Modal 2-button footer `[Cancel]` + `[Send N file(s)]` | 09-CONTEXT.md D-05 |
+| Modal 2-button footer `[Don't send]` + `[Send N file(s)]` | 09-CONTEXT.md D-05 |
 | Modal disabled-when-all-rejected + "All files rejected — see details below" hint | 09-CONTEXT.md D-05 |
 | Drop overlay text "Drop file(s) to send via SLIDE" | 09-CONTEXT.md D-03 + REQUIREMENTS.md SLIDE-09 |
 | Modal rewrite item shape `original.txt → ORIGINAL.TXT` | 09-CONTEXT.md D-05 + REQUIREMENTS.md SLIDE-15 |
@@ -937,7 +937,7 @@ fallback chain, not assets. **Phase 9 ships zero new external assets.**
 | Modal `max-width: 560px` and `max-height: 60vh` | researcher decision per CP/M filename length distribution + viewport portability |
 | Modal `<li>` line-height `1.5` (sub-4 exception) | researcher decision for many-files scanability; locked to `#send-modal ul li` |
 | Drop overlay `2px dashed` (sub-4 exception) | researcher decision matching OS-native drop-target convention |
-| Modal initial focus on `[Cancel]` | researcher decision — safer default than focusing the action button |
+| Modal initial focus on `[Don't send]` | researcher decision — safer default than focusing the action button |
 | Modal click-outside-to-dismiss | researcher decision — standard `<dialog>` UX expectation |
 | Reduced-motion accessibility (no animations to reduce) | researcher decision per project's existing motion-light posture |
 | Drag-drop during active session silent rejection (Phase 11 chip deferred) | 09-CONTEXT.md §Out of scope (SLIDE-11 deferred to Phase 11) |

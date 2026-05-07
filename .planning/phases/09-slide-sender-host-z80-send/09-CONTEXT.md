@@ -696,7 +696,7 @@ The following intentionally remain unlocked at the planning/research stage:
   │ • REPORT-2024.csv → REPORT-2.CSV           │
   │ • bad?file.txt — rejected: invalid char '?'│
   ├────────────────────────────────────────────┤
-  │              [Cancel]  [Send 2 files]      │
+  │              [Don't send]  [Send 2 files]  │
   └────────────────────────────────────────────┘
   ```
   Send button label adapts to surviving file count after rejection.
