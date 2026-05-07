@@ -191,7 +191,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   5. Detected wakeup transitions BestialiTTY into receive mode: terminal parser is suspended, SLIDE state machine owns the wire, and `dispatchInbound` continues to feed only the bytes after the wakeup signature to the SLIDE state machine
 **Plans**: 4 plans
   - [ ] 08-01-PLAN.md — Wave 0 scaffolding: slide_wasm_boundary_shape.rs + 3 Playwright stub specs (Wave 1)
-  - [ ] 08-02-PLAN.md — Slide #[wasm_bindgen] façade in lib.rs + wasm-pack rebuild (Wave 2)
+  - [x] 08-02-PLAN.md — Slide #[wasm_bindgen] façade in lib.rs + wasm-pack rebuild (Wave 2)
   - [ ] 08-03-PLAN.md — slide.js dispatcher + tx-sink owner state + serial.js single-line edit + main.js boot wiring (Wave 3)
   - [ ] 08-04-PLAN.md — Fill Wave 0 stubs with real Playwright assertions (SC#2/#3/#4/#5 verification) (Wave 4)
 
