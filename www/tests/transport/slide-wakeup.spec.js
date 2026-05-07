@@ -38,10 +38,11 @@ test.describe('SLIDE-17 — 7-byte ESC ^ S L I D E wakeup', () => {
     test.beforeEach(async ({ page }) => {
         await setup(page);
         await page.locator('#connect-button').click();
-        // Wait for the connect path + read loop to start (reader created).
+        // Generous timeout — Playwright's 10-worker parallelism can starve
+        // the wasm boot path on busy hardware; 2s flakes intermittently.
         await expect.poll(
             () => page.evaluate(() => Boolean(navigator.serial._grantedPorts[0]?._reader)),
-            { timeout: 2000 },
+            { timeout: 5000 },
         ).toBe(true);
         // Reset dispatcher state — the test runner reuses pages across tests
         // and prior tests may have wedged mode='recv' or wakeIdx > 0.

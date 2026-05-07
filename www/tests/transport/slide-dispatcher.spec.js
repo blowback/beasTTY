@@ -31,9 +31,11 @@ test.describe('SLIDE-05 — dispatcher routing', () => {
     test.beforeEach(async ({ page }) => {
         await setup(page);
         await page.locator('#connect-button').click();
+        // Generous timeout — Playwright's 10-worker parallelism can starve
+        // the wasm boot path on busy hardware; 2s flakes intermittently.
         await expect.poll(
             () => page.evaluate(() => Boolean(navigator.serial._grantedPorts[0]?._reader)),
-            { timeout: 2000 },
+            { timeout: 5000 },
         ).toBe(true);
         await page.evaluate(() => {
             window.__slide.__resetForTests();
