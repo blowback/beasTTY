@@ -13,6 +13,10 @@
 
 import { registerWriter, unregisterWriter } from '../input/tx-sink.js';
 import { onPortLost as pastePumpOnPortLost } from '../input/paste-pump.js';
+// Phase 8 D-05 + D-06 — route inbound bytes through the SLIDE dispatcher
+// instead of directly to term.feed. dispatchInbound is byte-transparent in
+// terminal mode (the post-feed invariant at lines 454-462 below is unchanged).
+import { dispatchInbound } from './slide.js';
 // Live read of prefs.showAllSerialDevices at picker time. Cannot use the
 // boot-time `prefsRef` snapshot because savePrefs replaces the cached object —
 // prefsRef would still point at the original blob and miss subsequent toggles.
@@ -450,7 +454,7 @@ async function runReadLoop(p) {
             while (true) {
                 const { value, done } = await reader.read();
                 if (done) break;                        // D-36 — cancel() resolves here
-                term.feed(value);                        // Phase 2 feed_silent; raw Uint8Array
+                dispatchInbound(value);                  // Phase 8 D-06 — terminal/recv mode dispatch
                 sampleBellFn();                          // Phase 3 post-feed invariant
                 drainHostReplyFn('serial');              // Phase 2 host-reply accessor drain
                 requestFrameFn();                        // Phase 3 dirty-repaint wake

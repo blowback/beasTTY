@@ -35,7 +35,7 @@ import {
 const prefs = loadPrefs();
 window.__prefs = { savePrefs, resetPrefs, getPrefs, subscribe: prefsSubscribe };
 
-import init, { Terminal } from './pkg/bestialitty_core.js';
+import init, { Terminal, Slide } from './pkg/bestialitty_core.js';
 import {
     bootRenderer,
     requestFrame,
@@ -58,8 +58,21 @@ import { wireChrome } from './renderer/chrome.js';
 import { wireScrollState } from './renderer/scroll-state.js';
 import { wireSelection } from './input/selection.js';
 import { wireKeyboard, setLocalEcho, setCrlfMode } from './input/keyboard.js';
-import { registerTxObserver, formatHexStrip, resetTx } from './input/tx-sink.js';
+import {
+    registerTxObserver,
+    formatHexStrip,
+    resetTx,
+    setWireOwner,
+    getWireOwner,
+    writeSlideFrame,
+} from './input/tx-sink.js';
 import { wireSerial } from './transport/serial.js';
+import {
+    wireSlideDispatcher,
+    dispatchInbound,
+    __resetForTests as __slideResetForTests,
+    __getStateForTests as __slideGetStateForTests,
+} from './transport/slide.js';
 import {
     enqueuePaste,
     onProgress as onPastePumpProgress,
@@ -363,6 +376,30 @@ window.__sessionLog = {
     download: sessionLogDownload,
     getCurrentBytes: sessionLogBytes,
 };
+
+// Phase 8 — wire SLIDE dispatcher AFTER wireSessionLog (so the post-feed
+// invariant's sessionLogRef.append still sees inbound bytes — terminal mode
+// is byte-transparent through dispatchInbound) and BEFORE await wireSerial
+// so the dispatcher is initialized before any chunks could arrive on the
+// read loop. Pitfall 8 — Slide constructor depends on `await init()` having
+// resolved, which happened at main.js:79.
+wireSlideDispatcher({
+    term,
+    txSink: { setWireOwner, getWireOwner, writeSlideFrame },
+    slideCtor: Slide,
+    wasm,
+});
+
+// Test introspection (mirrors window.__sessionLog / window.__scrollState
+// precedent). Plan 08-04's Playwright specs read mode + wakeIdx via
+// window.__slide.__getStateForTests(); they push reader bytes via
+// window.__mockReaderPush (existing Phase 5 hook) and assert outcomes.
+window.__slide = {
+    __resetForTests: __slideResetForTests,
+    __getStateForTests: __slideGetStateForTests,
+    dispatchInbound,
+};
+window.__txSink = { setWireOwner, getWireOwner, writeSlideFrame };
 
 // Phase 5 — wire Web Serial transport. opts mirror Phase 4 wireKeyboard
 // shape for sampleBell/drainHostReply/requestFrame discipline (D-35 post-feed
