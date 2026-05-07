@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: Integration
-status: Phase 7 closed; Phase 8 (Wasm Boundary, Dispatcher & Wakeup) next
-stopped_at: Phase 8 context gathered
-last_updated: "2026-05-07T19:04:25.486Z"
-last_activity: 2026-05-06
+status: executing
+stopped_at: Completed 08-01-PLAN.md
+last_updated: "2026-05-07T19:13:45.073Z"
+last_activity: 2026-05-07 -- Phase --phase execution started
 progress:
   total_phases: 12
   completed_phases: 7
   total_plans: 51
-  completed_plans: 47
-  percent: 92
+  completed_plans: 48
+  percent: 94
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-06)
 
 **Core value:** A modern, reliable, in-browser VT52 emulator good enough to use as a daily driver with a real MicroBeast.
-**Current focus:** Phase 7 — SLIDE Rust Core (Framer, CRC, State Machine)
+**Current focus:** Phase --phase — 08
 
 ## Current Position
 
-Phase: 7 (SLIDE Rust Core — Framer, CRC, State Machine) — COMPLETE
-Plan: 5 of 5 (07-01 + 07-02 + 07-03 + 07-04 + 07-05 all complete)
-Status: Phase 7 closed; Phase 8 (Wasm Boundary, Dispatcher & Wakeup) next
-Last activity: 2026-05-06
+Phase: --phase (08) — EXECUTING
+Plan: 1 of --name
+Status: Executing Phase --phase
+Last activity: 2026-05-07 -- Phase --phase execution started
 
-Progress: [██████░░░░] 58% (7/12 phases)
+Progress: [█████████░] 94%
 
 ## Performance Metrics
 
@@ -107,6 +107,7 @@ Progress: [██████░░░░] 58% (7/12 phases)
 | Phase 07-slide-rust-core-framer-crc-state-machine P03 | 6min | 2 tasks tasks | 4 files files |
 | Phase 07-slide-rust-core-framer-crc-state-machine P04 | 3min | 3 tasks tasks | 3 files files |
 | Phase 07-slide-rust-core-framer-crc-state-machine P05 | 3min | 2 tasks | 2 files |
+| Phase 08-wasm-boundary-js-dispatcher-esc-wakeup PP01 | 4min | 2 tasks tasks | 4 files files |
 
 ## Accumulated Context
 
@@ -131,6 +132,7 @@ Recent decisions affecting current work:
 - Phase 7 Plan 03 (2026-05-06): Slide receiver SM shipped with cancel/force_idle (D-05/D-06/D-07); receiver-only scope per RESEARCH §SM Scope Recommendation since receiver exercises every SLIDE control byte; sender SM deferred to Phase 9. Hybrid event surface: feed_byte returns packed-u32 + feed_chunk returns event count + take_event_packed ring drain. Auto-fix Rule 1: EVT_CRC_ERROR match arms required `e & 0xFFFF_0000 == EVT_CRC_ERROR` guard pattern (same as EVT_DATA_FRAME) because framer emits EVT_CRC_ERROR | seq, not bare EVT_CRC_ERROR; bare match never fired so NAK_BUDGET never exhausted; caught by nak_budget_exhaustion test.
 - Phase 7 Plan 04 (2026-05-06): Three integration test files shipped (slide_torn_chunk.rs / slide_idempotent_reentry.rs / slide_boundary_shape.rs); 22 new tests pass on first run. Test-only plan ships as single test(...) commit per task — RED-then-GREEN cycle is signal-free when implementation pre-exists. Multi-frame torn-chunk explicitly tested (torn_multi_frame_rdy_then_header) extends within-frame torn-chunk safety to across-frame splits, critical for Web Serial multi-frame chunks. Log-scale split for max-payload fixture (1030 bytes) per RESEARCH Assumption A5. Boundary-shape file pins SlideState variant integer values 0..7 explicitly + EVT_* packing convention (kind << 16) — Phase 8's JS unpacker uses (evt >>> 16) for kind. T-07-02 / T-07-05 / T-07-06 mitigated at integration boundary; Phase 8 wasm-boundary surface shape pinned via fn-pointer coercion.
 - Phase 7 Plan 05 (2026-05-06): ADR-003 (`.planning/decisions/ADR-003-slide-v0-2-1-can-amendment.md`, 190 lines, Nygard structure) formalises 07-CONTEXT.md D-05/D-06/D-07/D-08 with cited slide-rs evidence (protocol.rs:104, protocol.rs:199-206, slide-py/common.py:64-71, RDY/FIN symmetry argument); CTRL_CAN wire format pinned as raw single byte 0x18 (NOT a wrapped frame); upstream PR target (github.com/blowback/slide) recorded for Phase 12 coordination per REQUIREMENTS.md SLIDE-40; force_idle() escape hatch tolerates stock slide.com that doesn't yet support the v0.2.1 amendment. tests/core_02_no_browser_deps.rs FORBIDDEN_TOKENS_WITH_EXEMPTIONS extended with `("std::time", &[])` — promotes the no-`std::time`-in-core invariant from convention to CI-enforced gate. Phase 7 deliverable list closed: 5/5 plans complete; whole crate 232 tests green; native build warning-free; ROADMAP Phase 7 main checkbox flipped to [x].
+- Phase 8 Plan 01 (2026-05-07): Wave 0 RED-gate test scaffolds shipped — 1 Rust fn-pointer pin (slide_wasm_boundary_shape.rs, 8 tests, sibling-mirror of slide_boundary_shape.rs with Phase 8 doc-header) + 3 Playwright stub specs (27 test.skip stubs across slide-wakeup.spec.js / slide-dispatcher.spec.js / tx-sink.spec.js). Auto-fix Rule 3: enumerated 7 torn-chunk-split test.skip declarations rather than for-loop because 08-01-PLAN.md acceptance criteria 'grep -c test.skip >= 12' counts source lines (loop = 1 grep hit, 6 runtime tests). All 27 stubs registered as skipped (exit 0); Phase 5 readloop+lifecycle still green; whole-crate cargo green at 240 tests.
 
 ### Pending Todos
 
@@ -158,9 +160,9 @@ Items acknowledged and carried forward from v1.0 milestone close:
 
 ## Session Continuity
 
-Last session: --stopped-at
-Stopped at: Phase 8 context gathered
-Resume file: --resume-file
+Last session: 2026-05-07T19:13:45.066Z
+Stopped at: Completed 08-01-PLAN.md
+Resume file: None
 
 **Next Phase:** Phase 8 — Wasm Boundary, JS Dispatcher & ESC^ Wakeup. Phase 7 delivered the pure-Rust SLIDE state machine; Phase 8 wraps `Slide` in `lib.rs:wasm_boundary` with `feed_byte` / `feed_chunk` / `outbound_ptr/_len/clear_outbound` / `state` / `cancel` / `force_idle` exports (per ARCHITECTURE.md §1). The `Slide` struct shape is pinned via `tests/slide_boundary_shape.rs` fn-pointer coercion (Plan 07-04) so any drift fails at compile time. ADR-003 (Plan 07-05) is the canonical document for the v0.2.1 CAN-bidirectional amendment that Phase 8's wasm wrapper exposes to JS.
 
