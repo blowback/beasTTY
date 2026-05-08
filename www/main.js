@@ -87,6 +87,20 @@ import {
     __resetForTests as __fileSourceResetForTests,
     __getStateForTests as __fileSourceGetStateForTests,
 } from './input/file-source.js';
+// Phase 10 Plan 10-03 — SLIDE recv plumbing wiring.
+// wireSlideRecv slots AFTER wireSlideDispatcher; window.__slide.cancelRecv +
+// window.__slide.isActive + window.__slideRecv exposure for Plan 10-04 Settings
+// UI + Plan 10-05 Playwright UAT specs.
+import {
+    wireSlideRecv,
+    cancelSlideRecv,
+    isSlideActive,
+    slidePumpOnPortLost as slideRecvPumpOnPortLost,
+    recoverHardFail as slideRecvRecoverHardFail,
+    __resetForTests as __slideRecvResetForTests,
+    __getStateForTests as __slideRecvGetStateForTests,
+} from './transport/slide-recv.js';
+import { getRecvDirHandle, setRecvDirHandle, clearRecvDirHandle } from './state/idb.js';
 import { wireClipboard, copySelection, pasteFromClipboard } from './input/clipboard.js';
 import {
     wireSessionLog,
@@ -398,17 +412,51 @@ wireSlideDispatcher({
     wasm,
 });
 
+// Phase 10 Plan 10-03 — wire SLIDE recv plumbing AFTER wireSlideDispatcher.
+// Settings DOM refs are null in this plan; Plan 10-04 fills them by re-calling
+// wireSlideRecv with row/toggle/folderButton/status/help refs once those
+// elements exist in index.html. The anchor-click default path works without
+// any Settings UI present (slideRecvToFolder=false default in prefs).
+wireSlideRecv({
+    wrapperEl: terminalWrapper,
+    prefs,
+    savePrefs,
+    idb: { getRecvDirHandle, setRecvDirHandle, clearRecvDirHandle },
+    txSink: { setWireOwner, getWireOwner, writeSlideFrame, writeSlideFrameAwaitable },
+    wasm,
+    slideRef: null,                  // slide.js sets via setSlideRef on each enterRecvMode
+    rowEl: null,
+    toggleEl: null,
+    folderButtonEl: null,
+    statusEl: null,
+    helpEl: null,
+});
+
 // Test introspection (mirrors window.__sessionLog / window.__scrollState
 // precedent). Plan 08-04's Playwright specs read mode + wakeIdx via
 // window.__slide.__getStateForTests(); they push reader bytes via
 // window.__mockReaderPush (existing Phase 5 hook) and assert outcomes.
 // Phase 9 Plan 02 — enterSendMode added so Plan 09-04 Playwright specs
 // can drive the sender lifecycle programmatically without a file-source UI.
+// Phase 10 Plan 10-03 — cancelRecv + isActive added for Esc-cancel UAT specs;
+// window.__slideRecv exposes the recv-module test introspection separately so
+// the W1 wiring (slide.js's __getStateForTests recv-mode branch reads
+// bytes_in_file_done from window.__slideRecv) has a stable read path.
 window.__slide = {
     __resetForTests: __slideResetForTests,
     __getStateForTests: __slideGetStateForTests,
     dispatchInbound,
     enterSendMode: enterSlideSendMode,        // Phase 9 test hook
+};
+// Phase 10 Plan 10-03 — explicit per-property assignment matches CONTEXT lock
+// (locked grep targets `window.__slide.cancelRecv = cancelSlideRecv` and
+// `window.__slide.isActive = isSlideActive`) so future plans (and the
+// plan-checker grep gates) can find the wiring without parsing object literals.
+window.__slide.cancelRecv = cancelSlideRecv;
+window.__slide.isActive = isSlideActive;   // Phase 10 — Playwright introspection
+window.__slideRecv = {
+    __resetForTests: __slideRecvResetForTests,
+    __getStateForTests: __slideRecvGetStateForTests,
 };
 // Phase 9 Plan 02 — writeSlideFrameAwaitable added so the new tx-sink Playwright
 // tests (writeSlideFrameAwaitable awaits writer.ready / throws / propagates)

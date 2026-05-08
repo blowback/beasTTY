@@ -21,6 +21,12 @@
 import { encode_key_raw } from '../pkg/bestialitty_core.js';
 import { pushTxBytes } from './tx-sink.js';
 import { isActive as pastePumpIsActive, cancelPaste } from './paste-pump.js';
+// Phase 10 Plan 10-03 — SLIDE-cancel arm in the Esc disambiguation chain.
+// isSlideActive() is the gate; cancelSlideRecv() runs the ADR-003 §3 5-step
+// CTRL_CAN sequence (200/500/100/2000 ms). Inserted BETWEEN the existing
+// selection-drag-cancel arm (Phase 6 D-19) and paste-cancel arm (Phase 5 D-18)
+// per CONTEXT.md §"Esc disambiguation slot" lock.
+import { isSlideActive, cancelSlideRecv } from '../transport/slide-recv.js';
 // Phase 6 Plan 04 (Wave 3) — clipboard + selection + scroll-state intercepts.
 import { copySelection, pasteFromClipboard } from './clipboard.js';
 import {
@@ -216,6 +222,13 @@ export function wireKeyboard(opts) {
         if (e.code === 'Escape' && selectionIsDragging()) {
             e.preventDefault();
             selectionCancelDrag();
+            return;
+        }
+
+        // Phase 10 D-disambiguation: slot 2 of 4 in the Esc-only disambiguation chain (slot 3 of 5 if Ctrl+Shift+Esc is counted). Inserted between selection-drag-cancel (existing slot 1 / chain pos 2) and paste-cancel (existing slot 2 / chain pos 4).
+        if (e.code === 'Escape' && isSlideActive()) {
+            e.preventDefault();
+            cancelSlideRecv();
             return;
         }
 
