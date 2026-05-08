@@ -22,6 +22,7 @@ use bestialitty_core::slide::{
     Slide, SlideState,
     EVT_NONE, EVT_RDY, EVT_ACK, EVT_NAK, EVT_FIN, EVT_CAN,
     EVT_DATA_FRAME, EVT_CRC_ERROR,
+    EVT_FILE_COMPLETE, EVT_SESSION_COMPLETE, EVT_RETRANSMIT_NEEDED,
 };
 
 #[test]
@@ -43,6 +44,19 @@ fn slide_feed_methods_have_stable_signatures() {
     let _: fn(&mut Slide, u8) -> u32   = Slide::feed_byte;
     let _: fn(&mut Slide, &[u8]) -> u32 = Slide::feed_chunk;
     let _: fn(&mut Slide) -> u32       = Slide::take_event_packed;
+}
+
+#[test]
+fn slide_send_methods_have_stable_signatures() {
+    // Phase 9 sender API surface — wasm boundary mirror of
+    // slide_boundary_shape.rs:slide_send_methods_have_stable_signatures.
+    // Tests/ integration tests compile against the lib in NON-test mode,
+    // so they see exactly the public surface that wasm-bindgen sees.
+    // Plan 09-02 forwards these one-line through lib.rs:wasm_boundary
+    // (cfg target_arch=wasm32) — drift here fails native cargo test
+    // BEFORE wasm-pack would.
+    let _: fn(&mut Slide, &[u8])       = Slide::enter_send_mode;
+    let _: fn(&mut Slide, &[u8], bool) = Slide::feed_send_chunk;
 }
 
 #[test]
@@ -93,6 +107,19 @@ fn slide_event_constants_pinned_for_phase_8_jsmirror() {
     // Aux bits are zero for the constants (filled in at runtime per byte).
     assert_eq!(EVT_RDY & 0xFFFF,  0);
     assert_eq!(EVT_ACK & 0xFFFF,  0);
+
+    // Phase 9 sender extensions — must NOT shift any existing 0..7 value.
+    // JS-side www/transport/slide.js mirrors these as:
+    //   const EVT_FILE_COMPLETE     = 8  << 16;
+    //   const EVT_SESSION_COMPLETE  = 9  << 16;
+    //   const EVT_RETRANSMIT_NEEDED = 10 << 16;
+    // Drift here fails this test BEFORE the JS mirror desyncs.
+    assert_eq!(EVT_FILE_COMPLETE     >> 16, 8);
+    assert_eq!(EVT_SESSION_COMPLETE  >> 16, 9);
+    assert_eq!(EVT_RETRANSMIT_NEEDED >> 16, 10);
+    assert_eq!(EVT_FILE_COMPLETE     & 0xFFFF, 0);
+    assert_eq!(EVT_SESSION_COMPLETE  & 0xFFFF, 0);
+    assert_eq!(EVT_RETRANSMIT_NEEDED & 0xFFFF, 0);
 }
 
 #[test]
@@ -114,4 +141,22 @@ fn slide_phase8_wasm_facade_surface_runtime_callable() {
     slide.clear_outbound();
     slide.cancel();
     slide.force_idle();
+
+    // Phase 9 sender API runtime reachability check — mirror of
+    // slide_boundary_shape.rs:slide_runtime_calls_compile_against_external_surface.
+    // Proves the wasm-bindgen façade in lib.rs forwards into a method that
+    // is actually callable on the inner Slide. Full sender SM transitions
+    // are exercised in slide::state::tests + tests/slide_sender.rs.
+    let mut slide2 = Slide::new();
+    let metadata = {
+        let mut m = Vec::new();
+        m.extend_from_slice(&1u32.to_le_bytes());          // file_count = 1
+        m.extend_from_slice(&5u32.to_le_bytes());          // name_len = 5
+        m.extend_from_slice(b"A.TXT");                      // name
+        m.extend_from_slice(&0u32.to_le_bytes());          // size = 0 (empty file)
+        m
+    };
+    slide2.enter_send_mode(&metadata);
+    // For empty-file case, no further feed_send_chunk is needed; sender SM
+    // takes the EOF fast-path. Just prove the API is reachable.
 }
