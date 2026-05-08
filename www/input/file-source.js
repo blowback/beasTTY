@@ -1,11 +1,16 @@
 // Beastty Phase 9 — File-source: picker + drag-drop + CP/M validation + confirm modal.
 //
-// Public API: wireFileSource, validateCpmFilename, truncateCpm83, packSendMetadata.
+// Public API: wireFileSource, validateCpmFilename, truncateCpm83, packSendMetadata,
+//             computeRenameScheme (Phase 12 SLIDE-36).
 //
 // Sources:
 //   - 09-CONTEXT.md D-01..D-09 + D-18 (locked decisions).
 //   - 09-RESEARCH.md Pattern 2 (validation), Pattern 3 (modal), Pattern 4 (drag-drop).
 //   - 09-UI-SPEC.md §Copywriting (verbatim modal + button copy) + §Interaction & State Contracts.
+//   - 12-CONTEXT.md D-01..D-06 (LOCKED) — SLIDE-36 send-side collision detection
+//     extends the Phase 9 modal with a fourth row kind ('collision') + three-action
+//     button row + post-drop selection-clear via injected clearSelectionFn opt
+//     (SLIDE-12 SC#1 companion to Plan 12-01's selection.js early-return).
 //   - Analog: www/input/paste-pump.js (module-scope state + wireXxx({...}) shape).
 //   - Analog: www/renderer/scroll-state.js ([data-attribute] toggle on #terminal-wrapper).
 //
@@ -34,6 +39,15 @@ let getSlideStateFn = null;
 let isWriterReadyFn = null;   // Phase 9 WR-03 — gate button on writer registration
 let slideChipRef = null;      // Phase 11 Plan 11-03 D-10 — chip flash on drop-during-active-session
 
+// Phase 12 SLIDE-36 — three new modal action buttons (collision-mode footer).
+let sendRenamedBtnRef = null;
+let firstOnlyBtnRef = null;
+let refuseBtnRef = null;
+
+// Phase 12 SLIDE-12 — post-drop selection clear (companion to Plan 12-01's
+// selection.js early-return; called from onDrop after setDropTarget(false)).
+let clearSelectionFnRef = null;
+
 let buttonStateInterval = null;
 
 // ===== wireFileSource — exposed to main.js =====
@@ -52,6 +66,12 @@ export function wireFileSource(opts) {
         getSlideState,    // () => window.__slide.__getStateForTests() (injected)
         isWriterReady,    // Phase 9 WR-03 — () => txSink.isWriterReady() (injected)
         slideChip,        // Phase 11 Plan 11-03 D-10 — chip flash on drop-during-active-session (injected)
+        // Phase 12 SLIDE-36 — three new modal action buttons (collision-mode footer):
+        modalSendRenamedBtn,   // #send-modal-send-renamed
+        modalFirstOnlyBtn,     // #send-modal-first-only
+        modalRefuseBtn,        // #send-modal-refuse
+        // Phase 12 SLIDE-12 — post-drop selection clear (injected; called from onDrop).
+        clearSelectionFn,
     } = opts;
     wrapperElRef = wrapperEl;
     topBarSendBtnRef = sendBtn;
@@ -66,6 +86,11 @@ export function wireFileSource(opts) {
     getSlideStateFn = getSlideState;
     isWriterReadyFn = isWriterReady ?? null;
     slideChipRef = slideChip || null;
+    // Phase 12 SLIDE-36 / SLIDE-12.
+    sendRenamedBtnRef   = modalSendRenamedBtn || null;
+    firstOnlyBtnRef     = modalFirstOnlyBtn   || null;
+    refuseBtnRef        = modalRefuseBtn      || null;
+    clearSelectionFnRef = clearSelectionFn    || null;
 
     // ===== Top-bar button click → open file picker =====
     sendBtn.addEventListener('click', () => {
@@ -101,6 +126,32 @@ export function wireFileSource(opts) {
         if (sendBtnRef.disabled) return;
         modalElRef.close('send');
     });
+
+    // ===== Phase 12 SLIDE-36 — three-action button row (collision-mode footer) =====
+    // Each button closes the dialog with a tagged returnValue that processFiles
+    // switches on ('send' | 'first-only' | 'refuse'). Phase 4 D-16 mousedown
+    // preventDefault retains canvas focus mirroring the existing two buttons.
+    if (sendRenamedBtnRef) {
+        sendRenamedBtnRef.addEventListener('click', () => {
+            if (sendRenamedBtnRef.disabled) return;
+            modalElRef.close('send');
+        });
+        sendRenamedBtnRef.addEventListener('mousedown', (e) => e.preventDefault());
+    }
+    if (firstOnlyBtnRef) {
+        firstOnlyBtnRef.addEventListener('click', () => {
+            if (firstOnlyBtnRef.disabled) return;
+            modalElRef.close('first-only');
+        });
+        firstOnlyBtnRef.addEventListener('mousedown', (e) => e.preventDefault());
+    }
+    if (refuseBtnRef) {
+        refuseBtnRef.addEventListener('click', () => {
+            if (refuseBtnRef.disabled) return;
+            modalElRef.close('refuse');
+        });
+        refuseBtnRef.addEventListener('mousedown', (e) => e.preventDefault());
+    }
 
     // ===== Modal click-outside-to-dismiss (UI-SPEC §Interaction) =====
     modalElRef.addEventListener('click', (e) => {
@@ -223,6 +274,13 @@ function onDrop(ev) {
     ev.preventDefault();
     dragDepth = 0;
     setDropTarget(false);
+    // Phase 12 SLIDE-12 SC#1 — clear any in-flight pointer-select bounds left
+    // by a half-completed drag. Drop wins per CONTEXT Claude's Discretion default
+    // (12-UI-SPEC.md §SLIDE-12). Wrapped in try/catch so a clearSelection failure
+    // cannot abort the drop (T-12-10 mitigation).
+    if (typeof clearSelectionFnRef === 'function') {
+        try { clearSelectionFnRef(); } catch { /* ignore */ }
+    }
     const files = Array.from(ev.dataTransfer.files);
     if (files.length === 0) return;
     processFiles(files).catch((err) => {
@@ -241,7 +299,7 @@ function setDropTarget(active) {
 
 // ===== processFiles — runs validation + truncation + modal flow =====
 async function processFiles(filesArr) {
-    // Build per-file rows: { kind: 'rewrite' | 'unchanged' | 'rejected',
+    // Build per-file rows: { kind: 'rewrite' | 'unchanged' | 'rejected' | 'collision',
     //                        original, rewritten?, reason?, bytes? }
     const rows = [];
     const surviving = [];
@@ -263,19 +321,90 @@ async function processFiles(filesArr) {
         surviving.push({ name: rewritten, bytes });
     }
 
-    // Show modal; await user choice.
-    const userConfirmed = await showConfirmModal(rows, surviving);
-    if (!userConfirmed) return;
+    // Phase 12 SLIDE-36 D-05 — collision detection: second pass over post-truncation
+    // surviving. Key = item.name.toUpperCase() (D-01 — case-insensitive on top of
+    // post-8.3 truncation). Pitfall 1: detection runs AFTER validateCpmFilename
+    // rejection AND truncateCpm83.
+    const collisionGroups = new Map();
+    for (const item of surviving) {
+        const key = item.name.toUpperCase();
+        if (!collisionGroups.has(key)) collisionGroups.set(key, []);
+        collisionGroups.get(key).push(item);
+    }
+    const collisionRows = [];
+    for (const [key, group] of collisionGroups) {
+        if (group.length > 1) {
+            collisionRows.push({
+                kind: 'collision',
+                base: key,                              // e.g. 'REPORT.TXT'
+                members: group,                         // user-presentation order preserved
+                renamed: computeRenameScheme(group),    // parallel to members
+            });
+        }
+    }
+
+    // Show modal; await tagged user choice (D-06: 'send' | 'first-only' | 'refuse' | falsy).
+    const action = await showConfirmModal(rows, surviving, collisionRows);
+    if (!action || action === 'refuse') return;
+
+    let finalFiles;
+    if (action === 'send') {
+        finalFiles = applyCollisionRenames(surviving, collisionRows);
+    } else if (action === 'first-only') {
+        finalFiles = applyFirstOnlyFilter(surviving, collisionRows);
+    } else {
+        return;   // unknown action — bail
+    }
 
     // Hand off to transport/slide.js.
-    if (enterSendModeFn) {
-        enterSendModeFn({ files: surviving });
+    if (enterSendModeFn && finalFiles && finalFiles.length > 0) {
+        enterSendModeFn({ files: finalFiles });
     }
 }
 
+/**
+ * SLIDE-36: Apply the auto-rename scheme to surviving items.
+ * Returns a new array; surviving items NOT in any colliding group pass through
+ * unchanged. The rename map is built by surviving-array index so the per-item
+ * bytes Uint8Array reference is preserved.
+ */
+function applyCollisionRenames(surviving, collisionRows) {
+    if (collisionRows.length === 0) return surviving;
+    const renameMap = new Map();   // surviving-index → newName
+    for (const cr of collisionRows) {
+        for (let i = 0; i < cr.members.length; i++) {
+            const memberItem = cr.members[i];
+            const idx = surviving.indexOf(memberItem);
+            if (idx >= 0) renameMap.set(idx, cr.renamed[i]);
+        }
+    }
+    return surviving.map((item, idx) =>
+        renameMap.has(idx) ? { name: renameMap.get(idx), bytes: item.bytes } : item
+    );
+}
+
+/**
+ * SLIDE-36: Drop K-1 files per collision group; keep group[0]. Items NOT in any
+ * colliding group pass through. Pitfall 3: actual filter, NOT pass-through.
+ */
+function applyFirstOnlyFilter(surviving, collisionRows) {
+    if (collisionRows.length === 0) return surviving;
+    const dropSet = new Set();
+    for (const cr of collisionRows) {
+        for (let i = 1; i < cr.members.length; i++) {
+            const idx = surviving.indexOf(cr.members[i]);
+            if (idx >= 0) dropSet.add(idx);
+        }
+    }
+    return surviving.filter((_, idx) => !dropSet.has(idx));
+}
+
 // ===== showConfirmModal — Promise-returning native <dialog> flow =====
-function showConfirmModal(rows, surviving) {
-    if (!modalElRef) return Promise.resolve(false);
+// Phase 12 SLIDE-36 — extended with the optional `collisionRows` third arg.
+// Returns a tagged returnValue: 'send' | 'first-only' | 'refuse' | null
+// (Phase 9 boolean shape replaced with tagged for D-06 three-mode flow).
+function showConfirmModal(rows, surviving, collisionRows) {
+    if (!modalElRef) return Promise.resolve(null);
 
     // Build modal contents.
     const n = surviving.length;
@@ -303,6 +432,29 @@ function showConfirmModal(rows, surviving) {
         listElRef.appendChild(li);
     }
 
+    // Phase 12 SLIDE-36 — append collision rows AFTER the per-file rows
+    // (rejected/rewrite/unchanged). Ordering preserves D-05 detection order
+    // (Map iteration is insertion-ordered in JS so first-occurrence wins).
+    // Each collision row renders as two visual lines:
+    //   • BASE
+    //        ↳ NAME0, NAME1, NAME2, ...
+    // Per 12-UI-SPEC.md §A "Modal collision row copy" (locked verbatim).
+    for (const cr of collisionRows || []) {
+        const li = document.createElement('li');
+        li.className = 'collision';
+        const head = document.createElement('div');
+        head.appendChild(spanText('•', true));
+        head.appendChild(spanText(cr.base, false, 'orig'));
+        li.appendChild(head);
+        const sub = document.createElement('div');
+        sub.className = 'rename-list';
+        sub.setAttribute('aria-label', `Renamed to: ${cr.renamed.join(', ')}`);
+        sub.appendChild(spanText('↳', true));
+        sub.appendChild(document.createTextNode(' ' + cr.renamed.join(', ')));
+        li.appendChild(sub);
+        listElRef.appendChild(li);
+    }
+
     // All-rejected hint + send-button disabled state.
     if (n === 0) {
         hintElRef.hidden = false;
@@ -314,22 +466,54 @@ function showConfirmModal(rows, surviving) {
         sendBtnRef.textContent = `Send ${n} file${n === 1 ? '' : 's'}`;
     }
 
+    // Phase 12 SLIDE-36 D-06 — footer-button three-mode flow toggle.
+    // No collisions: Phase 9 two-button row visible (Cancel + Send N files).
+    // Collisions present: three-action button row replaces the two-button row
+    // (Send N renamed + Send only first + Refuse batch); Phase 9 buttons hidden.
+    const collisionsPresent = !!(collisionRows && collisionRows.length > 0);
+    if (collisionsPresent) {
+        if (cancelBtnRef) cancelBtnRef.hidden = true;
+        if (sendBtnRef)   sendBtnRef.hidden = true;
+        if (sendRenamedBtnRef) {
+            sendRenamedBtnRef.hidden = false;
+            // Singular/plural rule per 12-UI-SPEC.md.
+            sendRenamedBtnRef.textContent = (n === 1) ? 'Send 1 renamed' : `Send ${n} renamed`;
+            sendRenamedBtnRef.disabled = (n === 0);
+        }
+        if (firstOnlyBtnRef) firstOnlyBtnRef.hidden = false;
+        if (refuseBtnRef)    refuseBtnRef.hidden    = false;
+    } else {
+        if (cancelBtnRef) cancelBtnRef.hidden = false;
+        if (sendBtnRef)   sendBtnRef.hidden   = false;
+        if (sendRenamedBtnRef) sendRenamedBtnRef.hidden = true;
+        if (firstOnlyBtnRef)   firstOnlyBtnRef.hidden   = true;
+        if (refuseBtnRef)      refuseBtnRef.hidden      = true;
+    }
+
     return new Promise((resolve) => {
         const onClose = () => {
             modalElRef.removeEventListener('close', onClose);
-            const sent = modalElRef.returnValue === 'send';
-            // Focus restoration per UI-SPEC §Focus retention on modal close.
-            if (sent) {
+            // Phase 12 SLIDE-36 — tagged returnValue (replaces Phase 9 boolean).
+            const action = modalElRef.returnValue || null;
+            // Focus restoration:
+            //   'send' | 'first-only' → terminal-wrapper (transfer is starting)
+            //   'refuse' | 'cancel' | falsy → top-bar Send-file button
+            if (action === 'send' || action === 'first-only') {
                 wrapperElRef?.focus();
             } else {
                 topBarSendBtnRef?.focus();
             }
-            resolve(sent);
+            resolve(action);
         };
         modalElRef.addEventListener('close', onClose);
         modalElRef.showModal();
-        // Initial focus on Cancel button (UI-SPEC §Interaction — safer default).
-        cancelBtnRef?.focus();
+        // Phase 12 SLIDE-36 D-03 default-focus override: scoped to collision-
+        // present mode only. The no-collision happy path retains Phase 9's
+        // Cancel-default focus (Pitfall 2).
+        const initialFocusTarget = collisionsPresent
+            ? (sendRenamedBtnRef || cancelBtnRef)
+            : cancelBtnRef;
+        initialFocusTarget?.focus();
     });
 }
 
@@ -401,6 +585,47 @@ export function truncateCpm83(name) {
     const base = upper.slice(0, lastDot).slice(0, 8);
     const ext = upper.slice(lastDot + 1).slice(0, 3);
     return ext.length > 0 ? `${base}.${ext}` : base;
+}
+
+/**
+ * Phase 12 SLIDE-36: Compute the auto-rename scheme for a colliding group.
+ *
+ * Per 12-CONTEXT.md D-04 (LOCKED), unlimited-via-base-truncation:
+ *   For collision group of size K+1, name_i for i >= 1 is:
+ *     truncate_base(BASE, 8 - len(str(i))) + '~' + str(i) + '.' + EXT
+ *   where BASE = post-truncation 8.3 base (the existing surviving[i].name
+ *   stripped of its extension), and truncate_base(s, n) = s[:n].
+ *
+ * The first member (i=0) keeps its name verbatim — first-occurrence wins.
+ * Determinism: group order is the user-presentation order from the
+ * processFiles surviving array. Base truncation operates on the
+ * post-truncation base ONLY (never re-derives from the original
+ * filename — that would drift from modal preview vs final wire bytes).
+ *
+ * Examples:
+ *   computeRenameScheme([])                                      → []
+ *   computeRenameScheme([{name:'REPORT.TXT'}])                   → ['REPORT.TXT']
+ *   computeRenameScheme(13 × {name:'REPORT.TXT'})                → ['REPORT.TXT', 'REPORT~1.TXT', ..., 'REPORT~9.TXT', 'REPOR~10.TXT', 'REPOR~11.TXT', 'REPOR~12.TXT']
+ *   computeRenameScheme(101 × {name:'LONGNAME.TXT'})             → indices 0='LONGNAME.TXT', 1='LONGNAM~1.TXT', 9='LONGNAM~9.TXT', 10='LONGNA~10.TXT', 99='LONGNA~99.TXT', 100='LONGN~100.TXT'
+ *   computeRenameScheme(3 × {name:'NOEXT'})                      → ['NOEXT', 'NOEX~1', 'NOEX~2'] (no extension; ext='' so result has no dot)
+ *
+ * @param {Array<{name: string, bytes?: Uint8Array}>} group
+ * @returns {string[]} parallel to group; result[0] === group[0].name
+ */
+export function computeRenameScheme(group) {
+    if (!Array.isArray(group) || group.length === 0) return [];
+    const first = group[0].name;
+    const result = [first];
+    const lastDot = first.lastIndexOf('.');
+    const baseFull = lastDot < 0 ? first : first.slice(0, lastDot);
+    const ext      = lastDot < 0 ? ''    : first.slice(lastDot);   // includes dot
+    for (let i = 1; i < group.length; i++) {
+        const suffixDigits = String(i);
+        const baseLimit = Math.max(0, 8 - suffixDigits.length);
+        const trimmedBase = baseFull.slice(0, baseLimit);
+        result.push(trimmedBase + '~' + suffixDigits + ext);
+    }
+    return result;
 }
 
 /**
