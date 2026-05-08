@@ -48,6 +48,14 @@ fn slide_feed_methods_have_stable_signatures() {
 }
 
 #[test]
+fn slide_send_methods_have_stable_signatures() {
+    // Phase 9 sender API surface — fn-pointer coercion catches signature
+    // drift at compile time. Mirror of slide_feed_methods_have_stable_signatures.
+    let _: fn(&mut Slide, &[u8])       = Slide::enter_send_mode;
+    let _: fn(&mut Slide, &[u8], bool) = Slide::feed_send_chunk;
+}
+
+#[test]
 fn slide_state_accessor_signature_is_stable() {
     let _: fn(&Slide) -> u32           = Slide::state;
 }
@@ -148,4 +156,18 @@ fn slide_runtime_calls_compile_against_external_surface() {
     slide.clear_outbound();
     slide.cancel();
     slide.force_idle();
+
+    // Phase 9 sender API runtime reachability check.
+    let mut slide2 = Slide::new();
+    let metadata = {
+        let mut m = Vec::new();
+        m.extend_from_slice(&1u32.to_le_bytes());          // file_count = 1
+        m.extend_from_slice(&5u32.to_le_bytes());          // name_len = 5
+        m.extend_from_slice(b"A.TXT");                      // name
+        m.extend_from_slice(&0u32.to_le_bytes());          // size = 0 (empty file)
+        m
+    };
+    slide2.enter_send_mode(&metadata);
+    // The full sender transition is exercised in slide::state::tests +
+    // tests/slide_sender.rs; here we just prove the API surface is reachable.
 }

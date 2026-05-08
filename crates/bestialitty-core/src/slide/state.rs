@@ -18,9 +18,11 @@
 use std::collections::VecDeque;
 
 use super::framer::{
-    Framer, EVT_NONE, EVT_RDY, EVT_FIN, EVT_CAN,
+    Framer, EVT_NONE, EVT_RDY, EVT_ACK, EVT_NAK, EVT_FIN, EVT_CAN,
     EVT_DATA_FRAME, EVT_CRC_ERROR,
+    EVT_FILE_COMPLETE, EVT_SESSION_COMPLETE, EVT_RETRANSMIT_NEEDED,
     CTRL_RDY, CTRL_ACK, CTRL_NAK, CTRL_FIN, CTRL_CAN,
+    build_frame_into,
 };
 
 /// SLIDE v0.2 sliding window size (slide-rs/protocol.rs:12-13).
@@ -30,11 +32,14 @@ const WIN_SIZE: u8 = 4;
 /// (slide-rs/recv.rs:142).
 const NAK_BUDGET: u32 = 15;
 
-/// Outbound buffer pre-reserve (RDY+ACK+seq+NAK+seq+CAN+FIN ≤ 7 bytes;
-/// 16 = 9 bytes headroom for stable-pointer discipline). Vec::clear()
-/// preserves capacity → subsequent push() reuses allocation → outbound_ptr()
-/// is stable across feed_byte calls in steady state (Phase 1 D-17 mirror).
-const OUTBOUND_RESERVE: usize = 16;
+/// Outbound buffer pre-reserve. Phase 7 sized this at 16 bytes for receiver
+/// control bytes (RDY/ACK/NAK/CAN/FIN ≤ 7 bytes). Phase 9 sender extension
+/// grows to 4128 bytes = 4 frames × (4 header + 1024 payload + 2 CRC = 1030
+/// per frame, 4120 total) + 8 byte slack for control bytes mid-window.
+/// The mirror `OUTBOUND_VIEW_CAP` constant in `www/transport/slide.js` MUST
+/// grow in lockstep (Plan 09-02). Stable-pointer discipline preserved by
+/// the `outbound_ptr_stable_across_sender_window_pushes` test below.
+const OUTBOUND_RESERVE: usize = 4128;
 
 const EVENT_RING_RESERVE: usize = 32;
 
@@ -61,12 +66,37 @@ pub enum SlideRole {
     Sender,
 }
 
-/// SLIDE state machine. Receiver-only in Phase 7. Mirror of terminal.rs:17-41
-/// Terminal struct shape; outbound_buf is the SLIDE analog of host_reply.
+/// Per-file metadata parsed from the JS-supplied blob (CONTEXT D-09).
+/// `name` is already CP/M-validated (ASCII subset, uppercased,
+/// 8.3-truncated) by JS; Rust trusts the bytes.
+struct FileMeta {
+    name: Vec<u8>,
+    size: u32,
+}
+
+/// Sender-mode session context. Populated by `enter_send_mode`;
+/// remains None for receiver-mode sessions.
+struct SendCtx {
+    files: Vec<FileMeta>,
+    /// Index into `files` of the file currently being sent.
+    current_file_idx: usize,
+    /// Next seq to assign for the next data frame within the current file.
+    /// seq=0 is reserved for header; data frames start at 1
+    /// (slide-rs/send.rs:107).
+    current_seq: u8,
+    /// EOF marker seq = (last_data_seq + 1), wrapping at u8.
+    /// Filled in when `feed_send_chunk(payload, eof=true)` is called or
+    /// when an empty file is auto-EOFed at HeaderPhase + ACK(0).
+    /// Zero means "not yet set" — valid because seq=0 is reserved for header.
+    eof_seq: u8,
+}
+
+/// SLIDE state machine. Receiver-only in Phase 7; Phase 9 adds sender role.
+/// Mirror of terminal.rs:17-41 Terminal struct shape; outbound_buf is the
+/// SLIDE analog of host_reply.
 pub struct Slide {
     framer: Framer,
     sm_state: SlideState,
-    #[allow(dead_code)]
     role: SlideRole,
     /// Next-expected data-frame sequence number (incremented per accepted
     /// data frame, wrapping at u8). Receiver tracks this against incoming
@@ -75,13 +105,15 @@ pub struct Slide {
     /// CRC-error retry budget. Reset to 0 on a clean ACK; bounded at NAK_BUDGET
     /// (slide-rs/recv.rs:142). Exhaustion → SlideState::Error.
     nak_retry_count: u32,
-    /// Pre-reserved 16 bytes per OUTBOUND_RESERVE. Vec::clear() preserves
-    /// capacity; outbound_ptr() is stable across feed_byte calls in steady
-    /// state. Phase 8 wraps this triple with #[wasm_bindgen] in lib.rs.
+    /// Pre-reserved OUTBOUND_RESERVE bytes. Vec::clear() preserves capacity;
+    /// outbound_ptr() is stable across feed_byte calls in steady state.
+    /// Phase 8 wraps this triple with #[wasm_bindgen] in lib.rs.
     outbound_buf: Vec<u8>,
     /// Event ring drained by JS via take_event_packed() after feed_chunk.
     /// Pre-reserved EVENT_RING_RESERVE entries.
     events: VecDeque<u32>,
+    /// Sender-mode context — None when in Idle / receiver mode (Phase 9 D-08).
+    send_ctx: Option<SendCtx>,
 }
 
 impl Slide {
@@ -94,6 +126,7 @@ impl Slide {
             nak_retry_count: 0,
             outbound_buf: Vec::with_capacity(OUTBOUND_RESERVE),
             events: VecDeque::with_capacity(EVENT_RING_RESERVE),
+            send_ctx: None,
         }
     }
 
@@ -102,6 +135,87 @@ impl Slide {
     pub fn enter_recv_mode(&mut self) {
         self.role = SlideRole::Receiver;
         self.sm_state = SlideState::WaitingRdy;
+    }
+
+    /// Transition Idle → WaitingRdy as sender (Phase 9 D-08/D-09).
+    ///
+    /// JS calls this AFTER `B:SLIDE R\r` is auto-typed (D-13) and BEFORE
+    /// the wakeup match consumes the Z80's ESC^SLIDE response. The metadata
+    /// blob format is per CONTEXT D-09:
+    ///
+    /// ```text
+    /// <u32 file_count>
+    /// for each file:
+    ///   <u32 name_len><name bytes (already CP/M-validated UTF-8 / ASCII)>
+    ///   <u32 size>
+    /// ```
+    ///
+    /// All u32 fields are little-endian. The metadata is trusted: JS-side
+    /// `validateCpmFilename` + `truncateCpm83` have already enforced ASCII
+    /// + 8.3 + valid CP/M character set per D-06/D-07.
+    pub fn enter_send_mode(&mut self, metadata: &[u8]) {
+        let mut cursor = 0usize;
+        let file_count = read_le_u32(&metadata[cursor..]) as usize;
+        cursor += 4;
+        let mut files = Vec::with_capacity(file_count);
+        for _ in 0..file_count {
+            let name_len = read_le_u32(&metadata[cursor..]) as usize;
+            cursor += 4;
+            let name = metadata[cursor..cursor + name_len].to_vec();
+            cursor += name_len;
+            let size = read_le_u32(&metadata[cursor..]);
+            cursor += 4;
+            files.push(FileMeta { name, size });
+        }
+        self.send_ctx = Some(SendCtx {
+            files,
+            current_file_idx: 0,
+            current_seq: 1,
+            eof_seq: 0,
+        });
+        self.role = SlideRole::Sender;
+        // Sender pushes CTRL_RDY first per spec §Startup Handshake.
+        self.outbound_buf.push(CTRL_RDY);
+        self.sm_state = SlideState::WaitingRdy;
+    }
+
+    /// Push the next data-frame payload onto outbound_buf (Phase 9 D-08).
+    ///
+    /// Called by JS from the sender dispatcher AFTER the SM has advanced into
+    /// `DataPhase` (i.e., AFTER `EVT_ACK(0)` for the current file's header).
+    /// `eof=true` signals "this is the last chunk of the current file" — the
+    /// SM additionally pushes the zero-payload EOF marker frame at the next
+    /// seq per slide-rs/send.rs:184-189.
+    ///
+    /// Must NOT be called outside `DataPhase` — debug_assert guards.
+    pub fn feed_send_chunk(&mut self, payload: &[u8], eof: bool) {
+        debug_assert!(self.role == SlideRole::Sender);
+        debug_assert!(self.sm_state == SlideState::DataPhase);
+        let ctx = self.send_ctx.as_mut().expect("send_ctx populated");
+        let seq = ctx.current_seq;
+        build_frame_into(&mut self.outbound_buf, seq, payload);
+        ctx.current_seq = ctx.current_seq.wrapping_add(1);
+        if eof {
+            // EOF marker: zero-payload frame at next seq.
+            ctx.eof_seq = ctx.current_seq;
+            let eof_seq = ctx.eof_seq;
+            build_frame_into(&mut self.outbound_buf, eof_seq, &[]);
+            // current_seq now points past the EOF marker; SM stays in DataPhase
+            // waiting for ACK(eof_seq).
+            // Note: do not advance current_seq past EOF — the next file resets it.
+        }
+    }
+
+    /// Build and push the per-file header frame onto outbound_buf
+    /// (slide-rs/protocol.rs:47-56 payload shape: name + null + size_le_u32).
+    fn push_header_frame(&mut self, file_idx: usize) {
+        let ctx = self.send_ctx.as_ref().expect("send_ctx populated");
+        let file = &ctx.files[file_idx];
+        let mut payload = Vec::with_capacity(file.name.len() + 1 + 4);
+        payload.extend_from_slice(&file.name);
+        payload.push(0);
+        payload.extend_from_slice(&file.size.to_le_bytes());
+        build_frame_into(&mut self.outbound_buf, 0, &payload);
     }
 
     /// State accessor (returns SlideState as u32 for Phase 8 boundary).
@@ -206,7 +320,8 @@ impl Slide {
         let aux = (evt & 0xFFFF) as u8;
 
         // Peer-initiated CAN (D-05 strict bidirectional): from any non-Done state,
-        // echo CTRL_CAN and transition to CancelPending.
+        // echo CTRL_CAN and transition to CancelPending. Applies to BOTH roles
+        // (Phase 9 D-19 — sender mirrors receiver-side bidirectional CAN echo).
         if evt == EVT_CAN
             && !matches!(self.sm_state, SlideState::Done | SlideState::Error | SlideState::CancelPending)
         {
@@ -214,6 +329,86 @@ impl Slide {
             self.sm_state = SlideState::CancelPending;
             return;
         }
+
+        // Phase 9 sender role gate. Sender-mode arms below; receiver arms
+        // (existing) run only when role == Receiver via the explicit return.
+        if self.role == SlideRole::Sender {
+            let kind = evt & 0xFFFF_0000;
+
+            match (self.sm_state, kind) {
+                (SlideState::WaitingRdy, k) if k == EVT_RDY => {
+                    // Z80 echoed RDY → ship header for files[0].
+                    self.push_header_frame(0);
+                    self.sm_state = SlideState::HeaderPhase;
+                }
+                (SlideState::HeaderPhase, k) if k == EVT_ACK && aux == 0 => {
+                    // Header acked → DataPhase (or immediate EOF if empty file).
+                    let ctx = self.send_ctx.as_ref().unwrap();
+                    let cur_idx = ctx.current_file_idx;
+                    let cur_size = ctx.files[cur_idx].size;
+                    if cur_size == 0 {
+                        // SLIDE-21 empty file: skip data phase, push EOF at seq=1.
+                        let eof_seq = 1u8;
+                        self.sm_state = SlideState::DataPhase;
+                        build_frame_into(&mut self.outbound_buf, eof_seq, &[]);
+                        let ctx_mut = self.send_ctx.as_mut().unwrap();
+                        ctx_mut.eof_seq = eof_seq;
+                        ctx_mut.current_seq = 2;
+                    } else {
+                        self.sm_state = SlideState::DataPhase;
+                        // JS drives feed_send_chunk from here.
+                    }
+                }
+                (SlideState::DataPhase, k) if k == EVT_ACK => {
+                    let ctx = self.send_ctx.as_ref().unwrap();
+                    if aux == ctx.eof_seq && ctx.eof_seq != 0 {
+                        // Current file complete — emit EVT_FILE_COMPLETE and advance.
+                        let file_idx = ctx.current_file_idx;
+                        let total_files = ctx.files.len();
+                        self.events.push_back(EVT_FILE_COMPLETE | (file_idx as u32));
+                        let next_idx = file_idx + 1;
+                        if next_idx < total_files {
+                            self.push_header_frame(next_idx);
+                            let ctx_mut = self.send_ctx.as_mut().unwrap();
+                            ctx_mut.current_file_idx = next_idx;
+                            ctx_mut.current_seq = 1;
+                            ctx_mut.eof_seq = 0;
+                            self.sm_state = SlideState::HeaderPhase;
+                        } else {
+                            self.outbound_buf.push(CTRL_FIN);
+                            self.sm_state = SlideState::FinPending;
+                        }
+                    }
+                    // else: window-boundary ACK (intra-file). No state change;
+                    // JS observes EVT_ACK in the events ring and pumps the next
+                    // data chunk via feed_send_chunk on the next dispatcher tick.
+                }
+                (SlideState::DataPhase, k) if k == EVT_NAK => {
+                    // Sender NAK retransmit (slide-rs/send.rs:194-208 mirror).
+                    // The SM emits EVT_RETRANSMIT_NEEDED | seq so JS can call
+                    // feed_send_chunk(buffered_payload[seq], is_eof) with the
+                    // correctly-rebuilt payload bytes. JS holds the file bytes;
+                    // Rust SM does not duplicate the buffer.
+                    self.events.push_back(EVT_RETRANSMIT_NEEDED | (aux as u32));
+                    let ctx_mut = self.send_ctx.as_mut().unwrap();
+                    ctx_mut.current_seq = aux;
+                }
+                (SlideState::FinPending, k) if k == EVT_FIN => {
+                    // Z80 echoed CTRL_FIN — session complete.
+                    self.events.push_back(EVT_SESSION_COMPLETE);
+                    self.sm_state = SlideState::Done;
+                }
+                _ => {
+                    // Other (state, evt) combinations are no-ops for sender.
+                    // EVT_DATA_FRAME / EVT_CRC_ERROR don't apply to sender flow.
+                    // Suppress unused-aux warning when no arm uses it.
+                    let _ = aux;
+                }
+            }
+            return;
+        }
+
+        // Receiver role — Phase 7 logic continues unchanged below.
 
         match (self.sm_state, evt) {
             // ===== WaitingRdy =====
@@ -312,6 +507,12 @@ impl Default for Slide {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Module-private helper: parse u32 LE from a byte slice.
+/// Panics on out-of-bounds — JS-supplied metadata is trusted per CONTEXT D-09.
+fn read_le_u32(bytes: &[u8]) -> u32 {
+    u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])
 }
 
 #[cfg(test)]
@@ -546,5 +747,232 @@ mod tests {
         let ptr_after_rdy = slide.outbound_ptr();
         assert_eq!(ptr_before, ptr_after_rdy,
             "outbound_ptr must be stable across feed_byte (D-17 mirror)");
+    }
+
+    // ===== Phase 9 sender SM tests =====
+
+    fn s_send(metadata: &[u8]) -> Slide {
+        let mut slide = Slide::new();
+        slide.enter_send_mode(metadata);
+        slide
+    }
+
+    /// Pack a 1-file metadata blob (D-09): name="A.TXT" (5 bytes), size=10.
+    fn meta_one_file_a_txt_size_10() -> Vec<u8> {
+        let mut m = Vec::new();
+        m.extend_from_slice(&1u32.to_le_bytes());           // file_count
+        m.extend_from_slice(&5u32.to_le_bytes());           // name_len
+        m.extend_from_slice(b"A.TXT");
+        m.extend_from_slice(&10u32.to_le_bytes());          // size = 10
+        m
+    }
+
+    /// Pack a 1-file metadata blob with size=0 (empty file).
+    fn meta_one_empty_file() -> Vec<u8> {
+        let mut m = Vec::new();
+        m.extend_from_slice(&1u32.to_le_bytes());
+        m.extend_from_slice(&5u32.to_le_bytes());
+        m.extend_from_slice(b"E.TXT");
+        m.extend_from_slice(&0u32.to_le_bytes());
+        m
+    }
+
+    /// Pack a 2-file metadata blob.
+    fn meta_two_files() -> Vec<u8> {
+        let mut m = Vec::new();
+        m.extend_from_slice(&2u32.to_le_bytes());
+        // file 0
+        m.extend_from_slice(&5u32.to_le_bytes());
+        m.extend_from_slice(b"A.TXT");
+        m.extend_from_slice(&10u32.to_le_bytes());
+        // file 1
+        m.extend_from_slice(&5u32.to_le_bytes());
+        m.extend_from_slice(b"B.TXT");
+        m.extend_from_slice(&20u32.to_le_bytes());
+        m
+    }
+
+    fn outbound_snapshot(slide: &Slide) -> Vec<u8> {
+        let len = slide.outbound_len();
+        if len == 0 { return Vec::new(); }
+        unsafe { std::slice::from_raw_parts(slide.outbound_ptr(), len).to_vec() }
+    }
+
+    #[test]
+    fn enter_send_mode_pushes_rdy_and_transitions_to_waiting_rdy() {
+        let slide = s_send(&meta_one_file_a_txt_size_10());
+        assert_eq!(slide.state(), SlideState::WaitingRdy as u32);
+        assert_eq!(outbound_snapshot(&slide), vec![CTRL_RDY]);
+    }
+
+    #[test]
+    fn sender_handshake_ships_header_after_rdy_echo() {
+        let mut slide = s_send(&meta_one_file_a_txt_size_10());
+        slide.clear_outbound();
+        let evt = slide.feed_byte(CTRL_RDY);
+        assert_eq!(evt & 0xFFFF_0000, EVT_RDY);
+        assert_eq!(slide.state(), SlideState::HeaderPhase as u32);
+        let buf = outbound_snapshot(&slide);
+        // Header frame layout: SOF + seq=0 + LEN_H + LEN_L + payload(10 bytes:
+        //   5 name + 1 null + 4 size_le) + CRC_H + CRC_L = 16 bytes total.
+        assert_eq!(buf.len(), 16, "header frame total length: SOF+SEQ+LEN_H+LEN_L+10 payload+CRC_H+CRC_L");
+        assert_eq!(buf[0], 0x01);              // SOF
+        assert_eq!(buf[1], 0);                  // header seq
+        assert_eq!(buf[2], 0);                  // LEN_H
+        assert_eq!(buf[3], 10);                 // LEN_L = 10 (5 name + 1 null + 4 size)
+        assert_eq!(&buf[4..9], b"A.TXT");
+        assert_eq!(buf[9], 0);                  // null terminator
+        assert_eq!(&buf[10..14], &10u32.to_le_bytes());
+        // Trailing 2 bytes are the CRC.
+    }
+
+    #[test]
+    fn sender_window_ack_advances_to_eof_and_completes_file() {
+        let mut slide = s_send(&meta_one_file_a_txt_size_10());
+        slide.clear_outbound();
+        slide.feed_byte(CTRL_RDY);                    // → HeaderPhase, header frame pushed
+        slide.clear_outbound();
+        // ACK(0) → DataPhase
+        slide.feed_byte(CTRL_ACK); slide.feed_byte(0);
+        assert_eq!(slide.state(), SlideState::DataPhase as u32);
+        // Push a 10-byte payload as one chunk with eof=true.
+        slide.feed_send_chunk(&[1,2,3,4,5,6,7,8,9,10], true);
+        // outbound_buf now contains: data frame (seq=1, len=10, ...) + EOF frame (seq=2, len=0).
+        // ACK(eof_seq=2) → emit EVT_FILE_COMPLETE | 0 + push CTRL_FIN → FinPending.
+        slide.clear_outbound();
+        slide.feed_byte(CTRL_ACK); slide.feed_byte(2);
+        // Drain events ring.
+        let mut found_file_complete = false;
+        loop {
+            let e = slide.take_event_packed();
+            if e == 0 { break; }
+            if (e & 0xFFFF_0000) == EVT_FILE_COMPLETE && (e & 0xFFFF) == 0 {
+                found_file_complete = true;
+            }
+        }
+        assert!(found_file_complete, "EVT_FILE_COMPLETE | 0 must be in event ring");
+        assert_eq!(slide.state(), SlideState::FinPending as u32);
+        // Outbound should now contain CTRL_FIN.
+        assert_eq!(outbound_snapshot(&slide), vec![CTRL_FIN]);
+    }
+
+    #[test]
+    fn sender_nak_emits_retransmit_event() {
+        let mut slide = s_send(&meta_one_file_a_txt_size_10());
+        slide.clear_outbound();
+        slide.feed_byte(CTRL_RDY);
+        slide.feed_byte(CTRL_ACK); slide.feed_byte(0);
+        // Now in DataPhase. Push one frame at seq=1.
+        slide.feed_send_chunk(&[1,2,3,4,5], false);
+        slide.clear_outbound();
+        // Inbound NAK(seq=1) → emit EVT_RETRANSMIT_NEEDED | 1.
+        slide.feed_byte(CTRL_NAK); slide.feed_byte(1);
+        let mut found = false;
+        loop {
+            let e = slide.take_event_packed();
+            if e == 0 { break; }
+            if (e & 0xFFFF_0000) == EVT_RETRANSMIT_NEEDED && (e & 0xFFFF) == 1 {
+                found = true;
+            }
+        }
+        assert!(found, "EVT_RETRANSMIT_NEEDED | 1 must be in event ring");
+    }
+
+    #[test]
+    fn sender_empty_file_skips_data_phase() {
+        let mut slide = s_send(&meta_one_empty_file());
+        slide.clear_outbound();
+        slide.feed_byte(CTRL_RDY);
+        slide.clear_outbound();
+        // ACK(0) for header → SLIDE-21 empty-file fast path: push EOF at seq=1.
+        slide.feed_byte(CTRL_ACK); slide.feed_byte(0);
+        assert_eq!(slide.state(), SlideState::DataPhase as u32);
+        let buf = outbound_snapshot(&slide);
+        // EOF frame is zero-payload at seq=1: SOF + 1 + 0 + 0 + (no payload) + CRC_H + CRC_L = 6 bytes.
+        assert_eq!(buf.len(), 6);
+        assert_eq!(buf[0], 0x01);
+        assert_eq!(buf[1], 1);
+        assert_eq!(buf[2], 0);
+        assert_eq!(buf[3], 0);
+    }
+
+    #[test]
+    fn sender_inbound_can_echoes_and_transitions_to_cancel_pending() {
+        let mut slide = s_send(&meta_one_file_a_txt_size_10());
+        slide.clear_outbound();
+        // Inbound CTRL_CAN from any non-Done sender state — D-19 / ADR-003.
+        slide.feed_byte(CTRL_CAN);
+        assert_eq!(slide.state(), SlideState::CancelPending as u32);
+        assert_eq!(outbound_snapshot(&slide), vec![CTRL_CAN]);
+    }
+
+    #[test]
+    fn sender_multi_file_batch_advances_through_files_then_fin() {
+        let mut slide = s_send(&meta_two_files());
+        slide.clear_outbound();
+        slide.feed_byte(CTRL_RDY);                   // → HeaderPhase (file 0)
+        slide.clear_outbound();
+        slide.feed_byte(CTRL_ACK); slide.feed_byte(0);  // → DataPhase
+        slide.feed_send_chunk(&[1; 10], true);       // 10-byte payload + EOF marker at seq=2
+        slide.clear_outbound();
+        // ACK(eof_seq=2) → EVT_FILE_COMPLETE | 0, push header for file 1, → HeaderPhase.
+        slide.feed_byte(CTRL_ACK); slide.feed_byte(2);
+        assert_eq!(slide.state(), SlideState::HeaderPhase as u32);
+        // Drain EVT_FILE_COMPLETE | 0.
+        let mut got_fc0 = false;
+        loop {
+            let e = slide.take_event_packed();
+            if e == 0 { break; }
+            if (e & 0xFFFF_0000) == EVT_FILE_COMPLETE && (e & 0xFFFF) == 0 {
+                got_fc0 = true;
+            }
+        }
+        assert!(got_fc0);
+        // Continue: ACK(0) for file-1 header → DataPhase.
+        slide.clear_outbound();
+        slide.feed_byte(CTRL_ACK); slide.feed_byte(0);
+        assert_eq!(slide.state(), SlideState::DataPhase as u32);
+        slide.feed_send_chunk(&[2; 20], true);
+        slide.clear_outbound();
+        // ACK(eof) for file 1 → CTRL_FIN, FinPending.
+        slide.feed_byte(CTRL_ACK); slide.feed_byte(2);
+        assert_eq!(slide.state(), SlideState::FinPending as u32);
+        assert_eq!(outbound_snapshot(&slide), vec![CTRL_FIN]);
+        // Inbound CTRL_FIN echo → EVT_SESSION_COMPLETE → Done.
+        slide.clear_outbound();
+        slide.feed_byte(CTRL_FIN);
+        let mut got_sc = false;
+        loop {
+            let e = slide.take_event_packed();
+            if e == 0 { break; }
+            if e == EVT_SESSION_COMPLETE {
+                got_sc = true;
+            }
+        }
+        assert!(got_sc, "EVT_SESSION_COMPLETE must be emitted on inbound FIN echo");
+        assert_eq!(slide.state(), SlideState::Done as u32);
+    }
+
+    #[test]
+    fn outbound_ptr_stable_across_sender_window_pushes() {
+        // Phase 9 OUTBOUND_RESERVE = 4128 bytes must absorb 4 max-size data
+        // frames without reallocation. Stable-pointer discipline preserved
+        // across role swap (Phase 1 D-17 + Phase 7 D-17 mirror).
+        // Frame layout: SOF + SEQ + LEN_H + LEN_L + 1024 payload + CRC_H + CRC_L
+        // = 1030 bytes per frame; 4 frames = 4120 bytes < OUTBOUND_RESERVE 4128.
+        let mut slide = s_send(&meta_one_file_a_txt_size_10());
+        let ptr_before = slide.outbound_ptr();
+        slide.clear_outbound();
+        slide.feed_byte(CTRL_RDY);
+        slide.feed_byte(CTRL_ACK); slide.feed_byte(0);
+        slide.clear_outbound();  // clear header bytes before the 4-frame window
+        // Push 4 full FRAME_SIZE frames (payload = 1024 bytes each).
+        let payload = vec![0xAA; 1024];
+        slide.feed_send_chunk(&payload, false);
+        slide.feed_send_chunk(&payload, false);
+        slide.feed_send_chunk(&payload, false);
+        slide.feed_send_chunk(&payload, false);
+        assert_eq!(slide.outbound_ptr(), ptr_before,
+            "OUTBOUND_RESERVE = 4128 must accommodate 4-frame window without reallocation");
     }
 }
