@@ -238,7 +238,12 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. Tab close mid-transfer (`visibilitychange` listener) emits a best-effort CTRL_CAN; the Phase 5 port-lost flow includes a `slidePumpOnPortLost` symmetric to `pastePumpOnPortLost`; the Phase 6 session log is paused during active SLIDE sessions (binary frame bytes do NOT pollute the RX log) and resumes on session end
   4. The user-configurable auto-send command persists in `bestialitty.prefs.slideAutoSendCommand` (default `B:SLIDE R\r`); a Settings pane row exposes the auto-send command (text input) + a "show transfer summary chip" checkbox + an optional `Compatibility mode` selector for legacy slide.com fallback, following the Phase 6 Settings-row pattern
   5. When auto-type completes but `ESC ^ S L I D E` does not arrive within ~3 s, a chip prompts `[Retry] [Cancel] [Force start (legacy slide.com)]` so users running pre-v0.2.1 slide.com without the wakeup signature can still complete a transfer
-**Plans**: TBD
+**Plans**: 5 plans
+  - [ ] 11-01-PLAN.md — Wave 0 RED-gate scaffolding: 4 Playwright stub specs + mock-bot setWakeupDelay extension + 3 prefs DEFAULTS keys (Wave 0)
+  - [ ] 11-02-PLAN.md — Chip module skeleton: www/renderer/slide-chip.js with 8 lifecycle states + chip DOM/CSS in index.html + main.js wireSlideChip boot wiring (Wave 1)
+  - [ ] 11-03-PLAN.md — Settings SLIDE sub-block + lifecycle wiring: <details> sub-block with 4 rows + slidePumpOnPortLost real impl + 3 serial.js call sites + session-log gate + paste-pump gate + drop-rejected chip flash + auto-send prefs swap + chip lifecycle hooks (Wave 2)
+  - [ ] 11-04-PLAN.md — Behavior states: echo-swallow.js NEW + dispatchTerminalMode integration + visibilitychange + pagehide CTRL_CAN + Compatibility-mode 3-way branch + chip awaiting-timeout state + Retry/Cancel/Force-start handlers (Wave 3)
+  - [ ] 11-05-PLAN.md — Wave 4 GREEN gate: fill 4 spec files with real assertions + flip 11 SLIDE-* req IDs Pending → Complete + full suite green (Wave 4)
 **UI hint**: yes
 
 ### Phase 12: SLIDE UX Polish, Docs & Real-Hardware UAT
