@@ -198,11 +198,13 @@ Architecture, table-stakes, and pitfalls grounded in `.planning/research/{STACK,
 
 - [ ] **SLIDE-25**: Floating SLIDE chip at `bottom: 8px; left: 8px` (opposite corner from scrollback chip) shows direction + filename + "File N of M" + percent + byte count
 - [ ] **SLIDE-26**: Chip throughput display uses 2-second sliding window; first 2 seconds show `—`
-- [ ] **SLIDE-27**: Chip Cancel button emits CTRL_CAN, drains wire, restores parser; Esc key (slot 2 of 4 in the disambiguation chain) is equivalent
+- [x] **SLIDE-27
+**: Chip Cancel button emits CTRL_CAN, drains wire, restores parser; Esc key (slot 2 of 4 in the disambiguation chain) is equivalent
 - [ ] **SLIDE-28**: Post-cancel chip shows "Cancelled — N of M files transferred" for 5 seconds then auto-hides
 - [x] **SLIDE-29
 **: Hard-fail recovery — CRC retries exhausted, port lost, or wire desync → chip shows error with "Retry" hint; state machine resets cleanly
-- [ ] **SLIDE-30**: Cancel mid-frame leaves wire neutral (Promise.allSettled in-flight writes ≤ 200 ms → CTRL_CAN → wait ≤ 500 ms for Z80 echo → drain 100 ms → re-arm framer); never calls `reader.cancel()` or `port.close()`
+- [x] **SLIDE-30
+**: Cancel mid-frame leaves wire neutral (Promise.allSettled in-flight writes ≤ 200 ms → CTRL_CAN → wait ≤ 500 ms for Z80 echo → drain 100 ms → re-arm framer); never calls `reader.cancel()` or `port.close()`
 
 ### SLIDE integration with existing v1.0 systems
 
