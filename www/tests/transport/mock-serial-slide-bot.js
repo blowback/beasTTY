@@ -159,6 +159,12 @@ export const MOCK_SERIAL_SLIDE_BOT = `
       // Set externally between startSendSession() and the cancel.
       pauseAfterFirstWindow: false,
       _firstWindowShipped: false,
+
+      // Plan 11-01 Task 2 — async wakeup delay for Compatibility-mode timeout
+      // tests. Default 0 preserves Phase 9/10 synchronous-wakeup behavior.
+      // Plan 11-05 sets values < 5000 ms via setWakeupDelay(ms) to drive the
+      // 3-second wakeup-timeout chip (SLIDE-35 / D-15) on miss.
+      wakeupDelayMs: 0,
     },
 
     // ===== Test-public API =====
@@ -192,6 +198,8 @@ export const MOCK_SERIAL_SLIDE_BOT = `
       bot.send.injectNoEchoOnCancel = false;
       bot.send.pauseAfterFirstWindow = false;
       bot.send._firstWindowShipped = false;
+      // Plan 11-01 Task 2 — clear wakeup delay so test isolation is preserved.
+      bot.send.wakeupDelayMs = 0;
       sendInboundBuf.length = 0;
     },
     setRole(r) { bot.role = r; },
@@ -205,6 +213,12 @@ export const MOCK_SERIAL_SLIDE_BOT = `
       bot.injectCanAfterFirstDataFrame = true;
       bot.can_already_injected = false;
     },
+    // Plan 11-01 Task 2 — defer the host-side wakeup signature by N ms so the
+    // 3-second SLIDE-35 / D-15 wakeup-timeout chip can be exercised. Applies
+    // only to pushSlideHostWakeup (send-direction); pushSlideWakeup (recv role)
+    // is unaffected. Default 0 preserves Phase 9/10 synchronous behavior so
+    // existing tests are not impacted (D-09 / D-15 plan-locked).
+    setWakeupDelay(ms) { bot.send.wakeupDelayMs = ms | 0; },
     pushSlideWakeup() {
       // 7-byte ESC ^ S L I D E sequence — wakes the dispatcher.
       const wakeBytes = new Uint8Array([0x1B, 0x5E, 0x53, 0x4C, 0x49, 0x44, 0x45]);
@@ -213,8 +227,16 @@ export const MOCK_SERIAL_SLIDE_BOT = `
     pushSlideHostWakeup() {
       // Plan 10-05 send-role alias — same 7-byte signature drives BestialiTTY
       // into recv mode when the bot is acting as the sender (Z80 → PC).
+      // Plan 11-01 Task 2 — when bot.send.wakeupDelayMs > 0, defer the push
+      // by that many milliseconds so Plan 11-05 timeout-chip tests can drive
+      // the auto-type → 3 s timeout → "Z80 didn't respond" UI flow without
+      // a real-hardware Z80.
       const wakeBytes = new Uint8Array([0x1B, 0x5E, 0x53, 0x4C, 0x49, 0x44, 0x45]);
-      window.__mockReaderPush(wakeBytes);
+      if (bot.send.wakeupDelayMs > 0) {
+        setTimeout(() => window.__mockReaderPush(wakeBytes), bot.send.wakeupDelayMs);
+      } else {
+        window.__mockReaderPush(wakeBytes);
+      }
     },
     queueSendFiles(files) {
       bot.send.queuedFiles = files.map((f) => ({
