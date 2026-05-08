@@ -224,4 +224,4 @@ feedback.
 - Slack / GitHub Issues notifications when transfer finishes
 
 ---
-*Last updated: 2026-05-06 starting v1.1 FileTransfer milestone (v1.0 code-complete since 2026-04-25)*
+*Last updated: 2026-05-08 — Phase 9 complete (SLIDE Sender — Host → Z80 Send: Rust sender SM, JS dispatcher 'send' branch, file-source UI with drag-drop + native dialog modal, byte-identical round-trip verified at 3 layers). 7 SLIDE-* requirements flipped Complete. Next: Phase 10 (SLIDE Receiver & Cancellation).*
