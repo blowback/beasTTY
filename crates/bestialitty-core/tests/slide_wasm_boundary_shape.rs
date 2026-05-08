@@ -23,6 +23,7 @@ use bestialitty_core::slide::{
     EVT_NONE, EVT_RDY, EVT_ACK, EVT_NAK, EVT_FIN, EVT_CAN,
     EVT_DATA_FRAME, EVT_CRC_ERROR,
     EVT_FILE_COMPLETE, EVT_SESSION_COMPLETE, EVT_RETRANSMIT_NEEDED,
+    EVT_HEADER_RECEIVED, EVT_RECV_DATA, EVT_RECV_FILE_DONE,
 };
 
 #[test]
@@ -124,6 +125,19 @@ fn slide_event_constants_pinned_for_phase_8_jsmirror() {
     assert_eq!(EVT_FILE_COMPLETE     & 0xFFFF, 0);
     assert_eq!(EVT_SESSION_COMPLETE  & 0xFFFF, 0);
     assert_eq!(EVT_RETRANSMIT_NEEDED & 0xFFFF, 0);
+
+    // ===== Phase 10 receiver extensions — JS-side mirror in www/transport/slide.js =====
+    //   const EVT_HEADER_RECEIVED = 11 << 16;
+    //   const EVT_RECV_DATA       = 12 << 16;
+    //   const EVT_RECV_FILE_DONE  = 13 << 16;
+    // Must NOT shift any 0..10 value. Drift here fails this test BEFORE the
+    // JS mirror in slide.js / slide-recv.js (Plan 10-02) desyncs.
+    assert_eq!(EVT_HEADER_RECEIVED >> 16, 11);
+    assert_eq!(EVT_RECV_DATA       >> 16, 12);
+    assert_eq!(EVT_RECV_FILE_DONE  >> 16, 13);
+    assert_eq!(EVT_HEADER_RECEIVED & 0xFFFF, 0);
+    assert_eq!(EVT_RECV_DATA       & 0xFFFF, 0);
+    assert_eq!(EVT_RECV_FILE_DONE  & 0xFFFF, 0);
 }
 
 #[test]

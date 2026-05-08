@@ -41,6 +41,10 @@ pub const EVT_CRC_ERROR:  u32 = 7 << 16;  // aux = seq
 pub const EVT_FILE_COMPLETE:    u32 = 8 << 16;   // aux = file_idx
 pub const EVT_SESSION_COMPLETE: u32 = 9 << 16;
 pub const EVT_RETRANSMIT_NEEDED: u32 = 10 << 16;  // aux = seq (sender NAK retransmit driver)
+// ===== Phase 10 receiver extensions =====
+pub const EVT_HEADER_RECEIVED: u32 = 11 << 16;   // aux = file_idx (0-based)
+pub const EVT_RECV_DATA:       u32 = 12 << 16;   // aux = seq
+pub const EVT_RECV_FILE_DONE:  u32 = 13 << 16;   // aux = file_idx of file just completed
 
 /// Per-position framer state. Mirrors vt52.rs:39-47 EscYPhase shape.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
