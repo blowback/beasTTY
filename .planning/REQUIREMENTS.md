@@ -185,10 +185,14 @@ Architecture, table-stakes, and pitfalls grounded in `.planning/research/{STACK,
 - [ ] **SLIDE-18**: Each completed file delivered via Chrome download (anchor-click); `showDirectoryPicker` opt-in fallback for batches > 1 file (one user gesture saves all subsequent files into the chosen folder)
 - [ ] **SLIDE-19**: Multi-file batches stagger downloads with ≥ 250 ms inter-file gap to avoid Chrome multi-download throttling
 - [ ] **SLIDE-20**: Received files retain their CP/M 8.3 uppercase names verbatim
-- [ ] **SLIDE-21**: Empty (zero-byte) files transfer cleanly — header → immediate EOF; no data frames
-- [ ] **SLIDE-22**: Sub-frame files (< 1024 bytes) transfer cleanly — single data frame + EOF
-- [ ] **SLIDE-23**: Binary content (`.COM`, `.HEX`, raw bytes) round-trips via `Uint8Array` end-to-end with no text-encoding step
-- [ ] **SLIDE-24**: Receive memory stays bounded for 1 MB+ files via `chunks: Uint8Array[]` + `new Blob(chunks)` (NOT naive concatenation)
+- [x] **SLIDE-21
+**: Empty (zero-byte) files transfer cleanly — header → immediate EOF; no data frames
+- [x] **SLIDE-22
+**: Sub-frame files (< 1024 bytes) transfer cleanly — single data frame + EOF
+- [x] **SLIDE-23
+**: Binary content (`.COM`, `.HEX`, raw bytes) round-trips via `Uint8Array` end-to-end with no text-encoding step
+- [x] **SLIDE-24
+**: Receive memory stays bounded for 1 MB+ files via `chunks: Uint8Array[]` + `new Blob(chunks)` (NOT naive concatenation)
 
 ### SLIDE floating chip + cancellation
 
@@ -196,7 +200,8 @@ Architecture, table-stakes, and pitfalls grounded in `.planning/research/{STACK,
 - [ ] **SLIDE-26**: Chip throughput display uses 2-second sliding window; first 2 seconds show `—`
 - [ ] **SLIDE-27**: Chip Cancel button emits CTRL_CAN, drains wire, restores parser; Esc key (slot 2 of 4 in the disambiguation chain) is equivalent
 - [ ] **SLIDE-28**: Post-cancel chip shows "Cancelled — N of M files transferred" for 5 seconds then auto-hides
-- [ ] **SLIDE-29**: Hard-fail recovery — CRC retries exhausted, port lost, or wire desync → chip shows error with "Retry" hint; state machine resets cleanly
+- [x] **SLIDE-29
+**: Hard-fail recovery — CRC retries exhausted, port lost, or wire desync → chip shows error with "Retry" hint; state machine resets cleanly
 - [ ] **SLIDE-30**: Cancel mid-frame leaves wire neutral (Promise.allSettled in-flight writes ≤ 200 ms → CTRL_CAN → wait ≤ 500 ms for Z80 echo → drain 100 ms → re-arm framer); never calls `reader.cancel()` or `port.close()`
 
 ### SLIDE integration with existing v1.0 systems
@@ -204,7 +209,8 @@ Architecture, table-stakes, and pitfalls grounded in `.planning/research/{STACK,
 - [ ] **SLIDE-31**: Tab close mid-transfer — `visibilitychange` listener emits best-effort CTRL_CAN; partial-file recovery documented in human-UAT
 - [ ] **SLIDE-32**: Phase 5 port-lost flow includes SLIDE pump (`slidePumpOnPortLost` symmetric with `pastePumpOnPortLost`) in `serial.js` teardown / `handleReadError` / `onNavSerialDisconnect`
 - [ ] **SLIDE-33**: Session-log append paused during active SLIDE session (binary frame bytes don't pollute the RX log); resumes on session end
-- [ ] **SLIDE-34**: Spurious mid-stream `ESC ^ S L I D E` while session is active → chip warning "Z80 reset detected; cancelling current transfer" + clean reset (idempotent state-machine entry)
+- [x] **SLIDE-34
+**: Spurious mid-stream `ESC ^ S L I D E` while session is active → chip warning "Z80 reset detected; cancelling current transfer" + clean reset (idempotent state-machine entry)
 - [ ] **SLIDE-35**: Auto-type "Z80 didn't respond" timeout (~3 s) chip with `[Retry] [Cancel] [Force start (legacy slide.com)]` options for users running pre-v0.2.1 slide.com without wakeup signature
 - [ ] **SLIDE-36**: Filename collisions on send (case-insensitive + 8.3 truncation produces duplicates) detected in JS pre-flight; user prompted to auto-rename (`NAME.TXT, NAME~1.TXT, NAME~2.TXT`), refuse, or send-only-first
 

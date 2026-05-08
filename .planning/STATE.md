@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: Integration
-status: planning
-stopped_at: Phase 10 context gathered
-last_updated: "2026-05-08T08:39:48.426Z"
-last_activity: 2026-05-08
+status: executing
+stopped_at: Completed 10-01-PLAN.md
+last_updated: "2026-05-08T10:50:30.413Z"
+last_activity: 2026-05-08 -- Phase --phase execution started
 progress:
   total_phases: 12
   completed_phases: 9
-  total_plans: 55
-  completed_plans: 55
-  percent: 100
+  total_plans: 60
+  completed_plans: 56
+  percent: 93
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-06)
 
 **Core value:** A modern, reliable, in-browser VT52 emulator good enough to use as a daily driver with a real MicroBeast.
-**Current focus:** Phase --phase — 09
+**Current focus:** Phase --phase — 10
 
 ## Current Position
 
-Phase: 10
-Plan: Not started
-Status: Ready to plan
-Last activity: 2026-05-08
+Phase: 10-slide-receiver-cancellation — EXECUTING
+Plan: 2 of 5 (Plan 10-01 complete)
+Status: Executing Phase 10
+Last activity: 2026-05-08 — Phase 10 Plan 10-01 complete
 
-Progress: [██████████] 100%
+Progress: [█████████░] 93%
 
 ## Performance Metrics
 
@@ -117,6 +117,7 @@ Progress: [██████████] 100%
 | Phase 09-slide-sender-host-z80-send PP02 | 9min | 3 tasks tasks | 6 files files |
 | Phase 09-slide-sender-host-z80-send P03 | 12min | 3 tasks tasks | 3 files files |
 | Phase 09-slide-sender-host-z80-send PP04 | 15min | 4 tasks (3 auto + 1 human-verify auto-approved) + 1 Rule 1 fix tasks | 4 files files |
+| Phase 10-slide-receiver-cancellation P01 | 11min | 3 tasks | 16 files |
 
 ## Accumulated Context
 
@@ -149,6 +150,7 @@ Recent decisions affecting current work:
 - Phase 9 Plan 02 (2026-05-08): Wasm boundary + JS-shell sender plumbing shipped. lib.rs:wasm_boundary gains two one-line forwards (enter_send_mode + feed_send_chunk) per ADR-002 single-rule. Boundary-shape mirror in tests/slide_wasm_boundary_shape.rs gains slide_send_methods_have_stable_signatures fn-pointer pin + 3 new EVT_* asserts. tx-sink.js gains writeSlideFrameAwaitable with verbatim PITFALLS §4 backpressure idiom (await writer.ready; await writer.write); throws on no-writer (vs writeSlideFrame log+return); rejection propagates so sender main loop can transition SM to Error. www/transport/slide.js extended 340 lines with depth-1 pendingSendSession (last-write-wins per CONTEXT Claude's Discretion), enterSendMode({ files }) public entry calling pushTxBytes(AUTO_SEND_COMMAND='B:SLIDE R\\r') BEFORE pendingSendSession assignment (Pitfall 3 order-critical, verified by line inspection), enterSendModeInternal mirror of enterRecvMode invoked from wakeup-completion clause D-13 if/else branch, dispatchSendMode async fire-and-forget Pitfall 4 RECOMMENDED FIX (feed → drain → pump → drain → maybeExit), drainSlideOutboundAwaitable using writeSlideFrameAwaitable + Pitfall 5 slice-before-await, drainEventsAndOutboundAwaitable handling EVT_FILE_COMPLETE / SESSION_COMPLETE / RETRANSMIT_NEEDED (Pitfall 6 Option A — JS re-derives chunk from fileBytes on NAK), pumpNextDataChunkIfReady chunking via FRAME_SIZE=1024, OUTBOUND_VIEW_CAP grown 16→4128 in lockstep with Rust OUTBOUND_RESERVE (Pitfall 1), Phase 9 D-18 __getStateForTests extension. main.js boot wiring exposes window.__slide.enterSendMode + window.__txSink.writeSlideFrameAwaitable for Plan 09-04 Playwright. www/pkg regenerated via bash scripts/build.sh; .d.ts contains enter_send_mode + feed_send_chunk; .js contains slide_enter_send_mode + slide_feed_send_chunk wasm exports. cargo test --workspace 258/258, cargo test --test slide_wasm_boundary_shape 9/9, cargo test --test core_02_no_browser_deps 3/3 (lib.rs wasm-bindgen exemption preserved), cd www && npm run test:fast 65/65, 3 new writeSlideFrameAwaitable Playwright tests green in isolation. Zero auto-fix deviations. packMetadataInline lives in slide.js for Plan 09-02 self-containment; Plan 09-03 will move it to file-source.js. Hard-reload requirement (Ctrl+Shift+R) flagged for dev-server users per MEMORY.md project_wasm_cache_workflow. Plan 09-03 (file-source.js + UI) unblocked.
 - Phase 9 Plan 03 (2026-05-08): file-source.js sender UI surface shipped — top-bar [↑ Send file] + drag-drop overlay + native <dialog> rewrite/rejection modal + button-state observer. NEW www/input/file-source.js (430 lines) with 6 exports (wireFileSource + 3 pure functions validateCpmFilename/truncateCpm83/packSendMetadata + 2 test introspection). Module uses dependency-injection for enterSendMode + getSlideState (mirrors paste-pump.js pattern). dragDepth counter (Pitfall 8) for nested-children dragenter/dragleave noise. D-04 silent rejection at dragenter for non-file drags via dataTransfer.types.includes('Files'). 200ms setInterval button-state observer (event-driven retrofit deferred to Phase 11 chip lifecycle). Native <dialog>.showModal() Promise-wrapped flow with returnValue 'send'/'cancel'; click-outside-to-dismiss via e.target===modalElRef; initial focus on Cancel (UI-SPEC safer-default); focus restoration asymmetric on close (#terminal-wrapper if Send confirmed, top-bar button if cancelled). All UI-SPEC §Copywriting verbatim ('Drop file(s) to send via SLIDE', 'Don't send', 'All files rejected — see details below.', 'Send {N} file{s}', '↑ Send file (sending…)', 'Transfer in progress — wait for completion'). All UI-SPEC §Color/§Spacing CSS values verbatim (2px dashed accent border, 10% accent tint per-theme RGB, modal max-width 560px / max-height 60vh, ::backdrop rgba(0,0,0,0.65), <li> 12px / 1.5 line-height sub-4 exception, muted reason rgba(255,255,255,0.6)). main.js boot wiring: wireFileSource AFTER wireSlideDispatcher (line 432 follows line 393); window.__fileSource exposed for Plan 09-04 Playwright introspection. Zero auto-fix deviations. cargo --workspace 258 tests + npm run test:fast 65/65 + bash scripts/build.sh all green. SLIDE-07/08/09/10/15/16 remain Pending — Plan 09-04 Playwright e2e flips them Complete.
 - Phase 9 Plan 04 (2026-05-08): Playwright sender e2e suite shipped — 3 NEW spec files (mock-serial-slide-bot.js + slide-sender.spec.js + file-source.spec.js) totaling 736 lines + 15 net-new tests; Rule 1 production fix in transport/slide.js (sendDispatchTail FIFO promise chain serialises concurrent dispatchSendMode invocations on shared outbound buffer — without it, two inbound chunks arriving in rapid succession race on slide.outbound_len()/clear_outbound() and duplicate outbound data frames; surfaced by Plan 09-04 byte-identical round-trip test). PITFALLS §13 three-way drift detection now active (production Rust SM ↔ Plan 09-01 Rust mock receiver ↔ Plan 09-04 JS mock bot — bot CRC verifies via crc16_ccitt mirror so SLIDE protocol contract held at three independent layers). Phase 9 SC#5 byte-identical round-trip exit code 0 at JS wire layer. SLIDE-07/08/09/10/13/15/16 flipped Pending → Complete in REQUIREMENTS.md (top checkboxes + traceability table; cleaned up malformed-newline format from prior auto-mark). Human-verify checkpoint auto-approved in auto-mode. test:fast 65→80 passing deterministically; cargo --workspace 258/258; bash scripts/build.sh exit 0. Phase 9 ready for /gsd-verify-phase.
+- Phase 10 Plan 01 (2026-05-08): Receiver Rust core extension shipped — 3 new EVT_* constants (EVT_HEADER_RECEIVED=11<<16, EVT_RECV_DATA=12<<16, EVT_RECV_FILE_DONE=13<<16) pinned in BOTH boundary-shape files (sibling-mirror Phase 9 P-02 lockstep). Slide struct gains 4 new fields (recv_buf 1024B + recv_filename 16B + recv_file_size + recv_file_idx) and 8 new accessors (recv_ptr/recv_len/clear_recv triple + recv_filename triple + recv_file_size + recv_current_file_idx scalars). HeaderPhase EVT_DATA_FRAME arm extended with parse_header_payload + EVT_HEADER_RECEIVED emit BEFORE existing CTRL_ACK (Assumption A7). DataPhase arm extended with recv_buf clear+extend + EVT_RECV_DATA before per-window ACK; EVT_RECV_FILE_DONE on zero-payload EOF. 13 new native tests across 3 new files (slide_recv_payload 6 + slide_recv_corpus 6 + slide_recv_memory 1) + 4 torn-recv extensions to slide_torn_chunk; recv_corpus_multi_data_frames_in_one_chunk pins the W3 OS-USB-chunk contract Plan 10-02's slide-recv.js drain loop depends on. 6 Playwright RED-gate spec stubs (15 test.skip total) — Wave 4 fills. Whole-crate 264->283 (+19); core_02_no_browser_deps green; bash scripts/build.sh 0; ADR-002 + ADR-003 invariants preserved (no std::time / no web_sys / cancel/force_idle/CancelPending unchanged). Zero auto-fix deviations.
 
 ### Pending Todos
 
@@ -176,10 +178,10 @@ Items acknowledged and carried forward from v1.0 milestone close:
 
 ## Session Continuity
 
-Last session: --stopped-at
-Stopped at: Phase 10 context gathered
-Resume file: --resume-file
+Last session: 2026-05-08T10:50:13.791Z
+Stopped at: Completed 10-01-PLAN.md
+Resume file: None
 
 **Next Phase:** Phase 8 — Wasm Boundary, JS Dispatcher & ESC^ Wakeup. Phase 7 delivered the pure-Rust SLIDE state machine; Phase 8 wraps `Slide` in `lib.rs:wasm_boundary` with `feed_byte` / `feed_chunk` / `outbound_ptr/_len/clear_outbound` / `state` / `cancel` / `force_idle` exports (per ARCHITECTURE.md §1). The `Slide` struct shape is pinned via `tests/slide_boundary_shape.rs` fn-pointer coercion (Plan 07-04) so any drift fails at compile time. ADR-003 (Plan 07-05) is the canonical document for the v0.2.1 CAN-bidirectional amendment that Phase 8's wasm wrapper exposes to JS.
 
-**Planned Phase:** 9 (SLIDE Sender — Host → Z80 Send) — 4 plans — 2026-05-08T00:41:44.132Z
+**Planned Phase:** 10 (SLIDE Receiver & Cancellation) — 5 plans — 2026-05-08T10:33:09.386Z
