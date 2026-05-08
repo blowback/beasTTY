@@ -184,7 +184,7 @@ Architecture, table-stakes, and pitfalls grounded in `.planning/research/{STACK,
 - [x] **SLIDE-17**: BestialiTTY detects 7-byte wakeup `ESC ^ S L I D E` emitted by patched slide.com and enters receive mode
 - [x] **SLIDE-18
 **: Each completed file delivered via Chrome download (anchor-click); `showDirectoryPicker` opt-in fallback for batches > 1 file (one user gesture saves all subsequent files into the chosen folder)
-- [ ] **SLIDE-19**: Multi-file batches stagger downloads with ≥ 250 ms inter-file gap to avoid Chrome multi-download throttling
+- [x] **SLIDE-19**: Multi-file batches stagger downloads with ≥ 250 ms inter-file gap to avoid Chrome multi-download throttling
 - [x] **SLIDE-20
 **: Received files retain their CP/M 8.3 uppercase names verbatim
 - [x] **SLIDE-21
@@ -358,23 +358,23 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SLIDE-15 | Phase 9 | Complete |
 | SLIDE-16 | Phase 9 | Complete |
 | SLIDE-17 | Phase 8 | Complete |
-| SLIDE-18 | Phase 10 | Pending |
-| SLIDE-19 | Phase 10 | Pending |
-| SLIDE-20 | Phase 10 | Pending |
-| SLIDE-21 | Phase 10 | Pending |
-| SLIDE-22 | Phase 10 | Pending |
-| SLIDE-23 | Phase 10 | Pending |
-| SLIDE-24 | Phase 10 | Pending |
+| SLIDE-18 | Phase 10 | Complete |
+| SLIDE-19 | Phase 10 | Complete |
+| SLIDE-20 | Phase 10 | Complete (verbatim except on filename collision — `~N` suffix per CONTEXT D-05/D-06; see 10-CONTEXT.md D-07) |
+| SLIDE-21 | Phase 10 | Complete |
+| SLIDE-22 | Phase 10 | Complete |
+| SLIDE-23 | Phase 10 | Complete |
+| SLIDE-24 | Phase 10 | Complete |
 | SLIDE-25 | Phase 11 | Pending |
 | SLIDE-26 | Phase 11 | Pending |
-| SLIDE-27 | Phase 10 | Pending |
+| SLIDE-27 | Phase 10 | Complete |
 | SLIDE-28 | Phase 11 | Pending |
-| SLIDE-29 | Phase 10 | Pending |
-| SLIDE-30 | Phase 10 | Pending |
+| SLIDE-29 | Phase 10 | Complete |
+| SLIDE-30 | Phase 10 | Complete |
 | SLIDE-31 | Phase 11 | Pending |
 | SLIDE-32 | Phase 11 | Pending |
 | SLIDE-33 | Phase 11 | Pending |
-| SLIDE-34 | Phase 10 | Pending |
+| SLIDE-34 | Phase 10 | Complete |
 | SLIDE-35 | Phase 11 | Pending |
 | SLIDE-36 | Phase 12 | Pending |
 | SLIDE-37 | Phase 11 | Pending |
