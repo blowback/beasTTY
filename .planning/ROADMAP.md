@@ -269,7 +269,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 7. SLIDE Rust Core — Framer, CRC, State Machine | 4/5 | In progress | - |
 | 8. Wasm Boundary, JS Dispatcher & ESC^ Wakeup | 0/TBD | Not started | - |
 | 9. SLIDE Sender — Host → Z80 Send | 0/TBD | Not started | - |
-| 10. SLIDE Receiver & Cancellation | 0/TBD | Not started | - |
+| 10. SLIDE Receiver & Cancellation | 2/5 | In progress | - |
 | 11. SLIDE JS Bridge & v1.0 Integration | 0/TBD | Not started | - |
 | 12. SLIDE UX Polish, Docs & Real-Hardware UAT | 0/TBD | Not started | - |
 
