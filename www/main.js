@@ -413,10 +413,16 @@ wireSlideDispatcher({
 });
 
 // Phase 10 Plan 10-03 — wire SLIDE recv plumbing AFTER wireSlideDispatcher.
-// Settings DOM refs are null in this plan; Plan 10-04 fills them by re-calling
-// wireSlideRecv with row/toggle/folderButton/status/help refs once those
-// elements exist in index.html. The anchor-click default path works without
-// any Settings UI present (slideRecvToFolder=false default in prefs).
+// Plan 10-04 fills the Settings DOM refs (rowEl / toggleEl / folderButtonEl /
+// statusEl / helpEl) so the new Settings row's change/click handlers are
+// installed inside wireSlideRecv (mousedown preventDefault retained for
+// terminal focus per Phase 4 D-16 + Phase 6 precedent). The anchor-click
+// default path still works (slideRecvToFolder=false default in prefs).
+const slideRecvFolderRow        = document.getElementById('slide-recv-folder-row');
+const slideRecvToFolderCheckbox = document.getElementById('slide-recv-to-folder-checkbox');
+const slideRecvFolderButton     = document.getElementById('slide-recv-folder-button');
+const slideRecvFolderStatus     = document.getElementById('slide-recv-folder-status');
+const slideRecvFolderHelp       = document.getElementById('slide-recv-folder-help');
 wireSlideRecv({
     wrapperEl: terminalWrapper,
     prefs,
@@ -425,11 +431,11 @@ wireSlideRecv({
     txSink: { setWireOwner, getWireOwner, writeSlideFrame, writeSlideFrameAwaitable },
     wasm,
     slideRef: null,                  // slide.js sets via setSlideRef on each enterRecvMode
-    rowEl: null,
-    toggleEl: null,
-    folderButtonEl: null,
-    statusEl: null,
-    helpEl: null,
+    rowEl: slideRecvFolderRow,
+    toggleEl: slideRecvToFolderCheckbox,
+    folderButtonEl: slideRecvFolderButton,
+    statusEl: slideRecvFolderStatus,
+    helpEl: slideRecvFolderHelp,
 });
 
 // Test introspection (mirrors window.__sessionLog / window.__scrollState
