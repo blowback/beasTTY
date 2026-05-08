@@ -727,6 +727,21 @@
       cursor: not-allowed;
     }
 
+    /* ==== Phase 12 SLIDE-38 settings auto-send invalid state ==== */
+    /* Muted border + validation hint row. Visual cue ONLY — does NOT block
+       savePrefs (use-time gate in slide.js readAutoSendCommandBytes is the
+       hard gate). 12-UI-SPEC.md §D/§E lock these values; muted/destructive
+       policy reaffirmed (no red — uses neutral muted token). */
+    #slide-auto-send-input[data-invalid="true"] {
+      border-color: rgba(255, 255, 255, 0.6);
+    }
+    #slide-auto-send-row .validation-hint {
+      padding-top: 4px;
+    }
+    #slide-auto-send-row .validation-hint[hidden] {
+      display: none;
+    }
+
     /* ==== Phase 12 SLIDE-36 collision row (extends Phase 9 modal <ul>) ==== */
     /* Inherits font-size: 12px, line-height: 1.5, color: var(--chrome-fg),
        padding: 4px 0, gap: 8px, display: flex, align-items: baseline from
@@ -971,12 +986,18 @@
         </p>
       </div>
 
-      <!-- Row 2 — Auto-send command (NEW Phase 11 — D-06). -->
+      <!-- Row 2 — Auto-send command (NEW Phase 11 — D-06; Phase 12 SLIDE-38
+           validation hint sub-row appended). -->
       <div class="settings-row" id="slide-auto-send-row">
         <label for="slide-auto-send-input">Auto-send command:</label>
         <input type="text" id="slide-auto-send-input" value="B:SLIDE R"
                autocomplete="off" spellcheck="false">
         <div class="hint">\r appended automatically</div>
+        <!-- Phase 12 SLIDE-38 — validation hint, hidden by default. The use-time
+             gate in slide.js readAutoSendCommandBytes unhides this row when
+             SAFE_AUTO_SEND_RE.test(cmd) === false; the Settings input change
+             handler in main.js hides it again once the user fixes the value. -->
+        <div class="hint validation-hint" id="slide-auto-send-validation-hint" hidden>Auto-send command unsafe — using disabled.</div>
       </div>
 
       <!-- Row 3 — Show summary checkbox (NEW Phase 11 — D-08 default ON). -->

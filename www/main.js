@@ -31,6 +31,7 @@ import {
     resetPrefs,
     subscribe as prefsSubscribe,
     getPrefs,
+    isAutoSendSafe,                 // Phase 12 SLIDE-38 — Settings input validation cue
 } from './state/prefs.js';
 const prefs = loadPrefs();
 // Phase 11 Plan 11-05 — also expose the live `prefs` object held by main.js
@@ -85,6 +86,7 @@ import {
     forceExitRecvMode as dispatcherForceExitRecvMode,   // Plan 10-05 Rule 1 — mode-flag sync hook
     __resetForTests as __slideResetForTests,
     __getStateForTests as __slideGetStateForTests,
+    __isAutoSendSafeForTests as __slideIsAutoSendSafeForTests,   // Phase 12 SLIDE-38
 } from './transport/slide.js';
 import {
     enqueuePaste,
@@ -499,6 +501,9 @@ wireSlideDispatcher({
     prefs,                                      // Phase 11 D-09 — auto-send from prefs.slideAutoSendCommand
     pastePump: { cancelPaste: cancelPastePump }, // Phase 11 D-12 — cancelPaste at SLIDE wakeup
     slideChip: slideChipApi,                    // Phase 11 — chip lifecycle hooks
+    savePrefs,                                  // Phase 12 SLIDE-38 — first-use-confirm chip writes
+                                                //   slideAutoSendCommandConfirmed on [Confirm] /
+                                                //   resets prefs on [Reset to default]
 });
 
 // Phase 10 Plan 10-03 — wire SLIDE recv plumbing AFTER wireSlideDispatcher.
@@ -559,12 +564,53 @@ if (slideAutoSendInput) {
     const stored = prefs.slideAutoSendCommand || '';
     slideAutoSendInput.value = stored.endsWith('\r') ? stored.slice(0, -1) : stored;
 
+    // Phase 12 SLIDE-38 — boot-time data-invalid sync. If the persisted value
+    // is unsafe (e.g. user reloaded after typing a bad command in a previous
+    // session), set the visual cue immediately on first paint so the user
+    // sees the rejection state without waiting for a Send-file click. Hint
+    // row stays hidden until the use-time gate fires (UI-SPEC §D visibility
+    // rule — save-time validation is forbidden; use-time fires it).
+    try {
+        if (!isAutoSendSafe(stored)) {
+            slideAutoSendInput.setAttribute('data-invalid', 'true');
+            slideAutoSendInput.setAttribute('aria-invalid', 'true');
+        }
+    } catch {}
+
+    const slideAutoSendValidationHint = document.getElementById('slide-auto-send-validation-hint');
+
     slideAutoSendInput.addEventListener('change', (e) => {
         const v = e.target.value;
         // D-06 — append \r at save time. Empty string disables auto-type per
         // SLIDE-13 semantic (preserves Phase 9 D-14 logic; Plan 11-03 swaps
         // the source from a hardcoded constant to prefs.slideAutoSendCommand).
-        savePrefs({ slideAutoSendCommand: v.length === 0 ? '' : v + '\r' });
+        const cmdWithCr = v.length === 0 ? '' : v + '\r';
+
+        // Phase 12 SLIDE-38 — Settings input visual cue (12-UI-SPEC §E).
+        // Visual ONLY — does NOT block savePrefs (Anti-Patterns: save-time
+        // validation is forbidden; the use-time hard gate inside
+        // slide.js readAutoSendCommandBytes is the wire-safety boundary).
+        const safe = isAutoSendSafe(cmdWithCr);
+        if (safe) {
+            slideAutoSendInput.removeAttribute('data-invalid');
+            slideAutoSendInput.removeAttribute('aria-invalid');
+            if (slideAutoSendValidationHint) slideAutoSendValidationHint.hidden = true;
+        } else {
+            slideAutoSendInput.setAttribute('data-invalid', 'true');
+            slideAutoSendInput.setAttribute('aria-invalid', 'true');
+            // Hint stays hidden here — UI-SPEC §D locks "shown ONLY after
+            // the use-time validation fails (i.e. user clicked ↑ Send file
+            // and SAFE_AUTO_SEND_RE.test(cmd) === false)". The slide.js
+            // use-time gate unhides it on its rejection path.
+        }
+
+        // Persist + re-arm first-use confirmation (any change to the auto-send
+        // command resets slideAutoSendCommandConfirmed to '' so the next
+        // session-start surfaces the chip per 12-UI-SPEC §C transition table).
+        savePrefs({
+            slideAutoSendCommand: cmdWithCr,
+            slideAutoSendCommandConfirmed: '',
+        });
     });
 }
 
@@ -600,6 +646,7 @@ if (slideCompatSelect) {
 window.__slide = {
     __resetForTests: __slideResetForTests,
     __getStateForTests: __slideGetStateForTests,
+    __isAutoSendSafeForTests: __slideIsAutoSendSafeForTests,   // Phase 12 SLIDE-38
     dispatchInbound,
     enterSendMode: enterSlideSendMode,        // Phase 9 test hook
 };
