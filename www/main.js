@@ -33,7 +33,16 @@ import {
     getPrefs,
 } from './state/prefs.js';
 const prefs = loadPrefs();
-window.__prefs = { savePrefs, resetPrefs, getPrefs, subscribe: prefsSubscribe };
+// Phase 11 Plan 11-05 — also expose the live `prefs` object held by main.js
+// (the same reference passed into wireSlideDispatcher / wireSlideChip /
+// wireSlideRecv). savePrefs() reassigns `cached` inside prefs.js to a new
+// object, so window.__prefs.getPrefs() returns the LATEST cached value but
+// the boot-time snapshot held by downstream wirings DOES NOT update unless
+// the field is written through Object.assign on this exposed reference.
+// Tests that need to drive a runtime prefs change (e.g. Compatibility mode
+// 3-way branching in slide-compatibility.spec.js) mutate via this ref so
+// the dispatcher picks up the change without a page reload.
+window.__prefs = { savePrefs, resetPrefs, getPrefs, subscribe: prefsSubscribe, live: prefs };
 
 import init, { Terminal, Slide } from './pkg/bestialitty_core.js';
 import {
@@ -81,6 +90,7 @@ import {
     enqueuePaste,
     onProgress as onPastePumpProgress,
     cancelPaste as cancelPastePump,
+    isActive as pastePumpIsActive,
     wirePastePump,
 } from './input/paste-pump.js';
 import {
@@ -417,6 +427,15 @@ wireClipboard({
 });
 window.__copySelection = copySelection;
 window.__pasteFromClipboard = pasteFromClipboard;
+// Phase 11 Plan 11-05 — expose paste-pump for slide-bridge.spec.js paste-gate
+// tests. enqueuePaste no-ops while isSlideActive() returns true (Plan 11-03
+// D-12 / SLIDE-33); the gate is verified by asserting writer-log absence of
+// the paste bytes during an active SLIDE session.
+window.__pastePump = {
+    enqueuePaste,
+    cancelPaste: cancelPastePump,
+    isActive: pastePumpIsActive,
+};
 
 // ---- Phase 6 Plan 05 (Wave 4) — wire session log accumulator ----
 // wireSessionLog owns the chunks-by-reference buffer + Blob download trigger

@@ -105,6 +105,12 @@ export function wireSlideChip(opts) {
         hide,                   // () — set lifecycle = 'hidden'
         onStateChange,          // (fn) — Plan 11-03 dispatcher subscribes
         dispose,                // () — clear all timers
+        // Plan 11-05 Rule 1 fix — slide.js's handleChipInlineAction reads chip
+        // lifecycle via this accessor to disambiguate awaiting-* states from
+        // active-session cancels (CONTEXT D-15). Without it, the dispatcher
+        // sees lc=null and the cancel-from-awaiting-timeout branch falls
+        // through, leaving the chip stuck in awaiting-timeout after [Cancel].
+        __getStateForTests,
     };
 }
 
