@@ -29,6 +29,16 @@ const DEFAULTS = Object.freeze({
     slideRecvToFolder: false,    // Phase 10 — CONTEXT D-02 (default OFF; toggle in Settings pane lands in Plan 10-04)
 });
 
+// Phase 10 review WR-04 — fields that MUST never live in the localStorage
+// prefs blob. CONTEXT D-03 specifies `slideRecvDirectoryHandle` lives in
+// IndexedDB (handles cannot JSON-roundtrip; storing a string would defeat
+// IDB ownership and create a dual-storage hazard). The DEFAULTS object
+// already omits this field, but the partial-blob merge in `loadPrefs` would
+// happily incorporate it if a stored blob (corrupt, hand-edited, or future
+// schema variant) carried one. Strip these fields actively after the merge
+// so prefs.{IDB_ONLY_FIELDS[i]} is guaranteed undefined for callers.
+const IDB_ONLY_FIELDS = Object.freeze(['slideRecvDirectoryHandle']);
+
 let cached = null;
 let saveTimer = null;
 const subscribers = [];
@@ -54,6 +64,12 @@ export function loadPrefs() {
         // serial sub-object (e.g. v0 prototype data, or a hand-edited blob)
         // must not produce undefined when consumers read prefs.serial.baud.
         cached = { ...DEFAULTS, ...parsed, serial: { ...DEFAULTS.serial, ...(parsed.serial || {}) } };
+        // Phase 10 review WR-04 — strip IDB-only fields that may have leaked
+        // into the blob (corrupt store, hand-edited, future-schema crosstalk).
+        // Handles cannot JSON-roundtrip, so a stored value here is meaningless;
+        // exposing it via getPrefs() would invite dual-storage drift between
+        // the blob and the canonical IndexedDB record (CONTEXT D-03).
+        for (const key of IDB_ONLY_FIELDS) delete cached[key];
         return cached;
     } catch (err) {
         // Pitfall 5 — JSON.parse failure / SecurityError in incognito / corrupt
