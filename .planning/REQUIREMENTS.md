@@ -182,9 +182,11 @@ Architecture, table-stakes, and pitfalls grounded in `.planning/research/{STACK,
 ### SLIDE Z80 → PC receive
 
 - [x] **SLIDE-17**: BestialiTTY detects 7-byte wakeup `ESC ^ S L I D E` emitted by patched slide.com and enters receive mode
-- [ ] **SLIDE-18**: Each completed file delivered via Chrome download (anchor-click); `showDirectoryPicker` opt-in fallback for batches > 1 file (one user gesture saves all subsequent files into the chosen folder)
+- [x] **SLIDE-18
+**: Each completed file delivered via Chrome download (anchor-click); `showDirectoryPicker` opt-in fallback for batches > 1 file (one user gesture saves all subsequent files into the chosen folder)
 - [ ] **SLIDE-19**: Multi-file batches stagger downloads with ≥ 250 ms inter-file gap to avoid Chrome multi-download throttling
-- [ ] **SLIDE-20**: Received files retain their CP/M 8.3 uppercase names verbatim
+- [x] **SLIDE-20
+**: Received files retain their CP/M 8.3 uppercase names verbatim
 - [x] **SLIDE-21
 **: Empty (zero-byte) files transfer cleanly — header → immediate EOF; no data frames
 - [x] **SLIDE-22
