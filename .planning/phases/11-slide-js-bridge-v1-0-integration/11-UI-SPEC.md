@@ -30,17 +30,17 @@ created: 2026-05-08
 | Font (chrome, both themes) | JetBrains Mono Regular self-hosted WOFF2 + fallback chain `ui-monospace, SFMono-Regular, Menlo, Consolas, monospace` — inherited verbatim from Phase 3 D-02. Phase 11 adds zero new font-family declarations. |
 | Framework | Framework-free — vanilla DOM, native form controls, CSS custom-property driven themes |
 
-**Rationale:** Phase 6 already shipped the floating-chip visual contract. Phase 11's `#slide-chip` is a **byte-for-byte mirror** of `#scrollback-indicator` with one CSS rule changed (`right: 8px` → `left: 8px`). Phase 11's Settings sub-block reuses the Phase 6 `<details class="reserved">` rule block at index.html:298. The `<input type="text">` styling for the auto-send command row mirrors the existing Connection-pane `select` styling (the only other text-bearing form control in the chrome).
+**Rationale:** Phase 6 already shipped the floating-chip visual contract. Phase 11's `#slide-chip` is a **byte-for-byte mirror** of `#scrollback-indicator` with one CSS rule changed (`right: 8px` → `left: 8px`). Phase 11's Settings sub-block reuses the Phase 6 `<details class="reserved">` rule block at index.html:298. The `<input type="text">` styling for the auto-send command row mirrors the existing Connection-pane `select` styling (the only other text-bearing form control in the chrome) **except for vertical padding, which Phase 11 normalizes to a multiple of 4 — see Spacing Exceptions below**.
 
 ---
 
 ## Spacing Scale
 
-Phase 11 reuses Phase 3 + Phase 4 + Phase 5 + Phase 6's established scale verbatim. All values are multiples of 4. **Zero new tokens.**
+Phase 11 reuses Phase 3 + Phase 4 + Phase 5 + Phase 6's established scale verbatim. All Phase 11-declared values are multiples of 4. **Zero new tokens.**
 
 | Token | Value | Usage in Phase 11 |
 |-------|-------|-------------------|
-| xs | 4px | Chip internal padding (vertical); chip token margin between cells in the dense layout below; chip border (1px); Settings sub-block summary padding (vertical, inherited from Phase 6 `details.reserved`); inline `[Cancel]` / `[Retry]` / `[Force start]` button padding (vertical) |
+| xs | 4px | Chip internal padding (vertical); chip token margin between cells in the dense layout below; chip border (1px); Settings sub-block summary padding (vertical, inherited from Phase 6 `details.reserved`); inline `[Cancel]` / `[Retry]` / `[Force start]` button padding (vertical); auto-send `<input>` and Compatibility mode `<select>` padding (vertical AND horizontal — see Spacing Exceptions for divergence-from-legacy note) |
 | sm | 8px | Chip internal padding (horizontal); chip distance from canvas edges (`bottom: 8px; left: 8px`); inline button horizontal padding; Settings sub-block content padding (`padding: 4px 8px` per Phase 6 `details.reserved`); gap between SLIDE sub-block rows |
 | md | 16px | (no new use in Phase 11 — already established for Settings pane outer padding, inherited) |
 | lg | 24px | Settings SLIDE sub-block: indent of the migrated "Save to folder" row's existing `.settings-row-action` `margin-left: 24px` (carry-forward from Phase 10; preserved verbatim). Auto-send hint text indented `margin-left: 24px` to align with the input below its label. |
@@ -54,9 +54,16 @@ Phase 11 reuses Phase 3 + Phase 4 + Phase 5 + Phase 6's established scale verbat
 | Chip token separators (the gaps between `↑`, filename, `N/M`, `%`, bytes, throughput, `[Cancel]` in the dense layout) | **Two regular spaces between each token** (rendered as the JetBrains Mono space glyph at the chrome 12px size — visually ~6px each, totalling ~12px per separator) | Locked at "two ASCII spaces". No `&emsp;` or fixed-pixel padding. The chip is a single inline-flow `<span>` of text with two spaces between tokens; this preserves character-grid feel (the chip sits over a character grid) and avoids reflow on token-width change. The throughput token format (D-02) keeps the right-most cells alignment-stable across the lifecycle of a session because the unit suffix is always present even when the value is `—`. |
 | Inline `[Cancel]` / `[Retry]` / `[Force start]` button padding inside the chip | `padding: 0 4px` (horizontal only; vertical inherited from chip) | The chip itself is `padding: 4px 8px`. Inline buttons sit flush with the chip's vertical padding — no extra vertical pad, only 4px horizontal pad inside the button border, so the button's text aligns optically with the rest of the chip text on the same baseline. |
 | Settings SLIDE sub-block (`<details class="reserved">`) | inherits `margin-top: 8px; padding: 4px 8px` from Phase 6 `#settings details.reserved` rule (index.html:298-302) verbatim | Phase 11 changes zero CSS for the sub-block container. Only its summary text changes. |
-| Auto-send command text input | `padding: 2px 4px` (matching the existing `#connection select` rule at index.html:371) | Single source of truth for "form control inside a chrome `<details>` pane" is the Phase 5 select styling. Reuse keeps the input visually homogeneous with the existing serial-config selects. |
 | Drop-rejected flash transition | **instant — no CSS transition** | The chip enters `dropRejectedUntil > Date.now()` state synchronously on dragenter/drop; the render function paints the alternate copy on the next 250 ms tick (or the next state-change observer fire). A CSS transition would imply a fade animation; none is wanted — the user dropped on an unavailable target and should see the rejection immediately. |
 | Awaiting-wakeup `…` ellipsis | static Unicode `…` (U+2026), no animation | Locked from CONTEXT Claude's Discretion default. Animated ellipsis (e.g. `.`, `..`, `...` rotation) would require a CSS keyframe animation and a re-render every ~500 ms — neither is in scope for Phase 11. The static `…` already conveys "still waiting" semantics. |
+
+### Phase 5 legacy spacing — divergence note (locked)
+
+The existing Phase 5 `#connection select` rule at index.html:371 declares `padding: 2px 4px`. The `2px` value is **not** a multiple of 4 and is **not** in the Phase 11 spacing contract (4, 8, 16, 24, 32, 48, 64). It is a pre-existing legacy carry-forward from Phase 5, **not** a Phase 11 declaration; this UI-SPEC does not retroactively re-style Phase 5's `#connection select`.
+
+**Phase 11 normalizes its own form-control padding to `4px` (a multiple of 4, in the standard set).** The auto-send command `<input type="text">` and Compatibility mode `<select>` introduced by Phase 11 declare `padding: 4px` rather than copying the legacy `padding: 2px 4px` value. This produces a 2px taller form control than the existing `#connection select` (≈ 23px tall vs ≈ 21px tall at `font-size: 13px` + `border: 1px`). The visual difference is minor and the two control sets sit in different Settings panes (Connection vs SLIDE sub-block) so they are not directly adjacent.
+
+If Phase 12 chooses to retroactively normalize the Phase 5 `#connection select` padding to `4px`, that is acceptable polish but explicitly out of scope for Phase 11.
 
 **Pre-populated from:** Phase 6 UI-SPEC §Spacing (chip exception verbatim with `right` → `left`); Phase 10 carry-forward `.settings-row-action { margin-left: 24px }`; CONTEXT C-01.
 
@@ -115,7 +122,7 @@ The single genuinely new visual contract is **`#slide-chip`** — verbatim mirro
 | 5 | Compatibility mode `<select>:focus-visible` border-color | `border-color: var(--chrome-accent); outline: none` | Same rule as auto-send input. |
 | 6 | Show-summary `<input type="checkbox">` (UA `:focus-visible`) | UA default — no Phase 11 override | The browser supplies its own ring on a native checkbox; Phase 11 does not repaint native form-control focus rings. |
 
-**Pre-populated from:** Phase 6 UI-SPEC §Color verbatim (mirror partner); Phase 5 `#connection` form-control rules at index.html:366-388 (auto-send input + Compatibility mode select share the same idiom); CONTEXT C-02.
+**Pre-populated from:** Phase 6 UI-SPEC §Color verbatim (mirror partner); Phase 5 `#connection` form-control rules at index.html:366-388 (auto-send input + Compatibility mode select share the same idiom **except for vertical padding — Phase 11 normalizes to 4px per Spacing contract; see Spacing Exceptions divergence note**); CONTEXT C-02.
 
 ### Z-index contract (locked — collision policy)
 
@@ -264,7 +271,7 @@ The chip is a single line with `white-space: nowrap`. If content exceeds `max-wi
 | `background` | `var(--chrome-bg)` | Matches Phase 5 `#connection select`. |
 | `color` | `var(--chrome-fg)` | Matches Phase 5 `#connection select`. |
 | `border` | `1px solid var(--chrome-border)` | Matches Phase 5 `#connection select`. |
-| `padding` | `2px 4px` | Matches Phase 5 `#connection select`. |
+| `padding` | `4px` | **Phase 11 normalizes to a multiple-of-4 spacing token.** Diverges from Phase 5 `#connection select`'s legacy `padding: 2px 4px` value (which is not in the Phase 11 spacing contract). See Spacing §Phase 5 legacy spacing — divergence note. The 2px height delta vs `#connection select` is acceptable; the two control sets sit in different Settings panes. |
 | `:focus-visible` | `border-color: var(--chrome-accent); outline: none` | Matches Phase 5 `#connection select:focus-visible` at index.html:373. |
 
 **Auto-send command `<input type="text">` styling (locked — same rule as `<select>`):**
@@ -276,7 +283,7 @@ The chip is a single line with `white-space: nowrap`. If content exceeds `max-wi
 | `background` | `var(--chrome-bg)` | Matches selects. |
 | `color` | `var(--chrome-fg)` | Matches selects. |
 | `border` | `1px solid var(--chrome-border)` | Matches selects. |
-| `padding` | `2px 4px` | Matches selects. |
+| `padding` | `4px` | **Phase 11 normalizes to a multiple-of-4 spacing token.** Same divergence note as the Compatibility `<select>` above — Phase 11 does not carry forward Phase 5 `#connection select`'s legacy `padding: 2px 4px`; it normalizes to `4px` so the value sits in the standard spacing set (4, 8, 16, 24, 32, 48, 64). See Spacing §Phase 5 legacy spacing — divergence note. |
 | `width` | `200px` (fixed; comfortable for 8.3 + drive-letter + space + flag, e.g. `B:SLIDE R` plus reasonable headroom for custom commands like `A:RUN PROG.COM`) | Stable layout; doesn't grow as the user types. Browser default is too narrow (~160px) and looks cramped. |
 | `:focus-visible` | `border-color: var(--chrome-accent); outline: none` | Same rule as Compatibility select. |
 
@@ -410,13 +417,13 @@ All new DOM is added to `www/index.html`. All styling lives in the existing `<st
 
 | Decision area | Source | Decisions used |
 |---------------|--------|----------------|
-| Spacing scale | Phase 6 UI-SPEC §Spacing | Carry-forward 4 / 8 / 16 / 24 px tokens; chip exception (`bottom: 8px; left: 8px`) inherited as mirror of Phase 6 `right: 8px` |
+| Spacing scale | Phase 6 UI-SPEC §Spacing | Carry-forward 4 / 8 / 16 / 24 px tokens; chip exception (`bottom: 8px; left: 8px`) inherited as mirror of Phase 6 `right: 8px`; auto-send `<input>` + Compatibility `<select>` padding normalized from Phase 5 legacy `2px 4px` to standard `4px` (see Spacing §Phase 5 legacy spacing — divergence note) |
 | Typography | Phase 3 / 4 / 5 / 6 UI-SPEC §Typography | 12 / 13 / 14 / 20 px sizes, weight 400, line-height 1.4 — zero new |
 | Color | Phase 3 root tokens (`var(--chrome-*)`, `var(--phosphor-*)`) + Phase 6 chip RGBA literals (`rgba(0,0,0,0.65)`, `rgba(0,0,0,0.5)`) | zero new hex values |
 | Chip layout | CONTEXT D-01 (single-line dense), D-02 (throughput format), D-04 ([Cancel] style), C-01 (placement) | verbatim |
 | Chip lifecycle states | CONTEXT D-08 (summary), D-10 (drop-rejected), D-15 (awaiting-wakeup + awaiting-timeout), `<specifics>` block (verbatim copy) | verbatim |
 | Settings sub-block | CONTEXT D-05 (nested `details.reserved`), D-06 (auto-send pre-fill), D-07 (Compatibility mode 3-way), D-08 (show-summary default), D-09 (prefs DEFAULTS) | verbatim |
-| Form-control styling | Phase 5 `#connection select` rule at index.html:366-388 | mirror — auto-send `<input>` and Compatibility `<select>` reuse the same idiom |
+| Form-control styling | Phase 5 `#connection select` rule at index.html:366-388 | mirror — auto-send `<input>` and Compatibility `<select>` reuse the same idiom **except for `padding`, which Phase 11 normalizes from Phase 5 legacy `2px 4px` to standard `4px` per the Phase 11 spacing contract** |
 | Accessibility | Phase 6 chip rule + Phase 5 form-control rule + Phase 4 mousedown-preventDefault pattern | verbatim |
 | Copywriting | CONTEXT `<specifics>` block + D-15 verbatim copy strings | verbatim |
 | Registry safety | CONTEXT D-09 (no new deps) + RESEARCH §Standard Stack | zero packages |
