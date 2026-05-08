@@ -455,6 +455,51 @@ wireSlideRecv({
     dispatcherForceExit: dispatcherForceExitRecvMode,
 });
 
+// Phase 11 Plan 11-03 — Settings SLIDE sub-block: hydrate from prefs +
+// wire savePrefs (D-06 / D-07 / D-08 / D-09). Each form control hydrates
+// from prefs.<key> at boot (defensive against missing key — Phase 6 D-32
+// defensive merge fills DEFAULTS); listens for `change` and persists via
+// the existing 250 ms debounced savePrefs (Phase 6 D-32/D-33). The
+// Compatibility mode <select> change handler restores #terminal-wrapper
+// focus per Phase 4 D-16 sacred. The Compatibility-mode 3-way branching
+// behavior is delivered by Plan 11-04.
+const slideAutoSendInput = document.getElementById('slide-auto-send-input');
+const slideShowSummaryCheckbox = document.getElementById('slide-show-summary');
+const slideCompatSelect = document.getElementById('slide-compat-select');
+
+if (slideAutoSendInput) {
+    // Display value WITHOUT trailing \r — D-06: \r is appended at save time, not displayed.
+    const stored = prefs.slideAutoSendCommand || '';
+    slideAutoSendInput.value = stored.endsWith('\r') ? stored.slice(0, -1) : stored;
+
+    slideAutoSendInput.addEventListener('change', (e) => {
+        const v = e.target.value;
+        // D-06 — append \r at save time. Empty string disables auto-type per
+        // SLIDE-13 semantic (preserves Phase 9 D-14 logic; Plan 11-03 swaps
+        // the source from a hardcoded constant to prefs.slideAutoSendCommand).
+        savePrefs({ slideAutoSendCommand: v.length === 0 ? '' : v + '\r' });
+    });
+}
+
+if (slideShowSummaryCheckbox) {
+    slideShowSummaryCheckbox.checked = !!prefs.slideShowSummary;
+    slideShowSummaryCheckbox.addEventListener('change', (e) => {
+        savePrefs({ slideShowSummary: !!e.target.checked });
+    });
+}
+
+if (slideCompatSelect) {
+    const v = prefs.slideCompatibilityMode || 'auto';
+    if (['auto', 'wakeup-required', 'force-start'].includes(v)) {
+        slideCompatSelect.value = v;
+    }
+    slideCompatSelect.addEventListener('change', (e) => {
+        savePrefs({ slideCompatibilityMode: e.target.value });
+        // Phase 4 D-16 — restore canvas focus after dropdown closes.
+        if (terminalWrapper) terminalWrapper.focus();
+    });
+}
+
 // Test introspection (mirrors window.__sessionLog / window.__scrollState
 // precedent). Plan 08-04's Playwright specs read mode + wakeIdx via
 // window.__slide.__getStateForTests(); they push reader bytes via

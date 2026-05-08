@@ -208,6 +208,27 @@
       outline: 2px solid var(--chrome-accent);
       outline-offset: 2px;
     }
+
+    /* ==== Phase 11 Settings SLIDE sub-block form controls ==== */
+    /* Auto-send <input type="text"> + Compatibility mode <select> share the
+       Phase 5 #connection select idiom EXCEPT padding is normalized to 4px
+       (multiple of 4) per UI-SPEC §Spacing §Phase 5 legacy spacing — divergence
+       note. Phase 5 #connection select still uses legacy padding: 2px 4px. */
+    #settings-slide #slide-auto-send-input,
+    #settings-slide #slide-compat-select {
+      font-family: inherit;
+      font-size: 13px;
+      background: var(--chrome-bg);
+      color: var(--chrome-fg);
+      border: 1px solid var(--chrome-border);
+      padding: 4px;
+    }
+    #settings-slide #slide-auto-send-input { width: 200px; }
+    #settings-slide #slide-auto-send-input:focus-visible,
+    #settings-slide #slide-compat-select:focus-visible {
+      border-color: var(--chrome-accent);
+      outline: none;
+    }
     /* Keyboard-only :focus-visible still applied to top-bar buttons (unchanged). */
     #terminal { display: block; }
 
@@ -898,28 +919,62 @@
       <p class="hint">Clears your saved preferences. Port permission and connection state are not affected.</p>
     </div>
 
-    <!-- Phase 10 Plan 10-04 — SLIDE recv-to-folder Settings row.
-         Verbatim DOM + copy from 10-UI-SPEC §"New DOM structure" + §"Copywriting Contract".
-         Inserted at the END of <details id="settings">, AFTER `Reset all preferences`,
-         per UI-SPEC §"Element ordering": feature-scoped (SLIDE-only) row leads a new
-         SLIDE-features block that Phase 11 will extend; <hr class="settings-divider" />
-         marks the transition from the Phase 6 prefs block. -->
+    <!-- Phase 11 Plan 11-03 — SLIDE file-transfer sub-block (D-05).
+         Wraps the Phase 10 Save-to-folder row (carry-forward, MOVED into this
+         block from its top-level position; child IDs preserved verbatim so
+         wireSlideRecv element refs still resolve via document.getElementById)
+         + 3 new rows (auto-send command / show-summary / Compatibility mode).
+         Verbatim DOM + copy from 11-UI-SPEC §Layout Contract §Settings SLIDE
+         sub-block + §Copywriting Contract. <hr class="settings-divider" /> marks
+         the transition from the Phase 6 prefs block. Default-collapsed (no
+         `open` attribute) — daily-driver users never see SLIDE config rows. -->
     <hr class="settings-divider" />
-    <div class="settings-row" id="slide-recv-folder-row">
-      <label for="slide-recv-to-folder-checkbox"
-             title="When enabled, files received via SLIDE land in a folder you pick. Otherwise they download to your browser's Downloads folder.">
-        <input type="checkbox" id="slide-recv-to-folder-checkbox">
-        Save received files to a folder
-      </label>
-      <div class="settings-row-action">
-        <button id="slide-recv-folder-button" type="button"
-                title="Toggle the checkbox first">Choose folder…</button>
-        <span id="slide-recv-folder-status" class="hint">No folder selected</span>
+    <details class="reserved" id="settings-slide">
+      <summary>SLIDE file transfer</summary>
+
+      <!-- Row 1 — Save-to-folder (Phase 10 carry-forward, MOVED into this block). -->
+      <div class="settings-row" id="slide-recv-folder-row">
+        <label for="slide-recv-to-folder-checkbox"
+               title="When enabled, files received via SLIDE land in a folder you pick. Otherwise they download to your browser's Downloads folder.">
+          <input type="checkbox" id="slide-recv-to-folder-checkbox">
+          Save received files to a folder
+        </label>
+        <div class="settings-row-action">
+          <button id="slide-recv-folder-button" type="button"
+                  title="Toggle the checkbox first">Choose folder…</button>
+          <span id="slide-recv-folder-status" class="hint">No folder selected</span>
+        </div>
+        <p class="hint" id="slide-recv-folder-help">
+          Received files land in your Downloads folder. Toggle this to pick a fixed destination.
+        </p>
       </div>
-      <p class="hint" id="slide-recv-folder-help">
-        Received files land in your Downloads folder. Toggle this to pick a fixed destination.
-      </p>
-    </div>
+
+      <!-- Row 2 — Auto-send command (NEW Phase 11 — D-06). -->
+      <div class="settings-row" id="slide-auto-send-row">
+        <label for="slide-auto-send-input">Auto-send command:</label>
+        <input type="text" id="slide-auto-send-input" value="B:SLIDE R"
+               autocomplete="off" spellcheck="false">
+        <div class="hint">\r appended automatically</div>
+      </div>
+
+      <!-- Row 3 — Show summary checkbox (NEW Phase 11 — D-08 default ON). -->
+      <div class="settings-row" id="slide-show-summary-row">
+        <label>
+          <input type="checkbox" id="slide-show-summary" checked>
+          Show transfer summary chip
+        </label>
+      </div>
+
+      <!-- Row 4 — Compatibility mode (NEW Phase 11 — D-07). -->
+      <div class="settings-row" id="slide-compat-row">
+        <label for="slide-compat-select">Compatibility mode:</label>
+        <select id="slide-compat-select">
+          <option value="auto">Auto</option>
+          <option value="wakeup-required">Wakeup-required</option>
+          <option value="force-start">Force-start (legacy slide.com)</option>
+        </select>
+      </div>
+    </details>
   </details>
 
   <!-- Debug harness (D-15) — retained Phase 2 SC-4 demonstration path. -->
