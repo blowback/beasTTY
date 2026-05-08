@@ -31,6 +31,7 @@ let topBarSendBtnRef = null;
 let topBarSendInputRef = null;
 let enterSendModeFn = null;
 let getSlideStateFn = null;
+let isWriterReadyFn = null;   // Phase 9 WR-03 — gate button on writer registration
 
 let buttonStateInterval = null;
 
@@ -48,6 +49,7 @@ export function wireFileSource(opts) {
         modalSendBtn,     // #send-modal-send
         enterSendMode,    // imported from transport/slide.js (injected)
         getSlideState,    // () => window.__slide.__getStateForTests() (injected)
+        isWriterReady,    // Phase 9 WR-03 — () => txSink.isWriterReady() (injected)
     } = opts;
     wrapperElRef = wrapperEl;
     topBarSendBtnRef = sendBtn;
@@ -60,6 +62,7 @@ export function wireFileSource(opts) {
     sendBtnRef = modalSendBtn;
     enterSendModeFn = enterSendMode;
     getSlideStateFn = getSlideState;
+    isWriterReadyFn = isWriterReady ?? null;
 
     // ===== Top-bar button click → open file picker =====
     sendBtn.addEventListener('click', () => {
@@ -119,15 +122,42 @@ function updateButtonState() {
     try { st = getSlideStateFn(); } catch { return; }
     const isPending = !!st?.hasPendingSendSession;
     const isSending = st?.mode === 'send';
-    const shouldDisable = isPending || isSending;
+    // Phase 9 WR-02 — `'recv'` is also a session-active state. Without this
+    // arm, a click during an inbound recv session flows through to
+    // enterSendMode → pushTxBytes (silent-dropped because owner === 'slide')
+    // → user sees nothing happen.
+    const isReceiving = st?.mode === 'recv';
+    // Phase 9 WR-03 — disable until a writer is registered (i.e., user has
+    // successfully clicked Connect). Pre-Connect clicks would otherwise
+    // accumulate auto-type bytes in the ring without reaching the wire.
+    const writerReady = isWriterReadyFn ? !!isWriterReadyFn() : true;
+    const shouldDisable = isPending || isSending || isReceiving || !writerReady;
     if (shouldDisable && !topBarSendBtnRef.disabled) {
         topBarSendBtnRef.disabled = true;
-        topBarSendBtnRef.textContent = '↑ Send file (sending…)';   // ellipsis = U+2026
-        topBarSendBtnRef.title = 'Transfer in progress — wait for completion';
+        if (!writerReady && !isPending && !isSending && !isReceiving) {
+            // Pre-Connect state: distinguish from in-flight transfer label.
+            topBarSendBtnRef.textContent = '↑ Send file';
+            topBarSendBtnRef.title = 'Connect to a serial port first';
+        } else {
+            topBarSendBtnRef.textContent = '↑ Send file (sending…)';   // ellipsis = U+2026
+            topBarSendBtnRef.title = 'Transfer in progress — wait for completion';
+        }
     } else if (!shouldDisable && topBarSendBtnRef.disabled) {
         topBarSendBtnRef.disabled = false;
         topBarSendBtnRef.textContent = '↑ Send file';
         topBarSendBtnRef.title = 'Send file(s) to MicroBeast via SLIDE';
+    } else if (shouldDisable && topBarSendBtnRef.disabled) {
+        // Already-disabled — keep the title in sync if the reason changed
+        // (e.g. writer registered while a session was already active).
+        if (!writerReady && !isPending && !isSending && !isReceiving) {
+            if (topBarSendBtnRef.title !== 'Connect to a serial port first') {
+                topBarSendBtnRef.title = 'Connect to a serial port first';
+                topBarSendBtnRef.textContent = '↑ Send file';
+            }
+        } else if (topBarSendBtnRef.title !== 'Transfer in progress — wait for completion') {
+            topBarSendBtnRef.title = 'Transfer in progress — wait for completion';
+            topBarSendBtnRef.textContent = '↑ Send file (sending…)';
+        }
     }
 }
 

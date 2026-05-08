@@ -33,7 +33,10 @@
 // enterSendMode. The owner is 'terminal' at the time of call (Pitfall 3
 // order-critical: pushTxBytes BEFORE pendingSendSession assignment) so the
 // owner gate at tx-sink.js:50 lets these bytes through to the writer.
-import { pushTxBytes } from '../input/tx-sink.js';
+// Phase 9 WR-02/WR-03 — getWireOwner + isWriterReady are imported for the
+// defensive entry checks in `enterSendMode` (refuse to queue a send when
+// the wire is owned by an active SLIDE session, or no writer is registered).
+import { pushTxBytes, getWireOwner, isWriterReady } from '../input/tx-sink.js';
 
 // EVT_* — packed (kind << 16) | aux. JS unpacks via (evt >>> 16) for kind,
 // (evt & 0xFFFF) for aux. AUTHORITY: crates/bestialitty-core/tests/slide_boundary_shape.rs:slide_event_constants_pinned
@@ -386,6 +389,44 @@ function exitRecvMode() {
 /// are kept in fileBytes for the sender pump + NAK retransmit (Pitfall 6
 /// Option A — JS holds the ground-truth payload, re-feeds on NAK).
 export function enterSendMode({ files }) {
+    // Phase 9 WR-05 — first-click-wins. If a pendingSendSession is already
+    // queued (the 200ms button-disable poll has not yet caught up to the
+    // first click's state change), refuse to push auto-type bytes a second
+    // time. Otherwise two rapid clicks would auto-type `B:SLIDE R\rB:SLIDE
+    // R\r` (20 bytes), the Z80's CCP would execute SLIDE twice, and only
+    // the first ESC^SLIDE wakeup would consume `pendingSendSession` — the
+    // second SLIDE invocation would be fielded as recv-mode (a phantom
+    // recv session the user did not initiate). Phase 11 SLIDE-35 owns the
+    // user-visible chip; for Phase 9 a console.warn keeps the failure
+    // observable.
+    if (pendingSendSession !== null) {
+        console.warn('[slide.js] enterSendMode: send already pending; ignoring duplicate click');
+        return;
+    }
+
+    // Phase 9 WR-02 — refuse if the wire is owned by an active SLIDE
+    // session (mode === 'recv' or 'send'). pushTxBytes at tx-sink.js:50
+    // would silently drop the auto-type bytes (`owner === 'slide'`),
+    // pendingSendSession would be set with no wakeup ever arriving, and
+    // the user would see "I clicked Send and nothing happened." The
+    // file-source button-state observer also blocks this path now (WR-02
+    // updateButtonState extension), but the defense-in-depth check here
+    // catches programmatic callers (window.__slide.enterSendMode).
+    const owner = getWireOwner();
+    if (owner !== 'terminal') {
+        console.warn(`[slide.js] enterSendMode: wire owner is '${owner}'; refusing to queue send`);
+        return;
+    }
+
+    // Phase 9 WR-03 — refuse if no writer is registered (i.e., the user
+    // clicked Send before clicking Connect). Auto-type bytes would
+    // accumulate in the local ring but never reach the wire; the wakeup
+    // would never arrive; pendingSendSession would wait forever.
+    if (!isWriterReady()) {
+        console.error('[slide.js] enterSendMode: no writer registered; aborting (click Connect first)');
+        return;
+    }
+
     // Plan 09-02 ships the metadata packer co-located with slide.js for
     // self-containment (file-source.js doesn't exist yet at the end of
     // this plan). Plan 09-03 will move packMetadataInline to file-source.js

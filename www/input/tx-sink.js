@@ -100,6 +100,15 @@ export function resetTx() {
 export function registerWriter(writer) { registeredWriter = writer; }
 export function unregisterWriter()     { registeredWriter = null; }
 
+// Phase 9 WR-03 — observable for the top-bar [↑ Send file] button so it can
+// stay disabled until a writer is registered (i.e., until the user has
+// clicked Connect successfully). Without this gate, a pre-Connect click on
+// [↑ Send file] flows through to enterSendMode → pushTxBytes(AUTO_SEND_COMMAND)
+// → no writer registered → bytes accumulate in the local ring but never
+// reach the wire, then `pendingSendSession` waits forever for a wakeup that
+// will never arrive.
+export function isWriterReady() { return registeredWriter !== null; }
+
 // Phase 8 D-08 — wire-owner accessors. transport/slide.js calls these in
 // lockstep with mode transitions (D-09 — synchronous handoff, no race window).
 export function setWireOwner(o) {

@@ -66,6 +66,7 @@ import {
     getWireOwner,
     writeSlideFrame,
     writeSlideFrameAwaitable,
+    isWriterReady,                         // Phase 9 WR-03 — top-bar button gate
 } from './input/tx-sink.js';
 import { wireSerial } from './transport/serial.js';
 import {
@@ -412,7 +413,10 @@ window.__slide = {
 // Phase 9 Plan 02 — writeSlideFrameAwaitable added so the new tx-sink Playwright
 // tests (writeSlideFrameAwaitable awaits writer.ready / throws / propagates)
 // can call into the sender entrypoint via window.__txSink.
-window.__txSink = { setWireOwner, getWireOwner, writeSlideFrame, writeSlideFrameAwaitable };
+// Phase 9 WR-03 — isWriterReady exported so the top-bar button gate logic
+// is observable from Playwright (file-source.spec.js asserts the disabled
+// state across the connect lifecycle).
+window.__txSink = { setWireOwner, getWireOwner, writeSlideFrame, writeSlideFrameAwaitable, isWriterReady };
 
 // Phase 9 Plan 03 — wire file-source AFTER wireSlideDispatcher so file-source's
 // injected `enterSendMode` reaches the already-wired dispatcher. file-source
@@ -441,6 +445,7 @@ wireFileSource({
     modalSendBtn: sendModalSendButton,
     enterSendMode: enterSlideSendMode,        // imported from transport/slide.js (Plan 09-02)
     getSlideState: __slideGetStateForTests,    // imported from transport/slide.js (Plan 09-02)
+    isWriterReady,                            // Phase 9 WR-03 — gate top-bar button on writer registration
 });
 
 // Test introspection (mirrors Phase 8 + Plan 09-02 window.__* precedent).
