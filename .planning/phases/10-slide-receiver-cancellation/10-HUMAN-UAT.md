@@ -46,7 +46,7 @@ rather than hanging the Z80).
    prompt returns to CP/M `B>`; no console errors.
 5. Run `B:SLIDE S BIGFILE.BIN` a second time — confirm Z80 side is not
    stuck (it must accept the new send command immediately).
-**result:** pass/fail (TBD)
+**result:** blocked (Z80 SLIDE.COM does not yet implement the v0.2.1 ADR-003 ESC^SLIDE wakeup + CTRL_CAN echo amendment; PR to github.com/blowback/slide is a Phase 12 deliverable per REQUIREMENTS.md SLIDE-40. Re-run after the patched slide.asm lands.)
 
 ### UAT-10-02: FileSystemDirectoryHandle persistence across browser restart
 
@@ -154,9 +154,9 @@ any point, and the file lands byte-identical with no truncation.
 total: 6
 passed: 0
 issues: 0
-pending: 6
+pending: 5
 skipped: 0
-blocked: 0
+blocked: 1
 
 ## Sign-off
 
