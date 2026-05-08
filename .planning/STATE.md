@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: Integration
 status: executing
-stopped_at: Completed 12-02-PLAN.md
-last_updated: "2026-05-08T21:59:47.377Z"
+stopped_at: Completed 12-03-PLAN.md
+last_updated: "2026-05-08T22:27:09.097Z"
 last_activity: 2026-05-08
 progress:
   total_phases: 12
   completed_phases: 11
   total_plans: 70
-  completed_plans: 67
-  percent: 96
+  completed_plans: 68
+  percent: 97
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-05-06)
 ## Current Position
 
 Phase: 12 (SLIDE UX Polish, Docs & Real-Hardware UAT) — EXECUTING
-Plan: 3 of 5
+Plan: 4 of 5
 Status: Ready to execute
 Last activity: 2026-05-08
 
-Progress: [██████████] 96%
+Progress: [██████████] 97%
 
 ## Performance Metrics
 
@@ -130,6 +130,7 @@ Progress: [██████████] 96%
 | Phase 11-slide-js-bridge-v1-0-integration PP11-05 | 75min | 3 tasks (3 auto, non-TDD) + 3 deviations (1 Rule 1 chip API bug + 2 Rule 3 test introspection blockers) tasks | 8 files files |
 | Phase 12-slide-ux-polish-docs-real-hardware-uat P01 | 3min | 1 task (TDD: RED+GREEN = 2 commits) tasks | 2 files files |
 | Phase Phase 12-slide-ux-polish-docs-real-hardware-uat P02 P~25min | 3 tasks (3 atomic commits) + 1 Rule 1 algorithm-vs-example deviation | 4 files tasks | - files |
+| Phase 12 P03 | 21min | 4 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -174,6 +175,7 @@ Recent decisions affecting current work:
 - Phase 11 Plan 11-05 (2026-05-08): Wave 4 GREEN gate shipped — 45 real Playwright assertions across 4 spec files (slide-chip 11 + slide-bridge 16 + slide-compatibility 9 + slide-prefs 10) replacing every Plan 11-01 test.skip stub; test names match VALIDATION.md -g filters verbatim. 11 Phase 11 SLIDE-* requirement IDs (SLIDE-11/14/25/26/28/31/32/33/35/37/39) flipped Pending → Complete in REQUIREMENTS.md (top-level + traceability table). Three deviations: Rule 1 chip API gap (added __getStateForTests to wireSlideChip return — slide.js's handleChipInlineAction needs runtime chip-state introspection to disambiguate awaiting-* state cancels; without it the chip stayed stuck in awaiting-timeout after [Cancel]); Rule 3 window.__pastePump exposure for paste-pump gate test introspection; Rule 3 window.__prefs.live exposure (savePrefs reassigns the prefs.js cached blob to a new object, but wireSlideDispatcher's prefsRef snapshot is bound to the boot-time reference — tests need to mutate the live ref directly to drive Compatibility-mode runtime branch tests). Helpers (setup/commonReset/enterMidStream) copied verbatim from slide-cancel.spec.js per Phase 8/9/10 precedent — no cross-file imports. 8s timeouts on connect handshake polls cover Chromium parallel-load throttling at default 10 workers; tests pass deterministically at --workers=4. Cargo workspace baseline preserved at 283/283 (Phase 11 ZERO Rust changes — strict invariant from CLAUDE.md). Pre-existing 11 full-suite failures (slide-recv-settings + slide-recv-fsap broken since Plan 11-03 due to relocated row markup; log-download Phase 10 deferred; focus + ctrl-letters + slide-chip Cancel parallelism flakes) all documented in deferred-items.md per executor SCOPE BOUNDARY rule. Phase 11 ready for /gsd-verify-phase.
 - Phase 12 Plan 01 (2026-05-08): SLIDE-12 closed via 3-line strict-equality early-return at top of selection.js onPointerDown — predicate canvasRef.parentElement?.getAttribute('data-drop-target') === 'true' (Pitfall 4 strict equality, NOT !== 'false', NOT hasAttribute). 3 Playwright regression tests in www/tests/render/selection-drop.spec.js (overlay-active suppression + Phase 6 regression preserved + post-drop gate-and-clear). Spec self-contained per Phase 8/9/10 spec-isolation convention. TDD gates both committed (RED 4c3767b → GREEN fe99569); no REFACTOR needed (change is exactly 3 lines code + 3 lines comment). Zero deviations. Post-drop clearSelection() call deferred to Plan 12-02 (file-source.js onDrop) per plan §action to avoid file-modification overlap. test:fast 81/81 deterministic; pre-existing tx-sink parallelism flake on first run resolved on retry, documented as out-of-scope per Phase 11 deferred-items.md precedent.
 - Phase 12 Plan 02 (2026-05-08): SLIDE-36 send-side filename collisions shipped — computeRenameScheme exported per D-04 unlimited-via-base-truncation rule (verbatim algorithm from RESEARCH; Math.max(0, 8 - len(N)) base limit). processFiles second pass groups surviving items by item.name.toUpperCase() (D-01) post-truncateCpm83. showConfirmModal accepts collisionRows third arg + tagged Promise resolution ('send' | 'first-only' | 'refuse' | falsy per D-06; backwards-compatible — Phase 9 happy path still produces 'send' / falsy). Modal three-mode footer: single <footer> with runtime swap of inner buttons (12-UI-SPEC §B locked; NOT a second <dialog>). Default-focus override scoped to collision-present mode (Phase 9 Cancel-default preserved on no-collision happy path — Pitfall 2). SLIDE-12 SC#1 closed via clearSelectionFn injection in onDrop (try/catch wrapped per T-12-10; closure captures selection.clearSelection from main.js boot wiring; Plan 12-01 already shipped the predicate-half early-return). Three-button row in #send-modal <footer>: send-modal-send-renamed (value="send") / send-modal-first-only (value="first-only") / send-modal-refuse (value="refuse"); all hidden by default, runtime-toggled by file-source.js based on collisionsPresent. CSS appended for li.collision (flex-direction: column) + .rename-list (margin-left: 24px); zero new colors / fonts per 12-UI-SPEC hard invariants. window.__fileSource exposes computeRenameScheme for Playwright unit tests. 8 Playwright tests pin all D-04 cases (12-collision / 100-collision / no-extension / single-member implicit) + modal three-mode flow + Phase 9 Cancel-default regression. Rule 1 deviation: 12-PLAN §behavior listed example outputs (REPOR~10/NOEX~1) that contradict the verbatim algorithm in §action; algorithm shipped (RESEARCH-verbatim authoritative); test expectations adjusted to match algorithm output (REPORT~10/NOEXT~1). Phase 12 ZERO Rust changes invariant preserved (CLAUDE.md hard rule). cargo --workspace 283/283 + cd www && npm run test:fast 81/81 + bash scripts/build.sh exit 0 all green. SLIDE-36 flipped Pending → Complete in REQUIREMENTS.md (top checkbox + traceability table). Plan 12-03 (SLIDE-38 auto-send safety) unblocked.
+- Phase 12 Plan 03 (2026-05-08): SLIDE-38 closed via 3-layer defense — pure helper isAutoSendSafe in prefs.js (regex /^[A-Za-z0-9: ]*\\r$/ — Rule 1 fix widened from /^[A-Za-z0-9:]*\\r$/ to admit space in default 'B:SLIDE R\\r'); use-time hard gate at slide.js readAutoSendCommandBytes (returns zero-length Uint8Array on rejection, fires chip enterError, sets DOM data-invalid); first-use-confirm chip lifecycle state in slide-chip.js with [Confirm]/[Reset to default] inline buttons + 30s defensive auto-hide. enterSendMode split into 3 functions (sync entry + async first-use branch + extracted enterSendModeProceed). savePrefs threaded through wireSlideDispatcher opts. slideAutoSendCommandConfirmed flag exact-string-keyed; Settings handler resets to '' on every change. 15 Playwright tests deterministic green (5 SAFE + 5 UNSAFE + 5 integration). T-12-07 (Esc/timeout-dismissed chip leaves dispatcher Promise unresolved) flagged as known limitation for Phase 12.1 cleanup. Phase 12 zero Rust changes invariant preserved (cargo --workspace 283/283); bash scripts/build.sh exit 0. SLIDE-38 flipped Pending → Complete in REQUIREMENTS.md.
 
 ### Pending Todos
 
@@ -201,8 +203,8 @@ Items acknowledged and carried forward from v1.0 milestone close:
 
 ## Session Continuity
 
-Last session: 2026-05-08T21:59:47.370Z
-Stopped at: Completed 12-02-PLAN.md
+Last session: 2026-05-08T22:26:53.463Z
+Stopped at: Completed 12-03-PLAN.md
 Resume file: None
 
 **Next Phase:** Phase 8 — Wasm Boundary, JS Dispatcher & ESC^ Wakeup. Phase 7 delivered the pure-Rust SLIDE state machine; Phase 8 wraps `Slide` in `lib.rs:wasm_boundary` with `feed_byte` / `feed_chunk` / `outbound_ptr/_len/clear_outbound` / `state` / `cancel` / `force_idle` exports (per ARCHITECTURE.md §1). The `Slide` struct shape is pinned via `tests/slide_boundary_shape.rs` fn-pointer coercion (Plan 07-04) so any drift fails at compile time. ADR-003 (Plan 07-05) is the canonical document for the v0.2.1 CAN-bidirectional amendment that Phase 8's wasm wrapper exposes to JS.
