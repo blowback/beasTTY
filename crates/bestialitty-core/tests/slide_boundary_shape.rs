@@ -60,6 +60,23 @@ fn slide_send_methods_have_stable_signatures() {
 }
 
 #[test]
+fn slide_recv_payload_methods_have_stable_signatures() {
+    // Phase 10 receiver API surface — fn-pointer coercion catches signature
+    // drift at compile time. Mirror of slide_send_methods_have_stable_signatures.
+    // The recv-payload accessor triple + recv-filename triple + scalar accessors
+    // are the load-bearing zero-copy contract that Plan 10-02's wasm façade
+    // forwards into. Drift here fails native cargo test BEFORE wasm-pack would.
+    let _: fn(&Slide) -> *const u8     = Slide::recv_ptr;
+    let _: fn(&Slide) -> usize         = Slide::recv_len;
+    let _: fn(&mut Slide)              = Slide::clear_recv;
+    let _: fn(&Slide) -> *const u8     = Slide::recv_filename_ptr;
+    let _: fn(&Slide) -> usize         = Slide::recv_filename_len;
+    let _: fn(&mut Slide)              = Slide::clear_recv_filename;
+    let _: fn(&Slide) -> u32           = Slide::recv_file_size;
+    let _: fn(&Slide) -> u32           = Slide::recv_current_file_idx;
+}
+
+#[test]
 fn slide_state_accessor_signature_is_stable() {
     let _: fn(&Slide) -> u32           = Slide::state;
 }
@@ -182,4 +199,16 @@ fn slide_runtime_calls_compile_against_external_surface() {
     slide2.enter_send_mode(&metadata);
     // The full sender transition is exercised in slide::state::tests +
     // tests/slide_sender.rs; here we just prove the API surface is reachable.
+
+    // Phase 10 recv API runtime reachability check.
+    let mut slide3 = Slide::new();
+    slide3.enter_recv_mode();
+    let _p: *const u8 = slide3.recv_ptr();
+    let _l: usize = slide3.recv_len();
+    let _fp: *const u8 = slide3.recv_filename_ptr();
+    let _fl: usize = slide3.recv_filename_len();
+    let _sz: u32 = slide3.recv_file_size();
+    let _idx: u32 = slide3.recv_current_file_idx();
+    slide3.clear_recv();
+    slide3.clear_recv_filename();
 }

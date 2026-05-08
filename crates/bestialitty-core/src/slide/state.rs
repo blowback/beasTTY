@@ -21,6 +21,7 @@ use super::framer::{
     Framer, EVT_NONE, EVT_RDY, EVT_ACK, EVT_NAK, EVT_FIN, EVT_CAN,
     EVT_DATA_FRAME, EVT_CRC_ERROR,
     EVT_FILE_COMPLETE, EVT_SESSION_COMPLETE, EVT_RETRANSMIT_NEEDED,
+    EVT_HEADER_RECEIVED, EVT_RECV_DATA, EVT_RECV_FILE_DONE,
     CTRL_RDY, CTRL_ACK, CTRL_NAK, CTRL_FIN, CTRL_CAN,
     build_frame_into,
 };
@@ -42,6 +43,18 @@ const NAK_BUDGET: u32 = 15;
 const OUTBOUND_RESERVE: usize = 4128;
 
 const EVENT_RING_RESERVE: usize = 32;
+
+/// Phase 10 receiver-mode payload buffer reserve. Sized to FRAME_SIZE per
+/// Phase 7 framer max payload (slide-rs/protocol.rs LEN_HI/LEN_LO max). The
+/// buffer is cleared+extended per accepted data frame; recv_ptr is stable
+/// across frames in steady state (recv_buf.len() ≤ RECV_BUF_RESERVE).
+/// Mirror of OUTBOUND_RESERVE stable-pointer discipline (D-17).
+const RECV_BUF_RESERVE: usize = 1024;
+
+/// Phase 10 receiver-mode filename buffer reserve. CP/M 8.3 = 12 bytes
+/// (8.3 = "AAAAAAAA.BBB"); +4 byte slack absorbs any future relaxation
+/// without forcing a realloc. recv_filename_ptr is stable per-session.
+const RECV_FILENAME_RESERVE: usize = 16;
 
 /// Top-level SLIDE session state. `#[repr(u32)]` so Phase 8 can return it
 /// across the wasm boundary as a plain u32 (RESEARCH §"Reusable Assets").
@@ -114,6 +127,21 @@ pub struct Slide {
     events: VecDeque<u32>,
     /// Sender-mode context — None when in Idle / receiver mode (Phase 9 D-08).
     send_ctx: Option<SendCtx>,
+    /// Phase 10 receiver-mode payload buffer. Holds the MOST RECENTLY accepted
+    /// data frame's payload (cleared per-frame by clear_recv). Mirror of
+    /// outbound_buf stable-pointer discipline; pre-reserved to RECV_BUF_RESERVE.
+    recv_buf: Vec<u8>,
+    /// Phase 10 receiver-mode filename buffer. Populated in HeaderPhase
+    /// EVT_DATA_FRAME arm BEFORE the existing CTRL_ACK push, so JS sees
+    /// EVT_HEADER_RECEIVED with filename + size populated atomically with
+    /// the event emission (Assumption A7).
+    recv_filename: Vec<u8>,
+    /// Phase 10 — file size from header payload's LE u32 field. Surfaced as
+    /// scalar accessor `recv_file_size()` for window.__slide.bytes_in_file_total.
+    recv_file_size: u32,
+    /// Phase 10 — 0-based file index, advances on every EVT_HEADER_RECEIVED.
+    /// Surfaced as `recv_current_file_idx()`.
+    recv_file_idx: u32,
 }
 
 impl Slide {
@@ -127,6 +155,10 @@ impl Slide {
             outbound_buf: Vec::with_capacity(OUTBOUND_RESERVE),
             events: VecDeque::with_capacity(EVENT_RING_RESERVE),
             send_ctx: None,
+            recv_buf: Vec::with_capacity(RECV_BUF_RESERVE),
+            recv_filename: Vec::with_capacity(RECV_FILENAME_RESERVE),
+            recv_file_size: 0,
+            recv_file_idx: 0,
         }
     }
 
@@ -366,6 +398,57 @@ impl Slide {
         self.outbound_buf.clear();
     }
 
+    // ===== Phase 10 — recv-payload accessors (zero-copy view triple) =====
+
+    /// Pointer into recv_buf. Stable across feed_byte/feed_chunk calls
+    /// IN STEADY STATE (i.e., recv_buf.len() ≤ RECV_BUF_RESERVE = 1024).
+    /// Mirror of outbound_ptr discipline — JS slices BEFORE await per Pitfall 5.
+    pub fn recv_ptr(&self) -> *const u8 {
+        self.recv_buf.as_ptr()
+    }
+
+    pub fn recv_len(&self) -> usize {
+        self.recv_buf.len()
+    }
+
+    /// Cleared by JS after copying. MUST be called between consecutive
+    /// EVT_RECV_DATA events (per-frame discipline; recv_buf only holds
+    /// one frame at a time).
+    pub fn clear_recv(&mut self) {
+        self.recv_buf.clear();
+    }
+
+    /// Pointer into recv_filename. Stable across feed_byte calls in steady state.
+    pub fn recv_filename_ptr(&self) -> *const u8 {
+        self.recv_filename.as_ptr()
+    }
+
+    pub fn recv_filename_len(&self) -> usize {
+        self.recv_filename.len()
+    }
+
+    /// Optional clear — recv_filename is overwritten on the next
+    /// EVT_HEADER_RECEIVED so JS can leave it populated until then. Provided
+    /// for symmetry with the outbound/recv triples and to allow Playwright
+    /// tests to verify reset.
+    pub fn clear_recv_filename(&mut self) {
+        self.recv_filename.clear();
+    }
+
+    /// Size of the file currently being received, from the header frame's
+    /// LE u32 size field. Reset to 0 in `Slide::new()` and overwritten on
+    /// every EVT_HEADER_RECEIVED. Surfaced as window.__slide.bytes_in_file_total.
+    pub fn recv_file_size(&self) -> u32 {
+        self.recv_file_size
+    }
+
+    /// Returns the 0-based index of the file currently being received.
+    /// Increments on every EVT_HEADER_RECEIVED. Surfaced as
+    /// window.__slide.file_idx.
+    pub fn recv_current_file_idx(&self) -> u32 {
+        self.recv_file_idx
+    }
+
     // ===== Internal: receiver SM transition driver =====
 
     fn handle_framer_event(&mut self, evt: u32) {
@@ -479,8 +562,22 @@ impl Slide {
             // ===== HeaderPhase =====
             (SlideState::HeaderPhase, e) if e & 0xFFFF_0000 == EVT_DATA_FRAME => {
                 if aux == 0 {
-                    // Header validated by application layer; for the SM,
-                    // seq=0 marker is sufficient. ACK and advance to DataPhase.
+                    // PHASE 10: parse header payload BEFORE ACKing so JS sees
+                    // EVT_HEADER_RECEIVED with filename + size populated
+                    // atomically with the event emission (Assumption A7).
+                    let payload = self.framer.take_payload();
+                    if let Some((name, size)) = parse_header_payload(&payload) {
+                        self.recv_filename.clear();
+                        self.recv_filename.extend_from_slice(&name);
+                        self.recv_file_size = size;
+                        self.events.push_back(EVT_HEADER_RECEIVED | self.recv_file_idx);
+                        self.recv_file_idx = self.recv_file_idx.wrapping_add(1);
+                    } else {
+                        // Malformed header — protocol violation; transition to Error.
+                        self.sm_state = SlideState::Error;
+                        return;
+                    }
+                    // EXISTING (Phase 7): ACK seq=0, advance to DataPhase.
                     self.outbound_buf.push(CTRL_ACK);
                     self.outbound_buf.push(0);
                     self.expected_seq = 1;
@@ -512,14 +609,27 @@ impl Slide {
                 // (slide-rs/recv.rs:172-180 — len==0 case.)
                 let payload = self.framer.take_payload();
                 if payload.is_empty() {
-                    // EOF: ACK the EOF frame's seq, loop to HeaderPhase.
+                    // EXISTING (Phase 7): ACK the EOF frame's seq, loop to HeaderPhase.
                     self.outbound_buf.push(CTRL_ACK);
                     self.outbound_buf.push(aux);
                     self.expected_seq = 1;
                     self.nak_retry_count = 0;
                     self.sm_state = SlideState::HeaderPhase;
+                    // PHASE 10: emit EVT_RECV_FILE_DONE for the file just
+                    // completed. recv_file_idx was advanced by the header
+                    // arm so the file just completed is recv_file_idx - 1
+                    // (wrapping safe; file_idx 0 means no header received,
+                    // which can't happen here since DataPhase implies header).
+                    let completed_idx = self.recv_file_idx.wrapping_sub(1);
+                    self.events.push_back(EVT_RECV_FILE_DONE | completed_idx);
                 } else if aux == self.expected_seq {
-                    // Match — accept frame; per-window ACK on WIN_SIZE boundary.
+                    // PHASE 10: stash payload bytes into recv_buf BEFORE the
+                    // per-window ACK so JS sees EVT_RECV_DATA + recv_buf
+                    // populated atomically.
+                    self.recv_buf.clear();
+                    self.recv_buf.extend_from_slice(&payload);
+                    self.events.push_back(EVT_RECV_DATA | (aux as u32));
+                    // EXISTING (Phase 7): per-window ACK on WIN_SIZE boundary.
                     // slide-rs/recv.rs:206-212: send ACK every WIN_SIZE frames.
                     self.expected_seq = self.expected_seq.wrapping_add(1);
                     self.nak_retry_count = 0;
@@ -529,7 +639,7 @@ impl Slide {
                         self.outbound_buf.push(last_acked);
                     }
                 } else {
-                    // Sequence mismatch — NAK with expected_seq.
+                    // EXISTING (Phase 7): Sequence mismatch — NAK with expected_seq.
                     self.outbound_buf.push(CTRL_NAK);
                     self.outbound_buf.push(self.expected_seq);
                 }
@@ -560,6 +670,25 @@ impl Default for Slide {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Parse a SLIDE header frame payload per slide-rs/protocol.rs:47-56:
+///   `name.bytes` ++ `b'\0'` ++ `size_le_u32 (4 bytes)`
+/// Returns `Some((name_vec, size))` on success; `None` if the payload is
+/// malformed (no null byte found, or fewer than 4 bytes after the null).
+fn parse_header_payload(payload: &[u8]) -> Option<(Vec<u8>, u32)> {
+    let null_idx = payload.iter().position(|&b| b == 0)?;
+    if payload.len() < null_idx + 5 {
+        return None;
+    }
+    let name = payload[..null_idx].to_vec();
+    let size = u32::from_le_bytes([
+        payload[null_idx + 1],
+        payload[null_idx + 2],
+        payload[null_idx + 3],
+        payload[null_idx + 4],
+    ]);
+    Some((name, size))
 }
 
 #[cfg(test)]

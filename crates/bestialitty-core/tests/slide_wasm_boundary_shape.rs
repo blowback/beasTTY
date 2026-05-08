@@ -65,6 +65,25 @@ fn slide_send_methods_have_stable_signatures() {
 }
 
 #[test]
+fn slide_recv_payload_methods_have_stable_signatures() {
+    // Phase 10 receiver API surface — wasm boundary mirror of
+    // slide_boundary_shape.rs:slide_recv_payload_methods_have_stable_signatures.
+    // Plan 10-02 forwards these one-line through lib.rs:wasm_boundary
+    // (cfg target_arch=wasm32). Drift here fails native cargo test
+    // BEFORE wasm-pack would. The recv_ptr/recv_len/clear_recv triple is
+    // the zero-copy contract that JS-side slide-recv.js consumes per Pitfall 5
+    // (slice BEFORE await).
+    let _: fn(&Slide) -> *const u8     = Slide::recv_ptr;
+    let _: fn(&Slide) -> usize         = Slide::recv_len;
+    let _: fn(&mut Slide)              = Slide::clear_recv;
+    let _: fn(&Slide) -> *const u8     = Slide::recv_filename_ptr;
+    let _: fn(&Slide) -> usize         = Slide::recv_filename_len;
+    let _: fn(&mut Slide)              = Slide::clear_recv_filename;
+    let _: fn(&Slide) -> u32           = Slide::recv_file_size;
+    let _: fn(&Slide) -> u32           = Slide::recv_current_file_idx;
+}
+
+#[test]
 fn slide_state_accessor_signature_is_stable() {
     let _: fn(&Slide) -> u32           = Slide::state;
 }
@@ -177,4 +196,19 @@ fn slide_phase8_wasm_facade_surface_runtime_callable() {
     slide2.enter_send_mode(&metadata);
     // For empty-file case, no further feed_send_chunk is needed; sender SM
     // takes the EOF fast-path. Just prove the API is reachable.
+
+    // Phase 10 recv API runtime reachability check — mirror of
+    // slide_boundary_shape.rs:slide_runtime_calls_compile_against_external_surface
+    // Phase 10 extension. Plan 10-02 forwards each call one-line through the
+    // wasm-bindgen façade in lib.rs.
+    let mut slide3 = Slide::new();
+    slide3.enter_recv_mode();
+    let _p: *const u8 = slide3.recv_ptr();
+    let _l: usize = slide3.recv_len();
+    let _fp: *const u8 = slide3.recv_filename_ptr();
+    let _fl: usize = slide3.recv_filename_len();
+    let _sz: u32 = slide3.recv_file_size();
+    let _idx: u32 = slide3.recv_current_file_idx();
+    slide3.clear_recv();
+    slide3.clear_recv_filename();
 }
