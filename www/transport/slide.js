@@ -109,6 +109,20 @@ let pendingSendSession = null;  // { metadata: Uint8Array, fileBytes: Uint8Array
 // mutated by pumpNextDataChunkIfReady as bytes flow out.
 let currentSendCtx = null;       // { fileBytes: Uint8Array[], currentFileIdx, sentBytesInFile } | null
 
+// Phase 9 Plan 09-04 Rule 1 fix — serialise concurrent dispatchSendMode
+// invocations. The serial.js read loop calls dispatchInbound synchronously per
+// inbound chunk, but dispatchSendMode is async (multi-step await drain → pump
+// → await drain). Without serialisation, two inbound chunks arriving in
+// rapid succession (the bot ACKs each frame inline of writer.write under
+// Playwright's microtask scheduling) cause two dispatchSendMode invocations
+// to BOTH read `slide.outbound_len()` BEFORE either calls clear_outbound,
+// each slicing the same outbound bytes and writing them to the wire — the
+// second pump+drain duplicates the data frame. The fix is a depth-1 promise
+// chain: each dispatchSendMode awaits the previous tail before running, so
+// every feed → drain → pump → drain → maybeExit cycle is atomic with
+// respect to the outbound buffer + sender SM state.
+let sendDispatchTail = Promise.resolve();
+
 // Phase 9 D-14 hardcoded auto-send command. Phase 11 SLIDE-37 makes
 // this prefs-driven via prefs.slideAutoSendCommand. The empty-string-
 // disables code path in enterSendMode is preserved below for that
@@ -142,7 +156,13 @@ export function dispatchInbound(value) {
         // — dispatchInbound's caller (serial.js read loop) does not await,
         // and dispatchSendMode handles its own awaits internally so backpressure
         // and ordering are preserved within the per-chunk lifecycle.
-        dispatchSendMode(value).catch((err) => {
+        //
+        // Plan 09-04 Rule 1 fix — chain via sendDispatchTail so concurrent
+        // chunks are processed strictly in arrival order (FIFO). Without
+        // this, two chunks arriving during the same microtask burst race
+        // on slide.outbound_len() / slide.clear_outbound() and duplicate
+        // the outbound data frames on the wire.
+        sendDispatchTail = sendDispatchTail.then(() => dispatchSendMode(value)).catch((err) => {
             console.error('[slide.js] dispatchSendMode failed:', err);
         });
     }
@@ -171,6 +191,9 @@ export function __resetForTests() {
     // Phase 9 additions — wipe any pending or active send-mode state.
     pendingSendSession = null;
     currentSendCtx = null;
+    // Plan 09-04 Rule 1 fix — reset the dispatch-tail chain so a stale
+    // promise from a prior session does not block the next one.
+    sendDispatchTail = Promise.resolve();
 }
 export function __getStateForTests() {
     // Phase 9 D-18 — extended introspection. Phase 8's three fields preserved;
@@ -243,7 +266,10 @@ function dispatchTerminalMode(value) {
                         // (Pitfall 4 fix). Async; fire-and-forget — caller
                         // (serial.js read loop) does not await, and the
                         // sender SM's drain/pump cycle handles ordering.
-                        dispatchSendMode(tail).catch((err) => {
+                        //
+                        // Plan 09-04 Rule 1 fix — same FIFO chain as
+                        // dispatchInbound's send branch.
+                        sendDispatchTail = sendDispatchTail.then(() => dispatchSendMode(tail)).catch((err) => {
                             console.error('[slide.js] dispatchSendMode tail failed:', err);
                         });
                     } else {
@@ -425,7 +451,14 @@ function enterSendModeInternal({ metadata, fileBytes }) {
     // Pitfall 4: dispatcher-driven serialization is not yet active because
     // no inbound chunk has arrived yet; spawn a microtask drain so the
     // RDY byte reaches the wire before the Z80 starts emitting frames.
-    drainSlideOutboundAwaitable().catch((err) => {
+    //
+    // Plan 09-04 Rule 1 fix — chain the initial drain through
+    // sendDispatchTail so the next inbound chunk's dispatchSendMode waits
+    // for this drain to finish (clear_outbound) before reading
+    // outbound_len. Without this chain, the very first inbound chunk's
+    // dispatchSendMode could race the initial drain and double-write
+    // the CTRL_RDY byte.
+    sendDispatchTail = sendDispatchTail.then(() => drainSlideOutboundAwaitable()).catch((err) => {
         console.error('[slide.js] enterSendModeInternal initial drain failed:', err);
     });
 }
