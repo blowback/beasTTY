@@ -41,9 +41,12 @@ test.describe('INPUT-03 — Ctrl-letter → control byte', () => {
     test('Settings pane exposes browser-reserved Ctrl combinations note', async ({ page }) => {
         await page.goto('/');
         // Open Settings pane (default-collapsed) + inner reserved note (default-collapsed).
+        // Phase 11 added a second `<details class="reserved" id="settings-slide">` block,
+        // so we narrow the locator with :not(#settings-slide) to keep matching only the
+        // original browser-reserved-Ctrl note.
         await page.locator('#settings').evaluate((el) => { el.open = true; });
-        await page.locator('#settings details.reserved').evaluate((el) => { el.open = true; });
-        const noteText = await page.locator('#settings details.reserved p.hint').textContent();
+        await page.locator('#settings details.reserved:not(#settings-slide)').evaluate((el) => { el.open = true; });
+        const noteText = await page.locator('#settings details.reserved:not(#settings-slide) p.hint').textContent();
         expect(noteText).toContain('Ctrl+W, Ctrl+N, Ctrl+T are claimed by Chromium');
     });
 });
