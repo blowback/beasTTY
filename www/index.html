@@ -504,6 +504,138 @@
       color: rgba(255,255,255,0.6);
       font-size: 12px;
     }
+
+    /* ==== Phase 9 — Top-bar [↑ Send file] button ==== */
+    /* Inherits #top-bar button rules (padding, border, hover, focus-visible)
+       verbatim. Adds the :disabled rule because the disabled-with-suffix-label
+       pattern is new in Phase 9 — no existing top-bar button uses the disabled
+       attribute. */
+    #top-bar button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    #send-file-input { display: none !important; }   /* defense-in-depth: native [hidden] is enough; !important guards against future stylesheet drift */
+
+    /* ==== Phase 9 — Drop-target overlay (D-03) ==== */
+    /* Hidden by default. Visible when [data-drop-target] is set on
+       #terminal-wrapper. Mirrors the [data-focused] / [data-scrolled-back]
+       attribute idiom (Phase 3 + Phase 6). pointer-events: none ensures
+       pointer-select keeps working underneath when no drag is in progress. */
+    #drop-overlay {
+      position: absolute;
+      inset: 0;
+      z-index: 6;                              /* above #scrollback-indicator (z:5) */
+      pointer-events: none;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: rgba(127, 219, 202, 0.10);   /* clean-theme accent tint at 10% */
+      border: 2px dashed var(--chrome-accent); /* OS-native drop-target convention */
+      box-sizing: border-box;
+    }
+    [data-theme="crt"] #drop-overlay {
+      background: rgba(51, 255, 102, 0.10);    /* CRT-green-phosphor tint at 10% */
+    }
+    #terminal-wrapper[data-drop-target="true"] #drop-overlay {
+      display: flex;
+    }
+    #drop-overlay-text {
+      font-family: inherit;
+      font-size: 14px;
+      font-weight: 400;
+      line-height: 1.4;
+      color: var(--chrome-fg);
+      background: rgba(0, 0, 0, 0.65);
+      padding: 8px 16px;
+      border-radius: 4px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+    }
+
+    /* ==== Phase 9 — Rewrite/rejection confirm modal (D-05) ==== */
+    #send-modal {
+      background: var(--chrome-bg);
+      color: var(--chrome-fg);
+      border: 1px solid var(--chrome-border);
+      border-radius: 4px;
+      padding: 16px 24px;
+      max-width: 560px;
+      width: calc(100% - 32px);
+      max-height: 60vh;
+      display: flex;
+      flex-direction: column;
+      font-family: inherit;
+      font-size: 14px;
+      line-height: 1.4;
+    }
+    #send-modal::backdrop {
+      background: rgba(0, 0, 0, 0.65);
+    }
+    #send-modal header {
+      margin: 0 0 16px 0;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--chrome-border);
+    }
+    #send-modal h2 {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 400;
+    }
+    #send-modal ul {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      overflow-y: auto;
+      flex: 1 1 auto;
+      min-height: 0;
+    }
+    #send-modal ul li {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      padding: 4px 0;
+      font-size: 12px;
+      line-height: 1.5;
+      color: var(--chrome-fg);
+    }
+    #send-modal ul li .orig,
+    #send-modal ul li .rewritten {
+      font-family: inherit;
+    }
+    #send-modal ul li .reason {
+      color: rgba(255, 255, 255, 0.6);
+    }
+    #send-modal #send-modal-all-rejected-hint {
+      margin: 8px 0 0 0;
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.6);
+    }
+    #send-modal #send-modal-all-rejected-hint[hidden] { display: none; }
+    #send-modal footer {
+      margin: 16px 0 0 0;
+      padding-top: 8px;
+      border-top: 1px solid var(--chrome-border);
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+    #send-modal footer button {
+      font-family: inherit;
+      font-size: 14px;
+      padding: 4px 8px;
+      background: transparent;
+      color: var(--chrome-fg);
+      border: 1px solid var(--chrome-border);
+      cursor: pointer;
+    }
+    #send-modal footer button:hover,
+    #send-modal footer button:focus-visible {
+      border-color: var(--chrome-accent);
+      outline: none;
+    }
+    #send-modal footer button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
   </style>
 </head>
 <body data-theme="crt">
@@ -524,6 +656,14 @@
          06-UI-SPEC §Element ordering. -->
     <button id="clear-button" type="button"
             title="Clear visible screen (Shift+click also clears scrollback)">Clear</button>
+    <!-- Phase 9 D-01 — top-bar [↑ Send file] text button + adjacent hidden
+         multi-file <input> picker. Frequency-gradient ordering: connection-state
+         → visible-screen-action → file-action → display-toggle → display-config.
+         The ↑ is U+2191 UPWARDS ARROW (single char, chrome font fallback chain).
+         Slotted between #clear-button and #theme-toggle per UI-SPEC §Layout. -->
+    <button id="send-file-button" type="button"
+            title="Send file(s) to MicroBeast via SLIDE">↑ Send file</button>
+    <input id="send-file-input" type="file" multiple hidden>
     <button id="theme-toggle" type="button" title="Toggle theme (Ctrl+Alt+T)">Clean</button>
     <div id="phosphor-group" role="radiogroup" aria-label="Phosphor color">
       <button type="button" data-phosphor="green" aria-pressed="true">Green</button>
@@ -614,6 +754,14 @@
             title="Click to scroll to live output" aria-label="0 new lines below">
       <span id="scrollback-indicator-text"><span aria-hidden="true">↓</span> 0 new lines</span>
     </button>
+    <!-- Phase 9 D-03 — drag-drop overlay; visibility toggled via
+         #terminal-wrapper[data-drop-target="true"] CSS attribute idiom
+         (mirrors [data-focused] / [data-scrolled-back]). aria-hidden=true
+         per UI-SPEC §Accessibility — overlay is visual feedback only;
+         screen-reader path is the always-visible top-bar button. -->
+    <div id="drop-overlay" aria-hidden="true">
+      <span id="drop-overlay-text">Drop file(s) to send via SLIDE</span>
+    </div>
   </div>
 
   <!-- Settings pane (Phase 4 D-13/D-14) — default-collapsed; local echo + CR/LF + reserved note. -->
@@ -692,6 +840,24 @@
     <pre id="tx-strip">(none yet — press any key on the terminal to see TX bytes)</pre>
     <button id="tx-reset" type="button">Reset TX</button>
   </details>
+
+  <!-- Phase 9 D-05 — rewrite/rejection confirm modal. Native <dialog> rendered
+       in the top-layer browser stacking context; DOM order is irrelevant for
+       z-index, conventional placement is end-of-body. Title/list/hint/buttons
+       are populated dynamically by www/input/file-source.js's showConfirmModal. -->
+  <dialog id="send-modal" aria-labelledby="send-modal-title">
+    <header>
+      <h2 id="send-modal-title">Sending 0 files via SLIDE</h2>
+    </header>
+    <ul id="send-modal-list"></ul>
+    <p id="send-modal-all-rejected-hint" hidden>
+      All files rejected — see details below.
+    </p>
+    <footer>
+      <button id="send-modal-cancel" type="button">Don't send</button>
+      <button id="send-modal-send" type="button">Send 0 files</button>
+    </footer>
+  </dialog>
 
   <script type="module" src="./main.js"></script>
 </body>
