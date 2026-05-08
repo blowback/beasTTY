@@ -223,10 +223,10 @@ Decimal phases appear between their surrounding integers in numeric order.
   5. Hard-fail recovery (CRC retries exhausted, port lost, or wire desync) cleanly resets the state machine and surfaces a chip error with a "Retry" hint; a spurious mid-stream `ESC ^ S L I D E` while a session is active is handled idempotently with a chip warning ("Z80 reset detected; cancelling current transfer") and a clean reset
 **Plans**: 5 plans
   - [x] 10-01-PLAN.md — Rust SM payload extraction + EVT_HEADER_RECEIVED/EVT_RECV_DATA/EVT_RECV_FILE_DONE + boundary-shape pin + native recv corpus + 1 MB memory smoke + 6 Playwright RED-gate stubs (Wave 1)
-  - [ ] 10-02-PLAN.md — Wasm boundary forwards + slide-recv.js skeleton (download dispatch + ~N collision + MAX_FILE_SIZE cap, NO cancel yet) + idb.js + prefs.js DEFAULTS (Wave 2)
-  - [ ] 10-03-PLAN.md — slide-recv.js cancel state machine (5-step CTRL_CAN sequence + force_idle escape) + slide.js dispatchRecvMode rewrite (event delegation + mid-session ESC^SLIDE matcher) + keyboard.js Esc slot 2 insertion + main.js boot wiring + slidePumpOnPortLost minimum (Wave 3)
-  - [ ] 10-04-PLAN.md — Settings DOM row + CSS + showDirectoryPicker flow + 4-state runtime swap + boot-time re-permission (Wave 4)
-  - [ ] 10-05-PLAN.md — Mock-bot sender role + 21+ Playwright tests filling RED-gate stubs + 10-HUMAN-UAT.md + REQUIREMENTS.md flips + human-verify checkpoint (Wave 5)
+  - [x] 10-02-PLAN.md — Wasm boundary forwards + slide-recv.js skeleton (download dispatch + ~N collision + MAX_FILE_SIZE cap, NO cancel yet) + idb.js + prefs.js DEFAULTS (Wave 2)
+  - [x] 10-03-PLAN.md — slide-recv.js cancel state machine (5-step CTRL_CAN sequence + force_idle escape) + slide.js dispatchRecvMode rewrite (event delegation + mid-session ESC^SLIDE matcher) + keyboard.js Esc slot 2 insertion + main.js boot wiring + slidePumpOnPortLost minimum (Wave 3)
+  - [x] 10-04-PLAN.md — Settings DOM row + CSS + showDirectoryPicker flow + 4-state runtime swap + boot-time re-permission (Wave 4)
+  - [x] 10-05-PLAN.md — Mock-bot sender role + 21+ Playwright tests filling RED-gate stubs + 10-HUMAN-UAT.md + REQUIREMENTS.md flips + human-verify checkpoint (Wave 5)
 
 ### Phase 11: SLIDE JS Bridge & v1.0 Integration
 **Goal**: Wire SLIDE into the existing v1.0 systems so the milestone feels native: a floating SLIDE chip mirroring the Phase 6 scrollback chip pattern (opposite corner), a Settings row for the auto-send command, session-log pause + paste-pump gating during active sessions, symmetric port-lost teardown, auto-typed-command echo swallowing, and a graceful chip prompt when a Z80 with old slide.com doesn't respond.

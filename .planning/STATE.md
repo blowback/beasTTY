@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: Integration
 status: executing
-stopped_at: Completed 10-04-PLAN.md
-last_updated: "2026-05-08T11:26:23.686Z"
+stopped_at: Completed 10-05-PLAN.md
+last_updated: "2026-05-08T13:00:00.000Z"
 last_activity: 2026-05-08
 progress:
   total_phases: 12
   completed_phases: 9
   total_plans: 60
-  completed_plans: 59
-  percent: 98
+  completed_plans: 60
+  percent: 100
 ---
 
 # Project State
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-05-06)
 
 ## Current Position
 
-Phase: 10-slide-receiver-cancellation — EXECUTING
-Plan: 5 of 5 (Plan 10-01 complete)
-Status: Ready to execute
+Phase: 10-slide-receiver-cancellation — EXECUTING (5/5 plans complete; awaiting human-verify checkpoint sign-off)
+Plan: 5 of 5 (10-05 complete)
+Status: Ready for /gsd-verify-phase 10
 Last activity: 2026-05-08
 
-Progress: [██████████] 98%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -121,6 +121,7 @@ Progress: [██████████] 98%
 | Phase 10-slide-receiver-cancellation PP02 | 5min | 3 tasks tasks | 4 files files |
 | Phase 10-slide-receiver-cancellation PP03 | 9min | 3 tasks tasks | 4 files files |
 | Phase 10-slide-receiver-cancellation PP04 | 5min | 3 tasks tasks | 3 files files |
+| Phase 10-slide-receiver-cancellation P05 | ~50min (across 2 executor runs after API overload) | 4 tasks (3 auto + 1 human-verify checkpoint) + 1 Rule 3 fix | 9 files |
 
 ## Accumulated Context
 
@@ -157,6 +158,7 @@ Recent decisions affecting current work:
 - Phase 10 Plan 02 (2026-05-08): Wasm boundary forwards + receiver skeleton shipped — 8 one-line forwards on Slide #[wasm_bindgen] façade in lib.rs (recv_ptr/recv_len/clear_recv triple + recv_filename triple + recv_file_size + recv_current_file_idx) per ADR-002 single-rule (only lib.rs has wasm_bindgen attrs). www/state/idb.js NEW (~85 LOC) verbatim from RESEARCH Example 4 with 3 incognito-tolerant exports. www/state/prefs.js DEFAULTS gains slideRecvToFolder: false (CURRENT_VERSION not bumped — Phase 6 defensive merge fills field). www/transport/slide-recv.js NEW (~310 LOC) skeleton with 9 exports: wireSlideRecv (DI initializer with null-tolerant DOM refs for Plan 10-04), setSlideRef (per-session lifecycle), isSlideActive (Esc-disambiguation gate), onRecvEvent (HEADER/DATA/FILE_DONE dispatcher), cancelSlideRecv (STUB throws 'not implemented until Plan 10-03'), slidePumpOnPortLost + recoverHardFail STUBs, __resetForTests + __getStateForTests for Playwright. Per-file Blob accumulator + anchor-click + FSAP folder-save dispatch + ensureUnique ~N suffix retry up to ~999. MAX_FILE_SIZE 100 MB cap (T-10-01). W4 inter-file gap actually serialised: lastDownloadAt module-scope timestamp read BEFORE click + written AFTER click in BOTH branches (folder-save + anchor-click) — replaces broken fire-and-forget .finally(delay) pattern. W3 multi-data-frames-per-chunk assumption documented in head comment, anchored to Plan 10-01's recv_corpus_multi_data_frames_in_one_chunk Rust test. Pitfall 4 + Pitfall 5 verbatim in sliceRecvBytesToOwned + readRecvFilenameOwned (re-derive view on memory.buffer change + slice BEFORE clear_recv). bash scripts/build.sh exit 0; new methods present in www/pkg/bestialitty_core.d.ts. cargo test --workspace 283/283 + slide_wasm_boundary_shape 10/10 + core_02_no_browser_deps 3/3 + cd www && npm run test:fast 81/81 on 2 consecutive runs. Zero auto-fix deviations. Plan 10-03 unblocked: cancel state machine fills the cancelSlideRecv STUB; dispatcher wires onRecvEvent into slide.js's drainEventsAndOutbound; main.js boot adds wireSlideRecv slot.
 - Phase 10 Plan 03 (2026-05-08): ADR-003 §3 5-step CTRL_CAN cancel sequence shipped (200/500/100/2000 ms verbatim per CONTEXT.md). cancelSlideRecv STUB → full impl with Promise.race-wrapped 2000 ms absolute timeout escape hatch + setTimeout state poll (waitForState 500 ms cap, 10 ms tick) + drainSlideOutboundOneShot 1-byte writeSlideFrame fire-and-forget + forceExitRecvMode helper. Two-layer idempotency: cancelInFlight module-scope boolean + slide.cancel() Phase 7 D-06. NEVER calls reader.cancel() or port.close() — keeps terminal session alive (Pitfall 5 BLOCKING constraint). slidePumpOnPortLost 5-line minimum + recoverHardFail 3-mode convergence (T-10-port-lost + T-10-hard-fail). MAX_FILE_SIZE breach upgraded to slide.cancel + recoverHardFail (T-10-01 full mitigation). slide.js dispatchRecvMode rewritten with verbatim Pattern 9 mid-session ESC^SLIDE re-entry matcher (T-10-03; separate recvWakeIdx + recvScratch from dispatchTerminalMode's wakeIdx). drainEventsAndOutbound dispatches EVT_HEADER_RECEIVED / EVT_RECV_DATA / EVT_RECV_FILE_DONE to slide-recv onRecvEvent. EVT_NONE exported. enterRecvMode calls setSlideRecvRef per CONTEXT C-05. __getStateForTests recv-mode branch with W1 wiring (bytes_in_file_done from window.__slideRecv). keyboard.js Esc disambiguation chain: SLIDE-cancel arm inserted BETWEEN selection-drag-cancel (existing slot 1) and paste-cancel (existing slot 2 → 3) with B2-locked comment text verbatim. main.js wireSlideRecv boot wiring AFTER wireSlideDispatcher; window.__slide.cancelRecv + window.__slide.isActive + window.__slideRecv exposure. Port-lost handler fanout binding deferred to Phase 11 SLIDE-32 (function exported now). Zero auto-fix deviations. cargo --workspace 283/283; npm run test:fast 81/81 deterministic. Plan 10-04 (Settings UI) and Plan 10-05 (UAT/E2E) unblocked.
 - Phase 10 Plan 04 (2026-05-08): Settings pane SLIDE recv-to-folder row shipped — LOCKED VERBATIM COPY frozen object pattern (~14 strings) + 4-state runtime swap renderer (a/b/c/d driven by toggle.checked + hasHandle + currentPermission tuple) + showDirectoryPicker click flow with IDB handle persistence + Chrome 122+ queryPermission boot probe (no user gesture) → renderSettingsRow on first paint + state (d) → (c) requestPermission shortcut on button click before falling through to picker. Phase 9 send-button gating verified pre-existing in file-source.js:129 (st?.mode === 'recv') — no edit required. prefs schema NOT bumped — Phase 6 defensive merge fills missing slideRecvToFolder field. Auto-fix Rule 3 deviation: replaced plan-suggested terminalWrapperElRef with existing wrapperElRef from Plan 10-02 (no new module-scope variable; identical functional behavior). Two pre-existing test:fast flakes during initial runs (reconnect.spec.js:43 + keyboard.spec.js:18) unrelated to Plan 10-04 changes; third run 81/81 deterministic green. SLIDE-18 + SLIDE-20 now user-visible operational; Plan 10-05 UAT/E2E unblocked.
+- Phase 10 Plan 05 (2026-05-08): Receiver verification gate shipped across 2 executor runs (first hit API overload mid-Task 3, continuation finished cleanly). 24 Phase 10 Playwright tests filling every Plan 10-01 RED-gate stub: slide-recv (7 — SLIDE-18..24) + slide-cancel (6 — SLIDE-27/29/30 + force_idle + cancel timing window + idempotent re-entry) + slide-recv-reentry (2 — SLIDE-34 + 3-mode convergence) + slide-recv-settings (3 — toggle state machine + persistence + queryPermission denied) + slide-recv-fsap (4 — createWritable + ~1 collision + ~1/~2/~3 cascade + ~999 budget exhaustion) + slide-recv-e2e (2 — 3-file batch byte-identical + CRC self-check 0x29B1). mock-serial-slide-bot.js extended with sender-role state machine (FOURTH independent SLIDE implementation per PITFALLS §13): role gate at top of onInboundByte + bot.reset() clears both role state blocks + buildSlideFrame + buildSlideHeaderFrame + shipNextHeader + shipDataWindow + handleAck + handleNak + setRole + queueSendFiles + startSendSession + pushSlideHostWakeup. CRC-16-CCITT JS port verbatim Phase 7 SLIDE-03 — reference vector 0x29B1 self-tested in slide-recv-e2e.spec.js. 1 MB memory smoke uses 3-sample minimum + 5x slack (Pitfall 7). force_idle test asserts BOTH lower (>= 1900 ms) AND upper (<= 2500 ms) elapsed-time bounds. 10-HUMAN-UAT.md daily-driver UAT scaffold with 6 manual checks mirroring 06/09-HUMAN-UAT.md (UAT-10-01 real-hardware Z80 cancel echo + UAT-10-02 FileSystemDirectoryHandle persistence + UAT-10-03 Settings toggle visual feel + UAT-10-04 toggle off keeps handle + UAT-10-05 multi-download Chrome throttle + UAT-10-06 1 MB+ daily-driver UX feel). REQUIREMENTS.md flips: SLIDE-18..24, 27, 29, 30, 34 traceability rows Pending → Complete (11 rows) + SLIDE-19 top-level checkbox + SLIDE-20 collision-exception annotation per CONTEXT D-07. Auto-fix Rule 3 (one): savePrefs is debounced 250 ms (Phase 6 D-33), wrapped persistence test localStorage assertion in expect.poll with 2 s timeout. Out-of-scope deferred items: log-download.spec.js filename mismatch (production beastty- vs test bestialitty-) + slide-cancel timing-window flake under heavy parallel load — both logged to .planning/phases/10-slide-receiver-cancellation/deferred-items.md per SCOPE BOUNDARY rule. cargo test --workspace 283/283 baseline preserved. _dbg.spec.js debug artifact deleted. Phase 10 ready for /gsd-verify-phase.
 
 ### Pending Todos
 
@@ -184,8 +186,8 @@ Items acknowledged and carried forward from v1.0 milestone close:
 
 ## Session Continuity
 
-Last session: 2026-05-08T11:26:23.678Z
-Stopped at: Completed 10-04-PLAN.md
+Last session: 2026-05-08T13:00:00.000Z
+Stopped at: Completed 10-05-PLAN.md (Phase 10 ready for /gsd-verify-phase)
 Resume file: None
 
 **Next Phase:** Phase 8 — Wasm Boundary, JS Dispatcher & ESC^ Wakeup. Phase 7 delivered the pure-Rust SLIDE state machine; Phase 8 wraps `Slide` in `lib.rs:wasm_boundary` with `feed_byte` / `feed_chunk` / `outbound_ptr/_len/clear_outbound` / `state` / `cancel` / `force_idle` exports (per ARCHITECTURE.md §1). The `Slide` struct shape is pinned via `tests/slide_boundary_shape.rs` fn-pointer coercion (Plan 07-04) so any drift fails at compile time. ADR-003 (Plan 07-05) is the canonical document for the v0.2.1 CAN-bidirectional amendment that Phase 8's wasm wrapper exposes to JS.
