@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: Integration
 status: executing
-stopped_at: Phase 9 UI-SPEC approved
-last_updated: "2026-05-08T00:42:48.547Z"
+stopped_at: Completed 09-01-PLAN.md (sender Rust core)
+last_updated: "2026-05-08T00:57:09.737Z"
 last_activity: 2026-05-08 -- Phase --phase execution started
 progress:
   total_phases: 12
   completed_phases: 8
   total_plans: 55
-  completed_plans: 51
-  percent: 93
+  completed_plans: 52
+  percent: 95
 ---
 
 # Project State
@@ -30,7 +30,7 @@ Plan: 1 of --name
 Status: Executing Phase --phase
 Last activity: 2026-05-08 -- Phase --phase execution started
 
-Progress: [██████████] 100%
+Progress: [██████████] 95%
 
 ## Performance Metrics
 
@@ -112,6 +112,7 @@ Progress: [██████████] 100%
 | Phase 08-wasm-boundary-js-dispatcher-esc-wakeup P02 | 2min | 2 tasks | 1 files |
 | Phase 08-wasm-boundary-js-dispatcher-esc-wakeup P03 | 8min | 3 tasks tasks | 5 files files |
 | Phase 08-wasm-boundary-js-dispatcher-esc-wakeup P04 | 17min | 3 tasks | 4 files |
+| Phase 09-slide-sender-host-z80-send P01 | 9min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -140,6 +141,7 @@ Recent decisions affecting current work:
 - Phase 8 Plan 02 (2026-05-07): Slide #[wasm_bindgen] facade shipped in lib.rs:wasm_boundary sibling to Terminal — 11 one-line forwarding methods (new/enter_recv_mode/feed_byte/feed_chunk/take_event_packed/state/outbound_ptr/outbound_len/clear_outbound/cancel/force_idle). Inner-name collision resolved via use crate::slide::Slide as CoreSlide alias (Pitfall 6). www/pkg regenerated (wasm 42385->47208 bytes); class Slide present in .js + export class Slide in .d.ts; Terminal contract preserved. Auto-fix Rule 3: generated www/pkg artifacts NOT committed because root .gitignore excludes www/pkg/ entirely (plan claim about Phase 2 P04 .gitignore was incorrect — build.sh comment confirms 'Output files (all gitignored)'). Plan 08-03 unblocked.
 - Phase 8 Plan 03 (2026-05-07): SLIDE dispatcher + 7-byte ESC^ wakeup matcher + TX owner handoff shipped (3 commits: 1b47a5e tx-sink owner state + setWireOwner/writeSlideFrame, f69d980 www/transport/slide.js NEW 254-LOC dispatcher with D-01 match-index counter + D-02 replay-on-fail + D-09 synchronous mode+owner double-flip + D-11 zero-copy outbound drain mirroring host_reply triple, 9bc7648 serial.js D-06 single-line edit + main.js boot wiring with wireSlideDispatcher slotted between wireSessionLog and await wireSerial per Pitfall 8 + window.__slide/__txSink Playwright introspection). Per-session new Slide() (Claude's Discretion default — no reset() singleton). Drain events to no-op in Phase 8 (RESEARCH OQ-4 — Phase 10 attaches chip handler). slide.js does NOT import Slide from pkg/; accepts slideCtor via wireSlideDispatcher opts (decouples from wasm lifecycle + permits mock injection). Two auto-fix deviations: Rule 3 minor (__resetForTests includes setWireOwner('terminal') for test isolation, grep returns 2 not 1; D-09 semantic intact in production via exitRecvMode), Rule 3 blocking-but-out-of-scope (pre-existing session/log-download.spec.js filename drift bestialitty-/beastty- from upstream commit 7571ce0 deferred to deferred-items.md per scope boundary rule). Phase 4/5 regression 48/48 green; whole-crate cargo 240 tests green; bash scripts/build.sh exit 0. SLIDE-05/06/17 remain [ ] in REQUIREMENTS.md per sequential_execution discipline — Plan 08-04's Playwright assertions land them.
 - Phase 8 Plan 04 (2026-05-07): Wave 3 GREEN gate shipped — 26 Phase 8 Playwright tests now passing (13 wakeup + 7 dispatcher + 6 tx-sink) where Plan 08-01 had 27 test.skip stubs. Auto-fix Rule 1: 3 wakeup tests originally asserted on grid render of replayed escape sequences (ESC^A, ESC^SLX, ESC^X) per CONTEXT D-03 'silent swallow' lore — vte 0.15 lib.rs:377 transitions on bytes 0x5E/0x5F/0x58 into SosPmApcString state which absorbs replayed bytes; reframed those tests to verify dispatcher correctness via matcher-state introspection + ESC \\ + printable terminator pattern (printable renders only if parser was in clean string state — orthogonal proof original wire bytes reached term.feed). Auto-fix Rule 3 (flake mitigation): 2s connect timeout in beforeEach poll bumped to 5s across all 3 spec files; pre-fix 5/8 runs flaked, post-fix 8/8 runs green. SLIDE-05/06/17 flipped Pending → Complete in REQUIREMENTS.md (top checkboxes + traceability table). Phase 8 ready for /gsd-verify-phase.
+- Phase 9 Plan 01 (2026-05-08): Sender Rust core SM extension shipped — pub fn enter_send_mode + feed_send_chunk on slide::Slide via role gate at top of handle_framer_event (receiver path unchanged below). OUTBOUND_RESERVE grown 16 -> 4128 (4 frames * 1030 + 8 byte slack). Three new EVT_* constants (FILE_COMPLETE 8, SESSION_COMPLETE 9, RETRANSMIT_NEEDED 10). New free pub fn build_frame_into helper mirrors slide-rs/protocol.rs:33-44 byte-for-byte. End-to-end corpus (tests/slide_sender.rs, 6 tests) proves Phase 9 SC#5 byte-identical round-trip via in-process mock receiver bot (PITFALLS §13 parallel reimplementation). Auto-fix Rule 1 x3: header frame total length corrected 17 -> 16 bytes (4 header + 10 payload + 2 CRC); build_frame_into max-payload assertion 1031 -> 1030; mock bot needed awaiting_retransmit latch to mirror slide-rs/recv.rs window-rewind semantics. Auto-fix Rule 3 x1: bare "(state, EVT_RDY)" match arms switched to guarded "(state, k) if k == EVT_RDY" since EVT_RDY is non-const expression. core_02_no_browser_deps green throughout (no std::time / web_sys / js_sys / wasm_bindgen introduced). Plan 09-02 (wasm façade forwards) unblocked.
 
 ### Pending Todos
 
@@ -167,9 +169,9 @@ Items acknowledged and carried forward from v1.0 milestone close:
 
 ## Session Continuity
 
-Last session: --stopped-at
-Stopped at: Phase 9 UI-SPEC approved
-Resume file: --resume-file
+Last session: 2026-05-08T00:56:56.721Z
+Stopped at: Completed 09-01-PLAN.md (sender Rust core)
+Resume file: None
 
 **Next Phase:** Phase 8 — Wasm Boundary, JS Dispatcher & ESC^ Wakeup. Phase 7 delivered the pure-Rust SLIDE state machine; Phase 8 wraps `Slide` in `lib.rs:wasm_boundary` with `feed_byte` / `feed_chunk` / `outbound_ptr/_len/clear_outbound` / `state` / `cancel` / `force_idle` exports (per ARCHITECTURE.md §1). The `Slide` struct shape is pinned via `tests/slide_boundary_shape.rs` fn-pointer coercion (Plan 07-04) so any drift fails at compile time. ADR-003 (Plan 07-05) is the canonical document for the v0.2.1 CAN-bidirectional amendment that Phase 8's wasm wrapper exposes to JS.
 
