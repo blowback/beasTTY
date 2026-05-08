@@ -69,7 +69,7 @@ dialog (one-click Allow), then state-string returns to
 8. Edge case: in step 6, click Block instead. Verify state-string
    becomes `⚠ Permission needed for MicroBeast` and button label is
    `Re-allow folder…`.
-**result:** pass/fail (TBD)
+**result:** pass
 
 ### UAT-10-03: Settings toggle visual feel (locked copy + state machine)
 
@@ -90,7 +90,7 @@ crisp, not laggy.
    internally — toggling back on jumps straight to state c.)
 6. Toggle on. Verify status is `Saving to: {folder name}` (state c —
    handle preserved across toggle, NOT re-prompted).
-**result:** pass/fail (TBD)
+**result:** pass
 
 ### UAT-10-04: Toggle off keeps handle (no re-pick on re-toggle)
 
@@ -103,7 +103,7 @@ chosen folder is preserved and state c is restored automatically.
 3. Toggle on. Verify state c (NOT state b — no re-pick).
 4. Drive a recv via mock-bot or real Z80; verify the file lands in
    `~/Downloads/MicroBeast` (the previously chosen folder).
-**result:** pass/fail (TBD)
+**result:** pass (toggle preservation verified; recv-into-folder leg deferred to UAT-10-01 once Z80 PR lands)
 
 ### UAT-10-05: Multi-download Chrome throttle threshold (SLIDE-19 anchor-click)
 
@@ -152,18 +152,18 @@ any point, and the file lands byte-identical with no truncation.
 ## Summary
 
 total: 6
-passed: 0
+passed: 3
 issues: 0
-pending: 3
+pending: 0
 skipped: 2
 blocked: 1
 
 ## Sign-off
 
-- Tester: __
-- Date: __
-- Pass count: __ / 6
-- Notes: __
+- Tester: ant
+- Date: 2026-05-08
+- Pass count: 3 / 3 runnable (UAT-10-02/03/04); UAT-10-05/06 skipped (Playwright covers); UAT-10-01 blocked on Z80 SLIDE.COM v0.2.1 PR
+- Notes: All Settings UI + permission persistence + handle preservation flows pass on real Chromium. Recv-into-folder end-to-end leg waits on Z80 PR (Phase 12 SLIDE-40).
 
 ## Gaps
 
