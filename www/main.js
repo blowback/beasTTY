@@ -81,6 +81,11 @@ import {
     cancelPaste as cancelPastePump,
     wirePastePump,
 } from './input/paste-pump.js';
+import {
+    wireFileSource,
+    __resetForTests as __fileSourceResetForTests,
+    __getStateForTests as __fileSourceGetStateForTests,
+} from './input/file-source.js';
 import { wireClipboard, copySelection, pasteFromClipboard } from './input/clipboard.js';
 import {
     wireSessionLog,
@@ -408,6 +413,43 @@ window.__slide = {
 // tests (writeSlideFrameAwaitable awaits writer.ready / throws / propagates)
 // can call into the sender entrypoint via window.__txSink.
 window.__txSink = { setWireOwner, getWireOwner, writeSlideFrame, writeSlideFrameAwaitable };
+
+// Phase 9 Plan 03 — wire file-source AFTER wireSlideDispatcher so file-source's
+// injected `enterSendMode` reaches the already-wired dispatcher. file-source
+// owns the top-bar [↑ Send file] button click + hidden multi-file picker,
+// the drag-drop overlay on #terminal-wrapper, the rewrite/rejection confirm
+// modal, and the button-state observer. terminalWrapper was already fetched
+// at main.js:100 for canvas + scrollback wiring; reuse the existing reference.
+const sendFileButton           = document.getElementById('send-file-button');
+const sendFileInput            = document.getElementById('send-file-input');
+const sendModalDialog          = document.getElementById('send-modal');
+const sendModalTitle           = document.getElementById('send-modal-title');
+const sendModalList            = document.getElementById('send-modal-list');
+const sendModalAllRejectedHint = document.getElementById('send-modal-all-rejected-hint');
+const sendModalCancelButton    = document.getElementById('send-modal-cancel');
+const sendModalSendButton      = document.getElementById('send-modal-send');
+
+wireFileSource({
+    wrapperEl: terminalWrapper,
+    sendBtn: sendFileButton,
+    sendInput: sendFileInput,
+    modalEl: sendModalDialog,
+    titleEl: sendModalTitle,
+    listEl: sendModalList,
+    hintEl: sendModalAllRejectedHint,
+    modalCancelBtn: sendModalCancelButton,
+    modalSendBtn: sendModalSendButton,
+    enterSendMode: enterSlideSendMode,        // imported from transport/slide.js (Plan 09-02)
+    getSlideState: __slideGetStateForTests,    // imported from transport/slide.js (Plan 09-02)
+});
+
+// Test introspection (mirrors Phase 8 + Plan 09-02 window.__* precedent).
+// Plan 09-04 Playwright specs read via window.__fileSource.__getStateForTests()
+// to assert drag depth + drop-target state + modal-open state + button label.
+window.__fileSource = {
+    __resetForTests: __fileSourceResetForTests,
+    __getStateForTests: __fileSourceGetStateForTests,
+};
 
 // Phase 5 — wire Web Serial transport. opts mirror Phase 4 wireKeyboard
 // shape for sampleBell/drainHostReply/requestFrame discipline (D-35 post-feed
