@@ -282,6 +282,25 @@ mod wasm_boundary {
         pub fn force_idle(&mut self) {
             self.inner.force_idle();
         }
+
+        /// Enter sender mode (Phase 9 D-08/D-09). Call once per session AFTER
+        /// `new Slide()` and BEFORE the wakeup match. The metadata blob format
+        /// is per CONTEXT D-09 (length-prefixed records: <u32 file_count>
+        /// <for each: u32 name_len, name, u32 size>). JS's `packMetadataInline`
+        /// in `www/transport/slide.js` produces the exact byte layout this
+        /// method expects. Pushes CTRL_RDY onto outbound_buf and transitions
+        /// to WaitingRdy.
+        pub fn enter_send_mode(&mut self, metadata: &[u8]) {
+            self.inner.enter_send_mode(metadata);
+        }
+
+        /// Push the next data-frame payload onto outbound_buf (Phase 9 D-08).
+        /// ONE boundary call per send-loop iteration. `eof=true` triggers an
+        /// additional zero-payload EOF frame at next seq per slide-rs/send.rs:184.
+        /// Must be called only when state == DataPhase (debug_assert in inner SM).
+        pub fn feed_send_chunk(&mut self, payload: &[u8], eof: bool) {
+            self.inner.feed_send_chunk(payload, eof);
+        }
     }
 
     /// Encode a packed (code, mods) u32 pair into the VT52 byte sequence.
