@@ -39,7 +39,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 7: SLIDE Rust Core — Framer, CRC, State Machine** - Pure-Rust SLIDE state machine in a new `slide/` module: byte-fed framer, CRC-16-CCITT exact-match, sliding-window send/recv handshakes; all verified by native `cargo test` (completed 2026-05-06)
 - [ ] **Phase 8: Wasm Boundary, JS Dispatcher & ESC^ Wakeup** - `Slide` wasm-bindgen exports sibling to `Terminal`; JS dispatcher routes Web Serial chunks to terminal parser OR SLIDE state machine; 7-byte wakeup detected across chunk boundaries; TX writer ownership handoff
 - [ ] **Phase 9: SLIDE Sender — Host → Z80 Send** - File picker + drag-drop + auto-typed `B:SLIDE R` command; CP/M filename uppercase + 8.3 truncation + character-set validation; sender-side sliding-window TX with `writer.ready` discipline
-- [ ] **Phase 10: SLIDE Receiver & Cancellation** - Z80 → PC end-to-end receive: per-file Chrome download (anchor-click + `showDirectoryPicker` opt-in), zero-byte/sub-frame/binary edge cases, memory-bounded chunked reassembly; CTRL_CAN cancel protocol with neutral-wire post-cancel handshake; idempotent re-entrant wakeup handling
+- [x] **Phase 10: SLIDE Receiver & Cancellation** - Z80 → PC end-to-end receive: per-file Chrome download (anchor-click + `showDirectoryPicker` opt-in), zero-byte/sub-frame/binary edge cases, memory-bounded chunked reassembly; CTRL_CAN cancel protocol with neutral-wire post-cancel handshake; idempotent re-entrant wakeup handling (completed 2026-05-08)
 - [ ] **Phase 11: SLIDE JS Bridge & v1.0 Integration** - Floating SLIDE chip (file count, percent, bytes, throughput, post-cancel summary); Settings auto-send command pref; session-log pause; paste-pump gate; visibilitychange + port-lost teardown; auto-type echo swallow + Z80-no-respond fallback chip
 - [ ] **Phase 12: SLIDE UX Polish, Docs & Real-Hardware UAT** - Filename collision auto-rename UX, drag-drop vs pointer-select isolation regression, auto-send command safety validation, `docs/SLIDE_Z80_REQUIREMENT.md` + README updates, `docs/SLIDE-UAT.md` end-to-end checklist against patched MicroBeast
 
@@ -269,7 +269,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 7. SLIDE Rust Core — Framer, CRC, State Machine | 4/5 | In progress | - |
 | 8. Wasm Boundary, JS Dispatcher & ESC^ Wakeup | 0/TBD | Not started | - |
 | 9. SLIDE Sender — Host → Z80 Send | 0/TBD | Not started | - |
-| 10. SLIDE Receiver & Cancellation | 2/5 | In progress | - |
+| 10. SLIDE Receiver & Cancellation | 5/5 | Complete    | 2026-05-08 |
 | 11. SLIDE JS Bridge & v1.0 Integration | 0/TBD | Not started | - |
 | 12. SLIDE UX Polish, Docs & Real-Hardware UAT | 0/TBD | Not started | - |
 
