@@ -172,10 +172,12 @@ Architecture, table-stakes, and pitfalls grounded in `.planning/research/{STACK,
 - [x] **SLIDE-08**: User can initiate file send by drag-and-drop onto `#terminal-wrapper`
 - [x] **SLIDE-09**: Drag-over visual feedback shows dashed-border overlay + faint tint + "Drop file(s) to send via SLIDE" message
 - [x] **SLIDE-10**: Non-file drags (text/URL) rejected at `dragenter` via `dataTransfer.types.includes('Files')` filter
-- [ ] **SLIDE-11**: Drops during an active SLIDE session rejected with chip "Transfer in progress — cancel first"
+- [x] **SLIDE-11
+**: Drops during an active SLIDE session rejected with chip "Transfer in progress — cancel first"
 - [ ] **SLIDE-12**: Drag-drop coexists with v1.0 pointer-select — `selection.js:onPointerDown` early-returns when drop overlay is active
 - [x] **SLIDE-13**: BestialiTTY auto-types configured command (default `B:SLIDE R\r`) before opening session; configurable via Settings; empty string disables auto-type
-- [ ] **SLIDE-14**: Auto-typed command's CP/M echo is swallowed for ~500 ms via swallow-echo filter so the typed command doesn't double-print in the terminal
+- [x] **SLIDE-14
+**: Auto-typed command's CP/M echo is swallowed for ~500 ms via swallow-echo filter so the typed command doesn't double-print in the terminal
 - [x] **SLIDE-15**: Filenames auto-uppercased + truncated to CP/M 8.3 in JS before reaching the Rust state machine; chip displays the rewrite (`my-doc.txt → MY-DOC.TXT`)
 - [x] **SLIDE-16**: CP/M filename validation rejects characters CP/M doesn't allow (`<>.,;:=?*[]`); error chip surfaces before session opens
 
@@ -198,11 +200,14 @@ Architecture, table-stakes, and pitfalls grounded in `.planning/research/{STACK,
 
 ### SLIDE floating chip + cancellation
 
-- [ ] **SLIDE-25**: Floating SLIDE chip at `bottom: 8px; left: 8px` (opposite corner from scrollback chip) shows direction + filename + "File N of M" + percent + byte count
-- [ ] **SLIDE-26**: Chip throughput display uses 2-second sliding window; first 2 seconds show `—`
+- [x] **SLIDE-25
+**: Floating SLIDE chip at `bottom: 8px; left: 8px` (opposite corner from scrollback chip) shows direction + filename + "File N of M" + percent + byte count
+- [x] **SLIDE-26
+**: Chip throughput display uses 2-second sliding window; first 2 seconds show `—`
 - [x] **SLIDE-27
 **: Chip Cancel button emits CTRL_CAN, drains wire, restores parser; Esc key (slot 2 of 4 in the disambiguation chain) is equivalent
-- [ ] **SLIDE-28**: Post-cancel chip shows "Cancelled — N of M files transferred" for 5 seconds then auto-hides
+- [x] **SLIDE-28
+**: Post-cancel chip shows "Cancelled — N of M files transferred" for 5 seconds then auto-hides
 - [x] **SLIDE-29
 **: Hard-fail recovery — CRC retries exhausted, port lost, or wire desync → chip shows error with "Retry" hint; state machine resets cleanly
 - [x] **SLIDE-30
@@ -210,19 +215,25 @@ Architecture, table-stakes, and pitfalls grounded in `.planning/research/{STACK,
 
 ### SLIDE integration with existing v1.0 systems
 
-- [ ] **SLIDE-31**: Tab close mid-transfer — `visibilitychange` listener emits best-effort CTRL_CAN; partial-file recovery documented in human-UAT
-- [ ] **SLIDE-32**: Phase 5 port-lost flow includes SLIDE pump (`slidePumpOnPortLost` symmetric with `pastePumpOnPortLost`) in `serial.js` teardown / `handleReadError` / `onNavSerialDisconnect`
-- [ ] **SLIDE-33**: Session-log append paused during active SLIDE session (binary frame bytes don't pollute the RX log); resumes on session end
+- [x] **SLIDE-31
+**: Tab close mid-transfer — `visibilitychange` listener emits best-effort CTRL_CAN; partial-file recovery documented in human-UAT
+- [x] **SLIDE-32
+**: Phase 5 port-lost flow includes SLIDE pump (`slidePumpOnPortLost` symmetric with `pastePumpOnPortLost`) in `serial.js` teardown / `handleReadError` / `onNavSerialDisconnect`
+- [x] **SLIDE-33
+**: Session-log append paused during active SLIDE session (binary frame bytes don't pollute the RX log); resumes on session end
 - [x] **SLIDE-34
 **: Spurious mid-stream `ESC ^ S L I D E` while session is active → chip warning "Z80 reset detected; cancelling current transfer" + clean reset (idempotent state-machine entry)
-- [ ] **SLIDE-35**: Auto-type "Z80 didn't respond" timeout (~3 s) chip with `[Retry] [Cancel] [Force start (legacy slide.com)]` options for users running pre-v0.2.1 slide.com without wakeup signature
+- [x] **SLIDE-35
+**: Auto-type "Z80 didn't respond" timeout (~3 s) chip with `[Retry] [Cancel] [Force start (legacy slide.com)]` options for users running pre-v0.2.1 slide.com without wakeup signature
 - [ ] **SLIDE-36**: Filename collisions on send (case-insensitive + 8.3 truncation produces duplicates) detected in JS pre-flight; user prompted to auto-rename (`NAME.TXT, NAME~1.TXT, NAME~2.TXT`), refuse, or send-only-first
 
 ### SLIDE settings & persistence
 
-- [ ] **SLIDE-37**: User-configurable auto-send command persists in `bestialitty.prefs.slideAutoSendCommand`; default `B:SLIDE R\r`; empty string = disabled
+- [x] **SLIDE-37
+**: User-configurable auto-send command persists in `bestialitty.prefs.slideAutoSendCommand`; default `B:SLIDE R\r`; empty string = disabled
 - [ ] **SLIDE-38**: Auto-send command validated for safety — alphanumeric + `:` + `\r` only; rejects `;`, pipes, non-`\r` control characters; first-use confirmation chip for non-default values
-- [ ] **SLIDE-39**: Settings pane exposes auto-send command (text input) + "show transfer summary chip" checkbox + optional `Compatibility mode` selector for legacy slide.com fallback, following the Phase 6 Settings-row pattern
+- [x] **SLIDE-39
+**: Settings pane exposes auto-send command (text input) + "show transfer summary chip" checkbox + optional `Compatibility mode` selector for legacy slide.com fallback, following the Phase 6 Settings-row pattern
 
 ### SLIDE Z80 coordination & docs
 
@@ -351,10 +362,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SLIDE-08 | Phase 9 | Complete |
 | SLIDE-09 | Phase 9 | Complete |
 | SLIDE-10 | Phase 9 | Complete |
-| SLIDE-11 | Phase 11 | Pending |
+| SLIDE-11 | Phase 11 | Complete |
 | SLIDE-12 | Phase 12 | Pending |
 | SLIDE-13 | Phase 9 | Complete |
-| SLIDE-14 | Phase 11 | Pending |
+| SLIDE-14 | Phase 11 | Complete |
 | SLIDE-15 | Phase 9 | Complete |
 | SLIDE-16 | Phase 9 | Complete |
 | SLIDE-17 | Phase 8 | Complete |
@@ -365,21 +376,21 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SLIDE-22 | Phase 10 | Complete |
 | SLIDE-23 | Phase 10 | Complete |
 | SLIDE-24 | Phase 10 | Complete |
-| SLIDE-25 | Phase 11 | Pending |
-| SLIDE-26 | Phase 11 | Pending |
+| SLIDE-25 | Phase 11 | Complete |
+| SLIDE-26 | Phase 11 | Complete |
 | SLIDE-27 | Phase 10 | Complete |
-| SLIDE-28 | Phase 11 | Pending |
+| SLIDE-28 | Phase 11 | Complete |
 | SLIDE-29 | Phase 10 | Complete |
 | SLIDE-30 | Phase 10 | Complete |
-| SLIDE-31 | Phase 11 | Pending |
-| SLIDE-32 | Phase 11 | Pending |
-| SLIDE-33 | Phase 11 | Pending |
+| SLIDE-31 | Phase 11 | Complete |
+| SLIDE-32 | Phase 11 | Complete |
+| SLIDE-33 | Phase 11 | Complete |
 | SLIDE-34 | Phase 10 | Complete |
-| SLIDE-35 | Phase 11 | Pending |
+| SLIDE-35 | Phase 11 | Complete |
 | SLIDE-36 | Phase 12 | Pending |
-| SLIDE-37 | Phase 11 | Pending |
+| SLIDE-37 | Phase 11 | Complete |
 | SLIDE-38 | Phase 12 | Pending |
-| SLIDE-39 | Phase 11 | Pending |
+| SLIDE-39 | Phase 11 | Complete |
 | SLIDE-40 | Phase 12 | Pending |
 | SLIDE-41 | Phase 12 | Pending |
 | SLIDE-42 | Phase 12 | Pending |
