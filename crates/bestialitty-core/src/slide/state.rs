@@ -256,6 +256,26 @@ impl Slide {
         self.sm_state as u32
     }
 
+    /// Current sender-mode file index — Phase 9 WR-04 single source of truth.
+    ///
+    /// Returns the index into `send_ctx.files` of the file currently being
+    /// transmitted. Returns 0 when no send context is active (receiver mode
+    /// or pre-init); JS callers MUST gate on `state() == DataPhase` before
+    /// trusting the value (which they already do at slide.js:582).
+    ///
+    /// Earlier the JS pump derived this from a JS-side `currentFileIdx`
+    /// counter that mirrored the SM's `current_file_idx` only after
+    /// EVT_FILE_COMPLETE drained from the events ring. With this accessor,
+    /// `pumpNextDataChunkIfReady` reads the authoritative cursor directly
+    /// from the SM and the JS-side counter becomes a defensive cache that
+    /// the Rust SM no longer depends on.
+    pub fn send_current_file_idx(&self) -> u32 {
+        self.send_ctx
+            .as_ref()
+            .map(|ctx| ctx.current_file_idx as u32)
+            .unwrap_or(0)
+    }
+
     /// Per-byte feed step. Drives the framer; on framer events, drives the
     /// SM transition. Returns the most recent packed event from this byte
     /// (or EVT_NONE if no event). Events are also pushed into the ring
@@ -978,6 +998,29 @@ mod tests {
         }
         assert!(got_sc, "EVT_SESSION_COMPLETE must be emitted on inbound FIN echo");
         assert_eq!(slide.state(), SlideState::Done as u32);
+    }
+
+    #[test]
+    fn send_current_file_idx_tracks_sm_advance() {
+        // WR-04 — Rust-side accessor reflects the SM's authoritative cursor.
+        // Returns 0 on a fresh Slide (no send_ctx), 0 on first file, then
+        // advances to 1 after EVT_FILE_COMPLETE for file 0 acks.
+        let s_idle = Slide::new();
+        assert_eq!(s_idle.send_current_file_idx(), 0,
+            "no send_ctx → returns 0 (Idle / receiver mode)");
+
+        let mut slide = s_send(&meta_two_files());
+        assert_eq!(slide.send_current_file_idx(), 0,
+            "first file → idx 0");
+        slide.clear_outbound();
+        slide.feed_byte(CTRL_RDY);                       // → HeaderPhase
+        slide.feed_byte(CTRL_ACK); slide.feed_byte(0);   // → DataPhase
+        slide.feed_send_chunk(&[1; 10], true);           // 10 bytes + EOF marker at seq=2
+        slide.clear_outbound();
+        // ACK(eof_seq=2) → EVT_FILE_COMPLETE | 0, advance to file 1.
+        slide.feed_byte(CTRL_ACK); slide.feed_byte(2);
+        assert_eq!(slide.send_current_file_idx(), 1,
+            "after EVT_FILE_COMPLETE | 0 → idx advanced to 1");
     }
 
     #[test]

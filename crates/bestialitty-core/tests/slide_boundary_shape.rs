@@ -53,6 +53,9 @@ fn slide_send_methods_have_stable_signatures() {
     // drift at compile time. Mirror of slide_feed_methods_have_stable_signatures.
     let _: fn(&mut Slide, &[u8])       = Slide::enter_send_mode;
     let _: fn(&mut Slide, &[u8], bool) = Slide::feed_send_chunk;
+    // Phase 9 WR-04 — Rust-side single source of truth for the JS pump's
+    // current file index. u32-by-value mirror of `state()` / `outbound_len()`.
+    let _: fn(&Slide) -> u32           = Slide::send_current_file_idx;
 }
 
 #[test]

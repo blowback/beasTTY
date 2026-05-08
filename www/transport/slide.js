@@ -632,13 +632,24 @@ async function drainSlideOutboundAwaitable() {
 /// If SM is in DataPhase and current file has remaining bytes, push the
 /// next FRAME_SIZE chunk via slide.feed_send_chunk. Called every dispatchSendMode
 /// cycle; no-op when the SM is mid-await on an ACK or all bytes have been fed.
+///
+/// Phase 9 WR-04 — the file index is read from the Rust SM via
+/// `slide.send_current_file_idx()`, which is the single source of truth.
+/// `currentSendCtx.currentFileIdx` is still maintained by the EVT_FILE_COMPLETE
+/// handler for the introspection accessor (`__getStateForTests`), but the
+/// pump no longer depends on JS-side cursor accuracy. This closes the
+/// fragile transient where a multi-file boundary's two ACKs landed in
+/// distinct chunks and the JS-side cursor could disagree with the SM's
+/// `send_ctx.current_file_idx`.
 function pumpNextDataChunkIfReady() {
     if (!slide || !currentSendCtx) return;
     const st = slide.state();
     // STATE_DATA_PHASE = 3 (per slide_boundary_shape.rs:slide_state_enum_repr_u32_pinned).
     if (st !== STATE_DATA_PHASE) return;
     const ctx = currentSendCtx;
-    const file = ctx.fileBytes[ctx.currentFileIdx];
+    // WR-04 — authoritative cursor from Rust SM.
+    const fileIdx = slide.send_current_file_idx();
+    const file = ctx.fileBytes[fileIdx];
     if (!file) return;
     if (ctx.sentBytesInFile >= file.length) return;   // SM is mid-await on ACK
     const chunkStart = ctx.sentBytesInFile;

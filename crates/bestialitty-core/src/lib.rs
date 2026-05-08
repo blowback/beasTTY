@@ -301,6 +301,15 @@ mod wasm_boundary {
         pub fn feed_send_chunk(&mut self, payload: &[u8], eof: bool) {
             self.inner.feed_send_chunk(payload, eof);
         }
+
+        /// Sender-mode current file index (Phase 9 WR-04 — single source of
+        /// truth for the JS pump). Returns 0 when no send context is active;
+        /// JS callers gate on `state() == DataPhase` before reading. Mirrors
+        /// the `state()` / `outbound_len()` shape — pure u32 across the wasm
+        /// boundary, no allocation.
+        pub fn send_current_file_idx(&self) -> u32 {
+            self.inner.send_current_file_idx()
+        }
     }
 
     /// Encode a packed (code, mods) u32 pair into the VT52 byte sequence.
