@@ -101,6 +101,17 @@ import {
     __resetForTests as __slideRecvResetForTests,
     __getStateForTests as __slideRecvGetStateForTests,
 } from './transport/slide-recv.js';
+// Phase 11 Plan 11-02 — SLIDE chip module (Wave 1). wireSlideChip slots AFTER
+// wireFileSource; chip lifecycle integration with the dispatcher (auto-driven
+// state transitions on session start / file-complete / session-complete /
+// cancel / port-lost) lands in Plan 11-03. Plan 11-04 wires the
+// Compatibility-mode 3-second wakeup timer + swallow-echo filter. For now
+// the chip is addressable only via window.__slideChip introspection.
+import {
+    wireSlideChip,
+    __resetForTests as __slideChipResetForTests,
+    __getStateForTests as __slideChipGetStateForTests,
+} from './renderer/slide-chip.js';
 import { getRecvDirHandle, setRecvDirHandle, clearRecvDirHandle } from './state/idb.js';
 import { wireClipboard, copySelection, pasteFromClipboard } from './input/clipboard.js';
 import {
@@ -508,12 +519,42 @@ wireFileSource({
     isWriterReady,                            // Phase 9 WR-03 — gate top-bar button on writer registration
 });
 
+// Phase 11 Plan 11-02 — wire SLIDE chip (Wave 1). Lifecycle integration with
+// the dispatcher / sender / receiver lands in Plan 11-03; Compatibility-mode
+// 3 s wakeup timer + [Force start] / [Retry] action wiring lands in Plan 11-04.
+// For now chip is addressable only via window.__slideChip below.
+const slideChipEl = document.getElementById('slide-chip');
+const slideChipTextEl = document.getElementById('slide-chip-text');
+const slideChipApi = wireSlideChip({
+    chipEl: slideChipEl,
+    chipTextEl: slideChipTextEl,
+    getSlideState: __slideGetStateForTests,    // imported from transport/slide.js (existing)
+    onCancel: cancelSlideRecv,                  // imported from transport/slide-recv.js (existing)
+    prefs,                                      // existing prefs object loaded at boot
+});
+
 // Test introspection (mirrors Phase 8 + Plan 09-02 window.__* precedent).
 // Plan 09-04 Playwright specs read via window.__fileSource.__getStateForTests()
 // to assert drag depth + drop-target state + modal-open state + button label.
 window.__fileSource = {
     __resetForTests: __fileSourceResetForTests,
     __getStateForTests: __fileSourceGetStateForTests,
+};
+
+// Phase 11 Plan 11-02 — chip introspection for Plan 11-05 Playwright tests.
+// Public state-transition methods are exposed alongside __reset/__getStateForTests
+// so the slide-chip.spec.js suite can drive lifecycle states programmatically
+// (the chip is not yet auto-driven by dispatcher events until Plan 11-03).
+window.__slideChip = {
+    __resetForTests: __slideChipResetForTests,
+    __getStateForTests: __slideChipGetStateForTests,
+    enterAwaitingWakeup: slideChipApi.enterAwaitingWakeup,
+    enterActive: slideChipApi.enterActive,
+    enterCancelledSummary: slideChipApi.enterCancelledSummary,
+    enterSummary: slideChipApi.enterSummary,
+    enterError: slideChipApi.enterError,
+    flashDropRejected: slideChipApi.flashDropRejected,
+    hide: slideChipApi.hide,
 };
 
 // Phase 5 — wire Web Serial transport. opts mirror Phase 4 wireKeyboard
