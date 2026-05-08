@@ -673,8 +673,19 @@ export function slidePumpOnPortLost() {
 //   - wire desync (CancelPending silent-drain)
 // All converge on slide.force_idle() + setWireOwner('terminal') + console.error.
 // Phase 11 SLIDE-29 attaches the visible "Retry" chip surface.
+//
+// Phase 10 review CR-02 — drain outbound BEFORE force_idle so any control byte
+// pre-pushed by the caller (e.g. CTRL_CAN from a preceding slide.cancel() in
+// the file-too-large hard-fail branch) actually reaches the wire. Without
+// this drain, force_idle() at state.rs:377-380 clears outbound_buf and the
+// Z80 sender never observes the cancel — wire desync until next ESC^SLIDE.
 export function recoverHardFail(reason) {
     console.error(`[slide-recv] hard-fail: ${reason}; resetting`);
+    // Ship any pending control bytes (e.g. CTRL_CAN from a preceding cancel())
+    // BEFORE force_idle wipes the outbound buffer. This is fire-and-forget
+    // (drainSlideOutboundOneShot does writeSlideFrame, not Awaitable) so the
+    // hard-fail path stays synchronous and idempotent.
+    drainSlideOutboundOneShot();
     if (slideRef && typeof slideRef.force_idle === 'function') {
         slideRef.force_idle();
     }
