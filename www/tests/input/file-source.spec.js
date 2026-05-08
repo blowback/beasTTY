@@ -232,3 +232,26 @@ test('packSendMetadata produces correct D-09 layout @fast', async ({ page }) => 
         0x05, 0x00, 0x00, 0x00,
     ]);
 });
+
+// Regression: closed-state dialog must NOT render in the document flow.
+// Without `#send-modal:not([open]) { display: none; }`, the author rule's
+// `#id` specificity beats the UA `dialog:not([open]) { display: none; }`,
+// causing the static default markup (header + buttons) to leak into normal
+// flow at end-of-body, where the buttons are clickable but the dialog is
+// closed (close() is a no-op, Send disabled because n === 0). See git log
+// for the original report.
+test('closed-state dialog is not visible in document flow @fast', async ({ page }) => {
+    // No interaction — modal should be invisible from page load.
+    const isVisible = await page.locator('#send-modal').isVisible();
+    expect(isVisible).toBe(false);
+
+    // The UA rule must apply: closed dialog has display: none.
+    const display = await page.locator('#send-modal').evaluate((el) => getComputedStyle(el).display);
+    expect(display).toBe('none');
+
+    // Sanity: the buttons should NOT be clickable while the dialog is closed.
+    const sendBtnVisible = await page.locator('#send-modal-send').isVisible();
+    const cancelBtnVisible = await page.locator('#send-modal-cancel').isVisible();
+    expect(sendBtnVisible).toBe(false);
+    expect(cancelBtnVisible).toBe(false);
+});

@@ -552,7 +552,16 @@
     }
 
     /* ==== Phase 9 — Rewrite/rejection confirm modal (D-05) ==== */
-    #send-modal {
+    /* Hide closed state — author #id specificity beats the UA
+       `dialog:not([open]) { display: none; }` rule, so we must restore it
+       explicitly. Without this, the static default markup (header + buttons)
+       leaks into normal flow at end-of-body even when never opened, and
+       clicks on those ghost buttons hit a closed dialog (close() is a no-op,
+       n === 0 → Send disabled). */
+    #send-modal:not([open]) {
+      display: none;
+    }
+    #send-modal[open] {
       background: var(--chrome-bg);
       color: var(--chrome-fg);
       border: 1px solid var(--chrome-border);
