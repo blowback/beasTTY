@@ -256,7 +256,12 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. The auto-send command is validated for safety — alphanumeric + `:` + `\r` only, rejecting `;`, pipes, and non-`\r` control characters; a first-use confirmation chip appears for non-default values to defend against hostile-config injection
   4. `docs/SLIDE_Z80_REQUIREMENT.md` documents the slide.asm `ESC ^ S L I D E` wakeup requirement, the v0.2.1 protocol amendment (PC-initiated CTRL_CAN with Z80 echo), the `B:SLIDE R` command convention, and links to the upstream `github.com/blowback/slide` PR; README.md gains a "File transfer" section and extended "Keyboard shortcuts" coverage of drag-drop and the file-picker
   5. `docs/SLIDE-UAT.md` (mirroring `06-HUMAN-UAT.md`) runs end-to-end against a patched MicroBeast: send a multi-file batch including a binary `.COM`, receive a multi-file batch including a zero-byte file, cancel mid-transfer in both directions, and confirm the wire returns to a clean CP/M prompt every time
-**Plans**: TBD
+**Plans**: 5 plans
+  - [ ] 12-01-PLAN.md — SLIDE-12 selection.js drop-overlay early-return + 3-test regression spec (Wave 1)
+  - [ ] 12-02-PLAN.md — SLIDE-36 collision detection + computeRenameScheme + modal three-action row + 8-test spec; SLIDE-12 post-drop clearSelection wiring (Wave 1)
+  - [ ] 12-03-PLAN.md — SLIDE-38 isAutoSendSafe regex + use-time gate + first-use-confirm chip lifecycle + Settings invalid-state visual + 15-test spec (Wave 2)
+  - [ ] 12-04-PLAN.md — SLIDE-40 docs/SLIDE_Z80_REQUIREMENT.md + SLIDE-41 README "File transfer (SLIDE)" section + keyboard shortcuts table extension (Wave 3)
+  - [ ] 12-05-PLAN.md — SLIDE-42 docs/SLIDE-UAT.md mirroring 10-HUMAN-UAT.md format with 4 tests; UAT-12-04 inherits blocked-result idiom (Wave 3)
 
 ## Progress
 
@@ -276,7 +281,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 9. SLIDE Sender — Host → Z80 Send | 0/TBD | Not started | - |
 | 10. SLIDE Receiver & Cancellation | 5/5 | Complete    | 2026-05-08 |
 | 11. SLIDE JS Bridge & v1.0 Integration | 4/5 | In progress | - |
-| 12. SLIDE UX Polish, Docs & Real-Hardware UAT | 0/TBD | Not started | - |
+| 12. SLIDE UX Polish, Docs & Real-Hardware UAT | 0/5 | Planned     | - |
 
 ---
 *Roadmap created: 2026-04-21*
