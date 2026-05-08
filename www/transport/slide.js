@@ -392,7 +392,16 @@ function dispatchRecvMode(value) {
         // Bytes BEFORE the wakeup go to the existing SM (last-ditch ACK).
         // matchEnd points at the last byte of the 7-byte signature; the
         // signature occupies indices [matchEnd-6 .. matchEnd] inclusive.
-        const before = value.subarray(0, matchEnd - 6);
+        // Phase 10 review WR-01 — when the 7-byte signature spans chunks
+        // (recvWakeIdx > 0 going INTO this chunk), matchEnd can be 0..5,
+        // making (matchEnd - 6) negative. Uint8Array.subarray(0, -N) interprets
+        // the negative end as `length + end` and returns the chunk's leading
+        // bytes — which are the trailing bytes of the wakeup signature, NOT
+        // benign pre-wakeup data. Clamp to 0 so signature-spanning chunks
+        // produce an empty `before` slice (the leading bytes are part of the
+        // matched signature and are correctly discarded).
+        const beforeEnd = Math.max(0, matchEnd - 6);
+        const before = value.subarray(0, beforeEnd);
         if (before.length) {
             feedSlide(before);
             drainEventsAndOutbound();
