@@ -232,7 +232,7 @@ Architecture, table-stakes, and pitfalls grounded in `.planning/research/{STACK,
 
 - [x] **SLIDE-37
 **: User-configurable auto-send command persists in `beastty.prefs.slideAutoSendCommand`; default `B:SLIDE R\r`; empty string = disabled
-- [ ] **SLIDE-38**: Auto-send command validated for safety — alphanumeric + `:` + `\r` only; rejects `;`, pipes, non-`\r` control characters; first-use confirmation chip for non-default values
+- [x] **SLIDE-38**: Auto-send command validated for safety — alphanumeric + `:` + `\r` only; rejects `;`, pipes, non-`\r` control characters; first-use confirmation chip for non-default values
 - [x] **SLIDE-39
 **: Settings pane exposes auto-send command (text input) + "show transfer summary chip" checkbox + optional `Compatibility mode` selector for legacy slide.com fallback, following the Phase 6 Settings-row pattern
 
@@ -390,7 +390,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SLIDE-35 | Phase 11 | Complete |
 | SLIDE-36 | Phase 12 | Complete |
 | SLIDE-37 | Phase 11 | Complete |
-| SLIDE-38 | Phase 12 | Pending |
+| SLIDE-38 | Phase 12 | Complete |
 | SLIDE-39 | Phase 11 | Complete |
 | SLIDE-40 | Phase 12 | Pending |
 | SLIDE-41 | Phase 12 | Pending |
