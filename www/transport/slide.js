@@ -162,6 +162,19 @@ const OUTBOUND_VIEW_CAP = 4128;
 // pending replaces the queued metadata.
 let pendingSendSession = null;  // { metadata: Uint8Array, fileBytes: Uint8Array[] } | null
 
+// Phase 12 WR-02 — sentinel guarding the async first-use-confirm window.
+// When `shouldSurfaceFirstUseConfirm(cmd)` returns true, enterSendMode
+// dispatches enterSendModeAfterFirstUseConfirm asynchronously and returns
+// without setting pendingSendSession. During the chip-display window the
+// existing `pendingSendSession !== null` first-click-wins guard does not
+// fire, so a second enterSendMode call could spawn a second coroutine
+// awaiting the same chip Promise. The chip's enterFirstUseConfirm clears
+// prior callbacks on re-entry, leaving the first coroutine's Promise
+// unresolved (T-12-07-style leak). This sentinel is set true before the
+// async dispatch and cleared on every exit path of
+// enterSendModeAfterFirstUseConfirm and in __resetForTests.
+let firstUseConfirmPending = false;
+
 // Phase 9 — active send-mode context. Populated by enterSendModeInternal;
 // mutated by pumpNextDataChunkIfReady as bytes flow out.
 let currentSendCtx = null;       // { fileBytes: Uint8Array[], currentFileIdx, sentBytesInFile } | null
@@ -430,6 +443,9 @@ export function __resetForTests() {
     // Phase 9 additions — wipe any pending or active send-mode state.
     pendingSendSession = null;
     currentSendCtx = null;
+    // Phase 12 WR-02 — clear the first-use-confirm in-flight sentinel so
+    // a fresh test run is not blocked by a stranded flag from a prior run.
+    firstUseConfirmPending = false;
     // Plan 09-04 Rule 1 fix — reset the dispatch-tail chain so a stale
     // promise from a prior session does not block the next one.
     sendDispatchTail = Promise.resolve();
@@ -811,6 +827,20 @@ export function enterSendMode({ files }) {
         return;
     }
 
+    // Phase 12 WR-02 — first-use-confirm-in-flight guard. When the async
+    // chip path is awaiting the user's [Confirm]/[Reset to default] click
+    // pendingSendSession is still null (it is only set in
+    // enterSendModeProceed after confirmation). Without this sentinel a
+    // second enterSendMode call would slip past the pendingSendSession
+    // check, spawn a second enterSendModeAfterFirstUseConfirm coroutine,
+    // re-enter the chip (clearing the first coroutine's onConfirm/onReset
+    // callbacks) and leak the first coroutine's surfaceFirstUseConfirm
+    // Promise unresolved.
+    if (firstUseConfirmPending) {
+        console.warn('[slide.js] enterSendMode: first-use confirm already in progress; ignoring duplicate enterSendMode');
+        return;
+    }
+
     // Phase 9 WR-02 — refuse if the wire is owned by an active SLIDE
     // session (mode === 'recv' or 'send'). pushTxBytes at tx-sink.js:50
     // would silently drop the auto-type bytes (`owner === 'slide'`),
@@ -856,14 +886,14 @@ export function enterSendMode({ files }) {
             // Async path — defer to the first-use confirmation chip and let
             // the user's [Confirm] / [Reset to default] click drive the rest.
             // pendingSendSession is NOT set until after the user confirms,
-            // so a second click during the chip-displayed window still
-            // triggers the `pendingSendSession !== null` first-click-wins
-            // guard above (the FIRST click is still "in flight" awaiting
-            // confirmation — but pendingSendSession is null so the second
-            // click would also reach this branch). Defensive: set a sentinel
-            // by surfacing the chip; the chip's own state machine prevents
-            // overlapping invocations because slideChipRef.enterFirstUseConfirm
-            // clears any prior state on entry.
+            // so a second enterSendMode invocation during the chip-displayed
+            // window cannot rely on the `pendingSendSession !== null`
+            // first-click-wins guard. Phase 12 WR-02 — set
+            // firstUseConfirmPending = true BEFORE the async dispatch so
+            // the explicit guard at the top of enterSendMode rejects any
+            // duplicate call until enterSendModeAfterFirstUseConfirm
+            // clears it on every exit path.
+            firstUseConfirmPending = true;
             void enterSendModeAfterFirstUseConfirm({ files, cmd });
             return;
         }
@@ -887,6 +917,11 @@ async function enterSendModeAfterFirstUseConfirm({ files, cmd }) {
     } catch {
         confirmed = false;
     }
+    // Phase 12 WR-02 — clear the in-flight sentinel BEFORE any further
+    // dispatch so subsequent enterSendMode invocations are not refused
+    // after the chip has resolved (whether the user confirmed, reset to
+    // default, or surfaceFirstUseConfirm threw).
+    firstUseConfirmPending = false;
     if (!confirmed) {
         // User clicked [Reset to default] — restore prefs and abort. User
         // must click ↑ Send file again to proceed with the default value.
