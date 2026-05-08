@@ -141,3 +141,75 @@ test.describe('SLIDE-06 — wire-owner handoff', () => {
         expect(result.msg).toContain('invalid owner');
     });
 });
+
+// Phase 9 Plan 02 — writeSlideFrameAwaitable (D-16) PITFALLS §4 backpressure
+// idiom. Sibling tests to the SLIDE-06 wire-owner suite above. The new
+// entrypoint is exposed via window.__txSink.writeSlideFrameAwaitable by
+// main.js boot wiring (Plan 09-02 Task 3).
+test.describe('SLIDE-13 — writeSlideFrameAwaitable backpressure idiom', () => {
+
+    test('writeSlideFrameAwaitable awaits writer.ready before writer.write @fast', async ({ page }) => {
+        await setup(page);
+        await connect(page);
+        // Reset log so the assertion below is self-contained against any
+        // boot-time writes that landed in __mockWriterLog before our call.
+        await page.evaluate(() => { window.__mockWriterLog = []; });
+
+        const result = await page.evaluate(async () => {
+            const bytes = new Uint8Array([0xAA, 0xBB, 0xCC]);
+            await window.__txSink.writeSlideFrameAwaitable(bytes);
+            // Return the FULL log so the test sees both the bytes shape AND
+            // the per-write entry shape.
+            return window.__mockWriterLog.map((e) => Array.from(e.bytes));
+        });
+
+        // The 3 bytes must appear in the writer log (proving the await chain ran
+        // — both `await writer.ready` and `await writer.write(bytes)` resolved).
+        expect(result.length).toBeGreaterThanOrEqual(1);
+        const last = result[result.length - 1];
+        expect(last).toEqual([0xAA, 0xBB, 0xCC]);
+    });
+
+    test('writeSlideFrameAwaitable throws when writer not registered @fast', async ({ page }) => {
+        // Do NOT call connect() — registeredWriter stays null because no port
+        // has been opened. Setup attaches the mock and navigates so
+        // window.__txSink exists, but Connect was never clicked.
+        await page.addInitScript(SERIAL_MOCK);
+        await page.goto('/');
+        // Wait for window.__txSink to land (main.js:402 wiring).
+        await page.waitForFunction(() => Boolean(window.__txSink && window.__txSink.writeSlideFrameAwaitable), { timeout: 5000 });
+
+        const errMsg = await page.evaluate(async () => {
+            try {
+                await window.__txSink.writeSlideFrameAwaitable(new Uint8Array([0x01]));
+                return 'NO_THROW';
+            } catch (err) {
+                return err.message;
+            }
+        });
+        expect(errMsg).toContain('no writer registered');
+    });
+
+    test('writeSlideFrameAwaitable propagates writer.write rejection @fast', async ({ page }) => {
+        // Replace MockWriter.write with a rejecting impl, then assert the
+        // rejection propagates out of writeSlideFrameAwaitable (caller's
+        // responsibility to catch — sender main loop will).
+        await setup(page);
+        await connect(page);
+        await page.evaluate(() => {
+            const port = navigator.serial._grantedPorts[0];
+            const writer = port._writer;
+            writer.write = async () => { throw new Error('forced-write-failure'); };
+        });
+
+        const errMsg = await page.evaluate(async () => {
+            try {
+                await window.__txSink.writeSlideFrameAwaitable(new Uint8Array([0x99]));
+                return 'NO_THROW';
+            } catch (err) {
+                return err.message;
+            }
+        });
+        expect(errMsg).toContain('forced-write-failure');
+    });
+});

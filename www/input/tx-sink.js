@@ -125,6 +125,34 @@ export function writeSlideFrame(bytes) {
     });
 }
 
+// Phase 9 D-16 — Promise-returning sibling of `writeSlideFrame`. Used by the
+// sender main loop in `transport/slide.js` so `await` semantics gate
+// multi-frame data window writes per PITFALLS §4 BLOCKING.
+//
+// Pattern: `await registeredWriter.ready; await registeredWriter.write(bytes)`
+// is the SINGLE legitimate idiom. Chained `await registeredWriter.write(bytes)`
+// WITHOUT awaiting `.ready` first is the banned anti-pattern — it does not
+// gate on Web Serial backpressure and can starve / deadlock at sustained
+// multi-frame send rates.
+//
+// Errors propagate (throw / Promise rejection); caller decides how to handle
+// them. The fire-and-forget `writeSlideFrame` above is for short
+// control-byte writes (CTRL_RDY, CTRL_ACK, CTRL_CAN echo) where backpressure
+// gating is not load-bearing.
+//
+// Owner-gate behavior: this entrypoint does NOT consult `owner` (the Phase 8
+// D-08 silent-drop gate in pushTxBytes). It is the sender's bypass — by the
+// time it is called, mode === 'send' and owner === 'slide' by design, and
+// blocking the sender's own writes via the gate would deadlock the SM.
+// Sibling of writeSlideFrame above (which has the same bypass semantics).
+export async function writeSlideFrameAwaitable(bytes) {
+    if (!registeredWriter) {
+        throw new Error('[tx-sink] writeSlideFrameAwaitable: no writer registered');
+    }
+    await registeredWriter.ready;
+    await registeredWriter.write(bytes);
+}
+
 // --- Internals ------------------------------------------------------------
 
 function notify() {
