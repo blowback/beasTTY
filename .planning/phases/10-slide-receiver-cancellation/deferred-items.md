@@ -4,7 +4,7 @@ Pre-existing issues discovered during Phase 10 execution that fall OUTSIDE
 the scope of Phase 10 (Plan 10-05 SCOPE BOUNDARY). Logged here for triage in
 a future phase / gap-closure plan; NOT auto-fixed by Plan 10-05.
 
-## DEF-10-01: log-download.spec.js filename mismatch
+## DEF-10-01: log-download.spec.js filename mismatch — RESOLVED 2026-05-08
 
 **Discovered:** Plan 10-05 verification run (`npx playwright test`).
 
@@ -17,15 +17,14 @@ Both fail because the test expects filename `bestialitty-YYYYMMDD-HHMMSS.bin`
 but production code (`www/transport/session-log.js:99`) emits
 `beastty-YYYYMMDD-HHMMSS.bin`.
 
-**Root cause:** Production was renamed at some point but
-`www/tests/session/log-download.spec.js:66,103` was not updated.
+**Root cause:** Project renamed BestialiTTY → Beastty (lowercase). Production
+was updated; tests were not.
 
-**Scope:** Phase 6 / Phase 7 session-log feature. NOT touched by Phase 10.
-
-**Recommended fix (future):** Either update `session-log.js` to emit
-`bestialitty-` prefix (preserves test) or update both test regex assertions
-to match `^beastty-\d{8}-\d{6}\.bin$`. Decide based on which name is the
-intended brand for downloaded session logs.
+**Resolution:** User confirmed the project is renamed to `beastty` going
+forward. Updated both test regex assertions in
+`www/tests/session/log-download.spec.js` (lines 66 + 103) from
+`/^bestialitty-\d{8}-\d{6}\.bin$/` to `/^beastty-\d{8}-\d{6}\.bin$/`.
+7/7 log-download.spec.js tests green.
 
 ## Flake-watch: slide-cancel timing window test under heavy parallel load
 

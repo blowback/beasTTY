@@ -63,7 +63,7 @@ test.describe('SESS-04/SESS-05 — Session log download', () => {
         const downloadPromise = page.waitForEvent('download');
         await page.locator('#download-log-button').click();
         const download = await downloadPromise;
-        expect(download.suggestedFilename()).toMatch(/^bestialitty-\d{8}-\d{6}\.bin$/);
+        expect(download.suggestedFilename()).toMatch(/^beastty-\d{8}-\d{6}\.bin$/);
         const stream = await download.createReadStream();
         const chunks = [];
         for await (const chunk of stream) chunks.push(chunk);
@@ -100,7 +100,7 @@ test.describe('SESS-04/SESS-05 — Session log download', () => {
         const dl = page.waitForEvent('download');
         await page.locator('#download-log-button').click();
         const download = await dl;
-        expect(download.suggestedFilename()).toMatch(/^bestialitty-\d{8}-\d{6}\.bin$/);
+        expect(download.suggestedFilename()).toMatch(/^beastty-\d{8}-\d{6}\.bin$/);
     });
 
     test('subsequent Connect discards prior chunks (per-connection lifecycle)', async ({ page }) => {
