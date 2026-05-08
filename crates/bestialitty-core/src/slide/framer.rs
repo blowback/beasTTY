@@ -37,6 +37,10 @@ pub const EVT_FIN:        u32 = 4 << 16;
 pub const EVT_CAN:        u32 = 5 << 16;
 pub const EVT_DATA_FRAME: u32 = 6 << 16;  // aux = seq
 pub const EVT_CRC_ERROR:  u32 = 7 << 16;  // aux = seq
+// ===== Phase 9 sender extensions (CONTEXT D-12 + planner OQ-1 retransmit) =====
+pub const EVT_FILE_COMPLETE:    u32 = 8 << 16;   // aux = file_idx
+pub const EVT_SESSION_COMPLETE: u32 = 9 << 16;
+pub const EVT_RETRANSMIT_NEEDED: u32 = 10 << 16;  // aux = seq (sender NAK retransmit driver)
 
 /// Per-position framer state. Mirrors vt52.rs:39-47 EscYPhase shape.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -183,6 +187,37 @@ impl Default for Framer {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Build a complete SLIDE wire frame into `buf`:
+/// [SOF][SEQ][LEN_HI][LEN_LO][PAYLOAD][CRC_HI][CRC_LO]. Pushes
+/// 7 + payload.len() bytes. Mirrors slide-rs/protocol.rs:33-44
+/// byte-for-byte. Allocation-free when `buf` has reserved capacity
+/// to absorb the new bytes (Phase 9 OUTBOUND_RESERVE = 4128 covers
+/// 4 frames × 1031 bytes + slack — see slide/state.rs).
+///
+/// CRC scope: [seq, len_hi, len_lo, ...payload] (NOT including SOF
+/// nor the CRC bytes), per slide-rs/protocol.rs:35-36 +
+/// framer.rs module doc.
+pub fn build_frame_into(buf: &mut Vec<u8>, seq: u8, payload: &[u8]) {
+    let length = payload.len();
+    let len_hi = (length >> 8) as u8;
+    let len_lo = (length & 0xFF) as u8;
+    // CRC over [seq, len_hi, len_lo, ...payload]
+    let mut crc_buf = Vec::with_capacity(3 + length);
+    crc_buf.push(seq);
+    crc_buf.push(len_hi);
+    crc_buf.push(len_lo);
+    crc_buf.extend_from_slice(payload);
+    let crc = crc16_ccitt(&crc_buf);
+    // Emit frame
+    buf.push(SOF);
+    buf.push(seq);
+    buf.push(len_hi);
+    buf.push(len_lo);
+    buf.extend_from_slice(payload);
+    buf.push((crc >> 8) as u8);
+    buf.push((crc & 0xFF) as u8);
 }
 
 #[cfg(test)]

@@ -129,7 +129,8 @@ fn build_frame_into_preserves_reserved_capacity_for_max_payload() {
     let payload = vec![0xAA; 1024];
     build_frame_into(&mut buf, 0x01, &payload);
     assert_eq!(buf.as_ptr(), ptr_before, "OUTBOUND_RESERVE must absorb a 1024-byte frame without reallocating");
-    assert_eq!(buf.len(), 1031);  // SOF + SEQ + LEN_H + LEN_L + 1024 payload + CRC_H + CRC_L
+    // Frame layout: SOF(1) + SEQ(1) + LEN_H(1) + LEN_L(1) + payload(1024) + CRC_H(1) + CRC_L(1) = 1030
+    assert_eq!(buf.len(), 1030);
 }
 
 #[test]

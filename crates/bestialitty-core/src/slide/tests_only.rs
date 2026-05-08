@@ -47,7 +47,8 @@ pub use crate::slide::framer::{
     SOF, CTRL_FIN, CTRL_ACK, CTRL_RDY, CTRL_NAK, CTRL_CAN,
     EVT_NONE, EVT_RDY, EVT_ACK, EVT_NAK, EVT_FIN, EVT_CAN,
     EVT_DATA_FRAME, EVT_CRC_ERROR,
-    FramerState, Framer,
+    EVT_FILE_COMPLETE, EVT_SESSION_COMPLETE, EVT_RETRANSMIT_NEEDED,
+    FramerState, Framer, build_frame_into,
 };
 
 pub use crate::slide::state::{Slide, SlideRole, SlideState};

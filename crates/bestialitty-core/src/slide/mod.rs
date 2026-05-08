@@ -38,4 +38,6 @@ pub use state::{Slide, SlideRole, SlideState};
 pub use framer::{
     EVT_NONE, EVT_RDY, EVT_ACK, EVT_NAK, EVT_FIN, EVT_CAN,
     EVT_DATA_FRAME, EVT_CRC_ERROR,
+    EVT_FILE_COMPLETE, EVT_SESSION_COMPLETE, EVT_RETRANSMIT_NEEDED,
+    build_frame_into,
 };
