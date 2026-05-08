@@ -95,6 +95,7 @@ import {
 } from './input/paste-pump.js';
 import {
     wireFileSource,
+    computeRenameScheme as fileSourceComputeRenameScheme,   // Phase 12 SLIDE-36 — pure helper for Playwright tests
     __resetForTests as __fileSourceResetForTests,
     __getStateForTests as __fileSourceGetStateForTests,
 } from './input/file-source.js';
@@ -634,9 +635,21 @@ const sendModalList            = document.getElementById('send-modal-list');
 const sendModalAllRejectedHint = document.getElementById('send-modal-all-rejected-hint');
 const sendModalCancelButton    = document.getElementById('send-modal-cancel');
 const sendModalSendButton      = document.getElementById('send-modal-send');
+// Phase 12 SLIDE-36 — three-action button row (collision-mode footer).
+const sendModalSendRenamedButton = document.getElementById('send-modal-send-renamed');
+const sendModalFirstOnlyButton   = document.getElementById('send-modal-first-only');
+const sendModalRefuseButton      = document.getElementById('send-modal-refuse');
 
 // Phase 11 Plan 11-03 — extended opts: slideChip (D-10 — flashDropRejected
 // at onDragEnter + onDrop call sites when isSessionActive() returns true).
+// Phase 12 SLIDE-36 — three new modal action buttons (collision-mode footer).
+// Phase 12 SLIDE-12 — clearSelectionFn (post-drop ghost-clear; companion to
+// Plan 12-01's selection.js early-return). The closure captures the existing
+// `selection` const wired further up the boot flow (line ~251 wireSelection
+// return value); ordering invariant — wireSelection MUST run before
+// wireFileSource so the local is bound when the closure is created.
+// try/catch wrapper is mandatory: if selection.clearSelection throws (e.g.,
+// during teardown in tests), the drop should still complete (T-12-10).
 wireFileSource({
     wrapperEl: terminalWrapper,
     sendBtn: sendFileButton,
@@ -651,6 +664,14 @@ wireFileSource({
     getSlideState: __slideGetStateForTests,    // imported from transport/slide.js (Plan 09-02)
     isWriterReady,                            // Phase 9 WR-03 — gate top-bar button on writer registration
     slideChip: slideChipApi,                  // Phase 11 D-10 — chip flash on drop-during-active-session
+    // Phase 12 SLIDE-36 — three new modal buttons (hidden by default;
+    // file-source.js toggles visibility at modal-open time based on
+    // collisionRows.length > 0).
+    modalSendRenamedBtn: sendModalSendRenamedButton,
+    modalFirstOnlyBtn:   sendModalFirstOnlyButton,
+    modalRefuseBtn:      sendModalRefuseButton,
+    // Phase 12 SLIDE-12 — post-drop selection clear.
+    clearSelectionFn: () => { try { selection.clearSelection(); } catch { /* ignore */ } },
 });
 
 // Test introspection (mirrors Phase 8 + Plan 09-02 window.__* precedent).
@@ -659,6 +680,9 @@ wireFileSource({
 window.__fileSource = {
     __resetForTests: __fileSourceResetForTests,
     __getStateForTests: __fileSourceGetStateForTests,
+    // Phase 12 SLIDE-36 — pure helper exposed for Playwright unit-style tests
+    // (slide-collisions.spec.js 12-collision / 100-collision / no-extension cases).
+    computeRenameScheme: fileSourceComputeRenameScheme,
 };
 
 // Phase 11 Plan 11-02 — chip introspection for Plan 11-05 Playwright tests.

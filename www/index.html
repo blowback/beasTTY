@@ -726,6 +726,28 @@
       opacity: 0.5;
       cursor: not-allowed;
     }
+
+    /* ==== Phase 12 SLIDE-36 collision row (extends Phase 9 modal <ul>) ==== */
+    /* Inherits font-size: 12px, line-height: 1.5, color: var(--chrome-fg),
+       padding: 4px 0, gap: 8px, display: flex, align-items: baseline from
+       the existing #send-modal ul li rule above. The collision row wraps to
+       two visual lines (filename + rename list) so flex-direction column
+       lets the rename-list block live below the filename row. */
+    #send-modal ul li.collision {
+      flex-direction: column;
+      align-items: stretch;
+    }
+    #send-modal ul li.collision > div:first-child {
+      display: flex;
+      gap: 8px;
+    }
+    #send-modal ul li.collision > .rename-list {
+      margin-left: 24px;
+      margin-top: 4px;
+    }
+    #send-modal ul li.collision > .rename-list > span[aria-hidden="true"] {
+      margin-right: 4px;
+    }
   </style>
 </head>
 <body data-theme="crt">
@@ -1013,6 +1035,17 @@
     <footer>
       <button id="send-modal-cancel" type="button">Don't send</button>
       <button id="send-modal-send" type="button">Send 0 files</button>
+      <!-- Phase 12 SLIDE-36 — three-action button row (collision-mode footer).
+           Hidden by default; runtime-toggled by file-source.js showConfirmModal
+           when collisionRows.length > 0 (D-06). The single <footer> is reused
+           — runtime swap of inner buttons per 12-UI-SPEC §B.
+           value="send" on the renamed button matches Phase 9 [Send N files]
+           value semantics — both produce 'send' returnValue; processFiles
+           branches on 'send' to applyCollisionRenames vs the no-collision
+           pass-through to enterSendMode. -->
+      <button id="send-modal-send-renamed" type="button" value="send" hidden>Send 0 renamed</button>
+      <button id="send-modal-first-only" type="button" value="first-only" hidden>Send only first</button>
+      <button id="send-modal-refuse" type="button" value="refuse" hidden>Refuse batch</button>
     </footer>
   </dialog>
 
