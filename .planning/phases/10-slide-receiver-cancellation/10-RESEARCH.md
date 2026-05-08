@@ -1164,7 +1164,7 @@ export async function clearRecvDirHandle() {
 
 **If claims A2 or A6 prove wrong in Phase 10 execution, planner should widen the windows or adopt an event-driven cancel-completion signal.**
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Should `recv_buf` accumulate across frames or be cleared per-frame?**
    - What we know: per-frame clear forces JS to drain between events; accumulating across frames lets JS read once per chunk.
