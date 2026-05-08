@@ -226,7 +226,7 @@ Architecture, table-stakes, and pitfalls grounded in `.planning/research/{STACK,
 **: Spurious mid-stream `ESC ^ S L I D E` while session is active → chip warning "Z80 reset detected; cancelling current transfer" + clean reset (idempotent state-machine entry)
 - [x] **SLIDE-35
 **: Auto-type "Z80 didn't respond" timeout (~3 s) chip with `[Retry] [Cancel] [Force start (legacy slide.com)]` options for users running pre-v0.2.1 slide.com without wakeup signature
-- [ ] **SLIDE-36**: Filename collisions on send (case-insensitive + 8.3 truncation produces duplicates) detected in JS pre-flight; user prompted to auto-rename (`NAME.TXT, NAME~1.TXT, NAME~2.TXT`), refuse, or send-only-first
+- [x] **SLIDE-36**: Filename collisions on send (case-insensitive + 8.3 truncation produces duplicates) detected in JS pre-flight; user prompted to auto-rename (`NAME.TXT, NAME~1.TXT, NAME~2.TXT`), refuse, or send-only-first
 
 ### SLIDE settings & persistence
 
@@ -388,7 +388,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SLIDE-33 | Phase 11 | Complete |
 | SLIDE-34 | Phase 10 | Complete |
 | SLIDE-35 | Phase 11 | Complete |
-| SLIDE-36 | Phase 12 | Pending |
+| SLIDE-36 | Phase 12 | Complete |
 | SLIDE-37 | Phase 11 | Complete |
 | SLIDE-38 | Phase 12 | Pending |
 | SLIDE-39 | Phase 11 | Complete |
