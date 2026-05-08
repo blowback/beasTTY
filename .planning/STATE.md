@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: Integration
 status: executing
-stopped_at: Completed 11-03-PLAN.md (Wave 2 chip lifecycle wiring + Settings sub-block + port-lost + session-log gate + paste-pump gate + auto-send prefs swap)
-last_updated: "2026-05-08T18:13:44.202Z"
+stopped_at: Completed 11-04-PLAN.md (Wave 3 echo-swallow filter + visibilitychange/pagehide CTRL_CAN + Compatibility-mode 3-way 3s wakeup timer)
+last_updated: "2026-05-08T18:30:07.295Z"
 last_activity: 2026-05-08 -- Phase --phase execution started
 progress:
   total_phases: 12
   completed_phases: 10
   total_plans: 65
-  completed_plans: 63
-  percent: 97
+  completed_plans: 64
+  percent: 98
 ---
 
 # Project State
@@ -30,7 +30,7 @@ Plan: 1 of --name
 Status: Executing Phase --phase
 Last activity: 2026-05-08 -- Phase --phase execution started
 
-Progress: [██████████] 97%
+Progress: [██████████] 98%
 
 ## Performance Metrics
 
@@ -126,6 +126,7 @@ Progress: [██████████] 97%
 | Phase 11 P01 | 6min | 3 tasks | 6 files |
 | Phase 11-slide-js-bridge-v1-0-integration P11-02 | 6min | 3 tasks | 3 files |
 | Phase 11-slide-js-bridge-v1-0-integration P11-03 | 13min | 3 tasks (3 auto, non-TDD) + 1 Rule 3 fix tasks | 7 files files |
+| Phase 11-slide-js-bridge-v1-0-integration P11-04 | 10min | 3 tasks tasks | 5 files files |
 
 ## Accumulated Context
 
@@ -166,6 +167,7 @@ Recent decisions affecting current work:
 - Phase 11 Plan 11-01 (2026-05-08): Wave 0 RED-gate scaffolding shipped — 4 NEW Playwright spec files (slide-chip 12 + slide-bridge 17 + slide-compatibility 10 + slide-prefs 11 = 50 test.skip stubs covering all 11 SLIDE-* requirements landing in Phase 11; --list reports 46 tests in 4 files exit 0); test names match -g filters in 11-VALIDATION.md verbatim so Plan 11-05 fills bodies by name. Mock-bot extension: bot.send.wakeupDelayMs default 0 + setWakeupDelay(ms) public API + pushSlideHostWakeup honors via setTimeout when > 0 (synchronous default = byte-identical Phase 9/10 behavior). prefs.js DEFAULTS gains 3 D-09 keys (slideAutoSendCommand 'B:SLIDE R\\r' / slideShowSummary true / slideCompatibilityMode 'auto'); NO CURRENT_VERSION bump per Phase 6 D-32 defensive merge contract (Phase 10 Plan 10-02 precedent). NOT added to IDB_ONLY_FIELDS — strings + booleans round-trip cleanly via localStorage. Zero auto-fix deviations. Three pre-existing test:fast parallelism flakes (slide-dispatcher / slide-wakeup / slide-sender) observed across baseline runs; all pass in isolation; logged to deferred-items.md per SCOPE BOUNDARY rule. 3rd test:fast run 81/81 green. Plan 11-01 makes ZERO Rust changes per CLAUDE.md hard invariant for Phase 11.
 - Phase 11 Plan 11-02 (2026-05-08): SLIDE chip surface shipped end-to-end (DOM + CSS + module + boot wiring) — www/renderer/slide-chip.js (387 lines) verbatim mirror of www/renderer/scroll-state.js with 8 lifecycle states (hidden / awaiting-wakeup / awaiting-timeout / active / cancelled-summary / sent-summary / received-summary / error + drop-rejected-flash overlay). Chip CSS in index.html verbatim mirror of #scrollback-indicator with right→left flip per Pitfall 14 + max-width: calc(100% - 16px - 288px) preventing scrollback overlap. wireSlideChip block in main.js slots AFTER wireFileSource; window.__slideChip exposes 9 keys (2 introspection + 7 public state-transition methods) for Plan 11-05 Playwright. Throughput sliding-window per D-02 — 2 s sample ring + auto-scaled B/s/KB/s/MB/s + first-2s '—' placeholder. Verbatim UI-SPEC copy strings for every state. escapeHtml() applied to filename + reason tokens before innerHTML (T-11-02-xss-filename mitigation). Phase 4 D-16 mousedown preventDefault on chip outer + every inner button. enterSummary() honors prefs.slideShowSummary D-08 gate; cancelled-summary chip ALWAYS shows for 5 s on cancel regardless of checkbox. Chip is addressable in Plan 11-02 only via window.__slideChip — Plan 11-03 wires automatic dispatcher hooks; Plan 11-04 adds Compatibility-mode 3 s wakeup timer + swallow-echo. Phase 11 hard invariant preserved — ZERO Rust changes; bash scripts/build.sh exit 0. Pre-existing parallelism flakes (slide-sender:54 / theme-toggle:8 / slide-dispatcher:90) all green in isolation; documented in deferred-items.md. Boot smoke: chipCount=1, hidden=true, window.__slideChip exposes all 9 keys, no novel console errors. SLIDE-25/26/28 stay Pending until Plan 11-05 verification gate after Plan 11-03 + 11-04 close the integration loop.
 - Phase 11 Plan 11-03 (2026-05-08): Wave 2 lifecycle wiring shipped — Settings SLIDE sub-block (D-05) wraps the existing Phase 10 Save-to-folder row + 3 new rows (auto-send / show-summary / Compatibility mode); main.js boot re-ordered so wireSlideChip runs FIRST and slideChipApi flows down via opts to wireSlideDispatcher / wireSlideRecv / wireFileSource; thunk-holder pattern (cancelSlideRecvLazy) lets wireSlideChip's onCancel close over a stable ref before wireSlideRecv populates internal state. slide.js readAutoSendCommandBytes replaces Phase 9 hardcoded AUTO_SEND_COMMAND constant with a prefs-driven helper; AUTO_SEND_DEFAULT fallback when prefsRef null preserves Phase 9 sender Playwright tests (Rule 3 deviation — empty-string semantic per SLIDE-13 preserved when prefs IS provided). slide-recv.js fills the Plan 10 slidePumpOnPortLost stub with the full D-14 body (force_idle + setWireOwner + chip enterError + forceExitRecvMode + __resetForTests reset). slide.js adds chip lifecycle hooks at 5 sites (enterSendMode awaiting-wakeup; dispatchTerminalMode wakeup-completion enterActive + cancelPaste BOTH branches; exitSendMode + exitRecvMode enterSummary). serial.js D-11 session-log gate via single-line predicate at the call site (T-11-03-log-leak); 3 slidePumpOnPortLost() call sites symmetric with each existing pastePumpOnPortLost(). paste-pump.js D-12 isSlideActive() early-return at top of enqueuePaste. file-source.js D-10 chip flash replaces Phase 9 silent ignore at onDragEnter + onDrop. Phase 11 hard invariant preserved (zero Rust changes per CLAUDE.md). 5 threat-register mitigations active (T-11-03-log-leak / port-lost / paste-leak / drop-injection / prefs-injection accept). cd www && npm run test:fast 81/81 deterministic green; bash scripts/build.sh exit 0. Plan 11-04 (Compatibility-mode 3 s timer + [Retry]/[Force start] handlers) and Plan 11-05 (Wave 3 Playwright assertions filling 50 RED-gate stubs) unblocked.
+- Phase 11 Plan 11-04 (2026-05-08): Echo-swallow filter + visibilitychange/pagehide CTRL_CAN + Compatibility-mode 3-way 3 s timer shipped — 1 NEW file (echo-swallow.js, ~115 LOC) + 4 modified (slide.js / slide-chip.js / chrome.js / main.js). echoSwallowConsumeIfMatch sits BEFORE the wakeup matcher in dispatchTerminalMode byte loop (CONTEXT C-03 ordering invariant); pushAutoTypedBytes fires alongside pushTxBytes in enterSendMode so swallow buffer aligns with what went on the wire (CR/LF mode transparent — same post-rewrite bytes feed both sinks). chrome.js visibilitychange + pagehide listeners both fire cancelSlideRecv() + writeSlideFrame([0x18]) wrapped in try/catch (best-effort per PITFALLS §6); main.js cancelSlideRecvLazy hoisted before wireChrome so chrome.js + wireSlideChip share the holder. slide-chip.js wakeupTimeoutHandle + WAKEUP_TIMEOUT_MS=3000 — enterAwaitingWakeup arms 3 s setTimeout when armTimer:true → transitions lifecycle awaiting-wakeup → awaiting-timeout. slide.js Compatibility-mode 3-way branch in enterSendMode reads prefs.slideCompatibilityMode at call time: 'auto' arms timer; 'wakeup-required' indefinite wait; 'force-start' microtask-scheduled enterSendModeInternal (skip wakeup wait). handleChipInlineAction routes Retry/Cancel/Force-start via slideChipRef.onStateChange registration. Phase 11 hard invariant preserved — ZERO Rust changes (CLAUDE.md); bash scripts/build.sh exits 0. cd www && npx playwright test --workers=1 81/81 green; pre-existing parallelism flakes (test:fast under 10-worker load) documented in deferred-items.md. SLIDE-14/SLIDE-31/SLIDE-35/SLIDE-39 ship integration in 11-04 but flip Pending → Complete in Plan 11-05 verification gate (consistent with 11-02/11-03 precedent). Plan 11-05 unblocked — every Wave 0 RED-gate stub now has implementation behind every assertion path.
 
 ### Pending Todos
 
@@ -193,8 +195,8 @@ Items acknowledged and carried forward from v1.0 milestone close:
 
 ## Session Continuity
 
-Last session: 2026-05-08T18:13:21.468Z
-Stopped at: Completed 11-03-PLAN.md (Wave 2 chip lifecycle wiring + Settings sub-block + port-lost + session-log gate + paste-pump gate + auto-send prefs swap)
+Last session: 2026-05-08T18:30:07.288Z
+Stopped at: Completed 11-04-PLAN.md (Wave 3 echo-swallow filter + visibilitychange/pagehide CTRL_CAN + Compatibility-mode 3-way 3s wakeup timer)
 Resume file: None
 
 **Next Phase:** Phase 8 — Wasm Boundary, JS Dispatcher & ESC^ Wakeup. Phase 7 delivered the pure-Rust SLIDE state machine; Phase 8 wraps `Slide` in `lib.rs:wasm_boundary` with `feed_byte` / `feed_chunk` / `outbound_ptr/_len/clear_outbound` / `state` / `cancel` / `force_idle` exports (per ARCHITECTURE.md §1). The `Slide` struct shape is pinned via `tests/slide_boundary_shape.rs` fn-pointer coercion (Plan 07-04) so any drift fails at compile time. ADR-003 (Plan 07-05) is the canonical document for the v0.2.1 CAN-bidirectional amendment that Phase 8's wasm wrapper exposes to JS.
