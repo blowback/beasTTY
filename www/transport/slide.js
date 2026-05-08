@@ -37,6 +37,13 @@
 // defensive entry checks in `enterSendMode` (refuse to queue a send when
 // the wire is owned by an active SLIDE session, or no writer is registered).
 import { pushTxBytes, getWireOwner, isWriterReady } from '../input/tx-sink.js';
+// Phase 10 Plan 10-03 — receiver event delegation + per-session lifecycle ref
+// + Esc-disambiguation gate (slide-recv.js owns the recv chunks accumulator,
+// download dispatch, and cancel state machine). Pre-Phase-10 the dispatcher
+// drained recv events to no-op; Plan 10-03 routes EVT_HEADER_RECEIVED /
+// EVT_RECV_DATA / EVT_RECV_FILE_DONE through onRecvEvent, and re-issues
+// setSlideRef on every enterRecvMode so slide-recv has the live wasm Slide.
+import { onRecvEvent, setSlideRef as setSlideRecvRef, isSlideActive } from './slide-recv.js';
 
 // EVT_* — packed (kind << 16) | aux. JS unpacks via (evt >>> 16) for kind,
 // (evt & 0xFFFF) for aux. AUTHORITY: crates/bestialitty-core/tests/slide_boundary_shape.rs:slide_event_constants_pinned
@@ -46,7 +53,7 @@ import { pushTxBytes, getWireOwner, isWriterReady } from '../input/tx-sink.js';
 // cargo test; Plan 08-04's Playwright dispatcher harness drives a CTRL_RDY
 // byte and asserts the reported event kind matches EVT_RDY for orthogonal
 // drift detection.
-const EVT_NONE        = 0;
+export const EVT_NONE = 0;
 const EVT_RDY         = 1 << 16;       // 0x00010000
 const EVT_ACK         = 2 << 16;
 const EVT_NAK         = 3 << 16;
@@ -62,6 +69,13 @@ const EVT_CRC_ERROR   = 7 << 16;
 const EVT_FILE_COMPLETE     = 8  << 16;   // aux = file_idx of the file just acked
 const EVT_SESSION_COMPLETE  = 9  << 16;   // aux = 0; emitted on FIN exchange completion
 const EVT_RETRANSMIT_NEEDED = 10 << 16;   // aux = seq the receiver NAK'd
+// Phase 10 receiver extensions — pinned by
+// crates/bestialitty-core/tests/slide_boundary_shape.rs (and wasm sibling).
+// Plan 10-01 added the Rust-side enum values; Plan 10-03 mirrors them here so
+// drainEventsAndOutbound can route per-event to slide-recv.js's onRecvEvent.
+const EVT_HEADER_RECEIVED = 11 << 16;   // aux = file_idx (0-based)
+const EVT_RECV_DATA       = 12 << 16;   // aux = seq
+const EVT_RECV_FILE_DONE  = 13 << 16;   // aux = file_idx of file just completed
 
 // SlideState repr(u32) mirror.
 const STATE_IDLE          = 0;
@@ -82,6 +96,14 @@ let wakeIdx = 0;                         // D-01 match-index counter (0..7)
 const scratch = new Uint8Array(6);       // D-02 backing buffer; max 6 bytes (the 7th match
                                          // commits to recv mode and is never replayed)
 let slide = null;                        // per-session new Slide() (CoreSlide via wasm)
+
+// Phase 10 — mid-session ESC^SLIDE re-entry matcher state (separate from
+// dispatchTerminalMode's wakeIdx so the two matchers don't interfere when
+// dispatchInbound flips between modes mid-stream). Pattern 9 verbatim from
+// 10-RESEARCH.md — on full match, slide.force_idle + exitRecvMode + enterRecvMode
+// (T-10-03 mitigation: idempotent reset per CONTEXT C-05).
+let recvWakeIdx = 0;
+const recvScratch = new Uint8Array(6);
 
 // Injected deps (wireSlideDispatcher sets these).
 let termRef = null;
@@ -221,6 +243,33 @@ export function __getStateForTests() {
             current_filename: null,
         };
     }
+    // Phase 10 Plan 10-03 — recv-mode introspection (CONTEXT §"window.__slide
+    // recv-mode shape"). W1 wiring: bytes_in_file_done is owned by slide-recv
+    // module (currentFile.bytesDone counter). Read via window.__slideRecv
+    // getter to honour CONTEXT.md's locked recv-mode shape (where
+    // bytes_in_file_done is a meaningful counter, not always 0).
+    if (slide && mode === 'recv') {
+        const slideRecvState = (typeof window !== 'undefined' && window.__slideRecv && typeof window.__slideRecv.__getStateForTests === 'function')
+            ? window.__slideRecv.__getStateForTests()
+            : {};
+        const recvFilenameLen = slide.recv_filename_len();
+        let currentFilename = slideRecvState.currentFilename ?? null;
+        if (!currentFilename && recvFilenameLen > 0) {
+            const buf = new Uint8Array(wasmRef.memory.buffer, slide.recv_filename_ptr(), 16);
+            const slice = buf.subarray(0, recvFilenameLen);
+            currentFilename = new TextDecoder('latin1').decode(slice);
+        }
+        return {
+            ...baseState,
+            state: slide.state(),
+            file_idx: slide.recv_current_file_idx(),
+            total_files: 0,                                    // unknown until FIN — CONTEXT note
+            bytes_in_file_done: slideRecvState.bytesInFileDone ?? 0,   // W1 wiring
+            bytes_in_file_total: slide.recv_file_size(),
+            current_filename: currentFilename,
+            recv_to_folder: slideRecvState.recvToFolder ?? false,
+        };
+    }
     return baseState;
 }
 
@@ -309,8 +358,59 @@ function dispatchTerminalMode(value) {
     }
 }
 
-// D-07 — straight pass-through; Phase 10 owns re-entry detection.
+// Phase 10 — Plan 10-03 — recv-mode dispatcher with mid-session ESC^SLIDE
+// re-entry matcher (Pattern 9 verbatim from 10-RESEARCH.md / T-10-03 mitigation).
+// Walks bytes byte-by-byte running the 7-byte wakeup matcher in PARALLEL with
+// the framer feed. On match → console.warn + slide.force_idle() + exitRecvMode +
+// enterRecvMode (idempotent reset per CONTEXT C-05). Bytes BEFORE the wakeup
+// feed to the existing SM (last-ditch ACK opportunity); bytes AFTER feed to a
+// fresh SM. Pattern mirrors dispatchTerminalMode (lines 229-310) for consistency.
 function dispatchRecvMode(value) {
+    let matchEnd = -1;
+    for (let i = 0; i < value.length; i++) {
+        const b = value[i];
+        if (b === WAKEUP[recvWakeIdx]) {
+            if (recvWakeIdx < 6) recvScratch[recvWakeIdx] = b;
+            recvWakeIdx++;
+            if (recvWakeIdx === 7) {
+                matchEnd = i;
+                recvWakeIdx = 0;
+                break;
+            }
+        } else {
+            if (recvWakeIdx > 0) {
+                if (b === WAKEUP[0]) {
+                    recvScratch[0] = b;
+                    recvWakeIdx = 1;
+                } else {
+                    recvWakeIdx = 0;
+                }
+            }
+        }
+    }
+    if (matchEnd >= 0) {
+        // Bytes BEFORE the wakeup go to the existing SM (last-ditch ACK).
+        // matchEnd points at the last byte of the 7-byte signature; the
+        // signature occupies indices [matchEnd-6 .. matchEnd] inclusive.
+        const before = value.subarray(0, matchEnd - 6);
+        if (before.length) {
+            feedSlide(before);
+            drainEventsAndOutbound();
+        }
+        console.warn('[slide.js] mid-session ESC^SLIDE detected — Z80 reset; re-entering recv mode');
+        if (slide && typeof slide.force_idle === 'function') slide.force_idle();
+        exitRecvMode();
+        enterRecvMode();
+        // Bytes AFTER the wakeup feed to the new SM.
+        const tail = value.subarray(matchEnd + 1);
+        if (tail.length) {
+            feedSlide(tail);
+            drainEventsAndOutbound();
+            maybeExitRecvMode();
+        }
+        return;
+    }
+    // No re-entry — normal recv path.
     feedSlide(value);
     drainEventsAndOutbound();
     maybeExitRecvMode();
@@ -321,9 +421,19 @@ function feedSlide(bytes) {
 }
 
 function drainEventsAndOutbound() {
-    // Drain events to a no-op in Phase 8 (RESEARCH §Open Question 4
-    // recommendation — bounded ring; Phase 10 attaches the chip event handler).
-    while (slide.take_event_packed() !== EVT_NONE) { /* drain */ }
+    // Phase 10 Plan 10-03 — extended to dispatch on EVT_HEADER_RECEIVED /
+    // EVT_RECV_DATA / EVT_RECV_FILE_DONE. Earlier phases drained events to
+    // no-op; the recv-mode dispatcher now routes per-event to slide-recv.js's
+    // onRecvEvent. Other events (EVT_RDY/ACK/NAK/FIN/CAN/DATA_FRAME/CRC_ERROR
+    // and the Phase 9 sender-mode events) drain to no-op here — the sender
+    // path uses drainEventsAndOutboundAwaitable (the awaitable mirror).
+    let evt;
+    while ((evt = slide.take_event_packed()) !== EVT_NONE) {
+        const kind = evt & 0xFFFF_0000;
+        if (kind === EVT_HEADER_RECEIVED || kind === EVT_RECV_DATA || kind === EVT_RECV_FILE_DONE) {
+            onRecvEvent(evt);
+        }
+    }
     drainSlideOutbound();
 }
 
@@ -357,6 +467,10 @@ function enterRecvMode() {
     if (slide && typeof slide.free === 'function') slide.free();
     slide = new SlideCtor();
     slide.enter_recv_mode();
+    // Phase 10 Plan 10-03 — give slide-recv module the live instance per
+    // CONTEXT C-05 per-session lifecycle. slide-recv reads slideRef in
+    // onRecvEvent (chunks accumulator) + cancelSlideRecv (5-step CTRL_CAN).
+    setSlideRecvRef(slide);
     // D-09 — synchronous handoff. Pitfall 3 — flip both mode and owner in
     // the same helper to prevent half-state.
     txSinkRef.setWireOwner('slide');
