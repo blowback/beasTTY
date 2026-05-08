@@ -28,6 +28,15 @@ function labelFor(destinationThemeName) {
     return destinationThemeName === 'crt' ? 'CRT' : 'Clean';
 }
 
+// Phase 11 Plan 11-04 D-13 / SLIDE-31 — module-scope refs for the
+// visibilitychange + pagehide CTRL_CAN best-effort branches. Set inside
+// wireChrome from opts; remain null when wireChrome is called from older
+// boot paths or test harnesses that don't pass the new opts (the branch
+// gates on the predicate so a null ref is a no-op).
+let isSlideActiveRef = null;
+let cancelSlideRecvRef = null;
+let txSinkRef = null;
+
 function applyThemeSideEffects(newTheme, { themeButton, phosphorGroup }) {
     // Body attribute drives scanline visibility via CSS (RENDER-04 / D-11).
     document.body.setAttribute('data-theme', newTheme);
@@ -73,8 +82,23 @@ export function wireChrome(opts) {
         prefs,
         savePrefs,
         resetPrefs,
+        // Phase 11 Plan 11-04 D-13 / SLIDE-31 — fire-and-forget CTRL_CAN
+        // emission on hide / pagehide during active SLIDE session. All three
+        // refs are optional; missing refs disable the branch (production
+        // main.js boot wires all three, tests that don't pass them retain
+        // pre-Phase-11 visibilitychange behaviour).
+        isSlideActive,
+        cancelSlideRecv,
+        txSink,
     } = opts;
     const ctx = { terminalWrapper, themeButton, phosphorButtons, phosphorGroup, bellOverlay };
+
+    // Phase 11 Plan 11-04 D-13 — bind module-scope refs for the SLIDE
+    // best-effort CTRL_CAN branch (visibilitychange + pagehide listeners
+    // below).
+    isSlideActiveRef = isSlideActive || null;
+    cancelSlideRecvRef = cancelSlideRecv || null;
+    txSinkRef = txSink || null;
 
     // Initial paint of chrome side-effects (reflects canvas.js default state).
     applyThemeSideEffects(getActiveTheme().name, ctx);
@@ -212,6 +236,37 @@ export function wireChrome(opts) {
             document.title = document.title.slice(4);
         }
         if (!document.hidden && requestFrame) requestFrame();
+        // Phase 11 Plan 11-04 D-13 / SLIDE-31 — fire-and-forget CTRL_CAN on
+        // hide during active SLIDE session. Best-effort: try/catch wrappers
+        // prevent error propagation during page teardown (PITFALLS §6 — page
+        // is hidden / unloading; errors must NOT propagate). No await — the
+        // browser may not flush the wire before the tab closes, and that is
+        // acceptable per CONTEXT D-13. The 0x18 byte is the SLIDE CTRL_CAN
+        // per ADR-003. cancelSlideRecv is the Phase 10 D-15 5-step cancel
+        // state machine; calling it AND writing 0x18 is intentional double
+        // safety (the cancel state machine internalises its own CTRL_CAN
+        // emission via slide.cancel(), and the writeSlideFrame is a
+        // last-ditch direct-to-wire call in case the SM has already
+        // transitioned past CancelPending — Phase 10 D-15 cancelInFlight
+        // guard makes this idempotent).
+        if (document.visibilityState === 'hidden' && isSlideActiveRef && isSlideActiveRef()) {
+            try { if (cancelSlideRecvRef) cancelSlideRecvRef(); } catch {}
+            try { if (txSinkRef && txSinkRef.writeSlideFrame) txSinkRef.writeSlideFrame(new Uint8Array([0x18])); } catch {}
+        }
+    });
+
+    // Phase 11 Plan 11-04 D-13 / SLIDE-31 — pagehide is the bfcache-safe
+    // complement to visibilitychange. modern Chromium fires visibilitychange
+    // on tab close, but pagehide is the spec-guaranteed signal for bfcache
+    // eviction. Body mirrors the visibilitychange SLIDE branch verbatim;
+    // the inner isSlideActiveRef() guard ensures duplicate calls are safe
+    // (the second one no-ops because slide.cancel() already transitioned
+    // to CancelPending).
+    window.addEventListener('pagehide', () => {
+        if (isSlideActiveRef && isSlideActiveRef()) {
+            try { if (cancelSlideRecvRef) cancelSlideRecvRef(); } catch {}
+            try { if (txSinkRef && txSinkRef.writeSlideFrame) txSinkRef.writeSlideFrame(new Uint8Array([0x18])); } catch {}
+        }
     });
 
     // ==== Phase 6 Plan 06 (Wave 5) — Settings 'Clear scrollback' button (D-15) ====

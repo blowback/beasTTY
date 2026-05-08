@@ -165,9 +165,29 @@ const downloadLogBtn      = document.getElementById('download-log-button');
 // the live ref at click time. scrollStateRef is set right after wireScrollState
 // returns; wireChrome receives the getter, not the value.
 let scrollStateRef = null;
+// Phase 11 Plan 11-04 D-13 / SLIDE-31 — declare cancelSlideRecvLazy thunk-
+// holder BEFORE wireChrome so chrome.js's visibilitychange + pagehide
+// listeners can close over a stable reference. Phase 11 Plan 11-03's
+// wireSlideChip uses the same pattern further below; the holder is
+// reassigned to the real cancelSlideRecv after wireSlideRecv runs (line
+// ~510). Until then, calls into cancelSlideRecvLazy() are no-ops — but
+// during boot no SLIDE session can be active anyway (isSlideActive() returns
+// false until enterRecvMode flips it), so the thunk is never called before
+// it's bound.
+let cancelSlideRecvLazy = () => { /* no-op until wireSlideRecv runs */ };
+
 // Phase 6 Plan 06 (Wave 5) — Settings-pane new rows (Clear scrollback / Auto
 // connect / Reset prefs). chrome.js owns the click handlers; main.js injects
 // resetPrefs + savePrefs + prefs so the handlers can persist user choices.
+//
+// Phase 11 Plan 11-04 D-13 / SLIDE-31 — visibilitychange + pagehide listeners
+// in chrome.js need three additional refs to emit fire-and-forget CTRL_CAN
+// during active SLIDE session: isSlideActive (predicate gate),
+// cancelSlideRecvLazy (thunk-holder declared above before wireSlideRecv
+// runs), txSink (writeSlideFrame for the 0x18 byte). The thunk for
+// cancelSlideRecv mirrors the wireSlideChip onCancel pattern from Plan
+// 11-03 — the function reference is always defined but its internal state is
+// only populated after wireSlideRecv runs.
 wireChrome({
     terminalWrapper, themeButton, phosphorButtons, phosphorGroup, bellOverlay, requestFrame,
     term,                                       // Phase 6 Plan 05 — clear_visible / resize_scrollback
@@ -175,6 +195,9 @@ wireChrome({
     prefs,                                      // Phase 6 Plan 06 — Auto connect checkbox initial state
     savePrefs,                                  // Phase 6 Plan 06 — persist Auto connect changes + theme/phosphor toggles
     resetPrefs,                                 // Phase 6 Plan 06 — Reset all preferences 2-click confirm
+    isSlideActive: isSlideActive,               // Phase 11 D-13 — predicate gate for CTRL_CAN branch
+    cancelSlideRecv: () => cancelSlideRecvLazy(),  // Phase 11 D-13 — thunk-holder; resolved below
+    txSink: { writeSlideFrame, writeSlideFrameAwaitable },  // Phase 11 D-13 — fire-and-forget CTRL_CAN
 });
 
 // ---- Phase 6 Plan 03 (Wave 2) — wire scrollback state machine ----
@@ -422,8 +445,10 @@ window.__sessionLog = {
 // reference always defined, but its internal state (slideRef, dispatcherForceExitRef)
 // is only populated after wireSlideRecv runs. The thunk-holder lets us hand a
 // stable closure to wireSlideChip BEFORE wireSlideRecv runs and resolve to the
-// real cancelSlideRecv once it's wired below.
-let cancelSlideRecvLazy = () => { /* no-op until wireSlideRecv runs */ };
+// real cancelSlideRecv once it's wired below. Phase 11 Plan 11-04 hoisted the
+// `let cancelSlideRecvLazy = () => {};` declaration up to before wireChrome
+// so chrome.js's visibilitychange + pagehide listeners (D-13) can also close
+// over the same holder; Plan 11-03's wireSlideChip below shares it.
 
 const slideChipEl = document.getElementById('slide-chip');
 const slideChipTextEl = document.getElementById('slide-chip-text');
