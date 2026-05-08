@@ -150,23 +150,56 @@ impl Slide {
     ///   <u32 size>
     /// ```
     ///
-    /// All u32 fields are little-endian. The metadata is trusted: JS-side
-    /// `validateCpmFilename` + `truncateCpm83` have already enforced ASCII
-    /// + 8.3 + valid CP/M character set per D-06/D-07.
+    /// All u32 fields are little-endian. JS-side `validateCpmFilename` +
+    /// `truncateCpm83` enforce the *filename character set* (ASCII + 8.3 +
+    /// valid CP/M character set per D-06/D-07), but the **outer framing** of
+    /// the length-prefixed blob is parsed defensively here. Phase 9 CR-01
+    /// hardening: malformed metadata (truncated buffer, name_len overrunning
+    /// `metadata.len()`, usize wrap on 32-bit targets, file_count larger than
+    /// the buffer can support) transitions the SM to `SlideState::Error`
+    /// without panicking. This mirrors the `encode_key_raw` boundary policy
+    /// at lib.rs:312-320 (RESEARCH Pitfall #4 — never panic across the wasm
+    /// FFI boundary; an abort-trap wedges the entire wasm instance until the
+    /// page is reloaded).
     pub fn enter_send_mode(&mut self, metadata: &[u8]) {
-        let mut cursor = 0usize;
-        let file_count = read_le_u32(&metadata[cursor..]) as usize;
-        cursor += 4;
-        let mut files = Vec::with_capacity(file_count);
-        for _ in 0..file_count {
-            let name_len = read_le_u32(&metadata[cursor..]) as usize;
+        fn try_parse(metadata: &[u8]) -> Option<Vec<FileMeta>> {
+            let mut cursor = 0usize;
+            if metadata.len() < 4 { return None; }
+            let file_count = u32::from_le_bytes(
+                metadata[cursor..cursor + 4].try_into().ok()?
+            ) as usize;
             cursor += 4;
-            let name = metadata[cursor..cursor + name_len].to_vec();
-            cursor += name_len;
-            let size = read_le_u32(&metadata[cursor..]);
-            cursor += 4;
-            files.push(FileMeta { name, size });
+            let mut files = Vec::with_capacity(file_count);
+            for _ in 0..file_count {
+                // u32 name_len.
+                if cursor.checked_add(4)? > metadata.len() { return None; }
+                let name_len = u32::from_le_bytes(
+                    metadata[cursor..cursor + 4].try_into().ok()?
+                ) as usize;
+                cursor += 4;
+                // name bytes + u32 size — guard usize add against 32-bit wrap.
+                let name_end = cursor.checked_add(name_len)?;
+                let after_size = name_end.checked_add(4)?;
+                if after_size > metadata.len() { return None; }
+                let name = metadata[cursor..name_end].to_vec();
+                cursor = name_end;
+                let size = u32::from_le_bytes(
+                    metadata[cursor..cursor + 4].try_into().ok()?
+                );
+                cursor += 4;
+                files.push(FileMeta { name, size });
+            }
+            Some(files)
         }
+
+        let Some(files) = try_parse(metadata) else {
+            // Defensive: malformed metadata transitions to Error with no
+            // outbound bytes pushed and no role swap — JS observes the Error
+            // state via slide.state() and constructs a new Slide for the next
+            // session.
+            self.sm_state = SlideState::Error;
+            return;
+        };
         self.send_ctx = Some(SendCtx {
             files,
             current_file_idx: 0,
@@ -507,12 +540,6 @@ impl Default for Slide {
     fn default() -> Self {
         Self::new()
     }
-}
-
-/// Module-private helper: parse u32 LE from a byte slice.
-/// Panics on out-of-bounds — JS-supplied metadata is trusted per CONTEXT D-09.
-fn read_le_u32(bytes: &[u8]) -> u32 {
-    u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])
 }
 
 #[cfg(test)]

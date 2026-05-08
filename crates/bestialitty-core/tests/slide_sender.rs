@@ -405,3 +405,77 @@ fn fin_after_all_files_acks_session_complete() {
     assert_eq!(sender.state(), SlideState::Done as u32);
     assert!(bot.fin_observed());
 }
+
+// ===== Phase 9 CR-01 — defensive metadata parsing =====
+//
+// `enter_send_mode` is exposed across the wasm FFI boundary (lib.rs:293-295);
+// any panic in the parse loop abort-traps the wasm instance and wedges the
+// page until reload. The four cases below feed deliberately-malformed
+// metadata and assert the SM transitions to `SlideState::Error` without
+// panicking, with no role swap and no CTRL_RDY pushed.
+
+fn assert_malformed_metadata_rejected(metadata: &[u8], label: &str) {
+    let mut sender = Slide::new();
+    sender.enter_send_mode(metadata);
+    assert_eq!(
+        sender.state(),
+        SlideState::Error as u32,
+        "{label}: malformed metadata must transition SM to Error"
+    );
+    assert_eq!(
+        sender.outbound_len(),
+        0,
+        "{label}: malformed metadata must not push CTRL_RDY"
+    );
+}
+
+#[test]
+fn cr01_malformed_metadata_zero_length() {
+    // Empty buffer — file_count u32 cannot be read.
+    assert_malformed_metadata_rejected(&[], "empty");
+}
+
+#[test]
+fn cr01_malformed_metadata_truncated_after_count() {
+    // file_count = 1 but no per-file record follows.
+    let mut m = Vec::new();
+    m.extend_from_slice(&1u32.to_le_bytes());
+    assert_malformed_metadata_rejected(&m, "truncated after count");
+}
+
+#[test]
+fn cr01_malformed_metadata_name_len_overruns_buffer() {
+    // file_count = 1; name_len = 0xFFFF_FFFF — the slice
+    // `metadata[cursor..cursor + name_len]` would panic without defensive bounds.
+    let mut m = Vec::new();
+    m.extend_from_slice(&1u32.to_le_bytes());            // file_count = 1
+    m.extend_from_slice(&0xFFFF_FFFFu32.to_le_bytes());  // name_len = u32::MAX
+    // No name bytes, no size — buffer ends here.
+    assert_malformed_metadata_rejected(&m, "name_len overruns buffer");
+}
+
+#[test]
+fn cr01_malformed_metadata_truncated_record() {
+    // file_count = 2 but only one full record + truncated second.
+    let mut m = Vec::new();
+    m.extend_from_slice(&2u32.to_le_bytes());            // file_count = 2
+    // file 0
+    m.extend_from_slice(&5u32.to_le_bytes());
+    m.extend_from_slice(b"A.TXT");
+    m.extend_from_slice(&10u32.to_le_bytes());
+    // file 1 — only the name_len, no name bytes, no size.
+    m.extend_from_slice(&5u32.to_le_bytes());
+    assert_malformed_metadata_rejected(&m, "truncated second record");
+}
+
+#[test]
+fn cr01_malformed_metadata_size_field_truncated() {
+    // file_count = 1; name_len + name present, but size field truncated.
+    let mut m = Vec::new();
+    m.extend_from_slice(&1u32.to_le_bytes());
+    m.extend_from_slice(&5u32.to_le_bytes());
+    m.extend_from_slice(b"A.TXT");
+    // size field truncated — only 2 bytes instead of 4.
+    m.extend_from_slice(&[0x01, 0x00]);
+    assert_malformed_metadata_rejected(&m, "size field truncated");
+}
