@@ -32,6 +32,7 @@ let topBarSendInputRef = null;
 let enterSendModeFn = null;
 let getSlideStateFn = null;
 let isWriterReadyFn = null;   // Phase 9 WR-03 — gate button on writer registration
+let slideChipRef = null;      // Phase 11 Plan 11-03 D-10 — chip flash on drop-during-active-session
 
 let buttonStateInterval = null;
 
@@ -50,6 +51,7 @@ export function wireFileSource(opts) {
         enterSendMode,    // imported from transport/slide.js (injected)
         getSlideState,    // () => window.__slide.__getStateForTests() (injected)
         isWriterReady,    // Phase 9 WR-03 — () => txSink.isWriterReady() (injected)
+        slideChip,        // Phase 11 Plan 11-03 D-10 — chip flash on drop-during-active-session (injected)
     } = opts;
     wrapperElRef = wrapperEl;
     topBarSendBtnRef = sendBtn;
@@ -63,6 +65,7 @@ export function wireFileSource(opts) {
     enterSendModeFn = enterSendMode;
     getSlideStateFn = getSlideState;
     isWriterReadyFn = isWriterReady ?? null;
+    slideChipRef = slideChip || null;
 
     // ===== Top-bar button click → open file picker =====
     sendBtn.addEventListener('click', () => {
@@ -176,9 +179,13 @@ function isSessionActive() {
 function onDragEnter(ev) {
     if (!isFileDrag(ev)) return;
     if (isSessionActive()) {
-        // UI-SPEC §Drag-drop during active SLIDE session — Phase 9 silently
-        // ignores. Phase 11 SLIDE-11 will add the "Transfer in progress —
-        // cancel first" chip. Don't preventDefault; don't set the attribute.
+        // Phase 11 Plan 11-03 D-10 / SLIDE-11 — chip flash replaces Phase 9
+        // silent ignore. flashDropRejected sets a 3-second sliding window
+        // overlay on the active-state chip rendering "Transfer in progress —
+        // cancel first" (UI-SPEC §Copywriting verbatim). Don't preventDefault;
+        // don't set the [data-drop-target] attribute (the drop overlay must
+        // not appear, only the chip flash).
+        try { if (slideChipRef && typeof slideChipRef.flashDropRejected === 'function') slideChipRef.flashDropRejected(); } catch {}
         return;
     }
     ev.preventDefault();
@@ -206,7 +213,11 @@ function onDragLeave(ev) {
 function onDrop(ev) {
     if (!isFileDrag(ev)) return;
     if (isSessionActive()) {
-        // Silent ignore during active session.
+        // Phase 11 Plan 11-03 D-10 / SLIDE-11 — chip flash replaces Phase 9
+        // silent ignore. Same 3-second sliding window as onDragEnter; bytes
+        // never reach enterSendMode while the session is active
+        // (T-11-03-drop-injection mitigation).
+        try { if (slideChipRef && typeof slideChipRef.flashDropRejected === 'function') slideChipRef.flashDropRejected(); } catch {}
         return;
     }
     ev.preventDefault();

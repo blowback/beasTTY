@@ -411,17 +411,49 @@ window.__sessionLog = {
     getCurrentBytes: sessionLogBytes,
 };
 
+// Phase 11 Plan 11-03 — wire SLIDE chip FIRST (re-ordered from Plan 11-02 boot
+// position so downstream initializers can pass slideChipApi into wireSlideDispatcher
+// / wireSlideRecv / wireFileSource opts). Lifecycle integration with the dispatcher
+// (auto-driven state transitions on session events) lands via the slideChip opt
+// in wireSlideDispatcher below; Compatibility-mode 3 s wakeup timer + [Force start]
+// / [Retry] action wiring lands in Plan 11-04.
+//
+// onCancel uses a thunk-holder pattern: cancelSlideRecv is an imported function
+// reference always defined, but its internal state (slideRef, dispatcherForceExitRef)
+// is only populated after wireSlideRecv runs. The thunk-holder lets us hand a
+// stable closure to wireSlideChip BEFORE wireSlideRecv runs and resolve to the
+// real cancelSlideRecv once it's wired below.
+let cancelSlideRecvLazy = () => { /* no-op until wireSlideRecv runs */ };
+
+const slideChipEl = document.getElementById('slide-chip');
+const slideChipTextEl = document.getElementById('slide-chip-text');
+const slideChipApi = wireSlideChip({
+    chipEl: slideChipEl,
+    chipTextEl: slideChipTextEl,
+    getSlideState: __slideGetStateForTests,    // imported from transport/slide.js (existing)
+    onCancel: () => cancelSlideRecvLazy(),     // thunk-holder — resolved after wireSlideRecv
+    prefs,                                      // existing prefs object loaded at boot
+});
+
 // Phase 8 — wire SLIDE dispatcher AFTER wireSessionLog (so the post-feed
 // invariant's sessionLogRef.append still sees inbound bytes — terminal mode
 // is byte-transparent through dispatchInbound) and BEFORE await wireSerial
 // so the dispatcher is initialized before any chunks could arrive on the
 // read loop. Pitfall 8 — Slide constructor depends on `await init()` having
 // resolved, which happened at main.js:79.
+//
+// Phase 11 Plan 11-03 — extended opts: prefs (D-09 auto-send sourced from
+// prefs.slideAutoSendCommand) + pastePump (D-12 cancelPaste at SLIDE wakeup
+// completion) + slideChip (D-15 chip lifecycle hooks at enterSendMode /
+// enterRecvMode / exitSendMode / exitRecvMode).
 wireSlideDispatcher({
     term,
     txSink: { setWireOwner, getWireOwner, writeSlideFrame, writeSlideFrameAwaitable },
     slideCtor: Slide,
     wasm,
+    prefs,                                      // Phase 11 D-09 — auto-send from prefs.slideAutoSendCommand
+    pastePump: { cancelPaste: cancelPastePump }, // Phase 11 D-12 — cancelPaste at SLIDE wakeup
+    slideChip: slideChipApi,                    // Phase 11 — chip lifecycle hooks
 });
 
 // Phase 10 Plan 10-03 — wire SLIDE recv plumbing AFTER wireSlideDispatcher.
@@ -430,6 +462,9 @@ wireSlideDispatcher({
 // installed inside wireSlideRecv (mousedown preventDefault retained for
 // terminal focus per Phase 4 D-16 + Phase 6 precedent). The anchor-click
 // default path still works (slideRecvToFolder=false default in prefs).
+//
+// Phase 11 Plan 11-03 — extended opts: slideChip (D-14 — slidePumpOnPortLost
+// calls slideChipRef.enterError on port-lost teardown).
 const slideRecvFolderRow        = document.getElementById('slide-recv-folder-row');
 const slideRecvToFolderCheckbox = document.getElementById('slide-recv-to-folder-checkbox');
 const slideRecvFolderButton     = document.getElementById('slide-recv-folder-button');
@@ -453,7 +488,14 @@ wireSlideRecv({
     // 'terminal' on cancel / hard-fail (without waiting for the next inbound
     // chunk to trigger maybeExitRecvMode).
     dispatcherForceExit: dispatcherForceExitRecvMode,
+    slideChip: slideChipApi,         // Phase 11 D-14 — chip handle for slidePumpOnPortLost
 });
+
+// Phase 11 Plan 11-03 — resolve the thunk-holder now that cancelSlideRecv's
+// internal state (slideRef + dispatcherForceExitRef) is wired by wireSlideRecv.
+// Subsequent calls into cancelSlideRecvLazy() reach the real cancel state
+// machine instead of no-op.
+cancelSlideRecvLazy = cancelSlideRecv;
 
 // Phase 11 Plan 11-03 — Settings SLIDE sub-block: hydrate from prefs +
 // wire savePrefs (D-06 / D-07 / D-08 / D-09). Each form control hydrates
@@ -549,6 +591,8 @@ const sendModalAllRejectedHint = document.getElementById('send-modal-all-rejecte
 const sendModalCancelButton    = document.getElementById('send-modal-cancel');
 const sendModalSendButton      = document.getElementById('send-modal-send');
 
+// Phase 11 Plan 11-03 — extended opts: slideChip (D-10 — flashDropRejected
+// at onDragEnter + onDrop call sites when isSessionActive() returns true).
 wireFileSource({
     wrapperEl: terminalWrapper,
     sendBtn: sendFileButton,
@@ -562,20 +606,7 @@ wireFileSource({
     enterSendMode: enterSlideSendMode,        // imported from transport/slide.js (Plan 09-02)
     getSlideState: __slideGetStateForTests,    // imported from transport/slide.js (Plan 09-02)
     isWriterReady,                            // Phase 9 WR-03 — gate top-bar button on writer registration
-});
-
-// Phase 11 Plan 11-02 — wire SLIDE chip (Wave 1). Lifecycle integration with
-// the dispatcher / sender / receiver lands in Plan 11-03; Compatibility-mode
-// 3 s wakeup timer + [Force start] / [Retry] action wiring lands in Plan 11-04.
-// For now chip is addressable only via window.__slideChip below.
-const slideChipEl = document.getElementById('slide-chip');
-const slideChipTextEl = document.getElementById('slide-chip-text');
-const slideChipApi = wireSlideChip({
-    chipEl: slideChipEl,
-    chipTextEl: slideChipTextEl,
-    getSlideState: __slideGetStateForTests,    // imported from transport/slide.js (existing)
-    onCancel: cancelSlideRecv,                  // imported from transport/slide-recv.js (existing)
-    prefs,                                      // existing prefs object loaded at boot
+    slideChip: slideChipApi,                  // Phase 11 D-10 — chip flash on drop-during-active-session
 });
 
 // Test introspection (mirrors Phase 8 + Plan 09-02 window.__* precedent).
