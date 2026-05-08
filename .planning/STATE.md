@@ -4,14 +4,14 @@ milestone: v1.0
 milestone_name: Integration
 status: executing
 stopped_at: Phase 12 context gathered
-last_updated: "2026-05-08T20:26:55.519Z"
+last_updated: "2026-05-08T21:34:02.680Z"
 last_activity: 2026-05-08 -- Phase --phase execution started
 progress:
   total_phases: 12
   completed_phases: 11
-  total_plans: 65
+  total_plans: 70
   completed_plans: 65
-  percent: 100
+  percent: 93
 ---
 
 # Project State
@@ -203,4 +203,4 @@ Resume file: --resume-file
 
 **Next Phase:** Phase 8 — Wasm Boundary, JS Dispatcher & ESC^ Wakeup. Phase 7 delivered the pure-Rust SLIDE state machine; Phase 8 wraps `Slide` in `lib.rs:wasm_boundary` with `feed_byte` / `feed_chunk` / `outbound_ptr/_len/clear_outbound` / `state` / `cancel` / `force_idle` exports (per ARCHITECTURE.md §1). The `Slide` struct shape is pinned via `tests/slide_boundary_shape.rs` fn-pointer coercion (Plan 07-04) so any drift fails at compile time. ADR-003 (Plan 07-05) is the canonical document for the v0.2.1 CAN-bidirectional amendment that Phase 8's wasm wrapper exposes to JS.
 
-**Planned Phase:** 11 (SLIDE JS Bridge & v1.0 Integration) — 5 plans — 2026-05-08T17:30:01.739Z
+**Planned Phase:** 12 (SLIDE UX Polish, Docs & Real-Hardware UAT) — 5 plans — 2026-05-08T21:34:02.672Z
