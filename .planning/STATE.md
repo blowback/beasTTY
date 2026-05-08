@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: Integration
-status: executing
-stopped_at: Completed 12-04-PLAN.md
-last_updated: "2026-05-08T22:34:51.162Z"
+status: verifying
+stopped_at: Completed 12-05-PLAN.md
+last_updated: "2026-05-08T22:40:57.128Z"
 last_activity: 2026-05-08
 progress:
   total_phases: 12
-  completed_phases: 11
+  completed_phases: 12
   total_plans: 70
-  completed_plans: 69
-  percent: 99
+  completed_plans: 70
+  percent: 100
 ---
 
 # Project State
@@ -27,10 +27,10 @@ See: .planning/PROJECT.md (updated 2026-05-06)
 
 Phase: 12 (SLIDE UX Polish, Docs & Real-Hardware UAT) — EXECUTING
 Plan: 5 of 5
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-05-08
 
-Progress: [██████████] 99%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -132,6 +132,7 @@ Progress: [██████████] 99%
 | Phase Phase 12-slide-ux-polish-docs-real-hardware-uat P02 P~25min | 3 tasks (3 atomic commits) + 1 Rule 1 algorithm-vs-example deviation | 4 files tasks | - files |
 | Phase 12 P03 | 21min | 4 tasks | 5 files |
 | Phase 12-slide-ux-polish-docs-real-hardware-uat PP04 | 6min | 2 tasks tasks | 3 files files |
+| Phase 12 P05 | 3min | 1 task tasks | 2 files files |
 
 ## Accumulated Context
 
@@ -205,8 +206,8 @@ Items acknowledged and carried forward from v1.0 milestone close:
 
 ## Session Continuity
 
-Last session: 2026-05-08T22:34:38.204Z
-Stopped at: Completed 12-04-PLAN.md
+Last session: 2026-05-08T22:40:57.121Z
+Stopped at: Completed 12-05-PLAN.md
 Resume file: None
 
 **Next Phase:** Phase 8 — Wasm Boundary, JS Dispatcher & ESC^ Wakeup. Phase 7 delivered the pure-Rust SLIDE state machine; Phase 8 wraps `Slide` in `lib.rs:wasm_boundary` with `feed_byte` / `feed_chunk` / `outbound_ptr/_len/clear_outbound` / `state` / `cancel` / `force_idle` exports (per ARCHITECTURE.md §1). The `Slide` struct shape is pinned via `tests/slide_boundary_shape.rs` fn-pointer coercion (Plan 07-04) so any drift fails at compile time. ADR-003 (Plan 07-05) is the canonical document for the v0.2.1 CAN-bidirectional amendment that Phase 8's wasm wrapper exposes to JS.
