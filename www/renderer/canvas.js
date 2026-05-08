@@ -1,4 +1,4 @@
-// BestialiTTY Phase 3 — Canvas 2D renderer (rAF + dirty-row repaint + HiDPI).
+// Beastty Phase 3 — Canvas 2D renderer (rAF + dirty-row repaint + HiDPI).
 //
 // Source: RESEARCH §Complete rAF Loop Skeleton + §Pattern 1 (HiDPI) +
 //         §Pattern 5 (cursor) + §Pitfall 9 (font force-load) + CONTEXT D-03..D-15.

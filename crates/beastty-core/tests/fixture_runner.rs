@@ -14,7 +14,7 @@
 //! would have to mis-handle identically to hide.
 //!
 //! **Lockstep invariant:** when a new opcode is added to the production
-//! parser at `crates/bestialitty-core/src/vt52.rs`, it MUST be mirrored in
+//! parser at `crates/beastty-core/src/vt52.rs`, it MUST be mirrored in
 //! `record_trace` below IN THE SAME COMMIT or fixture tests silently
 //! diverge from production behaviour. See Plan 01-05 Task 3 acceptance
 //! criteria.
@@ -23,7 +23,7 @@
 //! production path doesn't panic; exact per-row grid assertions live in
 //! unit tests.
 
-use bestialitty_core::terminal::Terminal;
+use beastty_core::terminal::Terminal;
 use std::fs;
 use std::path::PathBuf;
 

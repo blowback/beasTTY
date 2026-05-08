@@ -112,7 +112,7 @@ test.describe('XPORT-06..08, XPORT-10 + SC-3 + D-03..D-05/D-24..D-26/D-30..D-31/
         await page.locator('#connect-button').click();
         await expect(page.locator('#connect-button')).toHaveAttribute('data-state', 'connected');
         // Task 1 wires persistVidPid on every successful open; verify it wrote.
-        const preset = await page.evaluate(() => localStorage.getItem('bestialitty.port.preset'));
+        const preset = await page.evaluate(() => localStorage.getItem('beastty.port.preset'));
         expect(JSON.parse(preset)).toEqual({ usbVendorId: 0x10c4, usbProductId: 0xea60 });
         // Reload re-seeds mock module state (no cross-reload mock persistence);
         // observable contract: Connect button reverts to gray 'Connect'.
@@ -138,13 +138,13 @@ test.describe('XPORT-06..08, XPORT-10 + SC-3 + D-03..D-05/D-24..D-26/D-30..D-31/
         await expect(page.locator('#connect-button')).toHaveAttribute('data-state', 'connected');
     });
 
-    test('localStorage bestialitty.port.preset written after first open', async ({ page }) => {
+    test('localStorage beastty.port.preset written after first open', async ({ page }) => {
         await setup(page);
         // Clear any carry-over value from a previous session.
-        await page.evaluate(() => localStorage.removeItem('bestialitty.port.preset'));
+        await page.evaluate(() => localStorage.removeItem('beastty.port.preset'));
         await page.locator('#connect-button').click();
         await expect(page.locator('#connect-button')).toHaveAttribute('data-state', 'connected');
-        const stored = await page.evaluate(() => localStorage.getItem('bestialitty.port.preset'));
+        const stored = await page.evaluate(() => localStorage.getItem('beastty.port.preset'));
         expect(stored).not.toBeNull();
         expect(JSON.parse(stored)).toEqual({ usbVendorId: 0x10c4, usbProductId: 0xea60 });
     });

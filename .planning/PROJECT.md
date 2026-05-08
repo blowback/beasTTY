@@ -1,8 +1,8 @@
-# BestialiTTY
+# Beastty
 
 ## What This Is
 
-BestialiTTY is an in-browser VT52 terminal emulator for the MicroBeast Z80
+Beastty is an in-browser VT52 terminal emulator for the MicroBeast Z80
 retrocomputer. It runs as a static web app, connects to a MicroBeast over Web
 Serial, and is intended to be usable as a daily-driver terminal for real
 hands-on-keyboard MicroBeast work.
@@ -55,7 +55,7 @@ driver with a real MicroBeast — nothing else matters if that doesn't hold.
       Ctrl+V→0x16 paths, large-paste 4096-byte confirm chip.)*
 - [x] Session logging — capture the serial stream to a downloadable file.
       *(Validated in Phase 6: per-connection raw-byte chunks accumulator,
-      mid-session Blob download with `bestialitty-{YYYYMMDD-HHMMSS}.bin`
+      mid-session Blob download with `beastty-{YYYYMMDD-HHMMSS}.bin`
       filename, RX-only — TX never logged.)*
 - [x] Serial configuration: MicroBeast preset default with overrides.
       *(Validated in Phase 5: 19200 8N1 no-flow preset, full baud/data bits/
@@ -122,7 +122,7 @@ manual sign-off items in `06-HUMAN-UAT.md` and `06-SOAK.md`.
   I/O / rendering / browser lane. This bounds complexity on both sides and
   avoids entangling the wasm core with brittle browser APIs.
 - "Done" is defined experientially: the author plugs into their MicroBeast
-  and uses BestialiTTY as their daily driver without reaching for anything
+  and uses Beastty as their daily driver without reaching for anything
   else.
 - Greenfield project — no existing code in this repo.
 
@@ -189,7 +189,7 @@ clear-selection chord). Tracked in commit history; no separate phase.
 ## Current Milestone: v1.1 FileTransfer
 
 **Goal:** Add browser-side SLIDE protocol so users can transfer files between PC and
-MicroBeast without leaving BestialiTTY — both directions, multi-file, with progress
+MicroBeast without leaving Beastty — both directions, multi-file, with progress
 feedback.
 
 **Target features:**

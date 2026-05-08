@@ -1,4 +1,4 @@
-// BestialiTTY Phase 6 Plan 05 (Wave 4) — SESS-04/SESS-05 session log download tests.
+// Beastty Phase 6 Plan 05 (Wave 4) — SESS-04/SESS-05 session log download tests.
 //
 // Wave 0 stubs un-fixmed. Wave 4 production code lives in:
 //   - www/transport/session-log.js (new module)

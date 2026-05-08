@@ -1,4 +1,4 @@
-// BestialiTTY Phase 4 Plan 02 — TX byte ring buffer + observer fan-out.
+// Beastty Phase 4 Plan 02 — TX byte ring buffer + observer fan-out.
 //
 // Module-scope Uint8Array(1024) ring — JS-owned memory, NOT a view over
 // wasm.memory.buffer (so no memory-identity guard is needed; Phase 5 will

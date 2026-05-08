@@ -1,4 +1,4 @@
-// BestialiTTY Phase 10 Plan 10-05 — receiver download path Playwright assertions.
+// Beastty Phase 10 Plan 10-05 — receiver download path Playwright assertions.
 //
 // Drives the mock-serial-slide-bot in 'send' role (Plan 10-05 extension) to
 // produce SLIDE wire bytes that the production Rust receiver SM consumes. We

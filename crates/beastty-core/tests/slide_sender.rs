@@ -12,7 +12,7 @@
 //! parallel implementations of the receiver side so SLIDE protocol drift cannot
 //! mask itself in a sympathetic mock peer (PITFALLS §13).
 
-use bestialitty_core::slide::tests_only::*;
+use beastty_core::slide::tests_only::*;
 
 // ===== Test helpers =====
 

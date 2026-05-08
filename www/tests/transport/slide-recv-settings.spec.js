@@ -1,4 +1,4 @@
-// BestialiTTY Phase 10 Plan 10-05 — Settings save-mode toggle + IndexedDB
+// Beastty Phase 10 Plan 10-05 — Settings save-mode toggle + IndexedDB
 // persistence Playwright assertions.
 //
 // Locks the Settings → "Save received files to a folder" row state machine:
@@ -146,7 +146,7 @@ test.describe('slide-recv-settings — toggle row state machine', () => {
         // debounced (250 ms — Phase 6 D-33), so poll up to 1 s for the flush.
         await expect.poll(
             () => page.evaluate(() => {
-                const raw = localStorage.getItem('bestialitty.prefs');
+                const raw = localStorage.getItem('beastty.prefs');
                 if (!raw) return null;
                 try { return JSON.parse(raw).slideRecvToFolder; } catch { return null; }
             }),

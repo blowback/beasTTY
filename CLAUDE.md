@@ -1,4 +1,4 @@
-# BestialiTTY
+# Beastty
 
 An in-browser VT52 terminal emulator for the MicroBeast Z80 retrocomputer.
 Static web app: Rust core compiled to wasm for parser / terminal state / key

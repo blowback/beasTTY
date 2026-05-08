@@ -1,4 +1,4 @@
-// BestialiTTY Phase 6 Plan 06 (Wave 5) — PLAT-05/D-34 auto-connect-on-load.
+// Beastty Phase 6 Plan 06 (Wave 5) — PLAT-05/D-34 auto-connect-on-load.
 //
 // Wave 5 lands the auto-connect path inside wireSerial (gated on Pitfall 3
 // race condition). All five stubs un-fixmed by Plan 06-06 Task 3.
@@ -37,8 +37,8 @@ async function setupWithMock(page, { prefs, portPreset, preGrantPort, forceOpenR
     }
     if (prefs || portPreset) {
         await page.addInitScript((opts) => {
-            if (opts.prefs) localStorage.setItem('bestialitty.prefs', opts.prefs);
-            if (opts.portPreset) localStorage.setItem('bestialitty.port.preset', opts.portPreset);
+            if (opts.prefs) localStorage.setItem('beastty.prefs', opts.prefs);
+            if (opts.portPreset) localStorage.setItem('beastty.port.preset', opts.portPreset);
         }, { prefs, portPreset });
     }
     await page.addInitScript(SERIAL_MOCK);

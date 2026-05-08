@@ -7,7 +7,7 @@
 //! state persists across feed_byte/feed_chunk calls — so torn-chunk safety
 //! is a side-effect of the design, not a special case.
 
-use bestialitty_core::slide::tests_only::*;
+use beastty_core::slide::tests_only::*;
 
 /// Outbound snapshot helper (raw byte copy via the stable-pointer accessors
 /// — same shape Phase 8's wasm wrapper will use).

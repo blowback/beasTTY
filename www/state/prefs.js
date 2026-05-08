@@ -1,4 +1,4 @@
-// BestialiTTY Phase 6 Plan 06 (Wave 5) — versioned prefs blob in localStorage.
+// Beastty Phase 6 Plan 06 (Wave 5) — versioned prefs blob in localStorage.
 //
 // Public API: loadPrefs, savePrefs, resetPrefs, subscribe, getPrefs, DEFAULTS.
 //
@@ -8,11 +8,11 @@
 //   - 06-PATTERNS.md §"www/state/prefs.js" (verbatim).
 //   - 06-UI-SPEC.md §"localStorage schema migration" (verbatim D-32 schema).
 //
-// STORAGE_KEY 'bestialitty.prefs' is DISTINCT from Phase 5's
-// 'bestialitty.port.preset' — identity vs. config are conceptually distinct
+// STORAGE_KEY 'beastty.prefs' is DISTINCT from Phase 5's
+// 'beastty.port.preset' — identity vs. config are conceptually distinct
 // (D-32 + 05-CONTEXT.md D-31).
 
-const STORAGE_KEY = 'bestialitty.prefs';
+const STORAGE_KEY = 'beastty.prefs';
 const CURRENT_VERSION = 1;
 
 const DEFAULTS = Object.freeze({

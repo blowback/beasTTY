@@ -1,4 +1,4 @@
-// BestialiTTY Phase 6 Plan 03 (Wave 2) — SESS-01 scrollback navigation tests.
+// Beastty Phase 6 Plan 03 (Wave 2) — SESS-01 scrollback navigation tests.
 //
 // Wave 2 un-fixmes the API-driven assertions; the 4 keyboard-chord-dependent
 // tests (Shift+PgUp/Shift+PgDn/Shift+Home/Shift+End via key events) remain

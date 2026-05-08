@@ -9,7 +9,7 @@
 //!    Our one approved production dep is `vte = "=0.15"` per ADR-001; its
 //!    transitive deps (`memchr`, `arrayvec`) are allowed.
 //!
-//! 2. Source filesystem: no `.rs` file under `crates/bestialitty-core/src/`
+//! 2. Source filesystem: no `.rs` file under `crates/beastty-core/src/`
 //!    may contain the actual tokens `wasm_bindgen`, `web_sys`, or `js_sys`.
 //!    Doc-comment mentions of browser-free architecture are fine, but a
 //!    real attribute / import would regress D-20. Phase 2 will add
@@ -26,7 +26,7 @@
 use std::path::PathBuf;
 use std::process::Command;
 
-/// Browser-API crate names that must NEVER appear in the bestialitty-core
+/// Browser-API crate names that must NEVER appear in the beastty-core
 /// resolved dep graph.
 ///
 /// Phase 2 (D-08): `wasm-bindgen` is removed from this list because Phase 2
@@ -52,7 +52,7 @@ const FORBIDDEN_CRATES: &[&str] = &[
     "gloo-render",
 ];
 
-/// Forbidden tokens in `crates/bestialitty-core/src/**/*.rs` source files.
+/// Forbidden tokens in `crates/beastty-core/src/**/*.rs` source files.
 /// Tuple: (token, list of file-relative paths exempt FROM THAT SPECIFIC token).
 /// Every file is subject to every token unless explicitly exempted for that token.
 ///
@@ -96,8 +96,8 @@ fn dependency_graph_excludes_browser_crates() {
     // output; guards against a silently-broken metadata command passing
     // this test by returning empty JSON.
     assert!(
-        stdout.contains("\"name\":\"bestialitty-core\""),
-        "cargo metadata did not include bestialitty-core in its resolved graph — \
+        stdout.contains("\"name\":\"beastty-core\""),
+        "cargo metadata did not include beastty-core in its resolved graph — \
          test is misconfigured or cargo metadata is broken"
     );
 
@@ -110,7 +110,7 @@ fn dependency_graph_excludes_browser_crates() {
         assert!(
             !stdout.contains(&needle),
             "CORE-02 breach: cargo metadata contains {} — a browser dep has leaked into the \
-             bestialitty-core dep graph. Production builds of the Rust core must not pull in \
+             beastty-core dep graph. Production builds of the Rust core must not pull in \
              Web Serial / DOM crates (CLAUDE.md architectural constraint; D-20). If Phase 2's \
              lib.rs wasm-bindgen surface is being added, update this test to ALLOW wasm-bindgen \
              (and only wasm-bindgen) via a feature gate rather than lifting the assertion outright.",

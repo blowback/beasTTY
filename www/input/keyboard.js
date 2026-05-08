@@ -1,4 +1,4 @@
-// BestialiTTY Phase 4 Plan 02 — DOM keydown → VT52 byte forwarder.
+// Beastty Phase 4 Plan 02 — DOM keydown → VT52 byte forwarder.
 //
 // Attaches AFTER www/renderer/chrome.js's keydown listener (main.js wires
 // chrome.js first, then keyboard.js). Short-circuits on e.defaultPrevented
@@ -14,11 +14,11 @@
 //   - 04-CONTEXT.md D-10/D-11/D-12 (CR/LF TX-side rewrite, default CR)
 //   - 04-CONTEXT.md D-17 (F1-F12 / Home/End / PgUp/PgDn / Del/Ins / Meta
 //     alone — silent drop, NO preventDefault)
-//   - crates/bestialitty-core/src/key.rs:141-175 (KEY_TAG values + mod bits)
+//   - crates/beastty-core/src/key.rs:141-175 (KEY_TAG values + mod bits)
 //   - www/renderer/chrome.js (wireX(opts) entry pattern, synchronous
 //     preventDefault discipline)
 
-import { encode_key_raw } from '../pkg/bestialitty_core.js';
+import { encode_key_raw } from '../pkg/beastty_core.js';
 import { pushTxBytes } from './tx-sink.js';
 import { isActive as pastePumpIsActive, cancelPaste } from './paste-pump.js';
 // Phase 10 Plan 10-03 — SLIDE-cancel arm in the Esc disambiguation chain.
@@ -41,7 +41,7 @@ import {
     jumpToTop,
 } from '../renderer/scroll-state.js';
 
-// D-04 — frozen KeyCode tag table (mirrors crates/bestialitty-core/src/key.rs:141-159).
+// D-04 — frozen KeyCode tag table (mirrors crates/beastty-core/src/key.rs:141-159).
 // Any drift silently produces wrong TX bytes; the Wave 3 Playwright suite
 // catches drift via exact-byte assertions.
 const KEY_TAG = Object.freeze({

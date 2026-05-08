@@ -6,10 +6,10 @@
 //! data event for the new file).
 //!
 //! Mirror of Phase 7 slide_torn_chunk.rs idiom — uses
-//! `bestialitty_core::slide::tests_only::*` so the tests compile against the
+//! `beastty_core::slide::tests_only::*` so the tests compile against the
 //! lib in NON-test mode (same surface as Plan 10-02's wasm-bindgen façade).
 
-use bestialitty_core::slide::tests_only::*;
+use beastty_core::slide::tests_only::*;
 
 fn recv_snapshot(slide: &Slide) -> Vec<u8> {
     let len = slide.recv_len();

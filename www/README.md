@@ -1,4 +1,4 @@
-# BestialiTTY Phase 2 Harness (www/)
+# Beastty Phase 2 Harness (www/)
 
 This directory is the static-site deliverable for Phase 2: a minimal
 `index.html` + `main.js` harness that loads the wasm-pack-built Rust core
@@ -12,12 +12,12 @@ From the repo root:
     ./scripts/build.sh
 
 This runs `wasm-pack build --target web` and writes the output to
-`www/pkg/` (gitignored). Re-run whenever you touch `crates/bestialitty-core/`.
+`www/pkg/` (gitignored). Re-run whenever you touch `crates/beastty-core/`.
 
 If your `wasm-pack` does not have `wasm-opt` on PATH, the build will warn
 but still succeed. To suppress the warning in dev:
 
-    wasm-pack build crates/bestialitty-core --target web --out-dir ../../www/pkg --no-opt
+    wasm-pack build crates/beastty-core --target web --out-dir ../../www/pkg --no-opt
 
 ## Serve (pick one -- both work; per D-14)
 
@@ -123,7 +123,7 @@ After `./scripts/build.sh` and a running server:
 2. Paste `\x07` into the textarea; click Feed.
 3. Canvas flashes white for ~100 ms.
 4. Background the tab; trigger another `\x07` feed; foreground the tab --
-   title shows `(!) BestialiTTY` then clears when you return.
+   title shows `(!) Beastty` then clears when you return.
 
 ### SC-5: Focus indicator + DPR-safe resize
 
@@ -145,7 +145,7 @@ After `./scripts/build.sh` and a running server:
 
 After `./scripts/build.sh`:
 
-    ls -lh www/pkg/bestialitty_core_bg.wasm
+    ls -lh www/pkg/beastty_core_bg.wasm
 
 The wasm output for Phase 2 is typically in the 20-50 KB range (vte parser
 + boundary glue). Size-reduction work is Phase 6's concern.
@@ -160,7 +160,7 @@ The wasm output for Phase 2 is typically in the 20-50 KB range (vte parser
   still appears, rerun `./scripts/build.sh` and reload.
 - `ReferenceError: Terminal is not defined`: wasm build is out of date
   or `pkg/` is missing. Run `./scripts/build.sh` and hard-refresh (Ctrl-Shift-R).
-- Firefox/Safari: BestialiTTY is Chromium-only (CLAUDE.md hard
+- Firefox/Safari: Beastty is Chromium-only (CLAUDE.md hard
   constraint). Phase 6 ships the polite-fail UX; for Phase 2, use a
   Chromium-based browser.
 
@@ -190,7 +190,7 @@ The wasm output for Phase 2 is typically in the 20-50 KB range (vte parser
 
 ## Deployment
 
-BestialiTTY ships as a static site. The recommended deploy target is GitHub Pages.
+Beastty ships as a static site. The recommended deploy target is GitHub Pages.
 
 ### GitHub Pages
 
@@ -231,7 +231,7 @@ config.
 
 ### License
 
-BestialiTTY is MIT-licensed (SPDX `MIT`). See `LICENSE` at the repo root. The MIT
+Beastty is MIT-licensed (SPDX `MIT`). See `LICENSE` at the repo root. The MIT
 text is the canonical SPDX form with `Copyright (c) 2026 Ant Skelton`.
 
 ### Other targets

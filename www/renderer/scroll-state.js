@@ -1,4 +1,4 @@
-// BestialiTTY Phase 6 Plan 03 (Wave 2) — scrollback offset state machine + listeners.
+// Beastty Phase 6 Plan 03 (Wave 2) — scrollback offset state machine + listeners.
 //
 // Public API: wireScrollState. Mirrors the wireX(opts) pattern from
 // www/input/paste-pump.js (Phase 5).

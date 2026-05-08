@@ -1,4 +1,4 @@
-// BestialiTTY Phase 8 Plan 04 (Wave 3) — dispatcher routing Playwright assertions.
+// Beastty Phase 8 Plan 04 (Wave 3) — dispatcher routing Playwright assertions.
 //
 // SLIDE-05: dispatchInbound routes inbound Web Serial bytes to either the
 // VT52 parser (terminal mode) or the Slide framer (recv mode), preserving

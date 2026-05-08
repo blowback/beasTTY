@@ -1,4 +1,4 @@
-// BestialiTTY Phase 9 Plan 09-04 — file-source Playwright assertions.
+// Beastty Phase 9 Plan 09-04 — file-source Playwright assertions.
 //
 // Covers:
 //   - SLIDE-08: drag-drop trigger (dragenter sets [data-drop-target] +

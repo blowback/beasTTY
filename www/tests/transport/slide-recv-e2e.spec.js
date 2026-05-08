@@ -1,4 +1,4 @@
-// BestialiTTY Phase 10 Plan 10-05 — full sender-role mock-bot E2E.
+// Beastty Phase 10 Plan 10-05 — full sender-role mock-bot E2E.
 //
 // Drives the full PC-receiver path end-to-end: ESC^SLIDE wakeup -> RDY/header/
 // data/EOF/FIN handshakes consumed from the mock bot -> 3-file batch
@@ -128,7 +128,7 @@ test.describe('slide-recv-e2e — full sender-role mock bot round-trip', () => {
     test('CRC-16-CCITT self-check: bot.crc16Ccitt("123456789") === 0x29B1 (Phase 7 SLIDE-03)', async ({ page }) => {
         // The mock bot's CRC implementation is the FOURTH independent SLIDE
         // implementation (PITFALLS §13). If this self-check fails, every
-        // subsequent test will fail BestialiTTY's CRC validation.
+        // subsequent test will fail Beastty's CRC validation.
         const crc = await page.evaluate(() => {
             const bytes = new TextEncoder().encode('123456789');
             // Mirror the bot's algorithm verbatim — see mock-serial-slide-bot.js.

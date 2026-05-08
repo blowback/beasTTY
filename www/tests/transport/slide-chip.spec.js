@@ -1,4 +1,4 @@
-// BestialiTTY Phase 11 Plan 11-05 (Wave 4) — SLIDE chip lifecycle
+// Beastty Phase 11 Plan 11-05 (Wave 4) — SLIDE chip lifecycle
 // Playwright assertions filling the Plan 11-01 RED-gate stubs.
 //
 // Covers SLIDE-25 (active layout), SLIDE-26 (throughput sliding window +

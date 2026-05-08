@@ -1,4 +1,4 @@
-// BestialiTTY Phase 8 Plan 04 (Wave 3) — wakeup matcher Playwright assertions.
+// Beastty Phase 8 Plan 04 (Wave 3) — wakeup matcher Playwright assertions.
 //
 // SLIDE-17: 7-byte ESC ^ S L I D E wakeup detection across torn Web Serial
 // chunk boundaries via single-byte carry flag (CONTEXT D-01 match-index counter

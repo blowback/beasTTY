@@ -1,4 +1,4 @@
-// BestialiTTY Phase 6 Plan 04 (Wave 3) — SESS-02 selection tests.
+// Beastty Phase 6 Plan 04 (Wave 3) — SESS-02 selection tests.
 //
 // Wave 3 un-fixmes the 9 selection stubs (Plan 06-01 created them as test.fixme).
 //

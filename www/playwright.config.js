@@ -1,4 +1,4 @@
-// BestialiTTY Phase 3 — Playwright config (Chromium-only per CLAUDE.md).
+// Beastty Phase 3 — Playwright config (Chromium-only per CLAUDE.md).
 // Source: RESEARCH §Validation Architecture + §Phase Requirements → Test Map.
 import { defineConfig, devices } from '@playwright/test';
 

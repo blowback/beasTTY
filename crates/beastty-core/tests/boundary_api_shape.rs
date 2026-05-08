@@ -18,8 +18,8 @@
 //! will consume. A `pub(crate)` method that compiles against an in-crate
 //! `#[cfg(test)]` module would fail here — which is what we want.
 
-use bestialitty_core::key::{KeyCode, KeyEvent, Modifiers, encode, unpack_keycode, unpack_mods};
-use bestialitty_core::terminal::Terminal;
+use beastty_core::key::{KeyCode, KeyEvent, Modifiers, encode, unpack_keycode, unpack_mods};
+use beastty_core::terminal::Terminal;
 
 #[test]
 fn terminal_constructor_signature_is_stable() {

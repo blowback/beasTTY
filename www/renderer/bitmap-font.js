@@ -1,4 +1,4 @@
-// BestialiTTY Phase 3 — hand-drawn 8×16 ASCII bitmap font for the CRT theme.
+// Beastty Phase 3 — hand-drawn 8×16 ASCII bitmap font for the CRT theme.
 //
 // Shape (CONTEXT D-01): 128 glyphs × 16 rows × 1 byte per row = 2048 bytes.
 // Indexing: BITMAP_FONT[ch * 16 + row] gives the 8-bit row pattern, MSB-left.

@@ -1,4 +1,4 @@
-// BestialiTTY Phase 6 Plan 05 (Wave 4) — SESS-06 clear-screen tests.
+// Beastty Phase 6 Plan 05 (Wave 4) — SESS-06 clear-screen tests.
 //
 // Wave 0 stubs un-fixmed. Wave 4 production code lives in:
 //   - www/renderer/chrome.js (Clear button click handler — clear_visible /

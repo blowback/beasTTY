@@ -1,4 +1,4 @@
-# Requirements: BestialiTTY
+# Requirements: Beastty
 
 **Defined:** 2026-04-21
 **Core Value:** A modern, reliable, in-browser VT52 emulator good enough to use as a daily driver with a real MicroBeast.
@@ -175,7 +175,7 @@ Architecture, table-stakes, and pitfalls grounded in `.planning/research/{STACK,
 - [x] **SLIDE-11
 **: Drops during an active SLIDE session rejected with chip "Transfer in progress — cancel first"
 - [ ] **SLIDE-12**: Drag-drop coexists with v1.0 pointer-select — `selection.js:onPointerDown` early-returns when drop overlay is active
-- [x] **SLIDE-13**: BestialiTTY auto-types configured command (default `B:SLIDE R\r`) before opening session; configurable via Settings; empty string disables auto-type
+- [x] **SLIDE-13**: Beastty auto-types configured command (default `B:SLIDE R\r`) before opening session; configurable via Settings; empty string disables auto-type
 - [x] **SLIDE-14
 **: Auto-typed command's CP/M echo is swallowed for ~500 ms via swallow-echo filter so the typed command doesn't double-print in the terminal
 - [x] **SLIDE-15**: Filenames auto-uppercased + truncated to CP/M 8.3 in JS before reaching the Rust state machine; chip displays the rewrite (`my-doc.txt → MY-DOC.TXT`)
@@ -183,7 +183,7 @@ Architecture, table-stakes, and pitfalls grounded in `.planning/research/{STACK,
 
 ### SLIDE Z80 → PC receive
 
-- [x] **SLIDE-17**: BestialiTTY detects 7-byte wakeup `ESC ^ S L I D E` emitted by patched slide.com and enters receive mode
+- [x] **SLIDE-17**: Beastty detects 7-byte wakeup `ESC ^ S L I D E` emitted by patched slide.com and enters receive mode
 - [x] **SLIDE-18
 **: Each completed file delivered via Chrome download (anchor-click); `showDirectoryPicker` opt-in fallback for batches > 1 file (one user gesture saves all subsequent files into the chosen folder)
 - [x] **SLIDE-19**: Multi-file batches stagger downloads with ≥ 250 ms inter-file gap to avoid Chrome multi-download throttling
@@ -230,7 +230,7 @@ Architecture, table-stakes, and pitfalls grounded in `.planning/research/{STACK,
 ### SLIDE settings & persistence
 
 - [x] **SLIDE-37
-**: User-configurable auto-send command persists in `bestialitty.prefs.slideAutoSendCommand`; default `B:SLIDE R\r`; empty string = disabled
+**: User-configurable auto-send command persists in `beastty.prefs.slideAutoSendCommand`; default `B:SLIDE R\r`; empty string = disabled
 - [ ] **SLIDE-38**: Auto-send command validated for safety — alphanumeric + `:` + `\r` only; rejects `;`, pipes, non-`\r` control characters; first-use confirmation chip for non-default values
 - [x] **SLIDE-39
 **: Settings pane exposes auto-send command (text input) + "show transfer summary chip" checkbox + optional `Compatibility mode` selector for legacy slide.com fallback, following the Phase 6 Settings-row pattern

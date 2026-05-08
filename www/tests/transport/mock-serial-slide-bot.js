@@ -1,4 +1,4 @@
-// BestialiTTY Phase 9/10 — SLIDE-receiver/sender mock bot.
+// Beastty Phase 9/10 — SLIDE-receiver/sender mock bot.
 //
 // TEST-ONLY. Never imported from www/main.js or production modules.
 // Loaded via page.addInitScript(MOCK_SERIAL_SLIDE_BOT) AFTER page.addInitScript(SERIAL_MOCK).
@@ -8,7 +8,7 @@
 // explicitly mandates this divergence so a SLIDE protocol drift in the
 // production Rust core CANNOT be masked by a sympathetic bug in the mock
 // peer. The Plan 09-01 Rust mock receiver
-// (crates/bestialitty-core/tests/slide_sender.rs) and Plan 10-01 Rust
+// (crates/beastty-core/tests/slide_sender.rs) and Plan 10-01 Rust
 // receiver corpus (slide_recv_corpus.rs) are OTHER independent
 // implementations; together they form the FOUR-LEG cross-validation of the
 // SLIDE wire contract (production Rust SM ↔ Rust mock receiver ↔ Rust
@@ -41,7 +41,7 @@ export const MOCK_SERIAL_SLIDE_BOT = `
     return;
   }
 
-  // ===== SLIDE wire constants (mirror crates/bestialitty-core/src/slide/framer.rs) =====
+  // ===== SLIDE wire constants (mirror crates/beastty-core/src/slide/framer.rs) =====
   const SOF      = 0x01;
   const CTRL_FIN = 0x04;
   const CTRL_ACK = 0x06;
@@ -145,7 +145,7 @@ export const MOCK_SERIAL_SLIDE_BOT = `
       awaitingAck: 0,              // expected next ACK
       awaitingRetransmit: null,    // seq to rewind to on NAK
       rdyEmitted: false,
-      rdyAcknowledged: false,      // BestialiTTY's enter_recv_mode echoed CTRL_RDY back
+      rdyAcknowledged: false,      // Beastty's enter_recv_mode echoed CTRL_RDY back
       finEmitted: false,
       sessionDone: false,
 
@@ -225,7 +225,7 @@ export const MOCK_SERIAL_SLIDE_BOT = `
       window.__mockReaderPush(wakeBytes);
     },
     pushSlideHostWakeup() {
-      // Plan 10-05 send-role alias — same 7-byte signature drives BestialiTTY
+      // Plan 10-05 send-role alias — same 7-byte signature drives Beastty
       // into recv mode when the bot is acting as the sender (Z80 → PC).
       // Plan 11-01 Task 2 — when bot.send.wakeupDelayMs > 0, defer the push
       // by that many milliseconds so Plan 11-05 timeout-chip tests can drive
@@ -248,8 +248,8 @@ export const MOCK_SERIAL_SLIDE_BOT = `
       bot.send.eofSeq = 0;
     },
     startSendSession() {
-      // Plan 10-05 — emit CTRL_RDY to wake BestialiTTY's recv handshake.
-      // (BestialiTTY's enter_recv_mode is triggered by the wakeup matcher
+      // Plan 10-05 — emit CTRL_RDY to wake Beastty's recv handshake.
+      // (Beastty's enter_recv_mode is triggered by the wakeup matcher
       //  in dispatchTerminalMode; CTRL_RDY here arrives AFTER the wakeup
       //  has put us in recv mode.)
       window.__mockReaderPush(new Uint8Array([CTRL_RDY]));
@@ -442,7 +442,7 @@ export const MOCK_SERIAL_SLIDE_BOT = `
 
   // ===== Send-role inbound parser + dispatch (Plan 10-05) =====
   //
-  // BestialiTTY's recv-mode outbound bytes (which the bot interprets as
+  // Beastty's recv-mode outbound bytes (which the bot interprets as
   // "inbound" from its sender perspective) are SLIDE control bytes — the
   // PC echoes CTRL_RDY on enter_recv_mode + CTRL_ACK/seq per frame +
   // CTRL_NAK/seq on CRC error + CTRL_CAN on cancel + CTRL_FIN on end of
@@ -455,7 +455,7 @@ export const MOCK_SERIAL_SLIDE_BOT = `
   function onInboundByteSendRole(b) {
     sendInboundBuf.push(b);
 
-    // CTRL_RDY (single byte) — BestialiTTY echoed our RDY (handshake
+    // CTRL_RDY (single byte) — Beastty echoed our RDY (handshake
     // complete; ship the first header).
     if (b === CTRL_RDY && sendInboundBuf.length === 1) {
       bot.send.rdyAcknowledged = true;
@@ -472,7 +472,7 @@ export const MOCK_SERIAL_SLIDE_BOT = `
     // CTRL_CAN echo (single byte 0x18) — bot echoes back unless inject says no.
     if (b === CTRL_CAN && sendInboundBuf.length === 1) {
       if (!bot.send.injectNoEchoOnCancel) {
-        // Echo CTRL_CAN back to settle BestialiTTY's CancelPending.
+        // Echo CTRL_CAN back to settle Beastty's CancelPending.
         window.__mockReaderPush(new Uint8Array([CTRL_CAN]));
       }
       sendInboundBuf.length = 0;

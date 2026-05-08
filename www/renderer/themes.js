@@ -1,4 +1,4 @@
-// BestialiTTY Phase 3 — theme descriptors (CONTEXT D-04 + D-05).
+// Beastty Phase 3 — theme descriptors (CONTEXT D-04 + D-05).
 //
 // Switching themes = single reference swap: `activeTheme = THEMES.crt; atlas.evict();`
 // Switching phosphor = sub-field update + atlas evict:

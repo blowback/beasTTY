@@ -1,8 +1,8 @@
 {
-  "name": "bestialitty-www",
+  "name": "beastty-www",
   "private": true,
   "version": "0.0.0",
-  "description": "BestialiTTY static-site frontend — Playwright tests for canvas renderer (Phase 3).",
+  "description": "Beastty static-site frontend — Playwright tests for canvas renderer (Phase 3).",
   "type": "module",
   "scripts": {
     "test": "playwright test --project=chromium",

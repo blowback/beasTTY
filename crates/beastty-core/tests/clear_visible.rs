@@ -3,7 +3,7 @@
 //! 06-CONTEXT.md D-26 — direct grid mutation; parser state untouched; cursor
 //! goes home; visible region only (scrollback retained).
 
-use bestialitty_core::terminal::Terminal;
+use beastty_core::terminal::Terminal;
 
 #[test]
 fn clear_visible_wipes_visible_grid() {

@@ -1,4 +1,4 @@
-// BestialiTTY Phase 6 Plan 05 (Wave 4) — RX-only session log accumulator + Blob download.
+// Beastty Phase 6 Plan 05 (Wave 4) — RX-only session log accumulator + Blob download.
 //
 // Public API: wireSessionLog, reset, append, download, getCurrentBytes.
 //

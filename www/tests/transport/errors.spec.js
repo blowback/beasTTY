@@ -81,7 +81,7 @@ test.describe('D-27..D-29 + D-37 — Error log & lifecycle', () => {
         });
         await page.locator('#connect-button').click();
         await expect(page.locator('#error-log')).toContainText('port-in-use');
-        await expect(page.locator('#error-log')).toContainText('another BestialiTTY tab');
+        await expect(page.locator('#error-log')).toContainText('another Beastty tab');
     });
 
     test('multiple CP2102N adapters on reconnect shows multiple-adapters code', async ({ page }) => {

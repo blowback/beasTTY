@@ -1,4 +1,4 @@
-// BestialiTTY Phase 5 Plan 01 (Wave 0) — Web Serial mock fixture.
+// Beastty Phase 5 Plan 01 (Wave 0) — Web Serial mock fixture.
 //
 // TEST-ONLY. Never imported from www/main.js or any production module.
 // The exported SERIAL_MOCK string is passed to `page.addInitScript()` so the

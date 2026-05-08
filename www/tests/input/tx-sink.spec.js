@@ -1,4 +1,4 @@
-// BestialiTTY Phase 8 Plan 04 (Wave 3) — tx-sink wire-owner Playwright assertions.
+// Beastty Phase 8 Plan 04 (Wave 3) — tx-sink wire-owner Playwright assertions.
 //
 // SLIDE-06: tx-sink gains a wire-owner state ('terminal' | 'slide') and a
 // writeSlideFrame(bytes) entry point that bypasses the keystroke ring. While

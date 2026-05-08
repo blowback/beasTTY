@@ -1,10 +1,10 @@
 [package]
-name = "bestialitty-core"
+name = "beastty-core"
 version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-description = "Pure-Rust VT52 terminal logic for BestialiTTY (parser, grid, scrollback, key encoder)."
+description = "Pure-Rust VT52 terminal logic for Beastty (parser, grid, scrollback, key encoder)."
 
 [lib]
 crate-type = ["cdylib", "rlib"]

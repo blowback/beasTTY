@@ -16,7 +16,7 @@
 //! NOT to deliver 1 MB end-to-end — the goal is to assert recv_buf is
 //! cleared per frame and recv_ptr never moves.
 
-use bestialitty_core::slide::tests_only::*;
+use beastty_core::slide::tests_only::*;
 
 fn build_header_frame(name: &[u8], size: u32) -> Vec<u8> {
     let mut payload = Vec::with_capacity(name.len() + 1 + 4);

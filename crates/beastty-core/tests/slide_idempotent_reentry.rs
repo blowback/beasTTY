@@ -6,7 +6,7 @@
 //! escape hatch), and D-07 (silent drain in CancelPending). Together they
 //! cover T-07-06 (re-entrant wakeup mid-session, PITFALLS §9 HIGH).
 
-use bestialitty_core::slide::tests_only::*;
+use beastty_core::slide::tests_only::*;
 
 fn outbound_snapshot(slide: &Slide) -> Vec<u8> {
     let len = slide.outbound_len();

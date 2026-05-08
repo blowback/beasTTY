@@ -1,4 +1,4 @@
-// BestialiTTY Phase 5 — Web Serial transport (JS-only; no Rust bindings).
+// Beastty Phase 5 — Web Serial transport (JS-only; no Rust bindings).
 //
 // Public API: renderPoliteFail, wireSerial, connectMicroBeast, disconnect,
 // getState, onStateChange, getWriter.
@@ -32,7 +32,7 @@ const PID_MICROBEAST = 0xea60;   // D-02 — CP2102N
 const PRESET_CONFIG = Object.freeze({
     baudRate: 19200, dataBits: 8, stopBits: 1, parity: 'none', flowControl: 'none',
 });
-const STORAGE_KEY = 'bestialitty.port.preset';   // D-31 — localStorage key for VID/PID persistence
+const STORAGE_KEY = 'beastty.port.preset';   // D-31 — localStorage key for VID/PID persistence
 const ERROR_LOG_CAP = 5;                          // D-27 — ring-of-5 newest-first
 const BUTTON_LABELS = Object.freeze({
     disconnected:  'Connect',
@@ -89,11 +89,11 @@ let savePrefsFn = null;
 // STATIC HTML ONLY — if extending, use textContent for user-provided strings,
 // not innerHTML (threat-register T-05-02-01 mitigation).
 export function renderPoliteFail() {
-    document.title = 'BestialiTTY — Chromium required';
+    document.title = 'Beastty — Chromium required';
     document.body.classList.add('polite-fail');
-    document.body.innerHTML = `<h1>BestialiTTY requires a Chromium-based browser</h1>
-<p>Web Serial is a Chromium-only API. BestialiTTY uses it to talk to your MicroBeast over USB.</p>
-<p>Open BestialiTTY in Chrome, Edge, Brave, Opera, or Arc to connect.</p>
+    document.body.innerHTML = `<h1>Beastty requires a Chromium-based browser</h1>
+<p>Web Serial is a Chromium-only API. Beastty uses it to talk to your MicroBeast over USB.</p>
+<p>Open Beastty in Chrome, Edge, Brave, Opera, or Arc to connect.</p>
 <ul><li>Chrome 89+</li><li>Microsoft Edge 89+</li><li>Brave 1.22+</li><li>Opera 75+</li><li>Arc (any version)</li></ul>
 <p><a href="https://www.chromium.org/getting-involved/download-chromium/">Download Chromium</a></p>
 <p class="muted">No telemetry. No data leaves your browser. Source: github.com/{TBD-during-Phase-6}</p>`;
@@ -383,11 +383,11 @@ export async function connectMicroBeast(configOverride) {
         if (sessionLogRef) sessionLogRef.reset();
     } catch (err) {
         // D-29 — InvalidStateError ("port is in use" / "already open") is a
-        // distinct user-facing message (another BestialiTTY tab owns the port).
+        // distinct user-facing message (another Beastty tab owns the port).
         const msg = (err.message || '').toLowerCase();
         if (err.name === 'InvalidStateError' && (msg.includes('in use') || msg.includes('already open'))) {
             appendErrorLog('port-in-use',
-                'MicroBeast is in use by another BestialiTTY tab — close it to connect here.');
+                'MicroBeast is in use by another Beastty tab — close it to connect here.');
         } else {
             appendErrorLog('open-failed', `Could not open port: ${err.message}`);
         }

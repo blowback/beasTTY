@@ -37,13 +37,13 @@ async function setup(page) {
 test.describe('PLAT-01, PLAT-02 — Polite-fail for non-Chromium', () => {
     test('body replaced with polite-fail content when navigator.serial undefined @fast', async ({ page }) => {
         await setup(page);
-        await expect(page.locator('h1')).toHaveText('BestialiTTY requires a Chromium-based browser');
+        await expect(page.locator('h1')).toHaveText('Beastty requires a Chromium-based browser');
         await expect(page.locator('body.polite-fail')).toBeVisible();
     });
 
-    test('title reads "BestialiTTY — Chromium required"', async ({ page }) => {
+    test('title reads "Beastty — Chromium required"', async ({ page }) => {
         await setup(page);
-        await expect(page).toHaveTitle('BestialiTTY — Chromium required');
+        await expect(page).toHaveTitle('Beastty — Chromium required');
     });
 
     test('no canvas element on polite-fail page', async ({ page }) => {

@@ -8,7 +8,7 @@
 //! Mirrors the Phase 7 slide_torn_chunk.rs corpus pattern + the Phase 9
 //! slide_sender.rs cross-validation discipline (PITFALLS §13).
 
-use bestialitty_core::slide::tests_only::*;
+use beastty_core::slide::tests_only::*;
 
 // =====================================================================
 // Helpers (verbatim mirror of slide_recv_payload.rs Task 2 helpers; integration

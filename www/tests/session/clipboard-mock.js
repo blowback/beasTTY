@@ -1,4 +1,4 @@
-// BestialiTTY Phase 6 Plan 01 (Wave 0) — Clipboard mock fixture.
+// Beastty Phase 6 Plan 01 (Wave 0) — Clipboard mock fixture.
 //
 // TEST-ONLY. Mirrors www/tests/transport/mock-serial.js shape (Phase 5 D-40).
 // The exported CLIPBOARD_MOCK string is passed to page.addInitScript() so the

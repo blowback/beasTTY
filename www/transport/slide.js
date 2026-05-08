@@ -1,4 +1,4 @@
-// BestialiTTY Phase 8 — SLIDE dispatcher + 7-byte ESC^ wakeup matcher.
+// Beastty Phase 8 — SLIDE dispatcher + 7-byte ESC^ wakeup matcher.
 //
 // Public API:
 //   - dispatchInbound(value: Uint8Array)     — called by serial.js:453 in lieu of term.feed
@@ -56,8 +56,8 @@ import {
 } from './echo-swallow.js';
 
 // EVT_* — packed (kind << 16) | aux. JS unpacks via (evt >>> 16) for kind,
-// (evt & 0xFFFF) for aux. AUTHORITY: crates/bestialitty-core/tests/slide_boundary_shape.rs:slide_event_constants_pinned
-// + crates/bestialitty-core/tests/slide_wasm_boundary_shape.rs (Plan 08-01 pin
+// (evt & 0xFFFF) for aux. AUTHORITY: crates/beastty-core/tests/slide_boundary_shape.rs:slide_event_constants_pinned
+// + crates/beastty-core/tests/slide_wasm_boundary_shape.rs (Plan 08-01 pin
 // + Plan 09-02 extension for the sender constants).
 // A Rust-side renumber that didn't update both pin files is caught by
 // cargo test; Plan 08-04's Playwright dispatcher harness drives a CTRL_RDY
@@ -72,15 +72,15 @@ const EVT_CAN         = 5 << 16;
 const EVT_DATA_FRAME  = 6 << 16;
 const EVT_CRC_ERROR   = 7 << 16;
 // Phase 9 EVT_* mirror additions — pinned by
-// crates/bestialitty-core/tests/slide_boundary_shape.rs and
-// crates/bestialitty-core/tests/slide_wasm_boundary_shape.rs (Plan 09-02
+// crates/beastty-core/tests/slide_boundary_shape.rs and
+// crates/beastty-core/tests/slide_wasm_boundary_shape.rs (Plan 09-02
 // boundary-shape pin extension). Drift here vs the Rust-side enum fails
 // both pin tests at native cargo test time before reaching JS.
 const EVT_FILE_COMPLETE     = 8  << 16;   // aux = file_idx of the file just acked
 const EVT_SESSION_COMPLETE  = 9  << 16;   // aux = 0; emitted on FIN exchange completion
 const EVT_RETRANSMIT_NEEDED = 10 << 16;   // aux = seq the receiver NAK'd
 // Phase 10 receiver extensions — pinned by
-// crates/bestialitty-core/tests/slide_boundary_shape.rs (and wasm sibling).
+// crates/beastty-core/tests/slide_boundary_shape.rs (and wasm sibling).
 // Plan 10-01 added the Rust-side enum values; Plan 10-03 mirrors them here so
 // drainEventsAndOutbound can route per-event to slide-recv.js's onRecvEvent.
 const EVT_HEADER_RECEIVED = 11 << 16;   // aux = file_idx (0-based)

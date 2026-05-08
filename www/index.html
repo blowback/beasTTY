@@ -17,7 +17,7 @@
                  base-uri 'self';
                  form-action 'none';
                  frame-ancestors 'none'">
-  <title>BestialiTTY</title>
+  <title>Beastty</title>
   <!--
     Dev serving (same as Phase 2 — Chromium only per CLAUDE.md):
       python3 -m http.server -d www 8000
@@ -824,7 +824,7 @@
          until the first byte arrives; tooltip cycles per session-log.js. -->
     <button id="download-log-button" type="button" disabled
             title="No bytes received yet">Download log</button>
-    <p class="hint">MicroBeast default is 19200 8N1, no flow control. Single-tab ownership is enforced by Chromium — close any other BestialiTTY tab that holds this port first.</p>
+    <p class="hint">MicroBeast default is 19200 8N1, no flow control. Single-tab ownership is enforced by Chromium — close any other Beastty tab that holds this port first.</p>
 
     <p class="hint">Recent errors</p>
     <pre id="error-log">(no recent errors)</pre>
@@ -912,7 +912,7 @@
         <input type="checkbox" id="auto-connect-checkbox">
         Auto connect on load
       </label>
-      <p class="hint">When enabled, BestialiTTY silently opens the previously-granted MicroBeast port on each page load. Off by default. On open failure, falls back to the standard "click Connect" flow with the failure logged.</p>
+      <p class="hint">When enabled, Beastty silently opens the previously-granted MicroBeast port on each page load. Off by default. On open failure, falls back to the standard "click Connect" flow with the failure logged.</p>
     </div>
     <div class="settings-row">
       <button id="reset-prefs-button" type="button" title="Restore default theme, phosphor, font zoom, serial config, and toggles">Reset all preferences</button>

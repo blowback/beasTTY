@@ -4,7 +4,7 @@
 //   "Directory persists across page reloads via IndexedDB."
 //
 // Architecture:
-//   - DB name: 'bestialitty-handles'
+//   - DB name: 'beastty-handles'
 //   - DB version: 1
 //   - Store: 'handles' (created on upgradeneeded)
 //   - Keys: 'recv_directory' (FileSystemDirectoryHandle for SLIDE recv)
@@ -28,7 +28,7 @@
 //   - WICG/file-system-access EXPLAINER §"Storing file handles or directory
 //     handles in IndexedDB" (cited in RESEARCH).
 
-const DB_NAME = 'bestialitty-handles';
+const DB_NAME = 'beastty-handles';
 const DB_VERSION = 1;
 const STORE = 'handles';
 const KEY_RECV_DIR = 'recv_directory';

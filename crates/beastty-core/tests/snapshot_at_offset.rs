@@ -3,7 +3,7 @@
 //! 06-CONTEXT.md D-06 — out-of-range row_offset clamps to min(row_offset, scrollback_len).
 //! D-03 mirror — pack_ptr identity-stable across snapshot_grid_at calls.
 
-use bestialitty_core::terminal::Terminal;
+use beastty_core::terminal::Terminal;
 
 #[test]
 fn snapshot_grid_at_zero_matches_snapshot_grid() {

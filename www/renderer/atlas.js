@@ -1,4 +1,4 @@
-// BestialiTTY Phase 3 — glyph atlas with OffscreenCanvas-backed tiles.
+// Beastty Phase 3 — glyph atlas with OffscreenCanvas-backed tiles.
 //
 // Source: RESEARCH §Pattern 4 (Atlas class) + §Pattern 2 (bitmap rasteriser)
 //         + §Pattern 3 (vector rasteriser) + CONTEXT D-03 (key + evict policy)

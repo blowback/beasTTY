@@ -1,4 +1,4 @@
-// BestialiTTY Phase 11 Plan 11-05 (Wave 4) — SLIDE 3-way Compatibility mode
+// Beastty Phase 11 Plan 11-05 (Wave 4) — SLIDE 3-way Compatibility mode
 // Playwright assertions filling the Plan 11-01 RED-gate stubs.
 //
 // Covers SLIDE-35 (Auto timeout 3-second timer + chip with Retry/Cancel/

@@ -1,4 +1,4 @@
-// BestialiTTY Phase 6 Plan 04 (Wave 3) — SESS-02/SESS-03 clipboard tests.
+// Beastty Phase 6 Plan 04 (Wave 3) — SESS-02/SESS-03 clipboard tests.
 //
 // Wave 3 un-fixmes the 12 stubs created in Plan 06-01.
 //

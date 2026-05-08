@@ -1,4 +1,4 @@
-// BestialiTTY Phase 9 Plan 09-04 — SLIDE sender end-to-end Playwright assertions.
+// Beastty Phase 9 Plan 09-04 — SLIDE sender end-to-end Playwright assertions.
 //
 // Covers:
 //   - SLIDE-07 (multi-file picker click flow)

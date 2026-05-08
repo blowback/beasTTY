@@ -1,4 +1,4 @@
-// BestialiTTY Phase 10 Plan 10-05 — File System Access Picker integration
+// Beastty Phase 10 Plan 10-05 — File System Access Picker integration
 // Playwright assertions.
 //
 // Drives the showDirectoryPicker / createWritable path including the ~N

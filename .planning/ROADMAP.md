@@ -1,8 +1,8 @@
-# Roadmap: BestialiTTY
+# Roadmap: Beastty
 
 ## Overview
 
-BestialiTTY is built bottom-up in six phases that mirror the Rust/wasm + JS-shell
+Beastty is built bottom-up in six phases that mirror the Rust/wasm + JS-shell
 architectural split. Correctness lives in the Rust core (Phase 1) where pure
 `cargo test` feedback is fastest and the highest-risk bugs (torn-chunk parsing,
 ESC Y +32 offset, wasm-boundary shape) live. The boundary itself is validated
@@ -56,7 +56,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   4. A live MicroBeast capture session is recorded under `.planning/research/captures/` and its byte inventory drives which VT52 sequences the parser handles, silently no-ops (ESC F/G/=/>), or intentionally leaves alone; CR/LF convention is documented from observed behaviour
   5. The core crate has zero dependencies on `web-sys`, `js-sys::Serial*`, or any browser API — `cargo build --target x86_64-unknown-linux-gnu` and `cargo test` both succeed
 **Plans**: 7 plans
-  - [x] 01-01-PLAN.md — Cargo workspace + bestialitty-core crate skeleton + captures/decisions dirs (Wave 0)
+  - [x] 01-01-PLAN.md — Cargo workspace + beastty-core crate skeleton + captures/decisions dirs (Wave 0)
   - [x] 01-02-PLAN.md — Live MicroBeast byte capture (CP/M + BASIC) or D-08 deferral (Wave 1)
   - [x] 01-03-PLAN.md — Parser-strategy spike (hand-rolled vs vte) + ADR-001 (Wave 1)
   - [x] 01-04-PLAN.md — Grid + Scrollback ring + Dirty bitmap data-layer (Wave 2)
@@ -149,7 +149,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. Scrollback retains at least 10,000 lines of prior output, stays flat on memory across a 24-hour soak, and the viewport "sticks to bottom" while new output arrives unless the user has scrolled up
   3. Session logging auto-starts per connection to a raw byte buffer; author can download the current log mid-session without disconnecting, and again on disconnect
   4. Theme, phosphor colour, font size, last-used serial config, local-echo toggle, and CR/LF override toggle all persist across browser reloads via `localStorage`; first-open with no saved state loads sane defaults (MicroBeast preset pre-selected, one click to connect)
-  5. The built app deploys as a static site to a self-hosted target (GitHub Pages / Cloudflare Pages / own domain), the public repo carries an MIT or Apache-2.0 LICENSE file, and author uses BestialiTTY as the only terminal for a full MicroBeast work session without reaching for anything else
+  5. The built app deploys as a static site to a self-hosted target (GitHub Pages / Cloudflare Pages / own domain), the public repo carries an MIT or Apache-2.0 LICENSE file, and author uses Beastty as the only terminal for a full MicroBeast work session without reaching for anything else
 **Plans**: 9 plans
   - [x] 06-01-PLAN.md — Wave 0 test scaffolding: 7 Playwright session/ stubs + clipboard mock + 2 Rust integration test stubs + testMatch extension (Wave 0)
   - [x] 06-02-PLAN.md — Rust core APIs: Terminal::snapshot_grid_at(row_offset) + Terminal::clear_visible() + lib.rs wasm forwarders + boundary-shape pin (Wave 1)
@@ -167,7 +167,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Depends on**: Phase 6
 **Requirements**: SLIDE-01, SLIDE-02, SLIDE-03, SLIDE-04
 **Success Criteria** (what must be TRUE):
-  1. A new `crates/bestialitty-core/src/slide/` module compiles and `cargo test` passes against a torn-chunk corpus that splits every SLIDE frame at every internal byte offset (mirrors the Phase 1 vt52 torn-chunk pattern); state machine never returns mid-byte
+  1. A new `crates/beastty-core/src/slide/` module compiles and `cargo test` passes against a torn-chunk corpus that splits every SLIDE frame at every internal byte offset (mirrors the Phase 1 vt52 torn-chunk pattern); state machine never returns mid-byte
   2. CRC-16-CCITT reference vector pins exactly: `crc16_ccitt(b"123456789") == 0x29B1`; CRC covers SEQ + LEN_H + LEN_L + PAYLOAD (not SOF, not the CRC bytes); on-wire byte order is big-endian
   3. Byte-for-byte equality with the upstream `slide-rs` reference implementation's `build_frame` output is asserted on a fixed corpus of header / data / control frames
   4. The sliding-window state machine (4 frames × 1024 bytes) handles RDY / ACK / NAK / CAN / FIN / CTRL_FIN per SLIDE v0.2 plus the v0.2.1 CAN-bidirectional amendment; cancellation and idempotent re-entry are exercised in unit tests
@@ -188,7 +188,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. A new `www/transport/slide.js` dispatcher routes inbound Web Serial chunks to terminal parser or SLIDE based on session mode; a single-line edit in `www/transport/serial.js` (`term.feed(value)` → `dispatchInbound(value)`) is the only hot-path change in existing code
   3. The 7-byte wakeup signature `ESC ^ S L I D E` is detected across arbitrary chunk-boundary splits via a single-byte carry flag; spurious `ESC ^` emitted by a benign Z80 program in normal terminal mode does NOT trigger SLIDE entry (test harness drives both cases)
   4. `tx-sink.js` gains a `setWireOwner('slide')` handoff that silently drops `pushTxBytes` keystroke writes during an active session; SLIDE writes via a separate `writeSlideFrame` path that bypasses the keystroke ring; unit / Playwright tests prove keystrokes during a session do not corrupt the wire
-  5. Detected wakeup transitions BestialiTTY into receive mode: terminal parser is suspended, SLIDE state machine owns the wire, and `dispatchInbound` continues to feed only the bytes after the wakeup signature to the SLIDE state machine
+  5. Detected wakeup transitions Beastty into receive mode: terminal parser is suspended, SLIDE state machine owns the wire, and `dispatchInbound` continues to feed only the bytes after the wakeup signature to the SLIDE state machine
 **Plans**: 4 plans
   - [x] 08-01-PLAN.md — Wave 0 scaffolding: slide_wasm_boundary_shape.rs + 3 Playwright stub specs (Wave 1)
   - [x] 08-02-PLAN.md — Slide #[wasm_bindgen] façade in lib.rs + wasm-pack rebuild (Wave 2)
@@ -196,13 +196,13 @@ Decimal phases appear between their surrounding integers in numeric order.
   - [x] 08-04-PLAN.md — Fill Wave 0 stubs with real Playwright assertions (SC#2/#3/#4/#5 verification) (Wave 4)
 
 ### Phase 9: SLIDE Sender — Host → Z80 Send
-**Goal**: Deliver a complete host-initiated send path: user picks files (multi-file input or drag-drop onto the canvas), BestialiTTY auto-types the configured `B:SLIDE R\r` command, then frames + ships the files via the Phase 7 state machine with proper `writer.ready` backpressure discipline. Filenames are auto-uppercased + truncated to CP/M 8.3 and validated for the CP/M character set before any frame leaves the wire.
+**Goal**: Deliver a complete host-initiated send path: user picks files (multi-file input or drag-drop onto the canvas), Beastty auto-types the configured `B:SLIDE R\r` command, then frames + ships the files via the Phase 7 state machine with proper `writer.ready` backpressure discipline. Filenames are auto-uppercased + truncated to CP/M 8.3 and validated for the CP/M character set before any frame leaves the wire.
 **Depends on**: Phase 8
 **Requirements**: SLIDE-07, SLIDE-08, SLIDE-09, SLIDE-10, SLIDE-13, SLIDE-15, SLIDE-16
 **Success Criteria** (what must be TRUE):
   1. User can initiate a send via either a multi-file `<input type="file" multiple>` picker OR by dragging files onto `#terminal-wrapper`; both paths end in the same SLIDE-send entry point with the same file list shape
   2. Drag-over the canvas shows a dashed-border overlay + faint tint + "Drop file(s) to send via SLIDE" message; non-file drags (text/URL) are rejected at `dragenter` via a `dataTransfer.types.includes('Files')` filter and never show the drop overlay
-  3. BestialiTTY auto-types the configured command (default `B:SLIDE R\r`) before opening the SLIDE session; an empty configured value disables auto-type so the user can drive `slide.com` manually; the auto-type uses the Phase 5 writer contract with no double-write race
+  3. Beastty auto-types the configured command (default `B:SLIDE R\r`) before opening the SLIDE session; an empty configured value disables auto-type so the user can drive `slide.com` manually; the auto-type uses the Phase 5 writer contract with no double-write race
   4. Filenames are uppercased + truncated to CP/M 8.3 in JS before reaching the Rust state machine, with the rewrite surfaced to the user (`my-doc.txt → MY-DOC.TXT`); CP/M-invalid characters (`<>.,;:=?*[]`) are rejected pre-flight with a user-visible error before any frame leaves the wire
   5. Sender-side write loop uses `await writer.ready; writer.write(bytes)` discipline (never `await writer.write`); a sender-mode end-to-end test against a SLIDE-aware mock peer transfers a multi-KB binary file with byte-identical round-trip
 **Plans**: 4 plans
@@ -236,7 +236,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   1. A floating SLIDE chip at `bottom: 8px; left: 8px` (opposite corner from the Phase 6 scrollback chip) shows direction + filename + "File N of M" + percent + byte count, with throughput on a 2-second sliding window (showing `—` for the first 2 s); a post-cancel "Cancelled — N of M files transferred" chip auto-hides after 5 s
   2. Drops attempted during an active SLIDE session are rejected with a chip "Transfer in progress — cancel first" rather than corrupting the wire; the auto-typed command's CP/M echo is swallowed for ~500 ms via a swallow-echo filter so the typed command does not double-print
   3. Tab close mid-transfer (`visibilitychange` listener) emits a best-effort CTRL_CAN; the Phase 5 port-lost flow includes a `slidePumpOnPortLost` symmetric to `pastePumpOnPortLost`; the Phase 6 session log is paused during active SLIDE sessions (binary frame bytes do NOT pollute the RX log) and resumes on session end
-  4. The user-configurable auto-send command persists in `bestialitty.prefs.slideAutoSendCommand` (default `B:SLIDE R\r`); a Settings pane row exposes the auto-send command (text input) + a "show transfer summary chip" checkbox + an optional `Compatibility mode` selector for legacy slide.com fallback, following the Phase 6 Settings-row pattern
+  4. The user-configurable auto-send command persists in `beastty.prefs.slideAutoSendCommand` (default `B:SLIDE R\r`); a Settings pane row exposes the auto-send command (text input) + a "show transfer summary chip" checkbox + an optional `Compatibility mode` selector for legacy slide.com fallback, following the Phase 6 Settings-row pattern
   5. When auto-type completes but `ESC ^ S L I D E` does not arrive within ~3 s, a chip prompts `[Retry] [Cancel] [Force start (legacy slide.com)]` so users running pre-v0.2.1 slide.com without the wakeup signature can still complete a transfer
 **Plans**: 5 plans
   - [x] 11-01-PLAN.md — Wave 0 RED-gate scaffolding: 4 Playwright stub specs + mock-bot setWakeupDelay extension + 3 prefs DEFAULTS keys (Wave 0)
@@ -247,7 +247,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 **UI hint**: yes
 
 ### Phase 12: SLIDE UX Polish, Docs & Real-Hardware UAT
-**Goal**: Close the milestone — handle the residual UX cliffs (filename collisions on send, drag-drop vs pointer-select isolation, auto-send command safety validation), document the Z80-side dependency and the user-facing protocol, and run an end-to-end UAT against a real MicroBeast with the patched `slide.asm`. After this phase, BestialiTTY v1.1 is daily-driver-ready for SLIDE.
+**Goal**: Close the milestone — handle the residual UX cliffs (filename collisions on send, drag-drop vs pointer-select isolation, auto-send command safety validation), document the Z80-side dependency and the user-facing protocol, and run an end-to-end UAT against a real MicroBeast with the patched `slide.asm`. After this phase, Beastty v1.1 is daily-driver-ready for SLIDE.
 **Depends on**: Phase 11
 **Requirements**: SLIDE-12, SLIDE-36, SLIDE-38, SLIDE-40, SLIDE-41, SLIDE-42
 **Success Criteria** (what must be TRUE):

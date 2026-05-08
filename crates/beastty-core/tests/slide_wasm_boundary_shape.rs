@@ -18,7 +18,7 @@
 //! Alternatives Considered table — wasm-bindgen has no clean associated-const
 //! export, so Rust-side pin + JS-side mirror is the standard pattern).
 
-use bestialitty_core::slide::{
+use beastty_core::slide::{
     Slide, SlideState,
     EVT_NONE, EVT_RDY, EVT_ACK, EVT_NAK, EVT_FIN, EVT_CAN,
     EVT_DATA_FRAME, EVT_CRC_ERROR,

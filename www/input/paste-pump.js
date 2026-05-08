@@ -1,4 +1,4 @@
-// BestialiTTY Phase 5 — paste throttling queue (setTimeout chain).
+// Beastty Phase 5 — paste throttling queue (setTimeout chain).
 //
 // Public API: enqueuePaste, cancelPaste, isActive, onProgress, onPortLost, wirePastePump.
 //

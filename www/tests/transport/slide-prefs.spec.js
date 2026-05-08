@@ -1,4 +1,4 @@
-// BestialiTTY Phase 11 Plan 11-05 (Wave 4) — SLIDE Settings persistence
+// Beastty Phase 11 Plan 11-05 (Wave 4) — SLIDE Settings persistence
 // Playwright assertions filling the Plan 11-01 RED-gate stubs.
 //
 // Covers SLIDE-37 (auto-send command persistence) and SLIDE-39 (Settings
@@ -96,7 +96,7 @@ test.describe('slide-prefs — auto-send command', () => {
         // the localStorage write.
         await expect.poll(
             () => page.evaluate(() => {
-                const raw = localStorage.getItem('bestialitty.prefs');
+                const raw = localStorage.getItem('beastty.prefs');
                 if (!raw) return null;
                 try { return JSON.parse(raw).slideAutoSendCommand; } catch { return null; }
             }),
@@ -107,7 +107,7 @@ test.describe('slide-prefs — auto-send command', () => {
     test('debounce delay matches Phase 6 D-33 250 ms contract', async ({ page }) => {
         await setup(page);
         // Snapshot localStorage before the change.
-        const before = await page.evaluate(() => localStorage.getItem('bestialitty.prefs'));
+        const before = await page.evaluate(() => localStorage.getItem('beastty.prefs'));
         // Fire change immediately. The debounce should NOT fire within 50 ms
         // (Phase 6 D-33 is 250 ms; well above 50 ms).
         await page.locator('#slide-auto-send-input').fill('UNIQUE-TOKEN');
@@ -115,7 +115,7 @@ test.describe('slide-prefs — auto-send command', () => {
         // After 50 ms the value should NOT yet be flushed.
         await page.waitForTimeout(50);
         const fiftyMs = await page.evaluate(() => {
-            const raw = localStorage.getItem('bestialitty.prefs');
+            const raw = localStorage.getItem('beastty.prefs');
             if (!raw) return null;
             try { return JSON.parse(raw).slideAutoSendCommand; } catch { return null; }
         });
@@ -125,7 +125,7 @@ test.describe('slide-prefs — auto-send command', () => {
         // After 500 ms (250 ms debounce + slack) the value SHOULD be flushed.
         await expect.poll(
             () => page.evaluate(() => {
-                const raw = localStorage.getItem('bestialitty.prefs');
+                const raw = localStorage.getItem('beastty.prefs');
                 if (!raw) return null;
                 try { return JSON.parse(raw).slideAutoSendCommand; } catch { return null; }
             }),
@@ -150,7 +150,7 @@ test.describe('slide-prefs — show summary', () => {
         await page.locator('#slide-show-summary').uncheck();
         await expect.poll(
             () => page.evaluate(() => {
-                const raw = localStorage.getItem('bestialitty.prefs');
+                const raw = localStorage.getItem('beastty.prefs');
                 if (!raw) return null;
                 try { return JSON.parse(raw).slideShowSummary; } catch { return null; }
             }),
@@ -160,7 +160,7 @@ test.describe('slide-prefs — show summary', () => {
         await page.locator('#slide-show-summary').check();
         await expect.poll(
             () => page.evaluate(() => {
-                const raw = localStorage.getItem('bestialitty.prefs');
+                const raw = localStorage.getItem('beastty.prefs');
                 if (!raw) return null;
                 try { return JSON.parse(raw).slideShowSummary; } catch { return null; }
             }),
@@ -181,7 +181,7 @@ test.describe('slide-prefs — Compatibility mode', () => {
         await page.locator('#slide-compat-select').selectOption('wakeup-required');
         await expect.poll(
             () => page.evaluate(() => {
-                const raw = localStorage.getItem('bestialitty.prefs');
+                const raw = localStorage.getItem('beastty.prefs');
                 if (!raw) return null;
                 try { return JSON.parse(raw).slideCompatibilityMode; } catch { return null; }
             }),
@@ -194,7 +194,7 @@ test.describe('slide-prefs — Compatibility mode', () => {
         await page.locator('#slide-compat-select').selectOption('force-start');
         await expect.poll(
             () => page.evaluate(() => {
-                const raw = localStorage.getItem('bestialitty.prefs');
+                const raw = localStorage.getItem('beastty.prefs');
                 if (!raw) return null;
                 try { return JSON.parse(raw).slideCompatibilityMode; } catch { return null; }
             }),

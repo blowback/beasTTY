@@ -23,7 +23,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-TMPDIR_OUT="$(mktemp -d -t bestialitty-smoke-XXXXXX)"
+TMPDIR_OUT="$(mktemp -d -t beastty-smoke-XXXXXX)"
 trap 'rm -rf "$TMPDIR_OUT"' EXIT
 
 # Feature-detect --no-opt (wasm-pack >= 0.13.0). On older wasm-pack (e.g.
@@ -35,13 +35,13 @@ if wasm-pack build --help 2>&1 | grep -q -- "--no-opt"; then
 fi
 
 echo "[smoke] Building to $TMPDIR_OUT ..."
-wasm-pack build crates/bestialitty-core \
+wasm-pack build crates/beastty-core \
     --target web \
     --out-dir "$TMPDIR_OUT" \
     "${NOOPT_ARG[@]}"
 
 MISSING=()
-for f in bestialitty_core.js bestialitty_core_bg.wasm bestialitty_core.d.ts bestialitty_core_bg.wasm.d.ts; do
+for f in beastty_core.js beastty_core_bg.wasm beastty_core.d.ts beastty_core_bg.wasm.d.ts; do
     if [ ! -f "$TMPDIR_OUT/$f" ]; then
         MISSING+=("$f")
     fi
@@ -57,7 +57,7 @@ if [ "${#MISSING[@]}" -ne 0 ]; then
     exit 1
 fi
 
-WASM_SIZE="$(wc -c < "$TMPDIR_OUT/bestialitty_core_bg.wasm")"
+WASM_SIZE="$(wc -c < "$TMPDIR_OUT/beastty_core_bg.wasm")"
 echo "[smoke] OK: all expected files present."
-echo "[smoke]   bestialitty_core_bg.wasm: ${WASM_SIZE} bytes"
+echo "[smoke]   beastty_core_bg.wasm: ${WASM_SIZE} bytes"
 echo "[smoke] (Cleaned up $TMPDIR_OUT on exit.)"

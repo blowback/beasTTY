@@ -1,4 +1,4 @@
-// BestialiTTY — boot driver (Phase 3 renderer + Phase 4 Plan 02 keyboard).
+// Beastty — boot driver (Phase 3 renderer + Phase 4 Plan 02 keyboard).
 //
 // Preserves the Phase 2 wasm boundary + harness helpers (parseHexEscapes,
 // buildStressPayload, Feed button, 64 KB Stress button). Delegates rendering
@@ -44,7 +44,7 @@ const prefs = loadPrefs();
 // the dispatcher picks up the change without a page reload.
 window.__prefs = { savePrefs, resetPrefs, getPrefs, subscribe: prefsSubscribe, live: prefs };
 
-import init, { Terminal, Slide } from './pkg/bestialitty_core.js';
+import init, { Terminal, Slide } from './pkg/beastty_core.js';
 import {
     bootRenderer,
     requestFrame,

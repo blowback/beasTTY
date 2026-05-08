@@ -1,4 +1,4 @@
-// BestialiTTY Phase 3 — DOM event wiring for the canvas chrome.
+// Beastty Phase 3 — DOM event wiring for the canvas chrome.
 //
 // Consumes Plan 02's www/renderer/canvas.js public API:
 //   setTheme / setPhosphor / zoomStep / resetZoom / setFocus / getActiveTheme
@@ -336,7 +336,7 @@ export function wireChrome(opts) {
     // ==== Phase 6 Plan 06 (Wave 5) — Reset prefs 2-click confirm (D-35) ====
     // First click swaps label to "Click again to confirm (3 s)" and arms a
     // 3-second timer that reverts. Second click within 3 s commits the reset:
-    // clears bestialitty.prefs, in-memory blob replaced with defaults,
+    // clears beastty.prefs, in-memory blob replaced with defaults,
     // subscribers fire (applyPrefs in main.js re-applies defaults to chrome /
     // canvas state in-place — NO page reload per D-35).
     const resetPrefsButton = document.getElementById('reset-prefs-button');

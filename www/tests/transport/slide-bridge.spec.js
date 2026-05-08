@@ -1,4 +1,4 @@
-// BestialiTTY Phase 11 Plan 11-05 (Wave 4) — SLIDE bridge integration
+// Beastty Phase 11 Plan 11-05 (Wave 4) — SLIDE bridge integration
 // Playwright assertions filling the Plan 11-01 RED-gate stubs.
 //
 // Covers SLIDE-11 (drop-rejected chip flash), SLIDE-14 (swallow-echo filter),

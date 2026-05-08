@@ -1,4 +1,4 @@
-// BestialiTTY Phase 11 Plan 11-04 — auto-type echo swallow filter (SLIDE-14).
+// Beastty Phase 11 Plan 11-04 — auto-type echo swallow filter (SLIDE-14).
 //
 // CONTEXT C-03 / PITFALLS §11. Sits BEFORE the wakeup matcher in
 // dispatchTerminalMode's byte loop. After the host auto-types a command (e.g.

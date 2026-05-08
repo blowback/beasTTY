@@ -1,4 +1,4 @@
-// BestialiTTY Phase 6 Plan 06 (Wave 5) — PREF-01/PREF-02/PLAT-05 prefs persistence.
+// Beastty Phase 6 Plan 06 (Wave 5) — PREF-01/PREF-02/PLAT-05 prefs persistence.
 //
 // Wave 5 lands www/state/prefs.js, the boot-order reorder, and the Settings-pane
 // rows. Plan 06-06 Task 1 un-fixmes the 8 round-trip stubs (defaults, theme,
@@ -7,7 +7,7 @@
 // fontZoom).
 //
 // Sources:
-//   - 06-CONTEXT.md D-32 (single bestialitty.prefs versioned blob),
+//   - 06-CONTEXT.md D-32 (single beastty.prefs versioned blob),
 //                  D-33 (debounced 250 ms save / beforeunload flush),
 //                  D-35 (Reset prefs 2-click confirm),
 //                  D-36 (first-open defaults).
@@ -24,7 +24,7 @@ async function setup(page) {
 }
 
 test.describe('PREF-01/PREF-02/PLAT-05 — Preferences persistence', () => {
-    test('first load with no bestialitty.prefs applies D-36 defaults @fast', async ({ page }) => {
+    test('first load with no beastty.prefs applies D-36 defaults @fast', async ({ page }) => {
         await setup(page);
         const prefs = await page.evaluate(() => window.__prefs.getPrefs());
         expect(prefs.theme).toBe('crt');
@@ -77,14 +77,14 @@ test.describe('PREF-01/PREF-02/PLAT-05 — Preferences persistence', () => {
     });
 
     test('savePrefs is debounced 250 ms; burst of changes = one persist', async ({ page }) => {
-        await page.addInitScript(() => localStorage.removeItem('bestialitty.prefs'));
+        await page.addInitScript(() => localStorage.removeItem('beastty.prefs'));
         await setup(page);
         // Monkey-patch localStorage.setItem to count writes against the prefs key.
         await page.evaluate(() => {
             window.__prefsSetItemCount = 0;
             const orig = Storage.prototype.setItem;
             Storage.prototype.setItem = function (key, val) {
-                if (key === 'bestialitty.prefs') window.__prefsSetItemCount++;
+                if (key === 'beastty.prefs') window.__prefsSetItemCount++;
                 return orig.call(this, key, val);
             };
         });
@@ -101,7 +101,7 @@ test.describe('PREF-01/PREF-02/PLAT-05 — Preferences persistence', () => {
     });
 
     test('beforeunload flushes pending debounced write', async ({ page }) => {
-        await page.addInitScript(() => localStorage.removeItem('bestialitty.prefs'));
+        await page.addInitScript(() => localStorage.removeItem('beastty.prefs'));
         await setup(page);
         await page.evaluate(() => {
             window.__prefs.savePrefs({ theme: 'clean' });
@@ -109,21 +109,21 @@ test.describe('PREF-01/PREF-02/PLAT-05 — Preferences persistence', () => {
         // Trigger beforeunload synchronously BEFORE the 250 ms debounce expires.
         // The flush handler must fire setItem immediately.
         await page.evaluate(() => window.dispatchEvent(new Event('beforeunload')));
-        const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('bestialitty.prefs')));
+        const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('beastty.prefs')));
         expect(stored).not.toBeNull();
         expect(stored.theme).toBe('clean');
     });
 
     test('quota error swallowed silently; in-memory prefs preserved', async ({ page }) => {
-        await page.addInitScript(() => localStorage.removeItem('bestialitty.prefs'));
+        await page.addInitScript(() => localStorage.removeItem('beastty.prefs'));
         await setup(page);
         await page.evaluate(() => {
             // Stub setItem to throw QuotaExceededError ONLY for the prefs key
-            // (other localStorage writers — e.g. bestialitty.port.preset — must
+            // (other localStorage writers — e.g. beastty.port.preset — must
             // still work; the test only exercises the prefs.js failure path).
             const orig = Storage.prototype.setItem;
             Storage.prototype.setItem = function (key, val) {
-                if (key === 'bestialitty.prefs') {
+                if (key === 'beastty.prefs') {
                     const err = new Error('quota');
                     err.name = 'QuotaExceededError';
                     throw err;
@@ -139,7 +139,7 @@ test.describe('PREF-01/PREF-02/PLAT-05 — Preferences persistence', () => {
 
     test('version migration: parsed.version > CURRENT_VERSION → fall back to defaults', async ({ page }) => {
         await page.addInitScript(() => {
-            localStorage.setItem('bestialitty.prefs', JSON.stringify({ version: 999, theme: 'wat' }));
+            localStorage.setItem('beastty.prefs', JSON.stringify({ version: 999, theme: 'wat' }));
         });
         await setup(page);
         const prefs = await page.evaluate(() => window.__prefs.getPrefs());
@@ -181,32 +181,32 @@ test.describe('PREF-01/PREF-02/PLAT-05 — Preferences persistence', () => {
     });
 
     test('Reset prefs button: first click changes label to "Click again to confirm (3 s)"', async ({ page }) => {
-        await page.addInitScript(() => localStorage.removeItem('bestialitty.prefs'));
+        await page.addInitScript(() => localStorage.removeItem('beastty.prefs'));
         await setup(page);
         await page.locator('#settings').evaluate((el) => el.open = true);
         await page.locator('#reset-prefs-button').click();
         await expect(page.locator('#reset-prefs-button')).toHaveText('Click again to confirm (3 s)');
     });
 
-    test('Reset prefs button: second click within 3s clears bestialitty.prefs and reloads defaults', async ({ page }) => {
-        await page.addInitScript(() => localStorage.removeItem('bestialitty.prefs'));
+    test('Reset prefs button: second click within 3s clears beastty.prefs and reloads defaults', async ({ page }) => {
+        await page.addInitScript(() => localStorage.removeItem('beastty.prefs'));
         await setup(page);
         // First customize prefs.
         await page.evaluate(() => window.__prefs.savePrefs({ theme: 'clean' }));
         await page.waitForTimeout(300);
-        expect(await page.evaluate(() => localStorage.getItem('bestialitty.prefs'))).not.toBeNull();
+        expect(await page.evaluate(() => localStorage.getItem('beastty.prefs'))).not.toBeNull();
         await page.locator('#settings').evaluate((el) => el.open = true);
         await page.locator('#reset-prefs-button').click();
         await page.locator('#reset-prefs-button').click();
         // Defaults reloaded in-place (no page reload — D-35).
         expect(await page.evaluate(() => window.__prefs.getPrefs().theme)).toBe('crt');
-        expect(await page.evaluate(() => localStorage.getItem('bestialitty.prefs'))).toBeNull();
+        expect(await page.evaluate(() => localStorage.getItem('beastty.prefs'))).toBeNull();
         // Label restored.
         await expect(page.locator('#reset-prefs-button')).toHaveText('Reset all preferences');
     });
 
     test('Reset prefs button: 3s timeout returns label to "Reset all preferences"', async ({ page }) => {
-        await page.addInitScript(() => localStorage.removeItem('bestialitty.prefs'));
+        await page.addInitScript(() => localStorage.removeItem('beastty.prefs'));
         await setup(page);
         await page.locator('#settings').evaluate((el) => el.open = true);
         await page.locator('#reset-prefs-button').click();

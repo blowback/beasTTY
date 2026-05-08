@@ -23,7 +23,7 @@ test.describe('RENDER-11 — Bell overlay + title prefix', () => {
 
   test('BEL-while-hidden sets (!) title prefix; visibility return clears it', async ({ page }) => {
     await page.goto('/');
-    await expect(page).toHaveTitle('BestialiTTY');
+    await expect(page).toHaveTitle('Beastty');
 
     // Simulate the tab being backgrounded. Playwright does not expose a
     // direct "hide page" API, so we shim document.hidden + dispatch the event.
@@ -41,7 +41,7 @@ test.describe('RENDER-11 — Bell overlay + title prefix', () => {
     await page.click('#feed');
     await page.waitForTimeout(100);
 
-    await expect(page).toHaveTitle('(!) BestialiTTY');
+    await expect(page).toHaveTitle('(!) Beastty');
 
     // Un-hide; chrome.js visibilitychange listener strips the '(!) ' prefix.
     await page.evaluate(() => {
@@ -50,7 +50,7 @@ test.describe('RENDER-11 — Bell overlay + title prefix', () => {
       document.dispatchEvent(new Event('visibilitychange'));
     });
     await page.waitForTimeout(50);
-    await expect(page).toHaveTitle('BestialiTTY');
+    await expect(page).toHaveTitle('Beastty');
   });
 
   test('title prefix is not doubled when two BELs arrive while hidden', async ({ page }) => {
@@ -70,6 +70,6 @@ test.describe('RENDER-11 — Bell overlay + title prefix', () => {
     await page.waitForTimeout(50);
 
     // sampleBell() guards against double-prefix via document.title.startsWith.
-    await expect(page).toHaveTitle('(!) BestialiTTY');
+    await expect(page).toHaveTitle('(!) Beastty');
   });
 });

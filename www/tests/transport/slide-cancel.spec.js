@@ -1,4 +1,4 @@
-// BestialiTTY Phase 10 Plan 10-05 — Esc-cancel + cancel timing windows + force_idle
+// Beastty Phase 10 Plan 10-05 — Esc-cancel + cancel timing windows + force_idle
 // escape hatch + hard-fail recovery Playwright assertions.
 //
 // Locks in the cancel-window contract from ADR-003 (v0.2.1 CAN amendment) +

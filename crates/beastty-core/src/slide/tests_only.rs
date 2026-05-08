@@ -11,7 +11,7 @@
 //!
 //! 2. **Fixture co-location:** the 7 reference fixtures + framer surface
 //!    re-exports live here so `tests/slide_*.rs` can write a single
-//!    `use bestialitty_core::slide::tests_only::*;`.
+//!    `use beastty_core::slide::tests_only::*;`.
 //!
 //! ## Visibility note (deviation from plan-as-written)
 //!

@@ -6,7 +6,7 @@
 //!
 //! Hand-pasted offline; no build-time tooling dep on slide-rs (D-04 explicit).
 
-use bestialitty_core::slide::tests_only::*;
+use beastty_core::slide::tests_only::*;
 
 /// D-04(a) catalogue pin from the integration-test boundary. Re-asserted here
 /// (also tested in slide::crc::tests::reference_vector_123456789) — having it

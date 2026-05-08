@@ -1,4 +1,4 @@
-// BestialiTTY Phase 9 — File-source: picker + drag-drop + CP/M validation + confirm modal.
+// Beastty Phase 9 — File-source: picker + drag-drop + CP/M validation + confirm modal.
 //
 // Public API: wireFileSource, validateCpmFilename, truncateCpm83, packSendMetadata.
 //

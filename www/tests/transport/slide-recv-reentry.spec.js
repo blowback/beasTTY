@@ -1,4 +1,4 @@
-// BestialiTTY Phase 10 Plan 10-05 — mid-session re-entry + hard-fail 3-mode
+// Beastty Phase 10 Plan 10-05 — mid-session re-entry + hard-fail 3-mode
 // recovery Playwright assertions.
 //
 // Pins SLIDE-34 (mid-session ESC^SLIDE re-entry) + SLIDE-29 hard-fail recovery

@@ -65,7 +65,7 @@ const STATE_CANCEL_PEND = 5;
 
 // EVT_* mirror — Plan 10-03's slide.js wires these via dispatch on kind.
 // (Plan 10-02 needs these constants for onRecvEvent's switch.)
-// Pinned in lockstep with crates/bestialitty-core/src/slide/framer.rs +
+// Pinned in lockstep with crates/beastty-core/src/slide/framer.rs +
 // tests/slide_wasm_boundary_shape.rs::slide_event_constants_pinned_for_phase_8_jsmirror.
 const EVT_HEADER_RECEIVED = 11 << 16;
 const EVT_RECV_DATA       = 12 << 16;

@@ -1,4 +1,4 @@
-// BestialiTTY Phase 6 Plan 04 (Wave 3) — clipboard adapter (copy / paste).
+// Beastty Phase 6 Plan 04 (Wave 3) — clipboard adapter (copy / paste).
 //
 // Public API: wireClipboard, copySelection, pasteFromClipboard.
 //

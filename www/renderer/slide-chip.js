@@ -1,4 +1,4 @@
-// BestialiTTY Phase 11 Plan 11-02 (Wave 1) — floating SLIDE chip module.
+// Beastty Phase 11 Plan 11-02 (Wave 1) — floating SLIDE chip module.
 //
 // Mirrors the www/renderer/scroll-state.js shape verbatim per CONTEXT C-02.
 // Module-scope state + wireSlideChip({...}) initializer + [hidden] toggle

@@ -1,4 +1,4 @@
-//! bestialitty-core: pure-Rust VT52 terminal logic with a wasm-bindgen boundary.
+//! beastty-core: pure-Rust VT52 terminal logic with a wasm-bindgen boundary.
 //!
 //! Module-level structure:
 //! - `dirty`, `grid`, `key`, `scrollback`, `terminal`, `vt52` — pure Rust,
@@ -44,7 +44,7 @@ mod wasm_boundary {
     /// JS-side shape (from `www/main.js`):
     ///
     /// ```js
-    /// import init, { Terminal, encode_key_raw } from './pkg/bestialitty_core.js';
+    /// import init, { Terminal, encode_key_raw } from './pkg/beastty_core.js';
     /// const wasm = await init();
     /// const term = new Terminal(24, 80, 10_000);
     /// term.feed(bytes);                                          // one boundary call
@@ -181,7 +181,7 @@ mod wasm_boundary {
     /// JS-side shape (from `www/transport/slide.js`):
     ///
     /// ```js
-    /// import init, { Slide } from './pkg/bestialitty_core.js';
+    /// import init, { Slide } from './pkg/beastty_core.js';
     /// const wasm = await init();
     /// const slide = new Slide();
     /// slide.enter_recv_mode();

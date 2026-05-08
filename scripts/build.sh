@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# scripts/build.sh — build the bestialitty-core wasm into www/pkg
+# scripts/build.sh — build the beastty-core wasm into www/pkg
 #
 # Invariants (per Phase 2 RESEARCH Pitfall #5):
 # - `cd "$(dirname "$0")/.."` makes the script idempotent under any cwd.
 # - `--out-dir ../../www/pkg` is resolved RELATIVE TO THE CRATE's Cargo.toml
-#   directory (crates/bestialitty-core/), which places files in
+#   directory (crates/beastty-core/), which places files in
 #   <repo-root>/www/pkg/ regardless of where the script is invoked from.
 # - `--target web` emits an ES-module-loadable pkg/ (no bundler, no Node).
 # - `--release` is default; listed explicitly.
@@ -15,16 +15,16 @@
 #   bash scripts/build.sh
 #
 # Output files (all gitignored):
-#   www/pkg/bestialitty_core.js          — ES-module glue
-#   www/pkg/bestialitty_core_bg.wasm     — compiled wasm binary
-#   www/pkg/bestialitty_core.d.ts        — TypeScript type defs
-#   www/pkg/bestialitty_core_bg.wasm.d.ts
+#   www/pkg/beastty_core.js          — ES-module glue
+#   www/pkg/beastty_core_bg.wasm     — compiled wasm binary
+#   www/pkg/beastty_core.d.ts        — TypeScript type defs
+#   www/pkg/beastty_core_bg.wasm.d.ts
 #   www/pkg/package.json                 — emitted but not used (no npm)
 
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-wasm-pack build crates/bestialitty-core \
+wasm-pack build crates/beastty-core \
     --target web \
     --out-dir ../../www/pkg \
     --release

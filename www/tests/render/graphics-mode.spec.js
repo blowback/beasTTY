@@ -8,7 +8,7 @@ test('ESC F + 0x61 sets Cell.flags bit 2 in the JS gridView', async ({ page }) =
     await page.waitForFunction(() => document.getElementById('terminal').width > 0);
 
     const result = await page.evaluate(async () => {
-        const wasm = await import('/pkg/bestialitty_core.js');
+        const wasm = await import('/pkg/beastty_core.js');
         const wasmInstance = await wasm.default();
         const memory = wasmInstance.memory;
         const term = new wasm.Terminal(24, 80, 100);
