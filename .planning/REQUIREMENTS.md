@@ -174,7 +174,8 @@ Architecture, table-stakes, and pitfalls grounded in `.planning/research/{STACK,
 - [x] **SLIDE-10**: Non-file drags (text/URL) rejected at `dragenter` via `dataTransfer.types.includes('Files')` filter
 - [x] **SLIDE-11
 **: Drops during an active SLIDE session rejected with chip "Transfer in progress — cancel first"
-- [ ] **SLIDE-12**: Drag-drop coexists with v1.0 pointer-select — `selection.js:onPointerDown` early-returns when drop overlay is active
+- [x] **SLIDE-12
+**: Drag-drop coexists with v1.0 pointer-select — `selection.js:onPointerDown` early-returns when drop overlay is active
 - [x] **SLIDE-13**: Beastty auto-types configured command (default `B:SLIDE R\r`) before opening session; configurable via Settings; empty string disables auto-type
 - [x] **SLIDE-14
 **: Auto-typed command's CP/M echo is swallowed for ~500 ms via swallow-echo filter so the typed command doesn't double-print in the terminal
@@ -363,7 +364,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SLIDE-09 | Phase 9 | Complete |
 | SLIDE-10 | Phase 9 | Complete |
 | SLIDE-11 | Phase 11 | Complete |
-| SLIDE-12 | Phase 12 | Pending |
+| SLIDE-12 | Phase 12 | Complete |
 | SLIDE-13 | Phase 9 | Complete |
 | SLIDE-14 | Phase 11 | Complete |
 | SLIDE-15 | Phase 9 | Complete |
