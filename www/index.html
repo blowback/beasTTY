@@ -249,6 +249,20 @@
       cursor: not-allowed;
     }
 
+    /* ==== Phase 10 — SLIDE recv-to-folder Settings row inline action ==== */
+    /* Single new rule: flex-wrap the [Choose folder…] button + state string
+       onto one row with 8px gap. The label + hint above/below inherit
+       existing #settings label and #settings .hint rules verbatim. */
+    .settings-row .settings-row-action {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 4px 0 0 24px;
+    }
+    .settings-row .settings-row-action .hint {
+      margin: 0;
+    }
+
     /* ==== Settings details (Phase 4 D-13) — mirrors #debug rule ==== */
     #settings {
       margin: 16px auto; max-width: 90ch;
@@ -826,6 +840,29 @@
     <div class="settings-row">
       <button id="reset-prefs-button" type="button" title="Restore default theme, phosphor, font zoom, serial config, and toggles">Reset all preferences</button>
       <p class="hint">Clears your saved preferences. Port permission and connection state are not affected.</p>
+    </div>
+
+    <!-- Phase 10 Plan 10-04 — SLIDE recv-to-folder Settings row.
+         Verbatim DOM + copy from 10-UI-SPEC §"New DOM structure" + §"Copywriting Contract".
+         Inserted at the END of <details id="settings">, AFTER `Reset all preferences`,
+         per UI-SPEC §"Element ordering": feature-scoped (SLIDE-only) row leads a new
+         SLIDE-features block that Phase 11 will extend; <hr class="settings-divider" />
+         marks the transition from the Phase 6 prefs block. -->
+    <hr class="settings-divider" />
+    <div class="settings-row" id="slide-recv-folder-row">
+      <label for="slide-recv-to-folder-checkbox"
+             title="When enabled, files received via SLIDE land in a folder you pick. Otherwise they download to your browser's Downloads folder.">
+        <input type="checkbox" id="slide-recv-to-folder-checkbox">
+        Save received files to a folder
+      </label>
+      <div class="settings-row-action">
+        <button id="slide-recv-folder-button" type="button"
+                title="Toggle the checkbox first">Choose folder…</button>
+        <span id="slide-recv-folder-status" class="hint">No folder selected</span>
+      </div>
+      <p class="hint" id="slide-recv-folder-help">
+        Received files land in your Downloads folder. Toggle this to pick a fixed destination.
+      </p>
     </div>
   </details>
 
