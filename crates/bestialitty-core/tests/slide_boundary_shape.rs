@@ -23,6 +23,7 @@ use bestialitty_core::slide::{
     Slide, SlideState,
     EVT_NONE, EVT_RDY, EVT_ACK, EVT_NAK, EVT_FIN, EVT_CAN,
     EVT_DATA_FRAME, EVT_CRC_ERROR,
+    EVT_FILE_COMPLETE, EVT_SESSION_COMPLETE, EVT_RETRANSMIT_NEEDED,
 };
 
 #[test]
@@ -91,6 +92,44 @@ fn slide_event_constants_pinned() {
     // Aux bits are zero for the constants (filled in at runtime per byte).
     assert_eq!(EVT_RDY & 0xFFFF,  0);
     assert_eq!(EVT_ACK & 0xFFFF,  0);
+
+    // Phase 9 sender extensions — must NOT shift any existing 0..7 value.
+    assert_eq!(EVT_FILE_COMPLETE     >> 16, 8);
+    assert_eq!(EVT_SESSION_COMPLETE  >> 16, 9);
+    assert_eq!(EVT_RETRANSMIT_NEEDED >> 16, 10);
+    assert_eq!(EVT_FILE_COMPLETE     & 0xFFFF, 0);
+    assert_eq!(EVT_SESSION_COMPLETE  & 0xFFFF, 0);
+    assert_eq!(EVT_RETRANSMIT_NEEDED & 0xFFFF, 0);
+}
+
+#[test]
+fn build_frame_into_emits_slide_rs_hello_fixture() {
+    // Cross-check against slide-rs/protocol.rs:231-243 fixture:
+    //   build_frame(0x05, b"hello") => [0x01, 0x05, 0x00, 0x05,
+    //   b'h', b'e', b'l', b'l', b'o', 0xF9, 0xE3]
+    use bestialitty_core::slide::tests_only::build_frame_into;
+    let mut buf = Vec::with_capacity(64);
+    build_frame_into(&mut buf, 0x05, b"hello");
+    assert_eq!(
+        &buf[..],
+        &[0x01, 0x05, 0x00, 0x05,
+          b'h', b'e', b'l', b'l', b'o',
+          0xF9, 0xE3]
+    );
+}
+
+#[test]
+fn build_frame_into_preserves_reserved_capacity_for_max_payload() {
+    // Phase 9 OUTBOUND_RESERVE = 4128 will absorb 4 max frames
+    // without reallocation; here we prove the helper itself does
+    // not reallocate when the caller has pre-reserved enough.
+    use bestialitty_core::slide::tests_only::build_frame_into;
+    let mut buf: Vec<u8> = Vec::with_capacity(4128);
+    let ptr_before = buf.as_ptr();
+    let payload = vec![0xAA; 1024];
+    build_frame_into(&mut buf, 0x01, &payload);
+    assert_eq!(buf.as_ptr(), ptr_before, "OUTBOUND_RESERVE must absorb a 1024-byte frame without reallocating");
+    assert_eq!(buf.len(), 1031);  // SOF + SEQ + LEN_H + LEN_L + 1024 payload + CRC_H + CRC_L
 }
 
 #[test]
