@@ -44,6 +44,16 @@ import { pushTxBytes, getWireOwner, isWriterReady } from '../input/tx-sink.js';
 // EVT_RECV_DATA / EVT_RECV_FILE_DONE through onRecvEvent, and re-issues
 // setSlideRef on every enterRecvMode so slide-recv has the live wasm Slide.
 import { onRecvEvent, setSlideRef as setSlideRecvRef, isSlideActive, slidePumpOnPortLost as slideRecvPumpOnPortLost } from './slide-recv.js';
+// Phase 11 Plan 11-04 SLIDE-14 — auto-type echo swallow filter (CONTEXT C-03).
+// Sits BEFORE the wakeup matcher in dispatchTerminalMode's byte loop. After
+// the host auto-types a command (e.g. "B:SLIDE R\r"), CP/M echoes those bytes
+// back; this filter consumes them byte-for-byte for ~500 ms so the local-echo
+// painted version (Phase 4 D-12) doesn't get double-printed by CP/M's echo.
+import {
+    wireEchoSwallow,
+    pushAutoTypedBytes,
+    consumeIfMatch as echoSwallowConsumeIfMatch,
+} from './echo-swallow.js';
 
 // EVT_* — packed (kind << 16) | aux. JS unpacks via (evt >>> 16) for kind,
 // (evt & 0xFFFF) for aux. AUTHORITY: crates/bestialitty-core/tests/slide_boundary_shape.rs:slide_event_constants_pinned
@@ -205,6 +215,11 @@ export function wireSlideDispatcher(opts) {
     prefsRef = prefs || null;
     pastePumpRef = pastePump || null;
     slideChipRef = slideChip || null;
+    // Phase 11 Plan 11-04 SLIDE-14 — wire the echo-swallow filter once during
+    // dispatcher init (CONTEXT C-03). The filter is module-scope state inside
+    // echo-swallow.js; wireEchoSwallow injects the term ref so flushPending can
+    // forward unmatched bytes via term.feed.
+    wireEchoSwallow({ term });
 }
 
 export function dispatchInbound(value) {
@@ -323,6 +338,20 @@ function dispatchTerminalMode(value) {
     let i = 0;
     while (i < value.length) {
         const b = value[i];
+
+        // Phase 11 Plan 11-04 SLIDE-14 — swallow auto-typed echo BEFORE wakeup
+        // matcher (CONTEXT C-03). If the swallow buffer is non-empty and the
+        // current byte matches the buffer head, the byte is consumed silently
+        // (CP/M's echo of the auto-typed command is a duplicate of what the
+        // local-echo painted — see Phase 4 D-12). On mismatch OR 500 ms expiry,
+        // the filter flushes its remaining buffer to term.feed (preserves any
+        // echo that didn't fully match — no byte loss) and lets this byte
+        // continue through the wakeup matcher.
+        if (echoSwallowConsumeIfMatch(b)) {
+            i++;
+            continue;
+        }
+
         if (b === WAKEUP[wakeIdx]) {
             // Capture for potential replay (max 6 bytes; the 7th match commits
             // to recv mode and is never replayed).
@@ -667,6 +696,14 @@ export function enterSendMode({ files }) {
     const autoSendBytes = readAutoSendCommandBytes();
     if (autoSendBytes.length > 0) {
         pushTxBytes(autoSendBytes);
+        // Phase 11 Plan 11-04 SLIDE-14 — arm the echo-swallow filter with the
+        // post-rewrite TX bytes. CP/M echoes what it received (which is what
+        // went on the wire); CR/LF mode (Phase 4 D-13) applies before
+        // pushTxBytes, so the same bytes feed both sinks and the swallow
+        // buffer is aligned with the inbound echo. Empty-string-disables
+        // semantic skips this naturally — autoSendBytes.length === 0 leaves
+        // the filter idle (no swallow buffer arming when no auto-type fired).
+        pushAutoTypedBytes(autoSendBytes);
     }
     // (else: empty-string-disables semantic — preserved from Phase 9 D-14.)
 
