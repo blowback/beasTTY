@@ -110,12 +110,22 @@ let inflightDownloads = [];        // Promise[] for cancel-time settle (Plan 10-
 let cancelInFlight = false;        // Plan 10-03 idempotency guard
 let sessionFolderFallback = false; // D-04 — picker dismissed mid-session → anchor-click for rest
 let lastDownloadAt = 0;            // W4 — module-scope timestamp for actual gap serialisation
+// Plan 10-05 Rule 1 fix — FIFO promise chain that actually serialises
+// concurrent assembleAndDownload calls. Without this, three EOF events
+// arriving in the same drain loop kick off three concurrent assembleAndDownload
+// promises that ALL read the same stale `lastDownloadAt`, all compute the same
+// wait, and all call URL.createObjectURL within microseconds — defeating the
+// 250 ms inter-file gap (SLIDE-19 verifiable failure). Chained through this
+// tail, each download awaits the previous one's createObjectURL + lastDownloadAt
+// update before reading lastDownloadAt itself; the gap is then correctly observed.
+let downloadDispatchTail = Promise.resolve();
 let recvBuffer = null;             // memory.buffer reference for view re-derivation
 let recvView = null;
 let filenameBuffer = null;
 let filenameView = null;
 let cachedHandle = null;           // Plan 10-04 populates via showDirectoryPicker
 let currentPermission = null;      // Plan 10-04 populates via queryPermission
+let dispatcherForceExitRef = null; // Plan 10-05 Rule 1 — slide.js's forceExitRecvMode (mode-flag sync)
 const filenameDecoder = new TextDecoder('latin1');   // Open Question 5 — never throws on high bytes
 
 // ===== wireSlideRecv — boot-time initializer =====
@@ -137,6 +147,11 @@ export function wireSlideRecv(opts) {
     folderButtonElRef = opts.folderButtonEl || null;
     statusElRef = opts.statusEl || null;
     helpElRef = opts.helpEl || null;
+    // Plan 10-05 Rule 1 fix — dispatcher's mode-flag sync. When the cancel
+    // sequence completes (or hard-fail recovery fires), forceExitRecvMode
+    // calls this so slide.js's `mode` flips back to 'terminal' synchronously
+    // without waiting for the next inbound chunk to trigger maybeExitRecvMode.
+    dispatcherForceExitRef = opts.dispatcherForceExit || null;
     // Plan 10-04 — Settings DOM event wiring + initial render + boot-time
     // permission re-request. When DOM refs are null (Plan 10-02 callsite),
     // these no-op cleanly.
@@ -380,7 +395,15 @@ function onRecvFileDone() {
     if (!currentFile) return;
     const file = currentFile;
     currentFile = null;
-    const downloadPromise = assembleAndDownload(file);
+    // Plan 10-05 Rule 1 fix — chain through downloadDispatchTail so multiple
+    // EOF events draining in the same dispatch loop are serialised; each
+    // assembleAndDownload only starts after the previous one's
+    // lastDownloadAt update. Without this, the SLIDE-19 250 ms inter-file
+    // gap is silently violated when files arrive back-to-back.
+    const downloadPromise = downloadDispatchTail.then(() => assembleAndDownload(file)).catch((err) => {
+        console.error('[slide-recv] assembleAndDownload failed:', err);
+    });
+    downloadDispatchTail = downloadPromise;
     inflightDownloads.push(downloadPromise);
     // Cleanup once the download settles (Plan 10-03 inflightDownloads array
     // also serves as the cancel-time allSettled target).
@@ -616,11 +639,15 @@ function waitForState(targetState, timeoutMs) {
 
 // forceExitRecvMode — flip TX-sink wire owner back to terminal + clear
 // per-session bookkeeping (currentFile, sessionFolderFallback, inflightDownloads).
-// slide.js owns the dispatcher mode flag; it re-reads slide.state() on
-// subsequent dispatchInbound calls and exits recv mode via maybeExitRecvMode.
+// Plan 10-05 Rule 1 fix — also synchronously flip slide.js's `mode` flag
+// via dispatcherForceExitRef so the dispatcher returns to terminal mode
+// without waiting for the next inbound chunk to trigger maybeExitRecvMode.
 function forceExitRecvMode() {
     if (txSinkRef && typeof txSinkRef.setWireOwner === 'function') {
         txSinkRef.setWireOwner('terminal');
+    }
+    if (typeof dispatcherForceExitRef === 'function') {
+        dispatcherForceExitRef();
     }
     currentFile = null;
     sessionFolderFallback = false;
@@ -661,6 +688,9 @@ export function __resetForTests() {
     cancelInFlight = false;
     sessionFolderFallback = false;
     lastDownloadAt = 0;
+    // Plan 10-05 Rule 1 fix — reset the dispatch-tail chain so a stale
+    // promise from a prior test does not block the next one.
+    downloadDispatchTail = Promise.resolve();
     recvBuffer = null;
     recvView = null;
     filenameBuffer = null;

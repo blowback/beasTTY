@@ -73,6 +73,7 @@ import {
     wireSlideDispatcher,
     dispatchInbound,
     enterSendMode as enterSlideSendMode,
+    forceExitRecvMode as dispatcherForceExitRecvMode,   // Plan 10-05 Rule 1 — mode-flag sync hook
     __resetForTests as __slideResetForTests,
     __getStateForTests as __slideGetStateForTests,
 } from './transport/slide.js';
@@ -436,6 +437,11 @@ wireSlideRecv({
     folderButtonEl: slideRecvFolderButton,
     statusEl: slideRecvFolderStatus,
     helpEl: slideRecvFolderHelp,
+    // Plan 10-05 Rule 1 fix — slide-recv.js's forceExitRecvMode invokes this
+    // to synchronously flip slide.js's module-scope `mode` flag back to
+    // 'terminal' on cancel / hard-fail (without waiting for the next inbound
+    // chunk to trigger maybeExitRecvMode).
+    dispatcherForceExit: dispatcherForceExitRecvMode,
 });
 
 // Test introspection (mirrors window.__sessionLog / window.__scrollState

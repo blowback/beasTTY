@@ -153,6 +153,12 @@ export const MOCK_SERIAL_SLIDE_BOT = `
       injectNakOnSeq: null,
       injectCanAfterFirstDataFrame: false,
       injectNoEchoOnCancel: false,
+      // Plan 10-05 cancel-tests — when set, the bot stops shipping data
+      // windows after the first one so the receiver SM stays mid-DataPhase
+      // long enough for a Playwright poll to observe + a cancel to fire.
+      // Set externally between startSendSession() and the cancel.
+      pauseAfterFirstWindow: false,
+      _firstWindowShipped: false,
     },
 
     // ===== Test-public API =====
@@ -184,6 +190,8 @@ export const MOCK_SERIAL_SLIDE_BOT = `
       bot.send.injectNakOnSeq = null;
       bot.send.injectCanAfterFirstDataFrame = false;
       bot.send.injectNoEchoOnCancel = false;
+      bot.send.pauseAfterFirstWindow = false;
+      bot.send._firstWindowShipped = false;
       sendInboundBuf.length = 0;
     },
     setRole(r) { bot.role = r; },
@@ -505,6 +513,12 @@ export const MOCK_SERIAL_SLIDE_BOT = `
       return;
     }
     // Window-boundary ACK — ship next 4 frames or EOF.
+    // Plan 10-05 cancel-tests — pauseAfterFirstWindow stops the bot from
+    // shipping the next window so the receiver SM stays mid-DataPhase long
+    // enough for the test to observe state + fire a cancel.
+    if (bot.send.pauseAfterFirstWindow && bot.send._firstWindowShipped) {
+      return;
+    }
     shipDataWindow(seq + 1);
   }
 
@@ -539,6 +553,9 @@ export const MOCK_SERIAL_SLIDE_BOT = `
       }
     }
     bot.send.currentSeq = startSeq + WIN_SIZE;
+    // Plan 10-05 cancel-tests — flag that the first window has shipped so
+    // the next window-boundary ACK can be paused via pauseAfterFirstWindow.
+    bot.send._firstWindowShipped = true;
   }
 
   function handleNak(seq) {

@@ -490,6 +490,23 @@ function exitRecvMode() {
     // catches any change.
 }
 
+// Plan 10-05 Rule 1 fix — slide-recv.js's cancel sequence flips the wire
+// owner back to 'terminal' but it cannot reach into slide.js's module-scope
+// `mode` variable. Without this, after a programmatic cancel the dispatcher
+// stays in 'recv' mode and routes subsequent inbound bytes to dispatchRecvMode
+// (which then needs an inbound chunk to call maybeExitRecvMode). The cleanest
+// fix is to export an idempotent `forceExitRecvMode` that slide-recv.js
+// invokes from its own forceExitRecvMode() helper. mode + owner stay locked
+// together (Pitfall 3 / D-09 synchronous handoff invariant).
+export function forceExitRecvMode() {
+    if (mode === 'recv' || mode === 'send') {
+        if (txSinkRef && typeof txSinkRef.setWireOwner === 'function') {
+            txSinkRef.setWireOwner('terminal');
+        }
+        mode = 'terminal';
+    }
+}
+
 // ===== Phase 9 sender-mode internals =====
 
 /// Public entry point — called by file-source.js (Plan 09-03) after the
