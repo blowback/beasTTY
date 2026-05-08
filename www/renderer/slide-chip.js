@@ -56,6 +56,12 @@ let dropRejectedUntil = 0;  // Date.now() + 3000 on each flashDropRejected() cal
 // Timer handles for lifecycle auto-hides.
 let refreshTickHandle = null;        // 250 ms interval for active redraw + throughput
 let summaryAutoHideHandle = null;    // 5 s for sent/received/cancelled/error states
+// Phase 11 Plan 11-04 D-15 — wakeup-timeout timer. Armed by enterAwaitingWakeup
+// when armTimer === true (Compatibility mode 'auto'). Cleared on enterActive
+// (wakeup arrived in time), hide (user cancelled), and __resetForTests. Also
+// re-armed on each enterAwaitingWakeup call (defensive — clearing prior arm).
+let wakeupTimeoutHandle = null;
+const WAKEUP_TIMEOUT_MS = 3000;
 
 // Injected deps (set by wireSlideChip).
 let chipElRef = null;
@@ -277,16 +283,43 @@ function handleInlineAction(action) {
 
 // ====== Public state-transition methods (UI-SPEC verbatim states) ======
 
-export function enterAwaitingWakeup(_opts) {
-    // _opts.armTimer wired by Plan 11-04.
+export function enterAwaitingWakeup(opts) {
+    // Phase 11 Plan 11-04 D-15 / D-16 — armTimer governed by Compatibility
+    // mode (caller passes armTimer based on prefs.slideCompatibilityMode):
+    //   - 'auto' → armTimer: true → 3 s timer arms; on expiry transition to
+    //     awaiting-timeout state (Z80 didn't respond chip + Retry/Cancel/
+    //     Force-start buttons).
+    //   - 'wakeup-required' → armTimer: false → no timer; chip stays in
+    //     awaiting-wakeup indefinitely (modern slide.com).
+    //   - 'force-start' → armTimer: false → no timer; dispatcher transitions
+    //     to send mode immediately (chip never sees awaiting-timeout).
     clearAutoHide();
+    clearWakeupTimer();
     lifecycle = 'awaiting-wakeup';
     samples.length = 0;
     refreshChip();
+
+    if (opts && opts.armTimer === true) {
+        wakeupTimeoutHandle = setTimeout(() => {
+            wakeupTimeoutHandle = null;
+            // Transition to awaiting-timeout — chip displays the
+            // [Retry][Cancel][Force start] buttons (UI-SPEC verbatim copy).
+            lifecycle = 'awaiting-timeout';
+            refreshChip();
+        }, WAKEUP_TIMEOUT_MS);
+    }
+}
+
+function clearWakeupTimer() {
+    if (wakeupTimeoutHandle) {
+        clearTimeout(wakeupTimeoutHandle);
+        wakeupTimeoutHandle = null;
+    }
 }
 
 export function enterActive() {
     clearAutoHide();
+    clearWakeupTimer();   // Phase 11 D-15 — wakeup arrived in time; cancel pending timeout.
     lifecycle = 'active';
     samples.length = 0;
     refreshChip();
@@ -329,6 +362,7 @@ export function flashDropRejected() {
 
 export function hide() {
     clearAutoHide();
+    clearWakeupTimer();   // Phase 11 D-15 — clear any pending awaiting-timeout transition.
     lifecycle = 'hidden';
     cancelledData = null;
     summaryData = null;
@@ -369,6 +403,7 @@ export function __resetForTests() {
     summaryData = null;
     lastReason = '';
     clearAutoHide();
+    clearWakeupTimer();   // Phase 11 D-15 — test isolation.
     if (chipElRef) chipElRef.setAttribute('hidden', '');
     if (chipTextElRef) chipTextElRef.textContent = '';
 }
@@ -382,5 +417,6 @@ export function __getStateForTests() {
         summaryData: summaryData ? { ...summaryData } : null,
         lastReason,
         hasAutoHideTimer: summaryAutoHideHandle !== null,
+        hasWakeupTimer: wakeupTimeoutHandle !== null,   // Phase 11 D-15 — test introspection.
     };
 }

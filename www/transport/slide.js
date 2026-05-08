@@ -220,6 +220,85 @@ export function wireSlideDispatcher(opts) {
     // echo-swallow.js; wireEchoSwallow injects the term ref so flushPending can
     // forward unmatched bytes via term.feed.
     wireEchoSwallow({ term });
+
+    // Phase 11 Plan 11-04 D-15 — register chip state-change observer for the
+    // Retry / Cancel / Force-start inline actions emitted from the
+    // awaiting-timeout state. The chip emits 'inline-action' events through
+    // stateChangeObservers when the user clicks one of the bracketed buttons;
+    // dispatcher consumes them here. Cancel is also wired through the chip's
+    // onCancel callback (Plan 11-03), so the cancel branch here only handles
+    // the awaiting-* lifecycle case (no active session yet).
+    if (slideChipRef && typeof slideChipRef.onStateChange === 'function') {
+        slideChipRef.onStateChange((evt) => {
+            if (!evt || evt.kind !== 'inline-action') return;
+            handleChipInlineAction(evt.action);
+        });
+    }
+}
+
+// Phase 11 Plan 11-04 D-15 — handle Retry / Cancel / Force-start inline
+// actions from the chip's awaiting-timeout state.
+function handleChipInlineAction(action) {
+    switch (action) {
+        case 'retry':
+            // Re-emit the auto-type and restart the 3 s wakeup timer. The
+            // pendingSendSession is preserved across retry — only the wakeup
+            // wait restarts. Honours the current Compatibility mode for
+            // armTimer (re-checking prefsRef in case the user changed the
+            // Settings dropdown between the original click and the retry).
+            if (pendingSendSession) {
+                const autoSendBytes = readAutoSendCommandBytes();
+                if (autoSendBytes.length > 0) {
+                    try { pushTxBytes(autoSendBytes); } catch {}
+                    try { pushAutoTypedBytes(autoSendBytes); } catch {}
+                }
+                const compatMode = (prefsRef && prefsRef.slideCompatibilityMode) || 'auto';
+                const armTimer = compatMode === 'auto';
+                try {
+                    if (slideChipRef && typeof slideChipRef.enterAwaitingWakeup === 'function') {
+                        slideChipRef.enterAwaitingWakeup({ armTimer });
+                    }
+                } catch {}
+            }
+            return;
+        case 'force-start':
+            // Skip wakeup wait; jump directly into send mode (equivalent to
+            // having Compatibility mode set to 'force-start' for this one
+            // session — CONTEXT D-15 verbatim semantic). Consume the pending
+            // session here so the wakeup-completion clause in
+            // dispatchTerminalMode does not also fire.
+            if (pendingSendSession) {
+                const session = pendingSendSession;
+                pendingSendSession = null;
+                try { enterSendModeInternal(session); } catch (err) {
+                    console.error('[slide.js] force-start (chip) enterSendModeInternal failed:', err);
+                }
+            }
+            return;
+        case 'cancel': {
+            // The chip's onCancel (wired in main.js) handles cancel for active
+            // sessions via the Phase 10 5-step cancelSlideRecv state machine.
+            // For awaiting-wakeup / awaiting-timeout states (no active session
+            // yet — pendingSendSession is queued but enterSendModeInternal
+            // hasn't fired), cancel means clear pendingSendSession and hide
+            // the chip. Inspect the chip's lifecycle to disambiguate.
+            const chipState = (slideChipRef && typeof slideChipRef.__getStateForTests === 'function')
+                ? slideChipRef.__getStateForTests()
+                : null;
+            const lc = chipState ? chipState.lifecycle : null;
+            if (lc === 'awaiting-wakeup' || lc === 'awaiting-timeout') {
+                pendingSendSession = null;
+                try {
+                    if (slideChipRef && typeof slideChipRef.hide === 'function') {
+                        slideChipRef.hide();
+                    }
+                } catch {}
+            }
+            // Active sessions: chip's onCancel callback handles via
+            // cancelSlideRecv (5-step ADR-003 state machine).
+            return;
+        }
+    }
 }
 
 export function dispatchInbound(value) {
@@ -709,17 +788,58 @@ export function enterSendMode({ files }) {
 
     pendingSendSession = { metadata, fileBytes };
 
-    // Phase 11 Plan 11-03 — chip lifecycle hook: send mode entered, awaiting
-    // Z80 wakeup (D-15). armTimer is governed by prefs.slideCompatibilityMode;
-    // Plan 11-04 wires the actual 3 s setTimeout body that transitions
-    // awaiting-wakeup → awaiting-timeout when armTimer is true. Plan 11-03
-    // surfaces the chip in awaiting-wakeup state with armTimer false so the
-    // chip displays "↑ Waiting for Z80…  [Cancel]" without a timeout.
-    try {
-        if (slideChipRef && typeof slideChipRef.enterAwaitingWakeup === 'function') {
-            slideChipRef.enterAwaitingWakeup({ armTimer: false });
-        }
-    } catch {}
+    // Phase 11 Plan 11-04 D-16 — Compatibility mode 3-way branch governs how
+    // the wakeup wait is handled. prefs.slideCompatibilityMode comes from the
+    // Settings sub-block (Plan 11-03 D-05); the default 'auto' is applied
+    // defensively when prefs are missing or contain an unknown value.
+    //
+    //   - 'auto' (default): auto-type + 3 s wakeup wait + timeout chip on
+    //     miss. Chip arms the 3-second setTimeout (D-15) inside slide-chip.js.
+    //   - 'wakeup-required': auto-type + indefinite wait for wakeup. Chip
+    //     stays in awaiting-wakeup; user has Esc / Cancel as the only exit
+    //     (suitable for modern slide.com that always emits ESC ^ S L I D E).
+    //   - 'force-start' (legacy slide.com): auto-type + skip wakeup wait
+    //     entirely. Chip surfaces awaiting-wakeup briefly, then a microtask-
+    //     scheduled enterSendModeInternal jumps directly into send mode (no
+    //     wakeup matcher arm).
+    const compatMode = (prefsRef && prefsRef.slideCompatibilityMode) || 'auto';
+    if (compatMode === 'force-start') {
+        // CONTEXT D-07 / D-16 — skip wakeup wait. Chip enters awaiting-wakeup
+        // briefly so the user sees the auto-type land, then we transition to
+        // send mode. The microtask-scheduled enterSendModeInternal allows the
+        // pushTxBytes auto-type bytes to clear the local ring before owner
+        // flips to 'slide' — Pitfall 3 ordering invariant preserved.
+        try {
+            if (slideChipRef && typeof slideChipRef.enterAwaitingWakeup === 'function') {
+                slideChipRef.enterAwaitingWakeup({ armTimer: false });
+            }
+        } catch {}
+        const session = pendingSendSession;
+        pendingSendSession = null;
+        Promise.resolve().then(() => {
+            try { enterSendModeInternal(session); } catch (err) {
+                console.error('[slide.js] force-start enterSendModeInternal failed:', err);
+            }
+        });
+    } else if (compatMode === 'wakeup-required') {
+        // CONTEXT D-07 / D-16 — auto-type + indefinite wait for wakeup.
+        // Chip displays "↑ Waiting for Z80…  [Cancel]" until the 7-byte
+        // wakeup arrives or the user cancels. No timeout chip ever surfaces.
+        try {
+            if (slideChipRef && typeof slideChipRef.enterAwaitingWakeup === 'function') {
+                slideChipRef.enterAwaitingWakeup({ armTimer: false });
+            }
+        } catch {}
+    } else {
+        // CONTEXT D-07 / D-16 — 'auto' default: auto-type + 3 s wakeup wait
+        // + timeout chip on miss. Chip arms the 3 s setTimeout in
+        // slide-chip.js's enterAwaitingWakeup(armTimer:true).
+        try {
+            if (slideChipRef && typeof slideChipRef.enterAwaitingWakeup === 'function') {
+                slideChipRef.enterAwaitingWakeup({ armTimer: true });
+            }
+        } catch {}
+    }
 }
 
 /// Pack files-with-names into the CONTEXT D-09 little-endian length-prefixed
