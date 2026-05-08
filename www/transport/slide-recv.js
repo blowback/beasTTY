@@ -53,6 +53,15 @@ const STATE_IDLE = 0;
 const STATE_DONE = 6;
 const STATE_ERROR = 7;
 
+// ===== Cancel sequence constants — ADR-003 §3 =====
+// Plan 10-03 — verbatim per CONTEXT.md "Cancel sequence pseudocode":
+//   200 ms allSettled → CTRL_CAN → 500 ms echo wait → 100 ms drain → 2000 ms force_idle escape
+const CANCEL_INFLIGHT_TIMEOUT_MS = 200;
+const CANCEL_ECHO_WAIT_MS = 500;
+const CANCEL_DRAIN_MS = 100;
+const CANCEL_ABSOLUTE_TIMEOUT_MS = 2000;
+const STATE_CANCEL_PEND = 5;
+
 // EVT_* mirror — Plan 10-03's slide.js wires these via dispatch on kind.
 // (Plan 10-02 needs these constants for onRecvEvent's switch.)
 // Pinned in lockstep with crates/bestialitty-core/src/slide/framer.rs +
@@ -163,11 +172,12 @@ function onRecvData() {
     currentFile.chunks.push(owned);
     currentFile.bytesDone += owned.byteLength;
     // T-10-01 mitigation: hard cap at 100 MB.
+    // Plan 10-03 — full hard-fail integration: slide.cancel() pushes CTRL_CAN
+    // and recoverHardFail() converges on force_idle + setWireOwner('terminal').
     if (currentFile.bytesDone > MAX_FILE_SIZE) {
-        console.error(`[slide-recv] file ${currentFile.name} exceeded MAX_FILE_SIZE (${MAX_FILE_SIZE} bytes); resetting`);
-        // Plan 10-02 leaves this as a soft reset; Plan 10-03 will integrate
-        // slide.cancel() + recoverHardFail for proper hard-fail recovery.
-        currentFile = null;
+        console.error(`[slide-recv] file ${currentFile.name} exceeded MAX_FILE_SIZE (${MAX_FILE_SIZE} bytes); cancelling`);
+        if (slideRef && typeof slideRef.cancel === 'function') slideRef.cancel();
+        recoverHardFail('file too large');
     }
 }
 
@@ -315,19 +325,138 @@ function delay(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// ===== STUB exports — Plan 10-03 fills these =====
+// ===== Cancel sequence — ADR-003 §3 (Plan 10-03) =====
+//
+// Verbatim from CONTEXT.md "Cancel sequence pseudocode":
+//   1. await Promise.race([Promise.allSettled(inflightDownloads), delay(200)])
+//   2. slide.cancel() pushes CTRL_CAN (0x18) to outbound_buf
+//      drainSlideOutboundOneShot() — 1-byte writeSlideFrame fire-and-forget
+//   3. const echoArrived = await waitForState(STATE_DONE, 500)
+//   4. await delay(100)
+//   5. if (!echoArrived) slide.force_idle()   // ADR-003 §3 escape hatch
+//      forceExitRecvMode()
+//
+// 2000 ms Promise.race wraps the entire sequence (absolute escape hatch).
+// NEVER calls reader.cancel() or port.close() — keeps terminal session alive.
+//
+// Idempotency guards (T-10-cancel-race):
+//   - cancelInFlight boolean (module-scope) — second call returns early.
+//   - slide.cancel() also idempotent (Phase 7 D-06; state.rs:332-348).
+//   - !isSlideActive() guard — no-op if no active recv session.
 export async function cancelSlideRecv() {
-    throw new Error('cancelSlideRecv not implemented until Plan 10-03');
+    if (cancelInFlight) return;
+    if (!isSlideActive()) return;
+    cancelInFlight = true;
+
+    // Absolute timeout escape hatch (ADR-003 §3 — 2 s wraps the whole sequence).
+    const absoluteTimeout = setTimeout(() => {
+        console.warn('[slide-recv] cancel absolute timeout (2s); force_idle');
+        if (slideRef && typeof slideRef.force_idle === 'function') slideRef.force_idle();
+        forceExitRecvMode();
+    }, CANCEL_ABSOLUTE_TIMEOUT_MS);
+
+    try {
+        // Step 1 — settle in-flight writes (200 ms cap).
+        await Promise.race([
+            Promise.allSettled(inflightDownloads),
+            delay(CANCEL_INFLIGHT_TIMEOUT_MS),
+        ]);
+        // Step 2 — push CTRL_CAN onto outbound (slide.cancel pushes 0x18).
+        if (slideRef && typeof slideRef.cancel === 'function') {
+            slideRef.cancel();
+        }
+        drainSlideOutboundOneShot();    // 1-byte writeSlideFrame fire-and-forget
+        // Step 3 — wait up to 500 ms for Z80 echo (state transitions Done).
+        const echoArrived = await waitForState(STATE_DONE, CANCEL_ECHO_WAIT_MS);
+        // Step 4 — drain 100 ms post-echo.
+        await delay(CANCEL_DRAIN_MS);
+        // Step 5 — if no echo, force_idle escape hatch (ADR-003 §3).
+        if (!echoArrived && slideRef && typeof slideRef.force_idle === 'function') {
+            slideRef.force_idle();
+        }
+        clearTimeout(absoluteTimeout);
+        forceExitRecvMode();
+    } catch (e) {
+        clearTimeout(absoluteTimeout);
+        console.error('[slide-recv] cancel sequence threw:', e);
+        if (slideRef && typeof slideRef.force_idle === 'function') slideRef.force_idle();
+        forceExitRecvMode();
+    } finally {
+        cancelInFlight = false;
+    }
 }
 
+// drainSlideOutboundOneShot — 1-byte CTRL_CAN write for the cancel path.
+// Pitfall 4 — re-derive view (one-shot; we don't cache the outbound view here
+// because slide.js owns the cached outbound view and we don't want to interfere
+// with its module-scope state).
+function drainSlideOutboundOneShot() {
+    if (!slideRef) return;
+    if (typeof slideRef.outbound_len !== 'function') return;
+    const len = slideRef.outbound_len();
+    if (len === 0) return;
+    const outboundView = new Uint8Array(wasmRef.memory.buffer, slideRef.outbound_ptr(), len);
+    const owned = new Uint8Array(outboundView);
+    if (txSinkRef && typeof txSinkRef.writeSlideFrame === 'function') {
+        txSinkRef.writeSlideFrame(owned);
+    }
+    if (typeof slideRef.clear_outbound === 'function') slideRef.clear_outbound();
+}
+
+// waitForState — poll slideRef.state() every 10 ms; resolve true on match,
+// false on timeout. Used by the cancel sequence Step 3 to detect Z80 echo
+// (Done state) within 500 ms.
+function waitForState(targetState, timeoutMs) {
+    return new Promise((resolve) => {
+        const t0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+        const now = () => (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+        const tick = () => {
+            if (slideRef && slideRef.state() === targetState) return resolve(true);
+            if (now() - t0 >= timeoutMs) return resolve(false);
+            setTimeout(tick, 10);
+        };
+        tick();
+    });
+}
+
+// forceExitRecvMode — flip TX-sink wire owner back to terminal + clear
+// per-session bookkeeping (currentFile, sessionFolderFallback, inflightDownloads).
+// slide.js owns the dispatcher mode flag; it re-reads slide.state() on
+// subsequent dispatchInbound calls and exits recv mode via maybeExitRecvMode.
+function forceExitRecvMode() {
+    if (txSinkRef && typeof txSinkRef.setWireOwner === 'function') {
+        txSinkRef.setWireOwner('terminal');
+    }
+    currentFile = null;
+    sessionFolderFallback = false;
+    inflightDownloads = [];
+}
+
+// slidePumpOnPortLost — port lost mid-recv (T-10-port-lost).
+// CONTEXT Discretion default: 5-line minimum (force_idle + console.warn +
+// forceExitRecvMode). Phase 11 SLIDE-32 will replace with chip-emitting logic.
+// Without this real impl, port loss leaves SM stuck in DataPhase; with it,
+// the next reload + reconnect starts cleanly.
 export function slidePumpOnPortLost() {
-    // Plan 10-03 wires the 5-line minimum (force_idle + setWireOwner('terminal')).
-    // Phase 11 SLIDE-32 will replace with chip-emitting logic.
+    if (slideRef && typeof slideRef.force_idle === 'function') {
+        slideRef.force_idle();
+    }
+    console.warn('[slide-recv] port lost — force_idle + setWireOwner(terminal)');
+    forceExitRecvMode();
 }
 
+// recoverHardFail — 3-mode convergence (T-10-hard-fail):
+//   - NAK_BUDGET exhausted (Phase 7 state.rs:392-406)
+//   - port lost (slidePumpOnPortLost)
+//   - wire desync (CancelPending silent-drain)
+// All converge on slide.force_idle() + setWireOwner('terminal') + console.error.
+// Phase 11 SLIDE-29 attaches the visible "Retry" chip surface.
 export function recoverHardFail(reason) {
-    // Plan 10-03 wires the 3-mode convergence (NAK budget / port lost / wire desync).
-    console.error(`[slide-recv] hard-fail STUB: ${reason}`);
+    console.error(`[slide-recv] hard-fail: ${reason}; resetting`);
+    if (slideRef && typeof slideRef.force_idle === 'function') {
+        slideRef.force_idle();
+    }
+    forceExitRecvMode();
 }
 
 // ===== Test introspection =====
