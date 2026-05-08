@@ -490,6 +490,12 @@ function exitRecvMode() {
     // D-09 — synchronous handoff. mode + owner flipped together; Pitfall 3.
     txSinkRef.setWireOwner('terminal');
     mode = 'terminal';
+    // Phase 10 review WR-02 — clear slide-recv's slideRef so it cannot
+    // dereference the stale Slide after the next enterRecvMode's slide.free()
+    // frees its wasm memory (RESEARCH Pitfall 4 — wasm-bindgen panics across
+    // FFI are uncatchable; null the ref instead). The recv module's
+    // isSlideActive / cancelSlideRecv are defensive against a null ref.
+    setSlideRecvRef(null);
     // Slide instance lifecycle: leave the Done/Error instance non-null until
     // the next enterRecvMode replaces it (subsequent feed_byte/feed_chunk on
     // a Done state are no-ops in the SM per Phase 7 state.rs:128-131).

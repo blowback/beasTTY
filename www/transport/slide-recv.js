@@ -341,10 +341,21 @@ export function setSlideRef(slide) {
 // Returns true when slideRef && state in {WaitingRdy(1), HeaderPhase(2),
 // DataPhase(3), FinPending(4), CancelPending(5)}. Plan 10-03 imports this
 // from keyboard.js to disambiguate Esc-cancel-recv from Esc-to-VT52.
+//
+// Phase 10 review WR-02 — wrap state() in try/catch defensively. Now that
+// exitRecvMode nulls slideRef this should be unreachable, but if a future
+// caller forgets to null the ref before calling slide.free(), reading
+// state() on a freed wasm instance would panic across the FFI boundary
+// (RESEARCH Pitfall 4 — uncatchable across wasm-bindgen). Defensive return
+// keeps the Esc-cancel guard graceful.
 export function isSlideActive() {
     if (!slideRef) return false;
-    const st = slideRef.state();
-    return st !== STATE_IDLE && st !== STATE_DONE && st !== STATE_ERROR;
+    try {
+        const st = slideRef.state();
+        return st !== STATE_IDLE && st !== STATE_DONE && st !== STATE_ERROR;
+    } catch {
+        return false;
+    }
 }
 
 // ===== onRecvEvent — called by slide.js drainEventsAndOutbound (Plan 10-03 wires) =====
