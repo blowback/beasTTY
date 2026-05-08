@@ -1430,7 +1430,7 @@ fn reference_vector_123456789() {
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 These are not research gaps — they are decisions that get answered at
 planning time or are deferred to later phases.
@@ -1440,7 +1440,7 @@ planning time or are deferred to later phases.
      surface and has no testable shape without a peer.
    - What's unclear: planner's risk tolerance for "Phase 7 doesn't fully
      answer SLIDE-04 alone (relies on Phase 9 to complete the picture)."
-   - Recommendation: Default to receiver-only. If reviewer pushes back,
+   - RESOLVED: Default to receiver-only (per Plan 07-03 — receiver-only SM ships in Phase 7; sender SM deferred to Phase 9). If reviewer pushes back,
      revisit with §Sender SM transitions table — the work is well-scoped
      even if it doubles the test surface.
 
@@ -1450,14 +1450,14 @@ planning time or are deferred to later phases.
      + D-06 are explicit about no time logic in core.
    - What's unclear: whether to broaden the gate as a Phase 7 deliverable
      vs trust convention.
-   - Recommendation: Add `std::time` to FORBIDDEN_TOKENS_WITH_EXEMPTIONS
+   - RESOLVED: Add `std::time` to FORBIDDEN_TOKENS_WITH_EXEMPTIONS
      as a Phase 7 belt-and-braces. Cheap to add; closes a foot-gun.
 
 3. **Granularity of `EVT_PROTOCOL_ERROR`?**
    - What we know: ARCHITECTURE.md §1 lists `event_kind = 9` as
      "error" + `aux = error_code`.
    - What's unclear: how many error codes Phase 7 surfaces.
-     Recommendation: 4 codes — `ERR_CRC_RETRY_EXHAUSTED = 1`,
+     RESOLVED: 4 codes — `ERR_CRC_RETRY_EXHAUSTED = 1`,
      `ERR_NAK_BUDGET_EXHAUSTED = 2`, `ERR_UNEXPECTED_STATE_TRANSITION = 3`,
      `ERR_HEADER_PARSE = 4`. Mirrors slide-rs `recv.rs` retry budget
      concept.
@@ -1466,7 +1466,7 @@ planning time or are deferred to later phases.
    `Slide::new` parameter?**
    - What we know: SLIDE v0.2 spec says exactly 1024 bytes/frame; not
      negotiable per spec.
-   - Recommendation: `pub const FRAME_SIZE: usize = 1024;` and
+   - RESOLVED: `pub const FRAME_SIZE: usize = 1024;` and
      `pub const WIN_SIZE: usize = 4;` at module level — exact match to
      slide-rs `protocol.rs:12-13`. Not configurable; spec-fixed.
 
@@ -1474,7 +1474,7 @@ planning time or are deferred to later phases.
    - What we know: `current_file_metadata_ptr/_len` exposes a
      null-terminated ASCII filename + LE u32 size — same shape as the
      wire header payload (per `slide-rs/protocol.rs:46-57`).
-   - Recommendation: forward the wire payload bytes verbatim. JS parses
+   - RESOLVED: forward the wire payload bytes verbatim. JS parses
      the same bytes the wire delivered — single source of truth.
 
 ---

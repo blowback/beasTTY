@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: Integration
-status: planning
-stopped_at: Phase 9 context gathered
-last_updated: "2026-05-07T23:17:41.195Z"
-last_activity: 2026-05-07
+status: executing
+stopped_at: Phase 9 UI-SPEC approved
+last_updated: "2026-05-08T00:42:48.547Z"
+last_activity: 2026-05-08 -- Phase --phase execution started
 progress:
   total_phases: 12
   completed_phases: 8
-  total_plans: 51
+  total_plans: 55
   completed_plans: 51
-  percent: 100
+  percent: 93
 ---
 
 # Project State
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-06)
 
 **Core value:** A modern, reliable, in-browser VT52 emulator good enough to use as a daily driver with a real MicroBeast.
-**Current focus:** Phase --phase — 08
+**Current focus:** Phase --phase — 09
 
 ## Current Position
 
-Phase: 9
-Plan: Not started
-Status: Ready to plan
-Last activity: 2026-05-07
+Phase: --phase (09) — EXECUTING
+Plan: 1 of --name
+Status: Executing Phase --phase
+Last activity: 2026-05-08 -- Phase --phase execution started
 
 Progress: [██████████] 100%
 
@@ -168,9 +168,9 @@ Items acknowledged and carried forward from v1.0 milestone close:
 ## Session Continuity
 
 Last session: --stopped-at
-Stopped at: Phase 9 context gathered
+Stopped at: Phase 9 UI-SPEC approved
 Resume file: --resume-file
 
 **Next Phase:** Phase 8 — Wasm Boundary, JS Dispatcher & ESC^ Wakeup. Phase 7 delivered the pure-Rust SLIDE state machine; Phase 8 wraps `Slide` in `lib.rs:wasm_boundary` with `feed_byte` / `feed_chunk` / `outbound_ptr/_len/clear_outbound` / `state` / `cancel` / `force_idle` exports (per ARCHITECTURE.md §1). The `Slide` struct shape is pinned via `tests/slide_boundary_shape.rs` fn-pointer coercion (Plan 07-04) so any drift fails at compile time. ADR-003 (Plan 07-05) is the canonical document for the v0.2.1 CAN-bidirectional amendment that Phase 8's wasm wrapper exposes to JS.
 
-**Planned Phase:** 8 (Wasm Boundary, JS Dispatcher & ESC^ Wakeup) — 4 plans — 2026-05-07T19:04:25.479Z
+**Planned Phase:** 9 (SLIDE Sender — Host → Z80 Send) — 4 plans — 2026-05-08T00:41:44.132Z
