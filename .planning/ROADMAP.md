@@ -208,8 +208,8 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans**: 4 plans
   - [x] 09-01-PLAN.md — Rust sender SM + framer build_frame_into + EVT_FILE_COMPLETE/EVT_SESSION_COMPLETE/EVT_RETRANSMIT_NEEDED + boundary-shape pin + tests/slide_sender.rs end-to-end (Wave 1)
   - [x] 09-02-PLAN.md — Wasm façade enter_send_mode/feed_send_chunk + tx-sink writeSlideFrameAwaitable + slide.js dispatcher 'send' branch + sender main-loop drain + EVT_*/STATE_* mirror + OUTBOUND_VIEW_CAP=4128 + main.js boot wiring (Wave 2)
-  - [ ] 09-03-PLAN.md — file-source.js (NEW) + index.html top-bar [↑ Send file] button + drop overlay + <dialog> modal + ~50 lines CSS + main.js wireFileSource (Wave 3)
-  - [ ] 09-04-PLAN.md — mock-serial-slide-bot.js (NEW) + slide-sender.spec.js + file-source.spec.js + manual UAT checkpoint (Wave 4)
+  - [x] 09-03-PLAN.md — file-source.js (NEW) + index.html top-bar [↑ Send file] button + drop overlay + <dialog> modal + ~50 lines CSS + main.js wireFileSource (Wave 3)
+  - [x] 09-04-PLAN.md — mock-serial-slide-bot.js (NEW) + slide-sender.spec.js + file-source.spec.js + manual UAT checkpoint (Wave 4)
 
 ### Phase 10: SLIDE Receiver & Cancellation
 **Goal**: Deliver a complete Z80-initiated receive path: the dispatcher hands off to the receiver, files are reassembled with bounded memory, each completed file lands as a Chrome download, and the user can cancel mid-transfer leaving the wire neutral and recoverable. Cover every edge case (zero-byte, sub-frame, binary, megabyte-scale, idempotent re-entrant wakeup) so the receiver is reliable for daily-driver use.

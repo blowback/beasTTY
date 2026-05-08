@@ -168,17 +168,16 @@ Architecture, table-stakes, and pitfalls grounded in `.planning/research/{STACK,
 
 ### SLIDE host → Z80 send
 
-- [ ] **SLIDE-07**: User can initiate file send via a multi-file picker (`<input type="file" multiple>`)
-- [ ] **SLIDE-08**: User can initiate file send by drag-and-drop onto `#terminal-wrapper`
-- [ ] **SLIDE-09**: Drag-over visual feedback shows dashed-border overlay + faint tint + "Drop file(s) to send via SLIDE" message
-- [ ] **SLIDE-10**: Non-file drags (text/URL) rejected at `dragenter` via `dataTransfer.types.includes('Files')` filter
+- [x] **SLIDE-07**: User can initiate file send via a multi-file picker (`<input type="file" multiple>`)
+- [x] **SLIDE-08**: User can initiate file send by drag-and-drop onto `#terminal-wrapper`
+- [x] **SLIDE-09**: Drag-over visual feedback shows dashed-border overlay + faint tint + "Drop file(s) to send via SLIDE" message
+- [x] **SLIDE-10**: Non-file drags (text/URL) rejected at `dragenter` via `dataTransfer.types.includes('Files')` filter
 - [ ] **SLIDE-11**: Drops during an active SLIDE session rejected with chip "Transfer in progress — cancel first"
 - [ ] **SLIDE-12**: Drag-drop coexists with v1.0 pointer-select — `selection.js:onPointerDown` early-returns when drop overlay is active
-- [x] **SLIDE-13
-**: BestialiTTY auto-types configured command (default `B:SLIDE R\r`) before opening session; configurable via Settings; empty string disables auto-type
+- [x] **SLIDE-13**: BestialiTTY auto-types configured command (default `B:SLIDE R\r`) before opening session; configurable via Settings; empty string disables auto-type
 - [ ] **SLIDE-14**: Auto-typed command's CP/M echo is swallowed for ~500 ms via swallow-echo filter so the typed command doesn't double-print in the terminal
-- [ ] **SLIDE-15**: Filenames auto-uppercased + truncated to CP/M 8.3 in JS before reaching the Rust state machine; chip displays the rewrite (`my-doc.txt → MY-DOC.TXT`)
-- [ ] **SLIDE-16**: CP/M filename validation rejects characters CP/M doesn't allow (`<>.,;:=?*[]`); error chip surfaces before session opens
+- [x] **SLIDE-15**: Filenames auto-uppercased + truncated to CP/M 8.3 in JS before reaching the Rust state machine; chip displays the rewrite (`my-doc.txt → MY-DOC.TXT`)
+- [x] **SLIDE-16**: CP/M filename validation rejects characters CP/M doesn't allow (`<>.,;:=?*[]`); error chip surfaces before session opens
 
 ### SLIDE Z80 → PC receive
 
@@ -338,16 +337,16 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SLIDE-04 | Phase 7 | Complete |
 | SLIDE-05 | Phase 8 | Complete |
 | SLIDE-06 | Phase 8 | Complete |
-| SLIDE-07 | Phase 9 | Pending |
-| SLIDE-08 | Phase 9 | Pending |
-| SLIDE-09 | Phase 9 | Pending |
-| SLIDE-10 | Phase 9 | Pending |
+| SLIDE-07 | Phase 9 | Complete |
+| SLIDE-08 | Phase 9 | Complete |
+| SLIDE-09 | Phase 9 | Complete |
+| SLIDE-10 | Phase 9 | Complete |
 | SLIDE-11 | Phase 11 | Pending |
 | SLIDE-12 | Phase 12 | Pending |
-| SLIDE-13 | Phase 9 | Pending |
+| SLIDE-13 | Phase 9 | Complete |
 | SLIDE-14 | Phase 11 | Pending |
-| SLIDE-15 | Phase 9 | Pending |
-| SLIDE-16 | Phase 9 | Pending |
+| SLIDE-15 | Phase 9 | Complete |
+| SLIDE-16 | Phase 9 | Complete |
 | SLIDE-17 | Phase 8 | Complete |
 | SLIDE-18 | Phase 10 | Pending |
 | SLIDE-19 | Phase 10 | Pending |
