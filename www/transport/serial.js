@@ -16,7 +16,11 @@ import { onPortLost as pastePumpOnPortLost } from '../input/paste-pump.js';
 // Phase 8 D-05 + D-06 — route inbound bytes through the SLIDE dispatcher
 // instead of directly to term.feed. dispatchInbound is byte-transparent in
 // terminal mode (the post-feed invariant at lines 454-462 below is unchanged).
-import { dispatchInbound } from './slide.js';
+import { dispatchInbound, slidePumpOnPortLost } from './slide.js';
+// Phase 11 Plan 11-03 — D-11 session-log gate predicate at the read-loop
+// append call site so binary SLIDE frame bytes never reach the per-connection
+// log during an active session (T-11-03-log-leak mitigation).
+import { isSlideActive } from './slide-recv.js';
 // Live read of prefs.showAllSerialDevices at picker time. Cannot use the
 // boot-time `prefsRef` snapshot because savePrefs replaces the cached object —
 // prefsRef would still point at the original blob and miss subsequent toggles.
@@ -463,7 +467,15 @@ async function runReadLoop(p) {
                 // rare — feed never throws) does not silently lose the bytes
                 // for the log either way: the log records what reached the
                 // wire, regardless of how the parser interpreted it.
-                if (sessionLogRef) sessionLogRef.append(value);
+                //
+                // Phase 11 Plan 11-03 D-11 — session-log paused during active
+                // SLIDE session (SLIDE-33 / T-11-03-log-leak mitigation). The
+                // gate sits at the call site (not inside append()) so the
+                // existing one-call-per-chunk semantics + buffer accounting
+                // are unchanged. The 7-byte ESC^SLIDE wakeup signature is
+                // already consumed by the dispatcher BEFORE this point so
+                // signature bytes never reach the log either.
+                if (sessionLogRef && !isSlideActive()) sessionLogRef.append(value);
             }
         } catch (err) {
             handleReadError(err);
@@ -494,6 +506,7 @@ function handleReadError(err) {
     setState('port-lost');
     // Phase 5 D-20 — drain any mid-paste queue when read loop fatal-errors.
     pastePumpOnPortLost();
+    slidePumpOnPortLost();   // Phase 11 D-14 — symmetric SLIDE port-lost teardown.
 }
 
 // D-11 + D-36 + 05-RESEARCH Pattern 3 — cancel-before-close teardown order:
@@ -525,6 +538,7 @@ async function teardown({ deassertSignals = true } = {}) {
     }
     // Step 5 — Phase 5 D-20 — drop any mid-paste queue.
     pastePumpOnPortLost();
+    slidePumpOnPortLost();   // Phase 11 D-14 — symmetric SLIDE port-lost teardown.
     // NOTE: port variable stays set (so getPorts/VID-match still works on reconnect).
 }
 
@@ -668,6 +682,7 @@ function onNavSerialDisconnect(ev) {
         // Phase 5 D-20 — drain any mid-paste queue on hard unplug so the
         // pump stops trying to push bytes to a closed writer.
         pastePumpOnPortLost();
+        slidePumpOnPortLost();   // Phase 11 D-14 — symmetric SLIDE port-lost teardown.
     }
 }
 

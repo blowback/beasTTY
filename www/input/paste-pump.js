@@ -10,6 +10,12 @@
 
 import { pushTxBytes } from './tx-sink.js';
 import { getLocalEcho, getCrlfMode, CRLF_MODES } from './keyboard.js';
+// Phase 11 Plan 11-03 D-12 — paste-pump gate during active SLIDE session
+// (SLIDE-33 / T-11-03-paste-leak mitigation). enqueuePaste no-ops while
+// isSlideActive() returns true. The matching cancelPaste() is invoked at
+// SLIDE wakeup-completion in www/transport/slide.js (D-12 surface 1) so an
+// in-flight large paste interrupts via the existing Phase 5 D-18 cancel chip.
+import { isSlideActive } from '../transport/slide-recv.js';
 
 // Compile-in constants — D-14 (32B / 18ms @ 19200 targets 90% of 1920 B/s byte rate).
 const CHUNK_SIZE = 32;
@@ -38,6 +44,15 @@ export function wirePastePump(opts) {
 }
 
 export function enqueuePaste(bytes) {
+    if (isSlideActive()) {
+        // Phase 11 Plan 11-03 D-12 — paste-pump gate during active SLIDE
+        // session. Subsequent Ctrl+Shift+V attempts during the SLIDE session
+        // no-op silently (no user surface — chip already says SLIDE is
+        // active). The SLIDE wakeup-completion clause in slide.js calls
+        // cancelPaste() so any in-flight large paste interrupts via the
+        // existing Phase 5 D-18 cancel chip surface.
+        return;
+    }
     if (!(bytes instanceof Uint8Array)) bytes = new Uint8Array(bytes);
     // D-23 — CR/LF rewrite BEFORE enqueue (not mid-pump).
     const rewritten = applyCrlfRewrite(bytes);

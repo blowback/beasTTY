@@ -127,6 +127,7 @@ let filenameView = null;
 let cachedHandle = null;           // Plan 10-04 populates via showDirectoryPicker
 let currentPermission = null;      // Plan 10-04 populates via queryPermission
 let dispatcherForceExitRef = null; // Plan 10-05 Rule 1 — slide.js's forceExitRecvMode (mode-flag sync)
+let slideChipRef = null;           // Plan 11-03 D-14 — chip handle for enterError on port-lost
 const filenameDecoder = new TextDecoder('latin1');   // Open Question 5 — never throws on high bytes
 
 // ===== wireSlideRecv — boot-time initializer =====
@@ -153,6 +154,10 @@ export function wireSlideRecv(opts) {
     // calls this so slide.js's `mode` flips back to 'terminal' synchronously
     // without waiting for the next inbound chunk to trigger maybeExitRecvMode.
     dispatcherForceExitRef = opts.dispatcherForceExit || null;
+    // Plan 11-03 D-14 — chip handle for slidePumpOnPortLost.enterError surface.
+    // When null (boot before Plan 11-02 wireSlideChip lands or test harness),
+    // chip transitions silently no-op via the optional-chained call sites.
+    slideChipRef = opts.slideChip || null;
     // Plan 10-04 — Settings DOM event wiring + initial render + boot-time
     // permission re-request. When DOM refs are null (Plan 10-02 callsite),
     // these no-op cleanly.
@@ -680,17 +685,44 @@ function forceExitRecvMode() {
     inflightDownloads = [];
 }
 
-// slidePumpOnPortLost — port lost mid-recv (T-10-port-lost).
-// CONTEXT Discretion default: 5-line minimum (force_idle + console.warn +
-// forceExitRecvMode). Phase 11 SLIDE-32 will replace with chip-emitting logic.
-// Without this real impl, port loss leaves SM stuck in DataPhase; with it,
-// the next reload + reconnect starts cleanly.
+// slidePumpOnPortLost — port lost mid-recv (T-10-port-lost / SLIDE-32 / D-14).
+// Phase 11 Plan 11-03 — full body per CONTEXT D-14. Symmetric with
+// pastePumpOnPortLost; called from serial.js teardown / handleReadError /
+// onNavSerialDisconnect. 2-layer idempotency: isSlideActive() predicate +
+// slideRef.force_idle internal guards (Phase 7 D-08 escape hatch).
+//
+// Body (verbatim from CONTEXT D-14):
+//   - force_idle (Phase 7 D-08 escape hatch — clears outbound_buf, marks SM Idle)
+//   - setWireOwner('terminal') (Pitfall 3 / D-09 synchronous handoff)
+//   - slideChip.enterError('port lost') (5-second auto-hide per UI-SPEC)
+//   - forceExitRecvMode (Plan 10-05 Rule 1 — synchronously flips slide.js
+//     `mode` flag back to 'terminal' so dispatchInbound stops routing to
+//     dispatchRecvMode)
+//   - reset module state (mirror __resetForTests semantics — clears recv
+//     buffers, currentFile, sessionFolderFallback so next reload + reconnect
+//     starts cleanly)
 export function slidePumpOnPortLost() {
-    if (slideRef && typeof slideRef.force_idle === 'function') {
-        slideRef.force_idle();
-    }
-    console.warn('[slide-recv] port lost — force_idle + setWireOwner(terminal)');
+    if (!isSlideActive()) return;
+    try {
+        if (slideRef && typeof slideRef.force_idle === 'function') {
+            slideRef.force_idle();
+        }
+    } catch {}
+    try {
+        if (txSinkRef && typeof txSinkRef.setWireOwner === 'function') {
+            txSinkRef.setWireOwner('terminal');
+        }
+    } catch {}
+    try {
+        // Chip enters error state with 5-second auto-hide.
+        if (slideChipRef && typeof slideChipRef.enterError === 'function') {
+            slideChipRef.enterError('port lost');
+        }
+    } catch {}
     forceExitRecvMode();
+    // Reset module-scope buffers — mirrors __resetForTests semantics for the
+    // production path so a subsequent reload + reconnect starts cleanly.
+    try { __resetForTests(); } catch {}
 }
 
 // recoverHardFail — 3-mode convergence (T-10-hard-fail):

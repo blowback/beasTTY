@@ -43,7 +43,7 @@ import { pushTxBytes, getWireOwner, isWriterReady } from '../input/tx-sink.js';
 // drained recv events to no-op; Plan 10-03 routes EVT_HEADER_RECEIVED /
 // EVT_RECV_DATA / EVT_RECV_FILE_DONE through onRecvEvent, and re-issues
 // setSlideRef on every enterRecvMode so slide-recv has the live wasm Slide.
-import { onRecvEvent, setSlideRef as setSlideRecvRef, isSlideActive } from './slide-recv.js';
+import { onRecvEvent, setSlideRef as setSlideRecvRef, isSlideActive, slidePumpOnPortLost as slideRecvPumpOnPortLost } from './slide-recv.js';
 
 // EVT_* — packed (kind << 16) | aux. JS unpacks via (evt >>> 16) for kind,
 // (evt & 0xFFFF) for aux. AUTHORITY: crates/bestialitty-core/tests/slide_boundary_shape.rs:slide_event_constants_pinned
@@ -110,6 +110,10 @@ let termRef = null;
 let txSinkRef = null;     // { setWireOwner, getWireOwner, writeSlideFrame }
 let SlideCtor = null;     // the wasm-imported Slide class
 let wasmRef = null;       // for memory.buffer access in drainSlideOutbound
+// Phase 11 Plan 11-03 — additional injected deps for D-09 / D-12 / chip lifecycle.
+let prefsRef = null;      // { slideAutoSendCommand, slideShowSummary, slideCompatibilityMode }
+let pastePumpRef = null;  // { cancelPaste } — D-12 paste-pump gate at SLIDE wakeup completion
+let slideChipRef = null;  // { enterActive, enterAwaitingWakeup, enterSummary, ... } — chip lifecycle hooks
 
 // Cached outbound view (re-derived on memory growth — Pitfall 4 mirror of
 // main.js:reDeriveHostReplyView at lines 274-279).
@@ -148,13 +152,38 @@ let currentSendCtx = null;       // { fileBytes: Uint8Array[], currentFileIdx, s
 // respect to the outbound buffer + sender SM state.
 let sendDispatchTail = Promise.resolve();
 
-// Phase 9 D-14 hardcoded auto-send command. Phase 11 SLIDE-37 makes
-// this prefs-driven via prefs.slideAutoSendCommand. The empty-string-
-// disables code path in enterSendMode is preserved below for that
-// future plug-in. Bytes: B : S L I D E ' ' R \r
-const AUTO_SEND_COMMAND = new Uint8Array([
-    0x42, 0x3A, 0x53, 0x4C, 0x49, 0x44, 0x45, 0x20, 0x52, 0x0D
-]);
+// Phase 11 Plan 11-03 D-09 — auto-send command sourced from prefs at call
+// time (replaces the Phase 9 D-14 hardcoded constant). The empty-string-
+// disables semantic per SLIDE-13 is preserved verbatim — readAutoSendCommandBytes
+// returns a zero-length Uint8Array when prefsRef.slideAutoSendCommand is the
+// explicit empty string, and the call site in enterSendMode skips pushTxBytes
+// when length === 0.
+//
+// When prefsRef is null (boot order: tests / older harnesses that did not
+// extend wireSlideDispatcher with the Plan 11-03 prefs opt), fall back to
+// the Phase 9 D-14 default `B:SLIDE R\r` so existing Playwright sender tests
+// keep observing the auto-type bytes on the wire. Production main.js boot
+// passes prefs (Plan 11-03 Task 3) so this fallback only matters in tests.
+//
+// Bytes are encoded at call time via TextEncoder so a user-edited command
+// string (e.g. "A:RUN PROG.COM\r" via the Plan 11-03 Settings sub-block)
+// flows through unchanged. Phase 12 SLIDE-38 will add safety validation
+// (alphanumeric + `:` + `\r` only); Phase 11 stores whatever the user types.
+const AUTO_SEND_DEFAULT = 'B:SLIDE R\r';
+function readAutoSendCommandBytes() {
+    let cmd;
+    if (prefsRef) {
+        // prefs explicitly provided — honour the user's value verbatim
+        // (including the explicit empty string which disables auto-type).
+        cmd = prefsRef.slideAutoSendCommand;
+        if (cmd === undefined || cmd === null) cmd = AUTO_SEND_DEFAULT;
+    } else {
+        // No prefs available — use Phase 9 default for backwards compatibility.
+        cmd = AUTO_SEND_DEFAULT;
+    }
+    if (cmd.length === 0) return new Uint8Array(0);
+    return new TextEncoder().encode(cmd);
+}
 
 // SLIDE wire frame size — slide-rs/protocol.rs FRAME_SIZE (1024 bytes
 // per data frame). Used to chunk fileBytes into per-frame payloads.
@@ -163,11 +192,19 @@ const FRAME_SIZE = 1024;
 // --- Public API -----------------------------------------------------------
 
 export function wireSlideDispatcher(opts) {
-    const { term, txSink, slideCtor, wasm } = opts;
+    const { term, txSink, slideCtor, wasm, prefs, pastePump, slideChip } = opts;
     termRef = term;
     txSinkRef = txSink;
     SlideCtor = slideCtor;
     wasmRef = wasm;
+    // Phase 11 Plan 11-03 — additional refs for D-09 (prefs.slideAutoSendCommand),
+    // D-12 (pastePump.cancelPaste at SLIDE wakeup completion), chip lifecycle
+    // hooks (enterActive / enterAwaitingWakeup / enterSummary). All optional —
+    // null callers (older boot paths, test harnesses) get the same Phase 9/10
+    // behaviour through the optional-chained call sites below.
+    prefsRef = prefs || null;
+    pastePumpRef = pastePump || null;
+    slideChipRef = slideChip || null;
 }
 
 export function dispatchInbound(value) {
@@ -193,11 +230,13 @@ export function dispatchInbound(value) {
     }
 }
 
-// Phase 11 stub — exported now so port-lost wiring in serial.js teardown is
-// purely additive. Phase 11 will: cancel any in-flight session, force_idle,
-// hide chip. Phase 8 — no chip yet, no-op is safe.
+// Phase 11 Plan 11-03 D-14 — forward to the real impl in slide-recv.js.
+// Existing serial.js imports of slidePumpOnPortLost from this module continue
+// to resolve unchanged; the implementation lives in slide-recv.js (the chip
+// + reset behaviour is recv-side state). Symmetric with pastePumpOnPortLost
+// as wired into serial.js teardown / handleReadError / onNavSerialDisconnect.
 export function slidePumpOnPortLost() {
-    // No-op until Phase 11.
+    slideRecvPumpOnPortLost();
 }
 
 // Test introspection (mirrors window.__scrollState / window.__sessionLog
@@ -308,6 +347,23 @@ function dispatchTerminalMode(value) {
                 } else {
                     enterRecvMode();
                 }
+                // Phase 11 Plan 11-03 D-12 — paste-pump gate at SLIDE wakeup
+                // completion. In-flight large paste is interrupted via the
+                // existing Phase 5 D-18 cancel chip (`Paste cancelled`).
+                // Subsequent enqueuePaste calls during the active session are
+                // gated separately by the isSlideActive() early-return in
+                // www/input/paste-pump.js (Edit 6 of this plan).
+                try {
+                    if (pastePumpRef && typeof pastePumpRef.cancelPaste === 'function') {
+                        pastePumpRef.cancelPaste();
+                    }
+                } catch {}
+                // Phase 11 Plan 11-03 — chip lifecycle hook: session active.
+                try {
+                    if (slideChipRef && typeof slideChipRef.enterActive === 'function') {
+                        slideChipRef.enterActive();
+                    }
+                } catch {}
                 wakeIdx = 0;
                 // Forward chunk tail to slide (Pitfall 2 — value.subarray(i + 1)
                 // skips the matched 7-byte signature).
@@ -487,6 +543,22 @@ function enterRecvMode() {
 }
 
 function exitRecvMode() {
+    // Phase 11 Plan 11-03 — chip lifecycle hook: summary on successful exit
+    // (D-08 — gated by prefs.slideShowSummary inside the chip module).
+    // Plan 11-04 may extend with cumulative byte tally; for now totalBytes is
+    // best-effort 0 (the chip's enterSummary renders "Received N files — X.X MB"
+    // and Plan 11-04 can wire a real cumulative counter from slide-recv module
+    // state). Fired BEFORE setWireOwner so the chip captures the active-session
+    // direction before mode flips back to 'terminal'.
+    try {
+        if (slideChipRef && typeof slideChipRef.enterSummary === 'function') {
+            slideChipRef.enterSummary({
+                direction: 'received',
+                fileCount: 1,
+                totalBytes: 0,
+            });
+        }
+    } catch {}
     // D-09 — synchronous handoff. mode + owner flipped together; Pitfall 3.
     txSinkRef.setWireOwner('terminal');
     mode = 'terminal';
@@ -581,19 +653,36 @@ export function enterSendMode({ files }) {
     const fileBytes = files.map((f) => f.bytes);
 
     // Phase 9 Pitfall 3 ORDER CRITICAL:
-    //   1. pushTxBytes(AUTO_SEND_COMMAND) while owner is 'terminal'
+    //   1. pushTxBytes(autoSendBytes) while owner is 'terminal'
     //   2. THEN set pendingSendSession.
     // Owner stays 'terminal' until the wakeup match flips it in
     // enterSendModeInternal — by that point the auto-type bytes are
     // already on the wire. Reversing this order would silently drop the
     // auto-type bytes (owner === 'slide' silent-drop in pushTxBytes at
     // tx-sink.js:50).
-    if (AUTO_SEND_COMMAND.length > 0) {
-        pushTxBytes(AUTO_SEND_COMMAND);
+    //
+    // Phase 11 Plan 11-03 D-09 — auto-send sourced from prefs (replaces the
+    // Phase 9 D-14 hardcoded constant). Empty-string disables auto-type per
+    // SLIDE-13 semantic — preserved verbatim.
+    const autoSendBytes = readAutoSendCommandBytes();
+    if (autoSendBytes.length > 0) {
+        pushTxBytes(autoSendBytes);
     }
-    // (else: empty-string-disables semantic — Phase 11 SLIDE-37 plug-in.)
+    // (else: empty-string-disables semantic — preserved from Phase 9 D-14.)
 
     pendingSendSession = { metadata, fileBytes };
+
+    // Phase 11 Plan 11-03 — chip lifecycle hook: send mode entered, awaiting
+    // Z80 wakeup (D-15). armTimer is governed by prefs.slideCompatibilityMode;
+    // Plan 11-04 wires the actual 3 s setTimeout body that transitions
+    // awaiting-wakeup → awaiting-timeout when armTimer is true. Plan 11-03
+    // surfaces the chip in awaiting-wakeup state with armTimer false so the
+    // chip displays "↑ Waiting for Z80…  [Cancel]" without a timeout.
+    try {
+        if (slideChipRef && typeof slideChipRef.enterAwaitingWakeup === 'function') {
+            slideChipRef.enterAwaitingWakeup({ armTimer: false });
+        }
+    } catch {}
 }
 
 /// Pack files-with-names into the CONTEXT D-09 little-endian length-prefixed
@@ -651,6 +740,24 @@ function enterSendModeInternal({ metadata, fileBytes }) {
 }
 
 function exitSendMode() {
+    // Phase 11 Plan 11-03 — chip lifecycle hook: summary on successful exit
+    // (D-08 — gated by prefs.slideShowSummary inside the chip module).
+    // Fired BEFORE setWireOwner so the chip captures the active-session
+    // direction before mode flips back to 'terminal'. fileCount is read from
+    // pendingSendSession.fileBytes.length when available; currentSendCtx has
+    // already been mutated as files completed and may be null at the
+    // last-file-completed exit boundary. Plan 11-04 can extend with a
+    // cumulative byte tally tracked across the send loop.
+    try {
+        if (slideChipRef && typeof slideChipRef.enterSummary === 'function') {
+            const fileCount = currentSendCtx ? currentSendCtx.fileBytes.length : 1;
+            slideChipRef.enterSummary({
+                direction: 'sent',
+                fileCount,
+                totalBytes: 0,
+            });
+        }
+    } catch {}
     // Mirror of exitRecvMode — synchronous handoff back to terminal mode.
     txSinkRef.setWireOwner('terminal');
     mode = 'terminal';
