@@ -206,8 +206,8 @@ Decimal phases appear between their surrounding integers in numeric order.
   4. Filenames are uppercased + truncated to CP/M 8.3 in JS before reaching the Rust state machine, with the rewrite surfaced to the user (`my-doc.txt → MY-DOC.TXT`); CP/M-invalid characters (`<>.,;:=?*[]`) are rejected pre-flight with a user-visible error before any frame leaves the wire
   5. Sender-side write loop uses `await writer.ready; writer.write(bytes)` discipline (never `await writer.write`); a sender-mode end-to-end test against a SLIDE-aware mock peer transfers a multi-KB binary file with byte-identical round-trip
 **Plans**: 4 plans
-  - [ ] 09-01-PLAN.md — Rust sender SM + framer build_frame_into + EVT_FILE_COMPLETE/EVT_SESSION_COMPLETE/EVT_RETRANSMIT_NEEDED + boundary-shape pin + tests/slide_sender.rs end-to-end (Wave 1)
-  - [ ] 09-02-PLAN.md — Wasm façade enter_send_mode/feed_send_chunk + tx-sink writeSlideFrameAwaitable + slide.js dispatcher 'send' branch + sender main-loop drain + EVT_*/STATE_* mirror + OUTBOUND_VIEW_CAP=4128 + main.js boot wiring (Wave 2)
+  - [x] 09-01-PLAN.md — Rust sender SM + framer build_frame_into + EVT_FILE_COMPLETE/EVT_SESSION_COMPLETE/EVT_RETRANSMIT_NEEDED + boundary-shape pin + tests/slide_sender.rs end-to-end (Wave 1)
+  - [x] 09-02-PLAN.md — Wasm façade enter_send_mode/feed_send_chunk + tx-sink writeSlideFrameAwaitable + slide.js dispatcher 'send' branch + sender main-loop drain + EVT_*/STATE_* mirror + OUTBOUND_VIEW_CAP=4128 + main.js boot wiring (Wave 2)
   - [ ] 09-03-PLAN.md — file-source.js (NEW) + index.html top-bar [↑ Send file] button + drop overlay + <dialog> modal + ~50 lines CSS + main.js wireFileSource (Wave 3)
   - [ ] 09-04-PLAN.md — mock-serial-slide-bot.js (NEW) + slide-sender.spec.js + file-source.spec.js + manual UAT checkpoint (Wave 4)
 
