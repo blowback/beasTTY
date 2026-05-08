@@ -310,6 +310,54 @@ mod wasm_boundary {
         pub fn send_current_file_idx(&self) -> u32 {
             self.inner.send_current_file_idx()
         }
+
+        // ===== Phase 10 — recv-payload accessors =====
+        //
+        // Eight one-line forwards mirror the Phase 9 sender-extension shape
+        // above. Plan 10-02 wires the JS-side consumers in
+        // `www/transport/slide-recv.js`: sliceRecvBytesToOwned re-derives the
+        // `Uint8Array(memory.buffer, recv_ptr(), RECV_VIEW_CAP)` view per
+        // Pitfall 4, slices BEFORE clear_recv per Pitfall 5, and pushes the
+        // owned copy onto the per-file `chunks: Uint8Array[]` accumulator.
+        // readRecvFilenameOwned mirrors the same dance for the 16-byte
+        // filename buffer.
+        //
+        // The eight methods come in two zero-copy triples (recv_ptr/recv_len/
+        // clear_recv, recv_filename_ptr/recv_filename_len/clear_recv_filename)
+        // and two scalars (recv_file_size, recv_current_file_idx) — pinned
+        // by tests/slide_boundary_shape.rs (inner) +
+        // tests/slide_wasm_boundary_shape.rs (façade-mirror).
+        pub fn recv_ptr(&self) -> *const u8 {
+            self.inner.recv_ptr()
+        }
+
+        pub fn recv_len(&self) -> usize {
+            self.inner.recv_len()
+        }
+
+        pub fn clear_recv(&mut self) {
+            self.inner.clear_recv();
+        }
+
+        pub fn recv_filename_ptr(&self) -> *const u8 {
+            self.inner.recv_filename_ptr()
+        }
+
+        pub fn recv_filename_len(&self) -> usize {
+            self.inner.recv_filename_len()
+        }
+
+        pub fn clear_recv_filename(&mut self) {
+            self.inner.clear_recv_filename();
+        }
+
+        pub fn recv_file_size(&self) -> u32 {
+            self.inner.recv_file_size()
+        }
+
+        pub fn recv_current_file_idx(&self) -> u32 {
+            self.inner.recv_current_file_idx()
+        }
     }
 
     /// Encode a packed (code, mods) u32 pair into the VT52 byte sequence.
