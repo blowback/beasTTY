@@ -26,6 +26,7 @@ const DEFAULTS = Object.freeze({
     crlfMode: 'cr',
     autoConnect: false,
     showAllSerialDevices: false,
+    slideRecvToFolder: false,    // Phase 10 — CONTEXT D-02 (default OFF; toggle in Settings pane lands in Plan 10-04)
 });
 
 let cached = null;
