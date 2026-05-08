@@ -54,6 +54,17 @@ import {
     pushAutoTypedBytes,
     consumeIfMatch as echoSwallowConsumeIfMatch,
 } from './echo-swallow.js';
+// Phase 12 SLIDE-38 — use-time auto-send safety gate. The pure helper lives
+// in prefs.js for testability + to keep the regex in one canonical location.
+// Hard-gates at readAutoSendCommandBytes BEFORE TextEncoder.encode so unsafe
+// values never reach the wire (T-12-03 mitigation).
+import { isAutoSendSafe } from '../state/prefs.js';
+// Phase 12 SLIDE-38 — re-export the pure helper so main.js can attach it to
+// window.__slide.__isAutoSendSafeForTests alongside the existing __slide
+// introspection surface (Phase 8/9/10 pattern: every test-observable knob
+// lives under window.__slide). The Playwright safety spec drives the helper
+// directly via window.__slide.__isAutoSendSafeForTests(input).
+export { isAutoSendSafe as __isAutoSendSafeForTests };
 
 // EVT_* — packed (kind << 16) | aux. JS unpacks via (evt >>> 16) for kind,
 // (evt & 0xFFFF) for aux. AUTHORITY: crates/beastty-core/tests/slide_boundary_shape.rs:slide_event_constants_pinned
@@ -192,6 +203,29 @@ function readAutoSendCommandBytes() {
         cmd = AUTO_SEND_DEFAULT;
     }
     if (cmd.length === 0) return new Uint8Array(0);
+    // Phase 12 SLIDE-38 use-time hard gate (T-12-03). Validate before placing
+    // bytes on the wire. Failure path returns zero-length Uint8Array (matches
+    // SLIDE-13 disabled-auto-type semantic — caller's `length === 0` skip
+    // covers it without a separate code path), fires chip enterError if the
+    // chip is wired, and surfaces the validation hint + data-invalid attribute
+    // on the Settings DOM (defense-in-depth UX feedback).
+    if (!isAutoSendSafe(cmd)) {
+        console.error('[slide] Auto-send command failed safety check; auto-type skipped:',
+                      JSON.stringify(cmd));
+        if (slideChipRef && typeof slideChipRef.enterError === 'function') {
+            try { slideChipRef.enterError('auto-send command unsafe — fix in Settings'); } catch {}
+        }
+        try {
+            const inputEl = document.getElementById('slide-auto-send-input');
+            if (inputEl) {
+                inputEl.setAttribute('data-invalid', 'true');
+                inputEl.setAttribute('aria-invalid', 'true');
+            }
+            const hintEl = document.getElementById('slide-auto-send-validation-hint');
+            if (hintEl) hintEl.hidden = false;
+        } catch { /* ignore — DOM may not exist in tests */ }
+        return new Uint8Array(0);
+    }
     return new TextEncoder().encode(cmd);
 }
 

@@ -30,6 +30,9 @@ const DEFAULTS = Object.freeze({
     slideAutoSendCommand: 'B:SLIDE R\r',          // Phase 11 — D-09 (SLIDE-37) — trailing \r is a 0x0D byte, not a literal backslash-r
     slideShowSummary: true,                       // Phase 11 — D-09 (D-08 default ON; Cancelled summary chip ALWAYS shows regardless)
     slideCompatibilityMode: 'auto',               // Phase 11 — D-09 ('auto' | 'wakeup-required' | 'force-start')
+    slideAutoSendCommandConfirmed: '',            // Phase 12 SLIDE-38: exact-match flag, keyed to the value last confirmed.
+                                                  //   Empty string = never confirmed. Re-arms on every Settings change.
+                                                  //   CURRENT_VERSION NOT bumped per Phase 6 D-32 defensive merge.
 });
 
 // Phase 10 review WR-04 — fields that MUST never live in the localStorage
@@ -145,6 +148,41 @@ export function subscribe(fn) {
 
 export function getPrefs() {
     return cached;
+}
+
+// Phase 12 SLIDE-38 — auto-send command safety regex.
+// Body uses `*` (zero-or-more) NOT `+` so the bare `\r` case is admitted —
+// harmless on the Z80 (CCP receives a CR with no command body and re-prompts).
+// HTML-relevant characters (`<`, `>`, `&`, `"`, `'`) are not in this character
+// class, so values that pass this gate are also XSS-safe by construction
+// (T-12-05).
+//
+// Plan 12-03 Rule 1 deviation: the regex literal recorded in 12-RESEARCH.md
+// Pitfall 5 + 12-UI-SPEC.md §SLIDE-38 was `/^[A-Za-z0-9:]*\r$/`, which
+// REJECTS the default DEFAULTS literal `'B:SLIDE R\r'` because the space
+// (0x20) between `R` and CR is not in `[A-Za-z0-9:]`. The SAFE_CASES /
+// UNSAFE_CASES locked table in the same docs (and 12-VALIDATION.md) lists
+// `'B:SLIDE R\r'` and `'A:SLIDE R\r'` as MUST-PASS, so the SAFE_CASES table
+// is internally inconsistent with the regex literal. The SAFE/UNSAFE table
+// is the authoritative artefact (the default auto-type value MUST be
+// accepted or auto-send is broken at every install — the locked default in
+// DEFAULTS.slideAutoSendCommand contains the space), so the character class
+// is widened to include the space character. The threat model survives:
+// semicolons, pipes, LF, multiple CR, control chars, and backslash are all
+// still outside the class and still rejected by the same regex (the 5
+// UNSAFE_CASES still all fail the gate).
+const SAFE_AUTO_SEND_RE = /^[A-Za-z0-9: ]*\r$/;
+
+/**
+ * SLIDE-38: validate auto-send command for wire safety.
+ * Empty string is the SLIDE-13 disabled sentinel and bypasses the regex
+ * (auto-type is suppressed entirely; nothing reaches the wire).
+ * Returns false for non-string inputs (defensive against undefined/null).
+ */
+export function isAutoSendSafe(cmd) {
+    if (typeof cmd !== 'string') return false;
+    if (cmd.length === 0) return true;
+    return SAFE_AUTO_SEND_RE.test(cmd);
 }
 
 export { DEFAULTS };
