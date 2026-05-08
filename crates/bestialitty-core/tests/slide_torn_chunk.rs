@@ -213,3 +213,99 @@ fn torn_multi_frame_rdy_then_header() {
             "multi-frame split at {} produced different outbound", split);
     }
 }
+
+// =====================================================================
+// Phase 10 — torn-chunk extensions for recv-payload semantics.
+//
+// Helpers below build fixtures at runtime (rather than hand-computing CRC
+// bytes) so we can drive deterministic SLIDE frames with full payload
+// shapes and exercise the new HeaderPhase/DataPhase recv arms across
+// every internal byte split.
+// =====================================================================
+
+fn build_header_frame(name: &[u8], size: u32) -> Vec<u8> {
+    let mut payload = Vec::with_capacity(name.len() + 1 + 4);
+    payload.extend_from_slice(name);
+    payload.push(0);
+    payload.extend_from_slice(&size.to_le_bytes());
+    let mut buf = Vec::with_capacity(7 + payload.len());
+    build_frame_into(&mut buf, 0, &payload);
+    buf
+}
+
+fn build_data_frame(seq: u8, payload: &[u8]) -> Vec<u8> {
+    let mut buf = Vec::with_capacity(7 + payload.len());
+    build_frame_into(&mut buf, seq, payload);
+    buf
+}
+
+#[test]
+fn torn_recv_zero_byte_file() {
+    // Header(name="ZERO.TXT", size=0) + EOF data frame at seq=1.
+    // Fixture spans header + EOF; split at every internal byte offset.
+    let header = build_header_frame(b"ZERO.TXT", 0);
+    let eof = build_data_frame(1, &[]);
+    let mut fixture = Vec::with_capacity(header.len() + eof.len());
+    fixture.extend_from_slice(&header);
+    fixture.extend_from_slice(&eof);
+    assert_identical_across_splits(
+        &[CTRL_RDY],
+        &fixture,
+        "torn_recv_zero_byte_file (header + EOF)",
+    );
+}
+
+#[test]
+fn torn_recv_sub_frame_file() {
+    // Header(SMALL.TXT, 512) + 512-byte data + EOF.
+    let header = build_header_frame(b"SMALL.TXT", 512);
+    let payload: Vec<u8> = (0..512).map(|i| (i & 0xFF) as u8).collect();
+    let data = build_data_frame(1, &payload);
+    let eof = build_data_frame(2, &[]);
+    let mut fixture = Vec::with_capacity(header.len() + data.len() + eof.len());
+    fixture.extend_from_slice(&header);
+    fixture.extend_from_slice(&data);
+    fixture.extend_from_slice(&eof);
+    // Use log-scale splits for the multi-frame fixture (>500 bytes long; full
+    // 1-byte split would be O(n^2) state replays).
+    assert_identical_across_log_splits(
+        &[CTRL_RDY],
+        &fixture,
+        "torn_recv_sub_frame_file (header + 512-byte data + EOF)",
+    );
+}
+
+#[test]
+fn torn_recv_binary_high_bytes() {
+    // Header(BIN.COM, 8) + 8-byte high-byte data + EOF.
+    let header = build_header_frame(b"BIN.COM", 8);
+    let payload: Vec<u8> = vec![0x00, 0xFF, 0x80, 0x7F, 0xC0, 0xDE, 0xAD, 0xBE];
+    let data = build_data_frame(1, &payload);
+    let eof = build_data_frame(2, &[]);
+    let mut fixture = Vec::with_capacity(header.len() + data.len() + eof.len());
+    fixture.extend_from_slice(&header);
+    fixture.extend_from_slice(&data);
+    fixture.extend_from_slice(&eof);
+    assert_identical_across_splits(
+        &[CTRL_RDY],
+        &fixture,
+        "torn_recv_binary_high_bytes (header + binary data + EOF)",
+    );
+}
+
+#[test]
+fn torn_recv_max_payload_log_split() {
+    // Header(MAX.BIN, 1024) + 1024-byte data — log-scale splits per
+    // RESEARCH Assumption A5; full 1-byte split would be ~1100^2 replays.
+    let header = build_header_frame(b"MAX.BIN", 1024);
+    let payload: Vec<u8> = (0..1024).map(|i| (i & 0xFF) as u8).collect();
+    let data = build_data_frame(1, &payload);
+    let mut fixture = Vec::with_capacity(header.len() + data.len());
+    fixture.extend_from_slice(&header);
+    fixture.extend_from_slice(&data);
+    assert_identical_across_log_splits(
+        &[CTRL_RDY],
+        &fixture,
+        "torn_recv_max_payload_log_split (header + 1024-byte data)",
+    );
+}
