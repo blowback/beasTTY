@@ -188,6 +188,13 @@ fn recv_corpus_multi_data_frames_in_one_chunk() {
     //
     // This pins the contract that Plan 10-02's slide-recv.js head comment
     // and 10-VALIDATION.md row 10-01-02 cite as existing.
+    //
+    // Phase 10 review CR-01 / IN-04 — extended to assert per-event recv_buf
+    // bytes via pop_recv_payload(). Earlier this test only counted events;
+    // the SM was happily overwriting recv_buf per-frame inside feed_chunk,
+    // so by the time JS drained, only the LAST frame's bytes remained.
+    // The pop_recv_payload accessor pops the front of the per-frame queue
+    // into recv_buf so each event's bytes are observable in turn.
     let mut s = s_recv();
     s.feed_byte(CTRL_RDY);
     s.feed_chunk(&build_header_frame(b"MULTI.TXT", 6));
@@ -198,20 +205,50 @@ fn recv_corpus_multi_data_frames_in_one_chunk() {
     combined.extend_from_slice(&build_data_frame(1, &[1, 2, 3]));
     combined.extend_from_slice(&build_data_frame(2, &[4, 5, 6]));
     s.feed_chunk(&combined);
-    // Drain events — expect exactly 2 EVT_RECV_DATA events in seq order.
-    let events = drain_events_collect(&mut s);
-    let recv_data_evts: Vec<_> = events
-        .iter()
-        .copied()
-        .filter(|e| (e & 0xFFFF_0000) == EVT_RECV_DATA)
-        .collect();
+    // After feed_chunk, the per-frame queue holds two payloads.
     assert_eq!(
-        recv_data_evts.len(),
+        s.recv_payload_queue_len(),
         2,
-        "two data frames in one feed_chunk must emit two EVT_RECV_DATA events; got events: {:08X?}",
-        events
+        "queue must hold one Vec per data frame after feed_chunk returns"
     );
-    // Per-frame seq order must match wire order.
-    assert_eq!(recv_data_evts[0] & 0xFFFF, 1, "first event seq=1");
-    assert_eq!(recv_data_evts[1] & 0xFFFF, 2, "second event seq=2");
+    // Drain events ONE AT A TIME, popping recv_buf between each EVT_RECV_DATA.
+    // Note: the events ring contains BOTH the low-level EVT_DATA_FRAME events
+    // (pushed unconditionally by feed_byte at state.rs:360) and the high-level
+    // EVT_RECV_DATA events (pushed by the DataPhase arm of handle_framer_event).
+    // The JS dispatcher (slide.js:drainEventsAndOutbound) filters for
+    // EVT_RECV_DATA before calling onRecvEvent; this test mirrors that filter.
+    fn next_recv_data(s: &mut Slide) -> u32 {
+        loop {
+            let e = s.take_event_packed();
+            if e == EVT_NONE {
+                return EVT_NONE;
+            }
+            if (e & 0xFFFF_0000) == EVT_RECV_DATA {
+                return e;
+            }
+        }
+    }
+    let evt1 = next_recv_data(&mut s);
+    assert_eq!(evt1 & 0xFFFF_0000, EVT_RECV_DATA, "first EVT_RECV_DATA found");
+    assert_eq!(evt1 & 0xFFFF, 1, "first event seq=1");
+    assert!(s.pop_recv_payload(), "queue must have first payload");
+    assert_eq!(
+        recv_snapshot(&s),
+        vec![1, 2, 3],
+        "first event must read first frame's payload (was [4,5,6] before CR-01 fix)"
+    );
+    s.clear_recv();
+    let evt2 = next_recv_data(&mut s);
+    assert_eq!(evt2 & 0xFFFF_0000, EVT_RECV_DATA, "second EVT_RECV_DATA found");
+    assert_eq!(evt2 & 0xFFFF, 2, "second event seq=2");
+    assert!(s.pop_recv_payload(), "queue must have second payload");
+    assert_eq!(
+        recv_snapshot(&s),
+        vec![4, 5, 6],
+        "second event must read second frame's payload"
+    );
+    s.clear_recv();
+    // Queue must be empty after both pops.
+    assert_eq!(s.recv_payload_queue_len(), 0, "queue drained");
+    assert!(!s.pop_recv_payload(), "extra pop on empty queue returns false");
 }

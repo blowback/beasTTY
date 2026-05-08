@@ -81,6 +81,12 @@ fn slide_recv_payload_methods_have_stable_signatures() {
     let _: fn(&mut Slide)              = Slide::clear_recv_filename;
     let _: fn(&Slide) -> u32           = Slide::recv_file_size;
     let _: fn(&Slide) -> u32           = Slide::recv_current_file_idx;
+    // Phase 10 review CR-01 — wasm boundary mirror of the per-frame payload
+    // queue accessors. lib.rs:wasm_boundary forwards pop_recv_payload one
+    // line through to the inner Slide; drift here fails native cargo test
+    // BEFORE wasm-pack would. recv_payload_queue_len is a test hook.
+    let _: fn(&mut Slide) -> bool      = Slide::pop_recv_payload;
+    let _: fn(&Slide) -> usize         = Slide::recv_payload_queue_len;
 }
 
 #[test]
@@ -211,4 +217,8 @@ fn slide_phase8_wasm_facade_surface_runtime_callable() {
     let _idx: u32 = slide3.recv_current_file_idx();
     slide3.clear_recv();
     slide3.clear_recv_filename();
+    // Phase 10 review CR-01 — wasm-boundary mirror of the per-frame payload
+    // queue runtime reachability. Forwarded one-line through lib.rs:wasm_boundary.
+    let _popped: bool = slide3.pop_recv_payload();
+    let _qlen: usize = slide3.recv_payload_queue_len();
 }

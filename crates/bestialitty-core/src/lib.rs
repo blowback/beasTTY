@@ -358,6 +358,33 @@ mod wasm_boundary {
         pub fn recv_current_file_idx(&self) -> u32 {
             self.inner.recv_current_file_idx()
         }
+
+        // ===== Phase 10 review CR-01 — per-frame payload queue =====
+        //
+        // `feed_chunk` may emit N back-to-back EVT_RECV_DATA events when the
+        // OS-level USB read concatenates multiple SLIDE data frames. The
+        // events ring already carries one entry per frame, but `recv_buf`
+        // is single-frame-sized; without a per-frame queue, JS reads only
+        // the LAST frame's bytes for every event drained after feed_chunk
+        // returns (silent file corruption — no CRC error, no NAK).
+        //
+        // `pop_recv_payload` loads the next queued frame's payload into
+        // recv_buf so the existing `recv_ptr` / `recv_len` / `clear_recv`
+        // triple keeps working. JS-side slide-recv.js calls this BEFORE
+        // reading recv_len for each EVT_RECV_DATA event; returns false
+        // when the queue is empty (defensive — JS should not read recv_len
+        // after a false return).
+        pub fn pop_recv_payload(&mut self) -> bool {
+            self.inner.pop_recv_payload()
+        }
+
+        /// Test introspection — number of pending payloads in the per-frame
+        /// queue. Used by the W3 multi-frame regression test (extended in
+        /// IN-04 / Phase 10 review fixup) to assert per-event recv_buf
+        /// semantics. Returns 0 in steady state for receivers draining promptly.
+        pub fn recv_payload_queue_len(&self) -> usize {
+            self.inner.recv_payload_queue_len()
+        }
     }
 
     /// Encode a packed (code, mods) u32 pair into the VT52 byte sequence.

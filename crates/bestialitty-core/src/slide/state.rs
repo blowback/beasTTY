@@ -127,10 +127,27 @@ pub struct Slide {
     events: VecDeque<u32>,
     /// Sender-mode context — None when in Idle / receiver mode (Phase 9 D-08).
     send_ctx: Option<SendCtx>,
-    /// Phase 10 receiver-mode payload buffer. Holds the MOST RECENTLY accepted
-    /// data frame's payload (cleared per-frame by clear_recv). Mirror of
-    /// outbound_buf stable-pointer discipline; pre-reserved to RECV_BUF_RESERVE.
+    /// Phase 10 receiver-mode payload buffer. Surfaces the payload bytes JS
+    /// reads via `recv_ptr` / `recv_len`. Mirror of outbound_buf stable-pointer
+    /// discipline; pre-reserved to RECV_BUF_RESERVE.
+    ///
+    /// Phase 10 review CR-01 — `recv_buf` was overwritten on every accepted
+    /// data frame inside `feed_chunk`. When a single chunk delivered multiple
+    /// data frames (the W3 OS-USB-concatenation case), the events ring
+    /// accumulated one event per frame but `recv_buf` only held the LAST
+    /// frame's bytes by the time JS drained. The queue below
+    /// (`recv_payloads`) now holds one Vec per emitted EVT_RECV_DATA;
+    /// `pop_recv_payload()` copies the front entry into this buf so JS can
+    /// read the right bytes for each event in turn while keeping the
+    /// stable-pointer ptr/len/clear surface unchanged.
     recv_buf: Vec<u8>,
+    /// Phase 10 review CR-01 — per-frame payload queue. Each accepted data
+    /// frame's payload bytes are pushed onto the back of this VecDeque
+    /// alongside the EVT_RECV_DATA event push, so JS can drain a payload
+    /// per event by calling `pop_recv_payload()` before reading recv_buf.
+    /// Empty in steady state for receivers that drain promptly; bounded by
+    /// `EVENT_RING_RESERVE` worth of frames in pathological pile-up cases.
+    recv_payloads: VecDeque<Vec<u8>>,
     /// Phase 10 receiver-mode filename buffer. Populated in HeaderPhase
     /// EVT_DATA_FRAME arm BEFORE the existing CTRL_ACK push, so JS sees
     /// EVT_HEADER_RECEIVED with filename + size populated atomically with
@@ -156,6 +173,7 @@ impl Slide {
             events: VecDeque::with_capacity(EVENT_RING_RESERVE),
             send_ctx: None,
             recv_buf: Vec::with_capacity(RECV_BUF_RESERVE),
+            recv_payloads: VecDeque::with_capacity(EVENT_RING_RESERVE),
             recv_filename: Vec::with_capacity(RECV_FILENAME_RESERVE),
             recv_file_size: 0,
             recv_file_idx: 0,
@@ -418,6 +436,41 @@ impl Slide {
         self.recv_buf.clear();
     }
 
+    /// Phase 10 review CR-01 — pop the next queued data-frame payload into
+    /// `recv_buf` so JS can read its bytes via `recv_ptr` / `recv_len`.
+    ///
+    /// Called by JS BEFORE reading `recv_len()` for an EVT_RECV_DATA event.
+    /// When `feed_chunk` consumes a chunk containing N data frames, the SM
+    /// pushes N entries onto `recv_payloads`; JS drains the events ring and
+    /// calls `pop_recv_payload()` per EVT_RECV_DATA to load the matching
+    /// frame's bytes into `recv_buf`. The Vec::clear + extend_from_slice
+    /// pattern preserves the stable-pointer discipline (D-17 mirror) — the
+    /// underlying allocation never changes capacity in steady state because
+    /// every data frame's payload is bounded by `RECV_BUF_RESERVE` (1024).
+    ///
+    /// Returns true when a payload was popped, false when the queue was
+    /// empty (in which case `recv_buf` is left untouched — JS should not
+    /// read recv_len after a false return). The boolean lets a defensive
+    /// caller assert the queue/event ring stayed in lockstep without an
+    /// extra accessor.
+    pub fn pop_recv_payload(&mut self) -> bool {
+        match self.recv_payloads.pop_front() {
+            Some(bytes) => {
+                self.recv_buf.clear();
+                self.recv_buf.extend_from_slice(&bytes);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Number of pending payloads in the per-frame queue. Test-introspection
+    /// hook for the regression test that pins per-event recv_buf semantics
+    /// (IN-04). Returns 0 in steady state for receivers draining promptly.
+    pub fn recv_payload_queue_len(&self) -> usize {
+        self.recv_payloads.len()
+    }
+
     /// Pointer into recv_filename. Stable across feed_byte calls in steady state.
     pub fn recv_filename_ptr(&self) -> *const u8 {
         self.recv_filename.as_ptr()
@@ -626,8 +679,23 @@ impl Slide {
                     // PHASE 10: stash payload bytes into recv_buf BEFORE the
                     // per-window ACK so JS sees EVT_RECV_DATA + recv_buf
                     // populated atomically.
+                    //
+                    // Phase 10 review CR-01 — also push the payload onto the
+                    // per-frame queue. Without the queue, when a single
+                    // feed_chunk processes N back-to-back data frames (W3
+                    // OS-USB-concatenation case), recv_buf is overwritten
+                    // for each frame and JS reads only the LAST frame's
+                    // bytes for every EVT_RECV_DATA event drained after
+                    // feed_chunk returns. With the queue, JS calls
+                    // pop_recv_payload() per event to load the matching
+                    // frame's bytes into recv_buf before reading recv_ptr.
+                    // recv_buf is still populated eagerly so existing
+                    // single-frame callers (and the recv_corpus_sub_frame /
+                    // _binary_payload / _max_payload tests) still see the
+                    // most-recent frame's bytes without an explicit pop.
                     self.recv_buf.clear();
                     self.recv_buf.extend_from_slice(&payload);
+                    self.recv_payloads.push_back(payload);
                     self.events.push_back(EVT_RECV_DATA | (aux as u32));
                     // EXISTING (Phase 7): per-window ACK on WIN_SIZE boundary.
                     // slide-rs/recv.rs:206-212: send ACK every WIN_SIZE frames.

@@ -74,6 +74,12 @@ fn slide_recv_payload_methods_have_stable_signatures() {
     let _: fn(&mut Slide)              = Slide::clear_recv_filename;
     let _: fn(&Slide) -> u32           = Slide::recv_file_size;
     let _: fn(&Slide) -> u32           = Slide::recv_current_file_idx;
+    // Phase 10 review CR-01 — per-frame payload queue accessors. JS calls
+    // pop_recv_payload() before reading recv_len for each EVT_RECV_DATA
+    // event so multi-frame chunks (W3 OS-USB-concatenation case) deliver
+    // the right bytes per event. recv_payload_queue_len is a test hook.
+    let _: fn(&mut Slide) -> bool      = Slide::pop_recv_payload;
+    let _: fn(&Slide) -> usize         = Slide::recv_payload_queue_len;
 }
 
 #[test]
@@ -211,4 +217,8 @@ fn slide_runtime_calls_compile_against_external_surface() {
     let _idx: u32 = slide3.recv_current_file_idx();
     slide3.clear_recv();
     slide3.clear_recv_filename();
+    // Phase 10 review CR-01 — per-frame payload queue accessors. False
+    // return on an empty queue is the documented contract.
+    let _popped: bool = slide3.pop_recv_payload();
+    let _qlen: usize = slide3.recv_payload_queue_len();
 }

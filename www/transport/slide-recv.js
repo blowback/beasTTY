@@ -27,14 +27,15 @@
 // goes through txSink (writeSlideFrame for cancel echo — Plan 10-03 wires)
 // and the slide instance (recv_ptr/recv_len/clear_recv/cancel/force_idle).
 //
-// W3 assumption (documented per checker review): feed_chunk produces at most
-// one EVT_RECV_DATA per call to step() because framer.step processes one frame
-// per byte sequence terminated by CRC; subsequent frames in the same chunk emit
-// subsequent EVT_RECV_DATA events that are drained sequentially with
-// per-frame clear_recv() per Pitfall 5. Plan 10-01's slide_recv_corpus.rs
-// includes a recv_corpus_multi_data_frames_in_one_chunk test that pins this
-// contract — the JS drain loop relies on calling clear_recv() between events
-// so each EVT_RECV_DATA refers only to the bytes from that single frame.
+// W3 (Phase 10 review CR-01 — corrected) — feed_chunk may emit N back-to-back
+// EVT_RECV_DATA events when the OS-level USB read concatenates multiple SLIDE
+// data frames. The Rust SM holds a per-frame payload queue (recv_payloads)
+// and surfaces it via pop_recv_payload(); JS calls pop_recv_payload() BEFORE
+// reading recv_len for each EVT_RECV_DATA event so the right frame's bytes
+// land in recv_buf. Earlier the SM eagerly overwrote recv_buf per accepted
+// frame inside feed_chunk; by the time JS drained, only the LAST frame's
+// bytes remained — silent file corruption. The recv_corpus_multi_data_frames_
+// in_one_chunk test pins per-event recv_buf semantics via pop_recv_payload.
 //
 // W4 (lastDownloadAt-serialised gap): the inter-file 250 ms gap is enforced
 // by reading `lastDownloadAt` BEFORE the anchor-click / createWritable call
@@ -359,10 +360,11 @@ export function isSlideActive() {
 }
 
 // ===== onRecvEvent — called by slide.js drainEventsAndOutbound (Plan 10-03 wires) =====
-// Each EVT_RECV_DATA event corresponds to ONE data frame; per the W3
-// assumption documented in the head comment, slide.js calls clear_recv()
-// between events so the recv_buf payload is always exactly the just-arrived
-// frame's payload at the time onRecvData runs.
+// Each EVT_RECV_DATA event corresponds to ONE data frame. The Rust SM holds
+// a per-frame payload queue (Phase 10 review CR-01); onRecvData calls
+// slide.pop_recv_payload() to load the matching frame's bytes into recv_buf
+// before reading them. This makes multi-frame USB chunks (W3 OS-USB concat
+// case) deliver the right bytes per event instead of just the LAST frame's.
 export function onRecvEvent(evt) {
     const kind = evt & 0xFFFF_0000;
     if (kind === EVT_HEADER_RECEIVED) onHeaderReceived();
@@ -433,7 +435,20 @@ function onRecvFileDone() {
 // `new Uint8Array(view.subarray(0, len))` BEFORE calling clear_recv() — the
 // underlying buffer is shared with wasm and its content is undefined after
 // the next feed_chunk.
+//
+// Phase 10 review CR-01 — call pop_recv_payload() FIRST so recv_buf holds
+// THIS event's frame bytes (not just the last frame's). pop_recv_payload
+// returns false on an empty queue, which is a defensive failure mode — JS
+// should not have called sliceRecvBytesToOwned for a non-existent payload,
+// but if the queue/event ring desyncs we return an empty Uint8Array rather
+// than reading stale recv_buf bytes from a prior frame.
 function sliceRecvBytesToOwned() {
+    if (typeof slideRef.pop_recv_payload === 'function') {
+        if (!slideRef.pop_recv_payload()) {
+            console.warn('[slide-recv] pop_recv_payload returned false; queue empty for EVT_RECV_DATA');
+            return new Uint8Array(0);
+        }
+    }
     const len = slideRef.recv_len();
     if (len === 0) return new Uint8Array(0);
     if (wasmRef.memory.buffer !== recvBuffer) {
