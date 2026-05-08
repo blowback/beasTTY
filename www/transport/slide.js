@@ -29,9 +29,16 @@
 //   - Analog: www/renderer/scroll-state.js (module-scope state declaration block).
 //   - Analog: www/transport/session-log.js (simplest wireXxx + reset shape).
 
+// Phase 9 — pushTxBytes is needed for the auto-typed B:SLIDE R\r command in
+// enterSendMode. The owner is 'terminal' at the time of call (Pitfall 3
+// order-critical: pushTxBytes BEFORE pendingSendSession assignment) so the
+// owner gate at tx-sink.js:50 lets these bytes through to the writer.
+import { pushTxBytes } from '../input/tx-sink.js';
+
 // EVT_* — packed (kind << 16) | aux. JS unpacks via (evt >>> 16) for kind,
 // (evt & 0xFFFF) for aux. AUTHORITY: crates/bestialitty-core/tests/slide_boundary_shape.rs:slide_event_constants_pinned
-// + crates/bestialitty-core/tests/slide_wasm_boundary_shape.rs (Plan 08-01 pin).
+// + crates/bestialitty-core/tests/slide_wasm_boundary_shape.rs (Plan 08-01 pin
+// + Plan 09-02 extension for the sender constants).
 // A Rust-side renumber that didn't update both pin files is caught by
 // cargo test; Plan 08-04's Playwright dispatcher harness drives a CTRL_RDY
 // byte and asserts the reported event kind matches EVT_RDY for orthogonal
@@ -44,6 +51,14 @@ const EVT_FIN         = 4 << 16;
 const EVT_CAN         = 5 << 16;
 const EVT_DATA_FRAME  = 6 << 16;
 const EVT_CRC_ERROR   = 7 << 16;
+// Phase 9 EVT_* mirror additions — pinned by
+// crates/bestialitty-core/tests/slide_boundary_shape.rs and
+// crates/bestialitty-core/tests/slide_wasm_boundary_shape.rs (Plan 09-02
+// boundary-shape pin extension). Drift here vs the Rust-side enum fails
+// both pin tests at native cargo test time before reaching JS.
+const EVT_FILE_COMPLETE     = 8  << 16;   // aux = file_idx of the file just acked
+const EVT_SESSION_COMPLETE  = 9  << 16;   // aux = 0; emitted on FIN exchange completion
+const EVT_RETRANSMIT_NEEDED = 10 << 16;   // aux = seq the receiver NAK'd
 
 // SlideState repr(u32) mirror.
 const STATE_IDLE          = 0;
@@ -75,7 +90,36 @@ let wasmRef = null;       // for memory.buffer access in drainSlideOutbound
 // main.js:reDeriveHostReplyView at lines 274-279).
 let outboundBuffer = null;
 let outboundView = null;
-const OUTBOUND_VIEW_CAP = 16;            // matches Phase 7 OUTBOUND_RESERVE
+// Phase 9 D-08: grown from 16 to 4128 in lockstep with Rust OUTBOUND_RESERVE
+// in slide/state.rs. The two constants must move together; the Rust-side
+// test outbound_ptr_stable_across_sender_window_pushes proves the Rust
+// reserve is sufficient, and this view cap matches it (4 max-size frames at
+// 1030 bytes each + 8 bytes slack = 4128).
+const OUTBOUND_VIEW_CAP = 4128;
+
+// ===== Phase 9 sender-mode state =====
+
+// Phase 9 D-13/D-15 — pending send session set by enterSendMode({ files }).
+// Consumed by the wakeup-completion clause in dispatchTerminalMode.
+// Depth 1 per CONTEXT Claude's-Discretion default: second click while
+// pending replaces the queued metadata.
+let pendingSendSession = null;  // { metadata: Uint8Array, fileBytes: Uint8Array[] } | null
+
+// Phase 9 — active send-mode context. Populated by enterSendModeInternal;
+// mutated by pumpNextDataChunkIfReady as bytes flow out.
+let currentSendCtx = null;       // { fileBytes: Uint8Array[], currentFileIdx, sentBytesInFile } | null
+
+// Phase 9 D-14 hardcoded auto-send command. Phase 11 SLIDE-37 makes
+// this prefs-driven via prefs.slideAutoSendCommand. The empty-string-
+// disables code path in enterSendMode is preserved below for that
+// future plug-in. Bytes: B : S L I D E ' ' R \r
+const AUTO_SEND_COMMAND = new Uint8Array([
+    0x42, 0x3A, 0x53, 0x4C, 0x49, 0x44, 0x45, 0x20, 0x52, 0x0D
+]);
+
+// SLIDE wire frame size — slide-rs/protocol.rs FRAME_SIZE (1024 bytes
+// per data frame). Used to chunk fileBytes into per-frame payloads.
+const FRAME_SIZE = 1024;
 
 // --- Public API -----------------------------------------------------------
 
@@ -92,8 +136,16 @@ export function dispatchInbound(value) {
         dispatchTerminalMode(value);
     } else if (mode === 'recv') {
         dispatchRecvMode(value);
+    } else if (mode === 'send') {
+        // Phase 9: dispatcher-driven sender main loop (Pitfall 4
+        // RECOMMENDED FIX). dispatchSendMode is async; fire-and-forget here
+        // — dispatchInbound's caller (serial.js read loop) does not await,
+        // and dispatchSendMode handles its own awaits internally so backpressure
+        // and ordering are preserved within the per-chunk lifecycle.
+        dispatchSendMode(value).catch((err) => {
+            console.error('[slide.js] dispatchSendMode failed:', err);
+        });
     }
-    // mode === 'send' is Phase 9 scope; absent branch is correct for Phase 8.
 }
 
 // Phase 11 stub — exported now so port-lost wiring in serial.js teardown is
@@ -116,9 +168,34 @@ export function __resetForTests() {
     if (txSinkRef && typeof txSinkRef.setWireOwner === 'function') {
         txSinkRef.setWireOwner('terminal');
     }
+    // Phase 9 additions — wipe any pending or active send-mode state.
+    pendingSendSession = null;
+    currentSendCtx = null;
 }
 export function __getStateForTests() {
-    return { mode, wakeIdx, hasSlide: slide !== null };
+    // Phase 9 D-18 — extended introspection. Phase 8's three fields preserved;
+    // sender-mode fields appear only when slide+ctx are populated so receiver
+    // tests that read this struct see exactly the Phase 8 shape.
+    const baseState = {
+        mode,
+        wakeIdx,
+        hasSlide: slide !== null,
+        hasPendingSendSession: pendingSendSession !== null,
+    };
+    if (slide && currentSendCtx) {
+        return {
+            ...baseState,
+            state: slide.state(),
+            file_idx: currentSendCtx.currentFileIdx,
+            total_files: currentSendCtx.fileBytes.length,
+            bytes_in_file_done: currentSendCtx.sentBytesInFile,
+            bytes_in_file_total: currentSendCtx.fileBytes[currentSendCtx.currentFileIdx]?.length ?? 0,
+            // file-source.js (Plan 09-03) holds names; expose via a wireFileSource
+            // -> slide.js callback in that plan. null until wired.
+            current_filename: null,
+        };
+    }
+    return baseState;
 }
 
 // --- Internals ------------------------------------------------------------
@@ -140,24 +217,41 @@ function dispatchTerminalMode(value) {
             if (wakeIdx === 7) {
                 // Full match — flush any benign bytes BEFORE the wakeup in
                 // this chunk to term.feed FIRST (so the terminal sees them in
-                // wire order), then transition to recv mode.
+                // wire order), then transition to recv OR send mode.
                 if (pending.length) {
                     termRef.feed(new Uint8Array(pending));
                     pending.length = 0;
                 }
-                enterRecvMode();
+                // Phase 9 D-13 — branch on pendingSendSession. Auto-typed
+                // B:SLIDE R\r set this earlier (in enterSendMode) and the
+                // Z80 SLIDE program that subsequently launched is now
+                // emitting the wakeup. Consume the pending session and
+                // transition to send mode rather than recv.
+                if (pendingSendSession) {
+                    enterSendModeInternal(pendingSendSession);
+                    pendingSendSession = null;
+                } else {
+                    enterRecvMode();
+                }
                 wakeIdx = 0;
                 // Forward chunk tail to slide (Pitfall 2 — value.subarray(i + 1)
                 // skips the matched 7-byte signature).
                 const tail = value.subarray(i + 1);
                 if (tail.length) {
-                    feedSlide(tail);
-                    // After feeding the tail, drain events + outbound + check
-                    // for session end (defensive — extremely unlikely the
-                    // recv session completes within the same chunk as wakeup,
-                    // but the code path mirrors dispatchRecvMode for correctness).
-                    drainEventsAndOutbound();
-                    maybeExitRecvMode();
+                    if (mode === 'send') {
+                        // Phase 9: dispatcher-driven sender main loop
+                        // (Pitfall 4 fix). Async; fire-and-forget — caller
+                        // (serial.js read loop) does not await, and the
+                        // sender SM's drain/pump cycle handles ordering.
+                        dispatchSendMode(tail).catch((err) => {
+                            console.error('[slide.js] dispatchSendMode tail failed:', err);
+                        });
+                    } else {
+                        // Phase 8 receiver-mode tail handling unchanged.
+                        feedSlide(tail);
+                        drainEventsAndOutbound();
+                        maybeExitRecvMode();
+                    }
                 }
                 return;
             }
@@ -251,4 +345,227 @@ function exitRecvMode() {
     // were derived for THIS instance and would be invalidated by the next
     // new Slide() anyway; drainSlideOutbound's wasmRef.memory.buffer check
     // catches any change.
+}
+
+// ===== Phase 9 sender-mode internals =====
+
+/// Public entry point — called by file-source.js (Plan 09-03) after the
+/// user confirms the rewrite/rejection modal. Sets pendingSendSession
+/// (depth 1 — second click clobbers per CONTEXT Claude's-Discretion).
+/// Auto-types `B:SLIDE R\r` synchronously while owner is 'terminal'
+/// (Pitfall 3 — order critical: pushTxBytes BEFORE pendingSendSession).
+///
+/// `files` shape: `[{ name: string, bytes: Uint8Array }, ...]`. Names are
+/// packed into the metadata blob via packMetadataInline; raw byte arrays
+/// are kept in fileBytes for the sender pump + NAK retransmit (Pitfall 6
+/// Option A — JS holds the ground-truth payload, re-feeds on NAK).
+export function enterSendMode({ files }) {
+    // Plan 09-02 ships the metadata packer co-located with slide.js for
+    // self-containment (file-source.js doesn't exist yet at the end of
+    // this plan). Plan 09-03 will move packMetadataInline to file-source.js
+    // (per CONTEXT Claude's-Discretion default) and import it here.
+    const metadata = packMetadataInline(files);
+    const fileBytes = files.map((f) => f.bytes);
+
+    // Phase 9 Pitfall 3 ORDER CRITICAL:
+    //   1. pushTxBytes(AUTO_SEND_COMMAND) while owner is 'terminal'
+    //   2. THEN set pendingSendSession.
+    // Owner stays 'terminal' until the wakeup match flips it in
+    // enterSendModeInternal — by that point the auto-type bytes are
+    // already on the wire. Reversing this order would silently drop the
+    // auto-type bytes (owner === 'slide' silent-drop in pushTxBytes at
+    // tx-sink.js:50).
+    if (AUTO_SEND_COMMAND.length > 0) {
+        pushTxBytes(AUTO_SEND_COMMAND);
+    }
+    // (else: empty-string-disables semantic — Phase 11 SLIDE-37 plug-in.)
+
+    pendingSendSession = { metadata, fileBytes };
+}
+
+/// Pack files-with-names into the CONTEXT D-09 little-endian length-prefixed
+/// metadata blob: `<u32 file_count>` followed by per-file
+/// `<u32 name_len><name bytes><u32 size>`. Sender SM's enter_send_mode
+/// parses this exact layout (verified in Plan 09-01 unit tests).
+function packMetadataInline(files) {
+    const enc = new TextEncoder();
+    const nameBytesArr = files.map((f) => enc.encode(f.name));
+    const totalLen = 4 + nameBytesArr.reduce((acc, nb) => acc + 4 + nb.length + 4, 0);
+    const buf = new Uint8Array(totalLen);
+    const dv = new DataView(buf.buffer);
+    let cursor = 0;
+    dv.setUint32(cursor, files.length, true /* LE */); cursor += 4;
+    for (let i = 0; i < files.length; i++) {
+        const nb = nameBytesArr[i];
+        dv.setUint32(cursor, nb.length, true); cursor += 4;
+        buf.set(nb, cursor); cursor += nb.length;
+        dv.setUint32(cursor, files[i].bytes.length, true); cursor += 4;
+    }
+    return buf;
+}
+
+/// Internal — called from the wakeup-completion clause in dispatchTerminalMode.
+/// Mirror of enterRecvMode: news a Slide, calls slide.enter_send_mode(metadata),
+/// populates currentSendCtx, sets txSinkRef.setWireOwner('slide'), mode='send',
+/// kicks an initial drain so the CTRL_RDY pushed by enter_send_mode reaches
+/// the wire promptly.
+function enterSendModeInternal({ metadata, fileBytes }) {
+    if (slide && typeof slide.free === 'function') slide.free();
+    slide = new SlideCtor();
+    slide.enter_send_mode(metadata);
+    currentSendCtx = {
+        fileBytes,
+        currentFileIdx: 0,
+        sentBytesInFile: 0,
+    };
+    // D-09 — synchronous handoff. mode + owner flipped together; Pitfall 3.
+    txSinkRef.setWireOwner('slide');
+    mode = 'send';
+    // Initial CTRL_RDY was pushed by enter_send_mode — drain it immediately.
+    // Pitfall 4: dispatcher-driven serialization is not yet active because
+    // no inbound chunk has arrived yet; spawn a microtask drain so the
+    // RDY byte reaches the wire before the Z80 starts emitting frames.
+    drainSlideOutboundAwaitable().catch((err) => {
+        console.error('[slide.js] enterSendModeInternal initial drain failed:', err);
+    });
+}
+
+function exitSendMode() {
+    // Mirror of exitRecvMode — synchronous handoff back to terminal mode.
+    txSinkRef.setWireOwner('terminal');
+    mode = 'terminal';
+    currentSendCtx = null;
+    // Slide instance is left in Done/Error state until the next
+    // enterSendModeInternal / enterRecvMode replaces it (mirror of
+    // exitRecvMode lifecycle comment).
+}
+
+/// Pitfall 4 RECOMMENDED FIX — dispatcher-driven serialization.
+/// Mirrors dispatchRecvMode for the 'send' branch but with awaitable
+/// drains so PITFALLS §4 backpressure is respected on multi-frame writes.
+///
+/// Per-chunk lifecycle (RESEARCH §"Pattern: dispatcher-driven sender main loop"):
+///   1. feedSlide(value)                       — SM consumes RDY/ACK/NAK/CAN/FIN
+///   2. await drainEventsAndOutboundAwaitable() — pull events, await frame writes
+///   3. pumpNextDataChunkIfReady()              — if DataPhase, push next FRAME_SIZE chunk
+///   4. await drainEventsAndOutboundAwaitable() — drain again (step 3 added bytes)
+///   5. maybeExitSendMode()                     — exit on Done/Error/CancelPending
+async function dispatchSendMode(value) {
+    feedSlide(value);
+    await drainEventsAndOutboundAwaitable();
+    pumpNextDataChunkIfReady();
+    await drainEventsAndOutboundAwaitable();
+    maybeExitSendMode();
+}
+
+/// Drain SLIDE events + outbound bytes; the awaitable variant uses
+/// writeSlideFrameAwaitable so backpressure is gated per PITFALLS §4.
+/// Handles Phase 9 EVT_FILE_COMPLETE / EVT_SESSION_COMPLETE /
+/// EVT_RETRANSMIT_NEEDED in addition to the Phase 8 receiver-mode events
+/// (drained as no-ops here — receiver attaches handlers via Phase 10).
+async function drainEventsAndOutboundAwaitable() {
+    if (!slide) return;
+    while (true) {
+        const evt = slide.take_event_packed();
+        if (evt === EVT_NONE) break;
+        const kind = evt & 0xFFFF_0000;
+        const aux  = evt & 0xFFFF;
+        if (kind === EVT_FILE_COMPLETE) {
+            // SM has just emitted EVT_FILE_COMPLETE | file_idx and pushed
+            // the next file's header onto outbound (or transitioned to
+            // FinPending if this was the last file). Advance the JS-side
+            // cursor so pumpNextDataChunkIfReady reads from the right file.
+            if (currentSendCtx) {
+                currentSendCtx.currentFileIdx = aux + 1;
+                currentSendCtx.sentBytesInFile = 0;
+            }
+        } else if (kind === EVT_SESSION_COMPLETE) {
+            // SM is in Done; final FIN exchange completed. Don't exit here
+            // — let maybeExitSendMode handle it AFTER the outbound drain
+            // below (so any final ACK byte still on outbound_buf reaches
+            // the wire before we flip the owner back to terminal).
+        } else if (kind === EVT_RETRANSMIT_NEEDED) {
+            // Pitfall 6 Option A: re-feed the requested seq's payload chunk.
+            // The SM rewound current_seq to aux; we re-compute the chunk
+            // for that seq from currentSendCtx.fileBytes — JS holds the
+            // ground-truth payload, so retransmit is a clean re-derivation
+            // rather than a buffered copy.
+            const ctx = currentSendCtx;
+            if (ctx) {
+                const file = ctx.fileBytes[ctx.currentFileIdx];
+                if (file) {
+                    // seq=1 → offset 0; seq=2 → offset FRAME_SIZE; etc.
+                    // Note: seq is u8 (wraps at 256). For files > 255 frames
+                    // (~256 KB) this simple mapping needs SM-driven seq
+                    // tracking; out of scope for Phase 9 hardware UAT will
+                    // surface scope.
+                    const seq = aux;
+                    const chunkStart = (seq - 1) * FRAME_SIZE;
+                    const chunkEnd = Math.min(chunkStart + FRAME_SIZE, file.length);
+                    if (chunkStart < file.length) {
+                        const payload = file.subarray(chunkStart, chunkEnd);
+                        const isEof = chunkEnd === file.length;
+                        slide.feed_send_chunk(payload, isEof);
+                    }
+                }
+            }
+        }
+        // EVT_ACK / EVT_NAK / EVT_RDY / EVT_FIN / EVT_CAN — no JS action;
+        // SM internalises the transitions and produces outbound bytes that
+        // drainSlideOutboundAwaitable below pushes to the wire.
+    }
+    // Drain outbound — await each write per PITFALLS §4.
+    await drainSlideOutboundAwaitable();
+}
+
+/// Awaitable mirror of drainSlideOutbound.
+/// Pitfall 5: slice() the view BEFORE awaiting writer.write so the
+/// JS-owned copy is valid even if wasm memory grows during the await.
+async function drainSlideOutboundAwaitable() {
+    if (!slide) return;
+    while (true) {
+        const len = slide.outbound_len();
+        if (len === 0) break;
+        // Pitfall 4 — re-derive the view if memory.buffer grew/detached.
+        if (wasmRef.memory.buffer !== outboundBuffer) {
+            outboundBuffer = wasmRef.memory.buffer;
+            outboundView = new Uint8Array(outboundBuffer, slide.outbound_ptr(), OUTBOUND_VIEW_CAP);
+        }
+        // Pitfall 5 — slice to JS-owned buffer BEFORE await writer.write
+        // so a concurrent memory growth doesn't strand the byte serialization.
+        const owned = new Uint8Array(outboundView.subarray(0, len));
+        await txSinkRef.writeSlideFrameAwaitable(owned);
+        slide.clear_outbound();
+    }
+}
+
+/// If SM is in DataPhase and current file has remaining bytes, push the
+/// next FRAME_SIZE chunk via slide.feed_send_chunk. Called every dispatchSendMode
+/// cycle; no-op when the SM is mid-await on an ACK or all bytes have been fed.
+function pumpNextDataChunkIfReady() {
+    if (!slide || !currentSendCtx) return;
+    const st = slide.state();
+    // STATE_DATA_PHASE = 3 (per slide_boundary_shape.rs:slide_state_enum_repr_u32_pinned).
+    if (st !== STATE_DATA_PHASE) return;
+    const ctx = currentSendCtx;
+    const file = ctx.fileBytes[ctx.currentFileIdx];
+    if (!file) return;
+    if (ctx.sentBytesInFile >= file.length) return;   // SM is mid-await on ACK
+    const chunkStart = ctx.sentBytesInFile;
+    const chunkEnd = Math.min(chunkStart + FRAME_SIZE, file.length);
+    const payload = file.subarray(chunkStart, chunkEnd);
+    const isEof = chunkEnd === file.length;
+    slide.feed_send_chunk(payload, isEof);
+    ctx.sentBytesInFile = chunkEnd;
+}
+
+/// Mirror of maybeExitRecvMode for sender mode. Exits to terminal mode on
+/// Done / Error / CancelPending so the next keystroke reaches the wire
+/// without owner='slide' silent-dropping it.
+function maybeExitSendMode() {
+    if (!slide) return;
+    const st = slide.state();
+    if (st === STATE_DONE || st === STATE_ERROR || st === STATE_CANCEL_PEND) {
+        exitSendMode();
+    }
 }

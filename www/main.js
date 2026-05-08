@@ -65,11 +65,13 @@ import {
     setWireOwner,
     getWireOwner,
     writeSlideFrame,
+    writeSlideFrameAwaitable,
 } from './input/tx-sink.js';
 import { wireSerial } from './transport/serial.js';
 import {
     wireSlideDispatcher,
     dispatchInbound,
+    enterSendMode as enterSlideSendMode,
     __resetForTests as __slideResetForTests,
     __getStateForTests as __slideGetStateForTests,
 } from './transport/slide.js';
@@ -385,7 +387,7 @@ window.__sessionLog = {
 // resolved, which happened at main.js:79.
 wireSlideDispatcher({
     term,
-    txSink: { setWireOwner, getWireOwner, writeSlideFrame },
+    txSink: { setWireOwner, getWireOwner, writeSlideFrame, writeSlideFrameAwaitable },
     slideCtor: Slide,
     wasm,
 });
@@ -394,12 +396,18 @@ wireSlideDispatcher({
 // precedent). Plan 08-04's Playwright specs read mode + wakeIdx via
 // window.__slide.__getStateForTests(); they push reader bytes via
 // window.__mockReaderPush (existing Phase 5 hook) and assert outcomes.
+// Phase 9 Plan 02 — enterSendMode added so Plan 09-04 Playwright specs
+// can drive the sender lifecycle programmatically without a file-source UI.
 window.__slide = {
     __resetForTests: __slideResetForTests,
     __getStateForTests: __slideGetStateForTests,
     dispatchInbound,
+    enterSendMode: enterSlideSendMode,        // Phase 9 test hook
 };
-window.__txSink = { setWireOwner, getWireOwner, writeSlideFrame };
+// Phase 9 Plan 02 — writeSlideFrameAwaitable added so the new tx-sink Playwright
+// tests (writeSlideFrameAwaitable awaits writer.ready / throws / propagates)
+// can call into the sender entrypoint via window.__txSink.
+window.__txSink = { setWireOwner, getWireOwner, writeSlideFrame, writeSlideFrameAwaitable };
 
 // Phase 5 — wire Web Serial transport. opts mirror Phase 4 wireKeyboard
 // shape for sampleBell/drainHostReply/requestFrame discipline (D-35 post-feed
