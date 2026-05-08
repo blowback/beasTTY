@@ -92,6 +92,10 @@ async function setup(page) {
     await page.waitForFunction(() => document.getElementById('terminal').width > 0);
     await page.locator('#connection').evaluate((el) => { el.open = true; });
     await page.locator('#settings').evaluate((el) => { el.open = true; });
+    // Plan 11-03 moved the recv-to-folder row inside a nested
+    // <details id="settings-slide"> block; expand it so the toggle + button
+    // are visible/clickable.
+    await page.locator('#settings-slide').evaluate((el) => { el.open = true; });
 }
 
 async function pickFolderAndToggle(page) {

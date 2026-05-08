@@ -84,8 +84,11 @@ async function setup(page) {
     await page.locator('#terminal-wrapper').focus();
     await page.waitForFunction(() => document.getElementById('terminal').width > 0);
     // Settings <details> is collapsed by default; open it so the SLIDE
-    // recv-to-folder row + button are visible/clickable.
+    // recv-to-folder row + button are visible/clickable. Plan 11-03 moved
+    // the row inside a nested <details id="settings-slide"> block, so we
+    // expand both to keep the toggle visible.
     await page.locator('#settings').evaluate((el) => { el.open = true; });
+    await page.locator('#settings-slide').evaluate((el) => { el.open = true; });
 }
 
 test.describe('slide-recv-settings — toggle row state machine', () => {
