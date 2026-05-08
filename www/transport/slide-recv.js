@@ -70,6 +70,27 @@ const EVT_HEADER_RECEIVED = 11 << 16;
 const EVT_RECV_DATA       = 12 << 16;
 const EVT_RECV_FILE_DONE  = 13 << 16;
 
+// ===== UI-SPEC LOCKED COPY — VERBATIM; do NOT paraphrase =====
+// Source: 10-UI-SPEC.md §"Copywriting Contract".
+// Glyph rules:
+//   - `…` is U+2026 HORIZONTAL ELLIPSIS (NOT three ASCII dots).
+//   - `⚠` is U+26A0 WARNING SIGN (NOT the variant emoji `⚠️` U+FE0F).
+const COPY = Object.freeze({
+    buttonChooseFolder:    'Choose folder…',
+    buttonChangeFolder:    'Change folder…',
+    buttonReAllow:         'Re-allow folder…',
+    tooltipToggleFirst:    'Toggle the checkbox first',
+    tooltipPickFolder:     'Pick a folder for received files',
+    tooltipChangeFolder:   'Pick a different folder for received files',
+    tooltipReAllow:        'Re-grant permission for the previously-chosen folder',
+    stateNoFolder:         'No folder selected',
+    stateNeedsFolder:      '⚠ Pick a folder before next transfer',
+    stateSavingTo:         (name) => `Saving to: ${name}`,
+    statePermissionDenied: (name) => `⚠ Permission needed for ${name}`,
+    hintToggleOff: 'Received files land in your Downloads folder. Toggle this to pick a fixed destination.',
+    hintToggleOn:  'Received files are written here directly. Toggle off to revert to your Downloads folder.',
+});
+
 // ===== Module-scope state =====
 let prefsRef = null;
 let savePrefsRef = null;
@@ -116,8 +137,182 @@ export function wireSlideRecv(opts) {
     folderButtonElRef = opts.folderButtonEl || null;
     statusElRef = opts.statusEl || null;
     helpElRef = opts.helpEl || null;
-    // Plan 10-02 leaves DOM event handlers unwired; Plan 10-04 (Settings UI)
-    // adds change/click listeners when toggleEl + folderButtonEl are non-null.
+    // Plan 10-04 — Settings DOM event wiring + initial render + boot-time
+    // permission re-request. When DOM refs are null (Plan 10-02 callsite),
+    // these no-op cleanly.
+    if (toggleElRef) {
+        toggleElRef.addEventListener('change', onToggleChange);
+        // Phase 4 D-16 + Phase 6 precedent — preventDefault on mousedown to
+        // retain terminal focus; rely on native click toggle (do NOT pre-flip
+        // in mousedown — Phase 4 P-04 Rule 1 fix precedent).
+        toggleElRef.addEventListener('mousedown', (e) => e.preventDefault());
+    }
+    if (folderButtonElRef) {
+        folderButtonElRef.addEventListener('click', onFolderButtonClick);
+        folderButtonElRef.addEventListener('mousedown', (e) => e.preventDefault());
+    }
+    // Boot-time hydration: if toggle is on AND a handle is in IndexedDB,
+    // re-request permission so state (c) or (d) is reflected on first paint.
+    // When refs are null this still calls renderSettingsRow() which no-ops.
+    bootHandleHydration();
+}
+
+// ===== Plan 10-04 — Settings DOM handlers + state-string render =====
+//
+// renderSettingsRow — pure render; reads (toggleEl.checked / hasHandle /
+// currentPermission) and updates button label, button disabled, button
+// title tooltip, statusEl text, helpEl text. No side effects beyond DOM
+// writes. Safe to call when toggleElRef / folderButtonElRef / statusElRef
+// are null (no-op early return).
+function renderSettingsRow() {
+    if (!toggleElRef || !folderButtonElRef || !statusElRef) return;
+    const toggledOn = !!prefsRef?.slideRecvToFolder;
+    const hasHandle = !!cachedHandle;
+    const permGranted = currentPermission === 'granted';
+    // Sync the checkbox UI to prefs (boot path: prefs may be 'true' from
+    // localStorage but the DOM checkbox starts unchecked).
+    if (toggleElRef.checked !== toggledOn) toggleElRef.checked = toggledOn;
+    // Hint paragraph swap (toggle-off variant vs toggle-on variant).
+    if (helpElRef) {
+        helpElRef.textContent = toggledOn ? COPY.hintToggleOn : COPY.hintToggleOff;
+    }
+    // Button + state-string per state (a) / (b) / (c) / (d).
+    if (!toggledOn) {
+        // State (a) — toggle off, no folder UI.
+        folderButtonElRef.textContent = COPY.buttonChooseFolder;
+        folderButtonElRef.title = COPY.tooltipToggleFirst;
+        folderButtonElRef.disabled = true;
+        statusElRef.textContent = COPY.stateNoFolder;
+    } else if (!hasHandle) {
+        // State (b) — toggle on, no folder yet.
+        folderButtonElRef.textContent = COPY.buttonChooseFolder;
+        folderButtonElRef.title = COPY.tooltipPickFolder;
+        folderButtonElRef.disabled = false;
+        statusElRef.textContent = COPY.stateNeedsFolder;
+    } else if (permGranted) {
+        // State (c) — toggle on, folder granted.
+        folderButtonElRef.textContent = COPY.buttonChangeFolder;
+        folderButtonElRef.title = COPY.tooltipChangeFolder;
+        folderButtonElRef.disabled = false;
+        statusElRef.textContent = COPY.stateSavingTo(cachedHandle.name);
+    } else {
+        // State (d) — toggle on, folder denied/prompt.
+        folderButtonElRef.textContent = COPY.buttonReAllow;
+        folderButtonElRef.title = COPY.tooltipReAllow;
+        folderButtonElRef.disabled = false;
+        statusElRef.textContent = COPY.statePermissionDenied(cachedHandle.name);
+    }
+}
+
+// onToggleChange — checkbox change handler. Updates prefsRef + savePrefs +
+// renders. Does NOT auto-trigger pickFolder (user clicks the button
+// explicitly per UI-SPEC §"Settings-row state machine" — toggle and button
+// are decoupled).
+function onToggleChange() {
+    if (!prefsRef || !savePrefsRef || !toggleElRef) return;
+    prefsRef.slideRecvToFolder = !!toggleElRef.checked;
+    try { savePrefsRef(); } catch (e) { console.warn('[slide-recv] savePrefs failed:', e); }
+    renderSettingsRow();
+}
+
+// onFolderButtonClick — button click handler. Two paths:
+//   - state (d) → cachedHandle exists but permission is not granted →
+//     try requestPermission first; if granted, transition to state (c)
+//     without showing the picker.
+//   - state (b) or state (c) → showDirectoryPicker.
+// State (a) is unreachable — button is disabled.
+async function onFolderButtonClick() {
+    if (cachedHandle && currentPermission !== 'granted') {
+        try {
+            const ask = await cachedHandle.requestPermission({ mode: 'readwrite' });
+            currentPermission = ask;
+            renderSettingsRow();
+            if (ask === 'granted') {
+                // State (d) → (c) on grant; no picker dialog.
+                if (wrapperElRef && typeof wrapperElRef.focus === 'function') {
+                    wrapperElRef.focus();
+                }
+                return;
+            }
+            // Still not granted — fall through to picker so the user can
+            // pick a different folder rather than re-prompting forever.
+        } catch (e) {
+            console.warn('[slide-recv] requestPermission failed:', e);
+            // Fall through to picker.
+        }
+    }
+    await pickFolder();
+}
+
+// pickFolder — showDirectoryPicker entry. Resolution → cache handle +
+// persist to IndexedDB + transition to state (c). Rejection (user
+// dismissed) → silent fall-back per CONTEXT D-04 (no console.error, no
+// state change). Always restores terminal focus on settle.
+async function pickFolder() {
+    try {
+        const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
+        cachedHandle = handle;
+        if (idbRef && typeof idbRef.setRecvDirHandle === 'function') {
+            await idbRef.setRecvDirHandle(handle);
+        }
+        // Picker resolution implicitly grants permission for the duration
+        // of the user gesture; queryPermission returns 'granted' afterwards.
+        currentPermission = 'granted';
+        renderSettingsRow();
+    } catch (e) {
+        // User dismissed (AbortError) — D-04 silent fall-back; no console.error.
+        if (e && e.name !== 'AbortError') {
+            console.warn('[slide-recv] showDirectoryPicker failed:', e);
+        }
+        // No state change.
+    } finally {
+        // Restore daily-driver focus invariant per UI-SPEC §"Picker-dialog
+        // focus return".
+        if (wrapperElRef && typeof wrapperElRef.focus === 'function') {
+            wrapperElRef.focus();
+        }
+    }
+}
+
+// requestPermissionAndUpdate — boot-time re-permission probe. Chrome 122+
+// guidance: queryPermission first (no user gesture required); only call
+// requestPermission inside an explicit user-gesture click handler. Boot
+// path here only updates currentPermission to whatever queryPermission
+// returns — if 'granted', state (c); if 'prompt' / 'denied', state (d) +
+// the user must click [Re-allow folder…] to escalate.
+async function requestPermissionAndUpdate(handle) {
+    try {
+        const queryResult = await handle.queryPermission({ mode: 'readwrite' });
+        currentPermission = queryResult;   // 'granted' | 'prompt' | 'denied'
+    } catch (e) {
+        console.warn('[slide-recv] queryPermission failed:', e);
+        currentPermission = 'prompt';
+    }
+    renderSettingsRow();
+}
+
+// bootHandleHydration — boot-time IndexedDB read + render orchestrator.
+// If toggle is off → just render state (a). If toggle is on but no
+// handle in IDB → state (b). If handle present → query permission and
+// render (c) or (d).
+async function bootHandleHydration() {
+    if (!prefsRef?.slideRecvToFolder || !idbRef || typeof idbRef.getRecvDirHandle !== 'function') {
+        renderSettingsRow();
+        return;
+    }
+    try {
+        const handle = await idbRef.getRecvDirHandle();
+        if (handle) {
+            cachedHandle = handle;
+            await requestPermissionAndUpdate(handle);
+        } else {
+            // Toggle on but no handle — state (b).
+            renderSettingsRow();
+        }
+    } catch (e) {
+        console.warn('[slide-recv] bootHandleHydration failed:', e);
+        renderSettingsRow();
+    }
 }
 
 // setSlideRef — slide.js calls this on every enterRecvMode (per CONTEXT C-05
