@@ -27,6 +27,9 @@ const DEFAULTS = Object.freeze({
     autoConnect: false,
     showAllSerialDevices: false,
     slideRecvToFolder: false,    // Phase 10 — CONTEXT D-02 (default OFF; toggle in Settings pane lands in Plan 10-04)
+    slideAutoSendCommand: 'B:SLIDE R\r',          // Phase 11 — D-09 (SLIDE-37) — trailing \r is a 0x0D byte, not a literal backslash-r
+    slideShowSummary: true,                       // Phase 11 — D-09 (D-08 default ON; Cancelled summary chip ALWAYS shows regardless)
+    slideCompatibilityMode: 'auto',               // Phase 11 — D-09 ('auto' | 'wakeup-required' | 'force-start')
 });
 
 // Phase 10 review WR-04 — fields that MUST never live in the localStorage
