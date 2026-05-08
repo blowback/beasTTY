@@ -224,4 +224,4 @@ feedback.
 - Slack / GitHub Issues notifications when transfer finishes
 
 ---
-*Last updated: 2026-05-08 — Phase 9 complete (SLIDE Sender — Host → Z80 Send: Rust sender SM, JS dispatcher 'send' branch, file-source UI with drag-drop + native dialog modal, byte-identical round-trip verified at 3 layers). 7 SLIDE-* requirements flipped Complete. Next: Phase 10 (SLIDE Receiver & Cancellation).*
+*Last updated: 2026-05-08 — Phase 10 complete (SLIDE Receiver & Cancellation: Rust receiver SM payload exposure via VecDeque<Vec<u8>> queue + pop_recv_payload accessor; slide-recv.js with anchor-click + showDirectoryPicker opt-in via Settings toggle + IndexedDB persistence; ~N tilde collision suffix retry; ADR-003 5-step cancel state machine 200/500/100/2000ms; mid-session ESC^SLIDE re-entry matcher; mock-bot sender role as 4th independent SLIDE impl). 11 SLIDE-* requirements flipped Complete (SLIDE-18..24, 27, 29, 30, 34). Code review found 2 critical + 4 warnings; 5/6 fixed before completion. 6 human UAT items pending (10-HUMAN-UAT.md). Next: Phase 11 (SLIDE JS Bridge & v1.0 Integration).*
