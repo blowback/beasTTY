@@ -518,27 +518,43 @@ async function drainEventsAndOutboundAwaitable() {
             // below (so any final ACK byte still on outbound_buf reaches
             // the wire before we flip the owner back to terminal).
         } else if (kind === EVT_RETRANSMIT_NEEDED) {
-            // Pitfall 6 Option A: re-feed the requested seq's payload chunk.
-            // The SM rewound current_seq to aux; we re-compute the chunk
-            // for that seq from currentSendCtx.fileBytes — JS holds the
-            // ground-truth payload, so retransmit is a clean re-derivation
-            // rather than a buffered copy.
+            // Phase 9 WR-01 — window-rewind retransmit (slide-rs/send.rs:194-208
+            // mirror). On NAK(seq=aux), the Rust SM rewinds `current_seq` to
+            // `aux`. The JS pump must re-feed every frame from `aux` forward
+            // through end-of-file so the receiver sees the full window again
+            // (slide-rs's contract: NAK rejects the window starting at `aux`;
+            // the receiver silently drops post-NAK frames until it observes
+            // the retransmit at the requested seq).
+            //
+            // Earlier behaviour (re-feed only the single seq's chunk) papered
+            // over the divergence because the native test bot's
+            // `awaiting_retransmit` latch silently dropped post-NAK frames.
+            // Real slide.com hardware will see seq drift if we do not rewind
+            // the JS-side cursor; the next pump cycle resends from
+            // `sentBytesInFile` forward.
+            //
+            // Note: seq is u8 (slide-rs convention; wraps at 256). For files
+            // > 255 frames (~256 KB) this simple mapping needs SM-driven
+            // wrap-epoch tracking — see IN-05 (out of scope for Phase 9;
+            // hardware UAT in Phase 12 will surface real-world scope).
             const ctx = currentSendCtx;
             if (ctx) {
                 const file = ctx.fileBytes[ctx.currentFileIdx];
                 if (file) {
-                    // seq=1 → offset 0; seq=2 → offset FRAME_SIZE; etc.
-                    // Note: seq is u8 (wraps at 256). For files > 255 frames
-                    // (~256 KB) this simple mapping needs SM-driven seq
-                    // tracking; out of scope for Phase 9 hardware UAT will
-                    // surface scope.
                     const seq = aux;
                     const chunkStart = (seq - 1) * FRAME_SIZE;
-                    const chunkEnd = Math.min(chunkStart + FRAME_SIZE, file.length);
                     if (chunkStart < file.length) {
-                        const payload = file.subarray(chunkStart, chunkEnd);
-                        const isEof = chunkEnd === file.length;
-                        slide.feed_send_chunk(payload, isEof);
+                        // Rewind JS-side cursor to the NAKed seq's chunk start.
+                        // pumpNextDataChunkIfReady (called later in the same
+                        // dispatchSendMode cycle) reads `sentBytesInFile` and
+                        // resumes sending forward from here, walking through
+                        // every frame in the rewound window naturally.
+                        // Do NOT call feed_send_chunk directly — let the
+                        // natural pump cycle handle each frame so per-frame
+                        // seq accounting stays consistent with the SM's
+                        // `current_seq` (which the Rust SM already reset to
+                        // `aux` in the EVT_NAK handler at state.rs:392-394).
+                        ctx.sentBytesInFile = chunkStart;
                     }
                 }
             }
