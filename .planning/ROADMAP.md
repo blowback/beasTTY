@@ -40,7 +40,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 8: Wasm Boundary, JS Dispatcher & ESC^ Wakeup** - `Slide` wasm-bindgen exports sibling to `Terminal`; JS dispatcher routes Web Serial chunks to terminal parser OR SLIDE state machine; 7-byte wakeup detected across chunk boundaries; TX writer ownership handoff
 - [ ] **Phase 9: SLIDE Sender — Host → Z80 Send** - File picker + drag-drop + auto-typed `B:SLIDE R` command; CP/M filename uppercase + 8.3 truncation + character-set validation; sender-side sliding-window TX with `writer.ready` discipline
 - [x] **Phase 10: SLIDE Receiver & Cancellation** - Z80 → PC end-to-end receive: per-file Chrome download (anchor-click + `showDirectoryPicker` opt-in), zero-byte/sub-frame/binary edge cases, memory-bounded chunked reassembly; CTRL_CAN cancel protocol with neutral-wire post-cancel handshake; idempotent re-entrant wakeup handling (completed 2026-05-08)
-- [ ] **Phase 11: SLIDE JS Bridge & v1.0 Integration** - Floating SLIDE chip (file count, percent, bytes, throughput, post-cancel summary); Settings auto-send command pref; session-log pause; paste-pump gate; visibilitychange + port-lost teardown; auto-type echo swallow + Z80-no-respond fallback chip
+- [x] **Phase 11: SLIDE JS Bridge & v1.0 Integration** - Floating SLIDE chip (file count, percent, bytes, throughput, post-cancel summary); Settings auto-send command pref; session-log pause; paste-pump gate; visibilitychange + port-lost teardown; auto-type echo swallow + Z80-no-respond fallback chip
 - [ ] **Phase 12: SLIDE UX Polish, Docs & Real-Hardware UAT** - Filename collision auto-rename UX, drag-drop vs pointer-select isolation regression, auto-send command safety validation, `docs/SLIDE_Z80_REQUIREMENT.md` + README updates, `docs/SLIDE-UAT.md` end-to-end checklist against patched MicroBeast
 
 ## Phase Details
@@ -241,9 +241,9 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans**: 5 plans
   - [x] 11-01-PLAN.md — Wave 0 RED-gate scaffolding: 4 Playwright stub specs + mock-bot setWakeupDelay extension + 3 prefs DEFAULTS keys (Wave 0)
   - [x] 11-02-PLAN.md — Chip module skeleton: www/renderer/slide-chip.js with 8 lifecycle states + chip DOM/CSS in index.html + main.js wireSlideChip boot wiring (Wave 1)
-  - [ ] 11-03-PLAN.md — Settings SLIDE sub-block + lifecycle wiring: <details> sub-block with 4 rows + slidePumpOnPortLost real impl + 3 serial.js call sites + session-log gate + paste-pump gate + drop-rejected chip flash + auto-send prefs swap + chip lifecycle hooks (Wave 2)
-  - [ ] 11-04-PLAN.md — Behavior states: echo-swallow.js NEW + dispatchTerminalMode integration + visibilitychange + pagehide CTRL_CAN + Compatibility-mode 3-way branch + chip awaiting-timeout state + Retry/Cancel/Force-start handlers (Wave 3)
-  - [ ] 11-05-PLAN.md — Wave 4 GREEN gate: fill 4 spec files with real assertions + flip 11 SLIDE-* req IDs Pending → Complete + full suite green (Wave 4)
+  - [x] 11-03-PLAN.md — Settings SLIDE sub-block + lifecycle wiring: <details> sub-block with 4 rows + slidePumpOnPortLost real impl + 3 serial.js call sites + session-log gate + paste-pump gate + drop-rejected chip flash + auto-send prefs swap + chip lifecycle hooks (Wave 2)
+  - [x] 11-04-PLAN.md — Behavior states: echo-swallow.js NEW + dispatchTerminalMode integration + visibilitychange + pagehide CTRL_CAN + Compatibility-mode 3-way branch + chip awaiting-timeout state + Retry/Cancel/Force-start handlers (Wave 3)
+  - [x] 11-05-PLAN.md — Wave 4 GREEN gate: fill 4 spec files with real assertions + flip 11 SLIDE-* req IDs Pending → Complete + full suite green (Wave 4)
 **UI hint**: yes
 
 ### Phase 12: SLIDE UX Polish, Docs & Real-Hardware UAT
