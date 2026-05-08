@@ -119,7 +119,7 @@ SLIDE-19 250 ms inter-file gap is sufficient for Chrome's heuristic.
    each ≥ 250 ms apart. NO permission prompt appears.
 4. If Chrome DOES prompt for multi-download permission, mark FAIL and
    note Chrome version; the SLIDE-19 gap may need to be extended.
-**result:** pass/fail (TBD)
+**result:** skipped (covered by Playwright e2e in `slide-recv-e2e.spec.js`; manual mock-bot path infeasible — bot is loaded only by Playwright, not wired into production main.js. Phase 12 may add a `?mock=slide` dev hook if real-hardware UAT surfaces a divergence.)
 
 ### UAT-10-06: 1 MB+ daily-driver UX feel (SLIDE-24)
 
@@ -147,15 +147,15 @@ any point, and the file lands byte-identical with no truncation.
    offset 257 is `0x01`, etc. (the modulo-256 ramp from step 2).
 5. Subjective: did the canvas remain interactive (cursor blink,
    keystrokes received) throughout the recv? PASS only if yes.
-**result:** pass/fail (TBD)
+**result:** skipped (covered by Playwright e2e in `slide-recv-e2e.spec.js` 1MB-payload test; manual mock-bot path infeasible — bot is loaded only by Playwright, not wired into production main.js. Subjective UX feel is best assessed against a real Z80 send in Phase 12 SLIDE-42 hardware UAT.)
 
 ## Summary
 
 total: 6
 passed: 0
 issues: 0
-pending: 5
-skipped: 0
+pending: 3
+skipped: 2
 blocked: 1
 
 ## Sign-off
