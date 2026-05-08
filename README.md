@@ -51,6 +51,9 @@ lists chords and special keys with UI-side meaning.
 | Ctrl+Shift+C         | Copy current selection to clipboard                 |
 | Ctrl+Shift+V         | Paste from clipboard (subject to rate limit)        |
 | Ctrl+Shift+Esc       | Clear an established selection                      |
+| Drag files onto canvas        | Open SLIDE send modal for the dropped files |
+| Click ↑ Send file (top bar)   | Open file picker for SLIDE send             |
+| Esc (during SLIDE transfer)   | Cancel the in-flight SLIDE send or receive  |
 
 
 ### Scrollback navigation
@@ -84,6 +87,39 @@ Esc is context-sensitive. The first matching rule wins:
 Chromium claims `Ctrl+W` (close tab), `Ctrl+N` (new window), `Ctrl+T` (new tab)
 and `Ctrl+Shift+T` (reopen closed tab) at the OS layer. Map those control codes
 to a different chord on the MicroBeast side if you need them.
+
+## File transfer (SLIDE)
+
+BeasTTY supports the SLIDE protocol for sending and receiving files between
+your computer and the MicroBeast.
+
+### Sending files (PC → Z80)
+
+Drag files onto the terminal area, or click the `↑ Send file` button in the
+top bar. The send modal previews each filename rewritten to CP/M 8.3 form,
+and lets you confirm or cancel the batch before the transfer starts.
+
+If two or more files would collide on the Z80 side after 8.3 truncation
+(case-insensitive), the modal shows a per-collision-group preview of the
+auto-rename scheme (`REPORT.TXT, REPORT~1.TXT, REPORT~2.TXT, …`) and offers
+three resolutions: `Send N renamed`, `Send only first`, or `Refuse batch`.
+
+By default BeasTTY auto-types `B:SLIDE R\r` at the Z80 prompt before the
+transfer to put the Z80 into receive mode. The auto-send command is
+configurable in Settings → SLIDE file transfer; the first time you change
+it, a chip prompts you to confirm the new value.
+
+### Receiving files (Z80 → PC)
+
+When the Z80 sends a file via `B:SLIDE S FILE.TXT`, BeasTTY auto-detects the
+SLIDE wakeup signature (`ESC ^ S L I D E`) and downloads each file via your
+browser's Downloads tray. Settings → SLIDE file transfer lets you optionally
+save received files to a chosen folder instead.
+
+### Cancelling
+
+Press `Esc`, or click `[Cancel]` on the floating SLIDE chip, to abort an
+in-flight send or receive. The wire returns to a clean CP/M prompt.
 
 ## Can I run it locally?
 

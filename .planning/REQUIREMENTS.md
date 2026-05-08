@@ -239,7 +239,7 @@ Architecture, table-stakes, and pitfalls grounded in `.planning/research/{STACK,
 ### SLIDE Z80 coordination & docs
 
 - [x] **SLIDE-40**: `docs/SLIDE_Z80_REQUIREMENT.md` documents (a) the slide.asm `ESC ^ S L I D E` wakeup requirement, (b) the v0.2.1 protocol amendment (PC-initiated CTRL_CAN with Z80 echo), (c) the `B:SLIDE R` command convention, (d) links to the upstream `github.com/blowback/slide` PR
-- [ ] **SLIDE-41**: README.md "Keyboard shortcuts" section extended with drag-drop and file-picker references; new "File transfer" section documents the SLIDE protocol summary and links to SPEC-v0.2.1
+- [x] **SLIDE-41**: README.md "Keyboard shortcuts" section extended with drag-drop and file-picker references; new "File transfer" section documents the SLIDE protocol summary and links to SPEC-v0.2.1
 - [ ] **SLIDE-42**: Real-hardware UAT protocol (`docs/SLIDE-UAT.md` mirroring `06-HUMAN-UAT.md`) for end-to-end verification against patched MicroBeast
 
 ## v2 Requirements
@@ -393,7 +393,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SLIDE-38 | Phase 12 | Complete |
 | SLIDE-39 | Phase 11 | Complete |
 | SLIDE-40 | Phase 12 | Complete |
-| SLIDE-41 | Phase 12 | Pending |
+| SLIDE-41 | Phase 12 | Complete |
 | SLIDE-42 | Phase 12 | Pending |
 
 **Coverage:**
