@@ -402,10 +402,27 @@ function handleChipInlineAction(action) {
             // session — CONTEXT D-15 verbatim semantic). Consume the pending
             // session here so the wakeup-completion clause in
             // dispatchTerminalMode does not also fire.
+            //
+            // Phase 12.1 Plan 12-07 — chip lifecycle update missing in original
+            // Plan 11-04 implementation. Without this call the chip stayed
+            // pinned at 'awaiting-timeout' AFTER the click, with zero visible
+            // user feedback (gap diagnosed in
+            // .planning/debug/12-force-start-button-does-nothing.md). Mirrors
+            // the wakeup-completion enterActive() idiom in dispatchTerminalMode
+            // (slide.js search "Phase 11 Plan 11-03 — chip lifecycle hook:
+            // session active." for the reference call site). Wrapped in its own
+            // try/catch so a chip-method exception does not break the
+            // dispatcher; the existing outer try only guards
+            // enterSendModeInternal.
             if (pendingSendSession) {
                 const session = pendingSendSession;
                 pendingSendSession = null;
-                try { enterSendModeInternal(session); } catch (err) {
+                try {
+                    enterSendModeInternal(session);
+                    if (slideChipRef && typeof slideChipRef.enterActive === 'function') {
+                        slideChipRef.enterActive();
+                    }
+                } catch (err) {
                     console.error('[slide.js] force-start (chip) enterSendModeInternal failed:', err);
                 }
             }
