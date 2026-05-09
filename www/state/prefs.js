@@ -33,6 +33,19 @@ const DEFAULTS = Object.freeze({
     slideAutoSendCommandConfirmed: '',            // Phase 12 SLIDE-38: exact-match flag, keyed to the value last confirmed.
                                                   //   Empty string = never confirmed. Re-arms on every Settings change.
                                                   //   CURRENT_VERSION NOT bumped per Phase 6 D-32 defensive merge.
+    serialAssertRtsOnConnect: true,
+        // Phase 12.1 Plan 12-08 — gates connect-time setSignals.requestToSend
+        // (true = assert RTS on every port.open(); false = de-assert RTS as
+        // per the original Phase 5 D-09 safe-default). Default true because
+        // MicroBeast Z80-side UART hardware auto-flow-control requires host
+        // RTS asserted (slide-team finding 2026-05-09 hardware UAT). Toggle
+        // exists for users on hardware where RTS is wired to a reset GPIO
+        // (Pitfall #12 original concern). DTR remains de-asserted on connect
+        // in ALL paths — DTR-as-reset is more credible. Close-time setSignals
+        // (beforeunload + teardown) is UNCHANGED — RTS=false on close is
+        // clean signalling that Beastty is going away. CURRENT_VERSION NOT
+        // bumped per Phase 6 D-32 defensive merge (older blobs missing this
+        // field receive `true` via the loadPrefs spread fill).
 });
 
 // Phase 10 review WR-04 — fields that MUST never live in the localStorage
