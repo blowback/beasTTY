@@ -41,6 +41,15 @@
       --chrome-fg:     #e4e8ee;
       --chrome-accent: #7fdbca;
       --chrome-border: rgba(255, 255, 255, 0.08);
+      /* Phase 12 Plan 12-06 (Gap 2 — UAT Test 7) — strong invalid tone. Used
+         ONLY by the security-relevant auto-send command field per the user's
+         locked design call (2026-05-09): "it's a serious matter so red is
+         appropriate" — deliberate exception to the muted/destructive policy.
+         Mirrors the literal #e04040 used in Phase 5 connect-button
+         [data-state="port-lost"] (the only other strong-warning red in the
+         project). DO NOT generalize to other muted-policy contexts; this is
+         a single-control exception. */
+      --chrome-invalid-strong: #e04040;
       --bell-flash:    rgba(255, 255, 255, 0.7);
       --scanline-color: rgba(0, 0, 0, 0.15);
       /* Phosphor variables — set by canvas.js setPhosphor. */
@@ -741,12 +750,32 @@
     }
 
     /* ==== Phase 12 SLIDE-38 settings auto-send invalid state ==== */
-    /* Muted border + validation hint row. Visual cue ONLY — does NOT block
-       savePrefs (use-time gate in slide.js readAutoSendCommandBytes is the
-       hard gate). 12-UI-SPEC.md §D/§E lock these values; muted/destructive
-       policy reaffirmed (no red — uses neutral muted token). */
-    #slide-auto-send-input[data-invalid="true"] {
-      border-color: rgba(255, 255, 255, 0.6);
+    /* Phase 12 Plan 12-06 (Gap 2 — UAT Test 7) — TWO fixes vs. Plan 12-03:
+       (1) SPECIFICITY BUMP — add [data-theme] + #settings-slide ancestors so
+           this rule (now 0,2,2,0) beats BOTH competing rules ON SPECIFICITY
+           ALONE — not on source-order:
+             - base #settings-slide #slide-auto-send-input (line 217):    (0,2,0,0)  LOSES
+             - focused #settings-slide ...:focus-visible (line 227):      (0,2,1,0)  LOSES
+             - this rule [data-theme] #settings-slide ...[data-invalid]:  (0,2,2,0)  WINS
+           [data-theme] is on <body> (line 768) so the input is always a
+           descendant — semantic match is identical to scoping without it,
+           but the [data-theme] attribute selector adds 0,1,0 of specificity.
+           WHY NOT JUST (0,2,1,0)? The :focus-visible rule at line 227 ties
+           at (0,2,1,0); the cascade falls back to source-order. A future
+           author moving rules around silently regresses focused-and-invalid.
+           (0,2,2,0) wins regardless of order — no source-order trap.
+       (2) RED TOKEN — switch from rgba(255,255,255,0.6) (muted) to
+           var(--chrome-invalid-strong) (= #e04040). DELIBERATE EXCEPTION
+           to the muted/destructive policy (12-UI-SPEC §D), locked by the
+           user 2026-05-09: "it's a serious matter so red is appropriate."
+           This control gates wire-bound auto-typed bytes, so the visual
+           cue is treated as security-relevant rather than UX-neutral.
+           Defense-in-depth ONLY — the wire-safety gate remains the
+           use-time check in slide.js readAutoSendCommandBytes (T-12-03
+           mitigation; the visual cue does NOT block savePrefs).
+       Future authors: do NOT "fix" this back to muted — it is intentional. */
+    [data-theme] #settings-slide #slide-auto-send-input[data-invalid="true"] {
+      border-color: var(--chrome-invalid-strong);
     }
     #slide-auto-send-row .validation-hint {
       padding-top: 4px;
