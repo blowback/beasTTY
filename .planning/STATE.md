@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: Integration
 status: executing
-stopped_at: Completed 12-05-PLAN.md
-last_updated: "2026-05-09T11:50:38.302Z"
-last_activity: 2026-05-09 -- Phase 12 execution started
+stopped_at: Completed 12-06-PLAN.md
+last_updated: "2026-05-09T12:02:33.577Z"
+last_activity: 2026-05-09
 progress:
   total_phases: 12
-  completed_phases: 11
+  completed_phases: 12
   total_plans: 71
-  completed_plans: 70
-  percent: 99
+  completed_plans: 71
+  percent: 100
 ---
 
 # Project State
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-05-06)
 ## Current Position
 
 Phase: 12 (slide-ux-polish-docs-real-hardware-uat) — EXECUTING
-Plan: 1 of 6
-Status: Executing Phase 12
-Last activity: 2026-05-09 -- Phase 12 execution started
+Plan: 2 of 6
+Status: Ready to execute
+Last activity: 2026-05-09
 
 Progress: [██████████] 100%
 
@@ -133,6 +133,7 @@ Progress: [██████████] 100%
 | Phase 12 P03 | 21min | 4 tasks | 5 files |
 | Phase 12-slide-ux-polish-docs-real-hardware-uat PP04 | 6min | 2 tasks tasks | 3 files files |
 | Phase 12 P05 | 3min | 1 task tasks | 2 files files |
+| Phase 12-slide-ux-polish-docs-real-hardware-uat P06 | 8min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -179,6 +180,7 @@ Recent decisions affecting current work:
 - Phase 12 Plan 02 (2026-05-08): SLIDE-36 send-side filename collisions shipped — computeRenameScheme exported per D-04 unlimited-via-base-truncation rule (verbatim algorithm from RESEARCH; Math.max(0, 8 - len(N)) base limit). processFiles second pass groups surviving items by item.name.toUpperCase() (D-01) post-truncateCpm83. showConfirmModal accepts collisionRows third arg + tagged Promise resolution ('send' | 'first-only' | 'refuse' | falsy per D-06; backwards-compatible — Phase 9 happy path still produces 'send' / falsy). Modal three-mode footer: single <footer> with runtime swap of inner buttons (12-UI-SPEC §B locked; NOT a second <dialog>). Default-focus override scoped to collision-present mode (Phase 9 Cancel-default preserved on no-collision happy path — Pitfall 2). SLIDE-12 SC#1 closed via clearSelectionFn injection in onDrop (try/catch wrapped per T-12-10; closure captures selection.clearSelection from main.js boot wiring; Plan 12-01 already shipped the predicate-half early-return). Three-button row in #send-modal <footer>: send-modal-send-renamed (value="send") / send-modal-first-only (value="first-only") / send-modal-refuse (value="refuse"); all hidden by default, runtime-toggled by file-source.js based on collisionsPresent. CSS appended for li.collision (flex-direction: column) + .rename-list (margin-left: 24px); zero new colors / fonts per 12-UI-SPEC hard invariants. window.__fileSource exposes computeRenameScheme for Playwright unit tests. 8 Playwright tests pin all D-04 cases (12-collision / 100-collision / no-extension / single-member implicit) + modal three-mode flow + Phase 9 Cancel-default regression. Rule 1 deviation: 12-PLAN §behavior listed example outputs (REPOR~10/NOEX~1) that contradict the verbatim algorithm in §action; algorithm shipped (RESEARCH-verbatim authoritative); test expectations adjusted to match algorithm output (REPORT~10/NOEXT~1). Phase 12 ZERO Rust changes invariant preserved (CLAUDE.md hard rule). cargo --workspace 283/283 + cd www && npm run test:fast 81/81 + bash scripts/build.sh exit 0 all green. SLIDE-36 flipped Pending → Complete in REQUIREMENTS.md (top checkbox + traceability table). Plan 12-03 (SLIDE-38 auto-send safety) unblocked.
 - Phase 12 Plan 03 (2026-05-08): SLIDE-38 closed via 3-layer defense — pure helper isAutoSendSafe in prefs.js (regex /^[A-Za-z0-9: ]*\\r$/ — Rule 1 fix widened from /^[A-Za-z0-9:]*\\r$/ to admit space in default 'B:SLIDE R\\r'); use-time hard gate at slide.js readAutoSendCommandBytes (returns zero-length Uint8Array on rejection, fires chip enterError, sets DOM data-invalid); first-use-confirm chip lifecycle state in slide-chip.js with [Confirm]/[Reset to default] inline buttons + 30s defensive auto-hide. enterSendMode split into 3 functions (sync entry + async first-use branch + extracted enterSendModeProceed). savePrefs threaded through wireSlideDispatcher opts. slideAutoSendCommandConfirmed flag exact-string-keyed; Settings handler resets to '' on every change. 15 Playwright tests deterministic green (5 SAFE + 5 UNSAFE + 5 integration). T-12-07 (Esc/timeout-dismissed chip leaves dispatcher Promise unresolved) flagged as known limitation for Phase 12.1 cleanup. Phase 12 zero Rust changes invariant preserved (cargo --workspace 283/283); bash scripts/build.sh exit 0. SLIDE-38 flipped Pending → Complete in REQUIREMENTS.md.
 - Phase 12 Plan 04 (2026-05-08): SLIDE-40 + SLIDE-41 closed via 2 markdown deliverables. docs/SLIDE_Z80_REQUIREMENT.md (NEW, 135 lines, Nygard-style) covers ESC^SLIDE wakeup + v0.2.1 CTRL_CAN amendment (cites ADR-003) + B:SLIDE R command convention + repo-root link with 'Status: pending upstream merge' banner verified by inspecting upstream slide.asm has no ESC^SLIDE / no CTRL_CAN echo. Pitfall 7 honoured — no hardcoded PR number. README.md +36 insertions / 0 deletions: 3 new keyboard-shortcut rows (drag-drop / Send button / Esc-during-SLIDE) + new top-level '## File transfer (SLIDE)' section with 3 sub-sections (Sending PC->Z80 / Receiving Z80->PC / Cancelling) describing only shipped behaviour from Plans 12-01..12-03. Project name 'Beastty' in new doc, 'BeasTTY' (existing convention) preserved in README. Zero deviations. test:fast 81/81 deterministic at --workers=4; pre-existing 10-worker parallelism flakes documented in Phase 11 deferred-items.md unrelated to markdown-only changes.
+- Phase 12 Plan 06 (2026-05-09): UAT gap closure shipped — Gap 1 (Test 5, cosmetic) closed via [data-focused='true'] attribute pattern on #send-modal footer buttons (Phase 6 gap #7 mitigation replicated for the modal footer; CSS rule covers all 5 buttons + JS sets/clears at .focus() call site + onClose handler). Gap 2 (Test 7, major) closed via specificity bump to (0,2,2,0) on the invalid-state rule + new --chrome-invalid-strong (#e04040) CSS variable promoted from Phase 5 port-lost literal — wins on specificity ALONE against base (0,2,0,0) and :focus-visible (0,2,1,0); no source-order tiebreak. Deliberate single-control exception to muted/destructive policy locked by user 2026-05-09. 4 Playwright regression tests pin both contracts (BLURRED-state assertions for autosend; data-focused poll as load-bearing assertion for modal). 3 commits, 4 files modified (index.html + file-source.js + 1 new spec + 1 appended spec). Phase 12 ZERO-Rust-changes invariant preserved (cargo workspace 283/283 sanity-checked). No deviations.
 
 ### Pending Todos
 
@@ -206,8 +208,8 @@ Items acknowledged and carried forward from v1.0 milestone close:
 
 ## Session Continuity
 
-Last session: 2026-05-08T22:40:57.121Z
-Stopped at: Completed 12-05-PLAN.md
+Last session: 2026-05-09T12:02:33.569Z
+Stopped at: Completed 12-06-PLAN.md
 Resume file: None
 
 **Next Phase:** Phase 8 — Wasm Boundary, JS Dispatcher & ESC^ Wakeup. Phase 7 delivered the pure-Rust SLIDE state machine; Phase 8 wraps `Slide` in `lib.rs:wasm_boundary` with `feed_byte` / `feed_chunk` / `outbound_ptr/_len/clear_outbound` / `state` / `cancel` / `force_idle` exports (per ARCHITECTURE.md §1). The `Slide` struct shape is pinned via `tests/slide_boundary_shape.rs` fn-pointer coercion (Plan 07-04) so any drift fails at compile time. ADR-003 (Plan 07-05) is the canonical document for the v0.2.1 CAN-bidirectional amendment that Phase 8's wasm wrapper exposes to JS.
