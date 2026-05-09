@@ -26,18 +26,6 @@ import { isSlideActive } from './slide-recv.js';
 // prefsRef would still point at the original blob and miss subsequent toggles.
 import { getPrefs } from '../state/prefs.js';
 
-// Diagnostic instrumentation gate — Phase 12 hardware UAT root-cause work.
-// Same opt-in as slide.js: `localStorage.setItem('beastty.debug.slide','1')`.
-// Remove this block + serialDbg() call sites once the diagnosis lands.
-const SERIAL_DEBUG = (() => {
-    try { return typeof localStorage !== 'undefined' && localStorage.getItem('beastty.debug.slide') === '1'; }
-    catch { return false; }
-})();
-function serialDbg(tag, payload) {
-    if (!SERIAL_DEBUG) return;
-    try { console.log('[serial-debug]', tag, payload === undefined ? '' : payload); } catch {}
-}
-
 // Constants -----------------------------------------------------------------
 const VID_MICROBEAST = 0x10c4;   // D-02 — Silicon Labs (CP2102N)
 const PID_MICROBEAST = 0xea60;   // D-02 — CP2102N
@@ -438,7 +426,6 @@ export async function connectMicroBeast(configOverride) {
 }
 
 export async function disconnect() {
-    serialDbg('disconnect:enter', { state, hasPort: !!port, hasReader: !!reader, hasWriter: !!writer });
     // Set shuttingDown BEFORE cancelling the reader so runReadLoop's outer
     // while(p.readable) loop sees the flag and breaks — otherwise the loop
     // re-acquires a fresh reader between cancel() resolving and port.close()
@@ -447,16 +434,13 @@ export async function disconnect() {
     // also short-circuits the beforeunload teardown for the same reason.)
     shuttingDown = true;
     try {
-        serialDbg('disconnect:awaiting-teardown', {});
         await teardown({ deassertSignals: true });
-        serialDbg('disconnect:teardown-resolved', {});
     } finally {
         // Restore the flag so a subsequent Connect can start a fresh read loop.
         shuttingDown = false;
     }
     setState('disconnected');
     updatePortStatusDisconnected();
-    serialDbg('disconnect:exit', { state });
 }
 
 export function getState() { return state; }
@@ -486,15 +470,6 @@ async function runReadLoop(p) {
             while (true) {
                 const { value, done } = await reader.read();
                 if (done) break;                        // D-36 — cancel() resolves here
-                if (SERIAL_DEBUG) {
-                    try {
-                        const max = 32;
-                        const len = Math.min(value.length, max);
-                        const parts = [];
-                        for (let i = 0; i < len; i++) parts.push(value[i].toString(16).padStart(2, '0'));
-                        console.log('[serial-debug]', 'inbound-chunk', `[${value.length}B] ${parts.join(' ')}${value.length > max ? ' …' : ''}`);
-                    } catch {}
-                }
                 dispatchInbound(value);                  // Phase 8 D-06 — terminal/recv mode dispatch
                 sampleBellFn();                          // Phase 3 post-feed invariant
                 drainHostReplyFn('serial');              // Phase 2 host-reply accessor drain
@@ -550,50 +525,32 @@ function handleReadError(err) {
 // setSignals(false,false) → cancel reader → release writer → port.close().
 // Every await is try/catch'd — teardown MUST succeed even if individual steps throw.
 async function teardown({ deassertSignals = true } = {}) {
-    serialDbg('teardown:enter', { deassertSignals, hasPort: !!port, portWritable: !!(port && port.writable), hasReader: !!reader, hasWriter: !!writer });
     // D-11 step 1 — de-assert DTR/RTS before close (Pitfall #12, CP2102N errata).
     if (deassertSignals && port && port.writable) {
         try {
-            serialDbg('teardown:step1-setSignals-pending', {});
             await port.setSignals({ dataTerminalReady: false, requestToSend: false });
-            serialDbg('teardown:step1-setSignals-done', {});
-        } catch (err) {
-            serialDbg('teardown:step1-setSignals-threw', { msg: err && err.message });
+        } catch {
             appendErrorLog('dtr-deassert-failed',
                 'Could not clear DTR/RTS before close — safe to ignore on clean unplug');
         }
-    } else {
-        serialDbg('teardown:step1-skipped', { reason: !deassertSignals ? 'flag false' : (!port ? 'no port' : 'port not writable') });
     }
     // D-36 step 2 — cancel reader; pending read() resolves { done: true }.
     if (reader) {
-        try { serialDbg('teardown:step2-reader-cancel-pending', {}); await reader.cancel(); serialDbg('teardown:step2-reader-cancel-done', {}); }
-        catch (err) { serialDbg('teardown:step2-reader-cancel-threw', { msg: err && err.message }); }
-    } else {
-        serialDbg('teardown:step2-skipped', { reason: 'no reader' });
+        try { await reader.cancel(); } catch { /* ignore */ }
     }
     // Step 3 — release + unregister writer.
     if (writer) {
-        try { serialDbg('teardown:step3-writer-releaseLock-pending', {}); writer.releaseLock(); serialDbg('teardown:step3-writer-releaseLock-done', {}); }
-        catch (err) { serialDbg('teardown:step3-writer-releaseLock-threw', { msg: err && err.message }); }
+        try { writer.releaseLock(); } catch { /* ignore */ }
         writer = null;
         unregisterWriter();
-    } else {
-        serialDbg('teardown:step3-skipped', { reason: 'no writer' });
     }
     // Step 4 — close the port.
     if (port) {
-        try { serialDbg('teardown:step4-port-close-pending', {}); await port.close(); serialDbg('teardown:step4-port-close-done', {}); }
-        catch (err) { serialDbg('teardown:step4-port-close-threw', { msg: err && err.message }); }
-    } else {
-        serialDbg('teardown:step4-skipped', { reason: 'no port' });
+        try { await port.close(); } catch { /* ignore */ }
     }
     // Step 5 — Phase 5 D-20 — drop any mid-paste queue.
-    serialDbg('teardown:step5-pastePumpOnPortLost', {});
     pastePumpOnPortLost();
-    serialDbg('teardown:step5-slidePumpOnPortLost', {});
     slidePumpOnPortLost();   // Phase 11 D-14 — symmetric SLIDE port-lost teardown.
-    serialDbg('teardown:exit', {});
     // NOTE: port variable stays set (so getPorts/VID-match still works on reconnect).
 }
 
