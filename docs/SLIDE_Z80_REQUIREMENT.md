@@ -93,7 +93,54 @@ FILE.TXT` (or `B:SLIDE S FILE.TXT,FILE2.TXT,...` for multi-file
 batches). The Z80 emits the wakeup signature from §1, then the
 v0.2.1 framed payload; Beastty's recv path consumes both.
 
-## 4. Upstream patch
+## 4. Hardware flow control / RTS
+
+**Beastty post-12.1 contract (default):** Beastty asserts the host-side
+RTS signal whenever it opens a serial port — first-time Connect, USB
+re-plug auto-reconnect, retry-after-failure, and the auto-connect path
+on page reload. RTS remains asserted for the entire connection
+lifetime; it is de-asserted only at close (Disconnect, beforeunload,
+teardown).
+
+**Why:** The MicroBeast's Z80 UART can be configured to use its CTS
+input for hardware auto-flow-control. Host-side RTS goes to that
+Z80-side CTS pin in the standard MicroBeast wiring. With host
+RTS=low, the Z80 UART blocks all transmits — boot ROM output may
+still flow (typically without strict flow control enabled), but
+applications such as `slide.com` that enable hardware flow control
+will silently stall every byte. From the Beastty side this looks
+like "the wakeup byte never arrived" / "send hangs after Retry".
+Asserting RTS on connect unblocks the Z80→PC direction.
+
+**DTR:** Beastty always de-asserts DTR on connect, regardless of any
+pref. The original Phase 5 Pitfall #12 concern (some USB-serial
+adapters wire DTR to a reset GPIO) is retained for DTR — Beastty
+does not currently expose a DTR-on-connect toggle, and a stock
+MicroBeast does not require DTR for any documented behaviour.
+
+**User toggle:** Beastty's Settings → Connection pane has an
+`Assert RTS on connect` checkbox (default ON) for users on
+differently-wired hardware where RTS is connected to a reset GPIO
+instead of the Z80's CTS input. Toggle it OFF to restore the Phase
+5-original both-DTR-and-RTS-de-asserted behaviour. The new value
+takes effect on the NEXT Connect click; an active connection is
+unaffected.
+
+**Z80-side requirement:**
+
+- The Z80 SHOULD treat host-side RTS as the CTS input for any
+  hardware-flow-control configuration of its UART. With a stock
+  MicroBeast, no Z80-side change is required — the CP2102N's RTS
+  line is already wired to the Z80 UART CTS pin.
+- The Z80 MUST NOT wire RTS to a reset signal. If a clone or
+  custom variant has RTS routed to a reset line, document that
+  configuration in the variant's hardware notes; users on that
+  variant will turn off the Beastty toggle.
+- Z80 firmware authors MAY rely on host-asserted RTS for flow
+  control without inserting application-level handshakes. Beastty
+  asserts RTS for the lifetime of the connection.
+
+## 5. Upstream patch
 
 The Z80-side patch implementing items 1-2 above is tracked at
 <https://github.com/blowback/slide>. **Status: pending upstream merge**
@@ -122,7 +169,7 @@ Do not hardcode a PR number against this doc — the v0.2.1 amendment
 branch may move; readers can find the open work from the upstream
 repository root.
 
-## 5. Cross-link
+## 6. Cross-link
 
 - [ADR-003 — SLIDE v0.2.1 CAN-Bidirectional Amendment](../.planning/decisions/ADR-003-slide-v0-2-1-can-amendment.md)
   — the protocol authority for the amendment summarised in §2.
