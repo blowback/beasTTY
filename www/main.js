@@ -633,6 +633,21 @@ if (slideCompatSelect) {
     });
 }
 
+// Phase 12.1 Plan 12-08 — assert-RTS-on-connect Settings checkbox
+// (default true; gates connect-time setSignals.requestToSend in
+// www/transport/serial.js). Boot value mirrors prefs; change persists
+// via savePrefs. Read live by serial.js's getPrefs() at every
+// port.open() — no reconnect-required hint needed because the next
+// Connect click picks up the new value.
+const serialAssertRtsCheckbox = document.getElementById('serial-assert-rts-on-connect-checkbox');
+if (serialAssertRtsCheckbox) {
+    // Boot-time mirror — DEFAULTS is true so an unset/older blob shows checked.
+    serialAssertRtsCheckbox.checked = (prefs.serialAssertRtsOnConnect !== false);
+    serialAssertRtsCheckbox.addEventListener('change', (e) => {
+        savePrefs({ serialAssertRtsOnConnect: !!e.target.checked });
+    });
+}
+
 // Test introspection (mirrors window.__sessionLog / window.__scrollState
 // precedent). Plan 08-04's Playwright specs read mode + wakeIdx via
 // window.__slide.__getStateForTests(); they push reader bytes via
@@ -977,6 +992,13 @@ function applyPrefs(p) {
     // to take effect on the next Connect.
     const showAllSerialCheckbox = document.getElementById('show-all-serial-devices');
     if (showAllSerialCheckbox) showAllSerialCheckbox.checked = !!p.showAllSerialDevices;
+    // Phase 12.1 Plan 12-08 — assert-RTS-on-connect mirror. Direct
+    // getElementById (not the boot-time const) because applyPrefs is
+    // called both at boot AND on resetPrefs() — direct lookup matches
+    // showAllSerialDevices precedent above. DEFAULTS is true so a reset
+    // restores the checked state.
+    const serialAssertRtsCheckboxRef = document.getElementById('serial-assert-rts-on-connect-checkbox');
+    if (serialAssertRtsCheckboxRef) serialAssertRtsCheckboxRef.checked = (p.serialAssertRtsOnConnect !== false);
     // Serial-config form: mirror stored values so a fresh load shows the
     // persisted config in the Connection-pane form. The Phase 5 D-08
     // reconnect-required hint pattern handles live config changes.
