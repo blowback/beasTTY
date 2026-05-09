@@ -284,5 +284,14 @@ test.describe('slide-compatibility — Force start button', () => {
             () => page.evaluate(() => window.__slide.__getStateForTests().mode),
             { timeout: 2000 },
         ).toBe('send');
+        // Phase 12.1 Plan 12-07 — chip lifecycle MUST also transition out of
+        // 'awaiting-timeout' so the user gets visible feedback on the click.
+        // Regression guard for the gap diagnosed in
+        // .planning/debug/12-force-start-button-does-nothing.md (force-start
+        // case in slide.js previously omitted the enterActive() call).
+        await expect.poll(
+            () => page.evaluate(() => window.__slideChip.__getStateForTests().lifecycle),
+            { timeout: 2000 },
+        ).toBe('active');
     });
 });
