@@ -224,7 +224,11 @@ export async function wireSerial(opts) {
                     }
                     : PRESET_CONFIG;
                 await lastPortRef.open(cfg);
-                await lastPortRef.setSignals({ dataTerminalReady: false, requestToSend: false });
+                // Phase 12.1 Plan 12-08 — RTS gated on prefs.serialAssertRtsOnConnect.
+                await lastPortRef.setSignals({
+                    dataTerminalReady: false,
+                    requestToSend: (getPrefs() && getPrefs().serialAssertRtsOnConnect !== false) ? true : false,
+                });
                 writer = lastPortRef.writable.getWriter();
                 registerWriter(writer);
                 port = lastPortRef;
@@ -387,8 +391,16 @@ export async function connectMicroBeast(configOverride) {
     const config = configOverride || readFormConfig();
     try {
         await selectedPort.open(config);
-        // D-11 — de-assert DTR/RTS immediately after open (Pitfall #12).
-        await selectedPort.setSignals({ dataTerminalReady: false, requestToSend: false });
+        // Phase 5 D-11 — de-assert DTR after open (Pitfall #12).
+        // Phase 12.1 Plan 12-08 — RTS gated on prefs.serialAssertRtsOnConnect
+        // (default true). Asserts RTS on connect for Z80-side UART hardware
+        // flow control (slide-team finding 2026-05-09). User can revert via
+        // Settings checkbox for hardware where RTS is a reset line. DTR
+        // remains false in all paths.
+        await selectedPort.setSignals({
+            dataTerminalReady: false,
+            requestToSend: (getPrefs() && getPrefs().serialAssertRtsOnConnect !== false) ? true : false,
+        });
         // Phase 6 Plan 05 (D-29) — fresh session-log buffer per Connect; UTC
         // stamp captured here BEFORE any byte arrives so the filename reflects
         // when the session started, not when the user clicks Download.
@@ -735,7 +747,11 @@ async function handleReconnect(target) {
     setState('reconnecting');
     try {
         await target.open(lastConfig || PRESET_CONFIG);
-        await target.setSignals({ dataTerminalReady: false, requestToSend: false });
+        // Phase 12.1 Plan 12-08 — RTS gated on prefs.serialAssertRtsOnConnect.
+        await target.setSignals({
+            dataTerminalReady: false,
+            requestToSend: (getPrefs() && getPrefs().serialAssertRtsOnConnect !== false) ? true : false,
+        });
     } catch (firstErr) {
         // D-04 — single silent retry after exactly 500ms.
         setTimeout(() => retryOpenOnce(target), 500);
@@ -750,7 +766,11 @@ async function handleReconnect(target) {
 async function retryOpenOnce(target) {
     try {
         await target.open(lastConfig || PRESET_CONFIG);
-        await target.setSignals({ dataTerminalReady: false, requestToSend: false });
+        // Phase 12.1 Plan 12-08 — RTS gated on prefs.serialAssertRtsOnConnect.
+        await target.setSignals({
+            dataTerminalReady: false,
+            requestToSend: (getPrefs() && getPrefs().serialAssertRtsOnConnect !== false) ? true : false,
+        });
     } catch (retryErr) {
         setState('port-lost');
         appendErrorLog('reopen-failed', `Reconnect failed: ${retryErr.message}`);
