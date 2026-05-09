@@ -47,8 +47,39 @@ test.describe('XPORT-01..04 + D-01/D-02/D-06..D-11 — Connect to MicroBeast', (
         ).toEqual({ baudRate: 19200, dataBits: 8, stopBits: 1, parity: 'none', flowControl: 'none' });
     });
 
-    test('setSignals called with DTR=false RTS=false after open', async ({ page }) => {
+    // Phase 12.1 Plan 12-08 — RTS asserted on connect by default. The Z80
+    // UART uses host RTS as its CTS input for hardware auto-flow-control;
+    // RTS=false at connect time was blocking all Z80 transmits at the UART
+    // level (slide-team finding 2026-05-09 hardware UAT). DTR remains
+    // de-asserted (Pitfall #12 reset-pulse concern is more credibly
+    // applicable to DTR than RTS).
+    test('setSignals called with DTR=false RTS=true after open (assertRtsOnConnect default)', async ({ page }) => {
         await setup(page);
+        await page.locator('#connect-button').click();
+        await expect.poll(
+            () => page.evaluate(() => navigator.serial._grantedPorts[0]?._lastSignals ?? null),
+            { timeout: 2000 },
+        ).toEqual({ dataTerminalReady: false, requestToSend: true });
+    });
+
+    test('setSignals receives RTS=false when serialAssertRtsOnConnect pref is false', async ({ page }) => {
+        await setup(page);
+        // Phase 12.1 Plan 12-08 — toggle override path. Write the pref
+        // directly into localStorage and reload so loadPrefs() picks it up
+        // at boot. The savePrefs+reassign-cached subtlety from Phase 11
+        // Plan 11-05 review WR-03 isn't relevant here because serial.js
+        // reads getPrefs() live at every port.open() — but a fresh load
+        // is the cleanest way to set the boot-time pref state.
+        await page.evaluate(() => {
+            const cur = JSON.parse(localStorage.getItem('beastty.prefs') || '{}');
+            cur.serialAssertRtsOnConnect = false;
+            cur.version = cur.version || 1;
+            localStorage.setItem('beastty.prefs', JSON.stringify(cur));
+        });
+        await page.reload();
+        await page.locator('#terminal-wrapper').focus();
+        await page.waitForFunction(() => document.getElementById('terminal').width > 0);
+        await page.locator('#connection').evaluate((el) => { el.open = true; });
         await page.locator('#connect-button').click();
         await expect.poll(
             () => page.evaluate(() => navigator.serial._grantedPorts[0]?._lastSignals ?? null),
