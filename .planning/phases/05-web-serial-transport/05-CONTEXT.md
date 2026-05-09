@@ -152,6 +152,33 @@ PLAT-02, and all five Phase 5 ROADMAP success criteria.
   handler (Pitfall #12 note: "explicitly de-assert DTR/RTS before close,
   rather than letting the close do it implicitly"). One helper in
   `serial.js` owns both call sites.
+- **D-09 / D-11 amendment (Phase 12.1, Plan 12-08, 2026-05-09):**
+  The original both-false default for DTR/RTS at connect time was
+  incorrect for the MicroBeast Z80 hardware. Slide-team consultation
+  (2026-05-09) and instrumented hardware UAT capture
+  (`.planning/phases/12-slide-ux-polish-docs-real-hardware-uat/12-HUMAN-UAT.md`
+  Test 4 / Gap 2 root cause) confirmed:
+    - On the MicroBeast, host-side RTS goes to the Z80's CTS input.
+    - Z80-side UART hardware auto-flow-control blocks ALL Z80 transmits
+      when host RTS=low.
+    - With Phase 5's RTS=false-on-connect, the Z80 boot ROM still
+      transmitted (no strict flow control), but slide.com (and any other
+      CP/M program enabling proper flow control) silently stalled at the
+      UART. The wakeup byte never reached the host; the user-visible
+      symptom was "send hangs after Retry" / "auto-type miss" as
+      documented in the UAT.
+  Phase 12.1 Plan 12-08 introduces the pref `serialAssertRtsOnConnect`
+  (DEFAULTS = true) gating the connect-time `requestToSend` argument.
+  Default behaviour after the fix: RTS asserted on connect.
+  User-toggleable via Settings → Connection → "Assert RTS on connect"
+  for hardware where RTS is wired to a reset GPIO (the original
+  Pitfall #12 concern, retained as an opt-in escape hatch).
+  DTR is UNCHANGED — still de-asserted on connect in all paths
+  (DTR-as-reset is more credibly applicable than RTS-as-reset, and
+  the slide-team only requested RTS).
+  Close-time setSignals (beforeunload + teardown) is UNCHANGED — RTS
+  remains de-asserted on close (clean signalling that Beastty is
+  going away).
 
 ### Paste throttling
 
