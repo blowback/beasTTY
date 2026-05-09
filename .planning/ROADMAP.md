@@ -281,7 +281,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 9. SLIDE Sender — Host → Z80 Send | 0/TBD | Not started | - |
 | 10. SLIDE Receiver & Cancellation | 5/5 | Complete    | 2026-05-08 |
 | 11. SLIDE JS Bridge & v1.0 Integration | 4/5 | In progress | - |
-| 12. SLIDE UX Polish, Docs & Real-Hardware UAT | 6/6 | In progress | - |
+| 12. SLIDE UX Polish, Docs & Real-Hardware UAT | 7/9 | In progress | - |
 
 ---
 *Roadmap created: 2026-04-21*
