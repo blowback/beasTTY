@@ -474,6 +474,15 @@ async function runReadLoop(p) {
             while (true) {
                 const { value, done } = await reader.read();
                 if (done) break;                        // D-36 — cancel() resolves here
+                if (SERIAL_DEBUG) {
+                    try {
+                        const max = 32;
+                        const len = Math.min(value.length, max);
+                        const parts = [];
+                        for (let i = 0; i < len; i++) parts.push(value[i].toString(16).padStart(2, '0'));
+                        console.log('[serial-debug]', 'inbound-chunk', `[${value.length}B] ${parts.join(' ')}${value.length > max ? ' …' : ''}`);
+                    } catch {}
+                }
                 dispatchInbound(value);                  // Phase 8 D-06 — terminal/recv mode dispatch
                 sampleBellFn();                          // Phase 3 post-feed invariant
                 drainHostReplyFn('serial');              // Phase 2 host-reply accessor drain

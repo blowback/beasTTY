@@ -41,13 +41,36 @@ let registeredWriter = null;
 // slide.state() === Done or Error (D-09).
 let owner = 'terminal';
 
+// Diagnostic instrumentation gate — Phase 12 hardware UAT root-cause work.
+// Same opt-in as slide.js: `localStorage.setItem('beastty.debug.slide','1')`.
+// Remove this block + txDbg() call sites once the diagnosis lands.
+const TX_DEBUG = (() => {
+    try { return typeof localStorage !== 'undefined' && localStorage.getItem('beastty.debug.slide') === '1'; }
+    catch { return false; }
+})();
+function txDbg(tag, payload) {
+    if (!TX_DEBUG) return;
+    try { console.log('[tx-debug]', tag, payload === undefined ? '' : payload); } catch {}
+}
+function txDbgHex(bytes, max = 16) {
+    if (!bytes) return '<null>';
+    const len = Math.min(bytes.length, max);
+    const parts = [];
+    for (let i = 0; i < len; i++) parts.push(bytes[i].toString(16).padStart(2, '0'));
+    return `[${bytes.length}B] ${parts.join(' ')}${bytes.length > max ? ' …' : ''}`;
+}
+
 // --- Public API -----------------------------------------------------------
 
 export function pushTxBytes(bytes) {
+    txDbg('pushTxBytes:enter', { hex: txDbgHex(bytes), owner, hasWriter: registeredWriter !== null });
     // Phase 8 D-08 — silent drop during active SLIDE session. Chip messaging
     // ("Transfer in progress — cancel first") is Phase 11's concern. Here
     // we simply ensure keystrokes don't corrupt the wire mid-frame.
-    if (owner === 'slide') return;
+    if (owner === 'slide') {
+        txDbg('pushTxBytes:DROPPED-owner-is-slide', { hex: txDbgHex(bytes) });
+        return;
+    }
 
     // Accept Uint8Array or plain Array<number>. Fast path for typed arrays.
     const len = bytes.length;
@@ -64,9 +87,15 @@ export function pushTxBytes(bytes) {
     // write here does NOT unregister the writer; the serial.js teardown path
     // handles lifecycle on port-lost.
     if (registeredWriter) {
-        registeredWriter.write(bytes).catch((err) => {
-            console.error('[tx-sink] writer.write failed:', err);
-        });
+        txDbg('pushTxBytes:writer.write-pending', { hex: txDbgHex(bytes) });
+        registeredWriter.write(bytes)
+            .then(() => { txDbg('pushTxBytes:writer.write-resolved', { len: bytes.length }); })
+            .catch((err) => {
+                txDbg('pushTxBytes:writer.write-rejected', { msg: err && err.message });
+                console.error('[tx-sink] writer.write failed:', err);
+            });
+    } else {
+        txDbg('pushTxBytes:NO-WRITER-bytes-stranded', { hex: txDbgHex(bytes) });
     }
 }
 
