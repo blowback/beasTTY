@@ -493,6 +493,11 @@ function showConfirmModal(rows, surviving, collisionRows) {
     return new Promise((resolve) => {
         const onClose = () => {
             modalElRef.removeEventListener('close', onClose);
+            // Phase 12 Plan 12-06 (Gap 1) — clear data-focused on every footer
+            // button so a stale attribute cannot paint a ghost indicator on a
+            // button that no longer has focus when the modal next opens.
+            if (sendRenamedBtnRef) sendRenamedBtnRef.setAttribute('data-focused', 'false');
+            if (cancelBtnRef)      cancelBtnRef.setAttribute('data-focused', 'false');
             // Phase 12 SLIDE-36 — tagged returnValue (replaces Phase 9 boolean).
             const action = modalElRef.returnValue || null;
             // Focus restoration:
@@ -513,7 +518,15 @@ function showConfirmModal(rows, surviving, collisionRows) {
         const initialFocusTarget = collisionsPresent
             ? (sendRenamedBtnRef || cancelBtnRef)
             : cancelBtnRef;
-        initialFocusTarget?.focus();
+        if (initialFocusTarget) {
+            // Phase 12 Plan 12-06 (Gap 1 — UAT Test 5) — set data-focused="true"
+            // BEFORE .focus() so the index.html [data-focused="true"] CSS rule
+            // paints the border immediately. :focus-visible alone is suppressed
+            // by Chromium when the modal is opened via a pointer-initiated path.
+            // Mirrors the Phase 6 gap #7 pattern in chrome.js wireChrome.
+            initialFocusTarget.setAttribute('data-focused', 'true');
+            initialFocusTarget.focus();
+        }
     });
 }
 

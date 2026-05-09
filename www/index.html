@@ -722,6 +722,19 @@
       border-color: var(--chrome-accent);
       outline: none;
     }
+    /* Phase 12 Plan 12-06 (Gap 1 — UAT Test 5) — attribute-driven default-focus
+       indicator. Chromium's :focus-visible heuristic does NOT trigger for
+       programmatic .focus() following pointer-initiated interaction (drop /
+       file-picker dismissal). Replicates the Phase 6 gap #7 pattern from
+       #terminal-wrapper[data-focused="true"] above (see lines 108-120 for the
+       canonical comment). The data-focused attribute is set by file-source.js
+       at the .focus() call site after showModal() and cleared in the onClose
+       handler. Selector covers all five footer buttons (Phase 9 cancel/send +
+       Phase 12 send-renamed/first-only/refuse). */
+    #send-modal footer button[data-focused="true"] {
+      border-color: var(--chrome-accent);
+      outline: none;
+    }
     #send-modal footer button:disabled {
       opacity: 0.5;
       cursor: not-allowed;
