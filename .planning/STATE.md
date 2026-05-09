@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: Integration
-status: executing
-stopped_at: Completed 12-08-PLAN.md
-last_updated: "2026-05-09T17:35:00.000Z"
+status: verifying
+stopped_at: Completed 12-09-PLAN.md
+last_updated: "2026-05-09T19:20:50.605Z"
 last_activity: 2026-05-09
 progress:
   total_phases: 12
-  completed_phases: 11
+  completed_phases: 12
   total_plans: 74
-  completed_plans: 72
-  percent: 97
+  completed_plans: 74
+  percent: 100
 ---
 
 # Project State
@@ -27,10 +27,10 @@ See: .planning/PROJECT.md (updated 2026-05-06)
 
 Phase: 12 (slide-ux-polish-docs-real-hardware-uat) — EXECUTING
 Plan: 9 of 9 (post 12-08 RTS-on-connect fix)
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-05-09
 
-Progress: [██████████] 97%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -136,6 +136,7 @@ Progress: [██████████] 97%
 | Phase 12-slide-ux-polish-docs-real-hardware-uat P06 | 8min | 3 tasks | 4 files |
 | Phase 12-slide-ux-polish-docs-real-hardware-uat P07 | 4min | 2 tasks | 2 files |
 | Phase 12-slide-ux-polish-docs-real-hardware-uat P08 | 6min | 7 tasks (1 Rule 3 deviation: docs section renumbering) | 7 files |
+| Phase 12-slide-ux-polish-docs-real-hardware-uat P09 | 8min | 4 tasks (3 strip + 1 doc-delete) + 2 Rule 1 dead-code hygiene auto-fixes tasks | 4 files (3 modified, 1 deleted) files |
 
 ## Accumulated Context
 
@@ -185,6 +186,7 @@ Recent decisions affecting current work:
 - Phase 12 Plan 06 (2026-05-09): UAT gap closure shipped — Gap 1 (Test 5, cosmetic) closed via [data-focused='true'] attribute pattern on #send-modal footer buttons (Phase 6 gap #7 mitigation replicated for the modal footer; CSS rule covers all 5 buttons + JS sets/clears at .focus() call site + onClose handler). Gap 2 (Test 7, major) closed via specificity bump to (0,2,2,0) on the invalid-state rule + new --chrome-invalid-strong (#e04040) CSS variable promoted from Phase 5 port-lost literal — wins on specificity ALONE against base (0,2,0,0) and :focus-visible (0,2,1,0); no source-order tiebreak. Deliberate single-control exception to muted/destructive policy locked by user 2026-05-09. 4 Playwright regression tests pin both contracts (BLURRED-state assertions for autosend; data-focused poll as load-bearing assertion for modal). 3 commits, 4 files modified (index.html + file-source.js + 1 new spec + 1 appended spec). Phase 12 ZERO-Rust-changes invariant preserved (cargo workspace 283/283 sanity-checked). No deviations.
 - Phase 12 Plan 12-07 (2026-05-09): Force-start chip-lifecycle gap closure shipped — case 'force-start' in slide.js:handleChipInlineAction now calls slideChipRef.enterActive() after enterSendModeInternal succeeds (mirrors the wakeup-completion idiom in dispatchTerminalMode:609-613). Both calls live in the same try/catch so a chip-method exception is logged via the existing error path; enterActive() is ordered AFTER enterSendModeInternal so the chip never shows 'active' on a still-terminal-mode dispatcher if enterSendModeInternal throws. slide-compatibility.spec.js [Force start] test extended in-place (preserves -g filter anchor name) with a second expect.poll asserting __slideChip.__getStateForTests().lifecycle === 'active' (2000 ms timeout per Plan 11-05 chip-lifecycle precedent). Diagnostic instrumentation (slideDbg/slideDbgHex/SLIDE_DEBUG) UNCHANGED — Plan 12-09 owns cleanup. Closes 12-HUMAN-UAT.md Gap 1 (Test 3 / 'Force start does nothing'). Phase 12 zero-Rust invariant preserved (cargo --workspace 283/283). Real-hardware UAT-12-01 unblocked; force-start also serves as a temporary workaround for Gap 2 (RTS issue) while Plan 12-08 ships the real fix. SLIDE-39 already marked Complete in REQUIREMENTS.md (Phase 11 Plan 11-05) — Plan 12-07 is a regression-fix touchup, not a fresh requirement landing. Two atomic commits 68a1c27 + d9a42fa, +27/-1 lines across exactly the two files in plan frontmatter; no AI attribution per project memory.
 - Phase 12 Plan 12-08 (2026-05-09): UAT Gap 2 root cause closed — RTS-on-connect fix shipped across 7 atomic commits (76b7d50 prefs DEFAULTS / a6c4090 serial.js four connect-time gates / a11c1ca index.html checkbox / eca496c main.js boot+applyPrefs wiring / c431d04 connect.spec.js RTS=true default + RTS=false override / 4719cea 05-CONTEXT.md D-09/D-11 amendment / 25e8a55 SLIDE_Z80_REQUIREMENT.md §4 hardware flow control). New pref `serialAssertRtsOnConnect: true` lives in PREFS_DEFAULTS without CURRENT_VERSION bump (Phase 6 D-32 defensive merge precedent). All four connect-time setSignals call sites in serial.js (auto-connect line 230, connectMicroBeast line 402, handleReconnect line 753, retryOpenOnce line 772) read via `(getPrefs() && getPrefs().serialAssertRtsOnConnect !== false) ? true : false` — explicit form chosen over terser `?? true` because pre-prefs-load null cached returns false (safest = original Phase 5 behaviour). Both close-time setSignals call sites (line 167 beforeunload, line 558 teardown) UNCHANGED — keep RTS=false on close as clean signalling. DTR remains de-asserted in ALL paths; slide-team only requested RTS-only fix because DTR-as-reset is more credibly applicable than RTS-as-reset. Settings checkbox lives in Connection sub-block (NOT SLIDE sub-block — RTS is serial-transport concern) immediately after show-all-serial-devices. main.js wiring uses direct getElementById in applyPrefs (mirrors showAllSerialCheckbox precedent) so resetPrefs() restores checked default in-place. Playwright override test uses Option A (localStorage write + page.reload) over Option B (window.__prefs.savePrefs already exposed at main.js:46) for cleanest boot-time pref state. One Rule 3 deviation in Task 7: docs/SLIDE_Z80_REQUIREMENT.md plan said "DO NOT renumber any existing section" but the file already had §4 (Upstream patch) + §5 (Cross-link) from Plan 12-04 — inserting before the Upstream-patch footer without renumbering would have produced a non-monotonic 1-2-3-NEW-4-5; renumbered §4→§5 + §5→§6 to preserve monotonic numbering with content of all existing sections preserved verbatim. Diagnostic instrumentation (serialDbg/slideDbg/txDbg) UNCHANGED — Plan 12-09 owns cleanup. Phase 12 zero-Rust invariant preserved (cargo --workspace 283/283); npm run test:fast --workers=1 81/81 deterministic; npx playwright test connect.spec.js --workers=1 19/19 ×2 consecutive; bash scripts/build.sh exit 0. SLIDE-42 already marked Complete in REQUIREMENTS.md (Phase 12 Plan 12-05); Plan 12-08 is a UAT-Gap-2 implementation-layer fix, not a fresh requirement landing. Real-hardware UAT-12-01 / UAT-12-02 / UAT-12-03 unblocked.
+- Phase 12 Plan 12-09 (2026-05-09): Diagnostic instrumentation cleanup shipped — 4 atomic commits stripping all SLIDE_DEBUG/slideDbg/slideDbgHex (49 occurrences), SERIAL_DEBUG/serialDbg (26 occurrences), TX_DEBUG/txDbg/txDbgHex (11 occurrences) helpers and call sites from www/transport/slide.js + www/transport/serial.js + www/input/tx-sink.js, plus deleting the 12-DEBUG-INSTRUMENTATION.md reference doc. Net -244 lines. Two Rule 1 dead-code hygiene deviations: (a) removed dead local cmdSource inside readAutoSendCommandBytes that existed solely to feed slideDbg() probe; (b) renamed catch-bound err parameters to anonymous catches in serial.js teardown try/catch sites where the binding's only consumer was the stripped probe. Plan 12-07 force-start chip-lifecycle fix preserved (slideChipRef.enterActive() in case 'force-start' at slide.js:382-383); Plan 12-08 RTS-on-connect fix preserved (four getPrefs()-gated requestToSend reads at connect-time setSignals call sites + two close-time literal-false reads in serial.js, 6 hits total). Phase 12 zero-Rust invariant honoured (cargo --workspace 283/283 baseline preserved). cd www && npm run test:fast --workers=1 81/81 + connect.spec.js --workers=1 19/19 + slide-compatibility.spec.js -g 'Force start' --workers=1 2/2 + tx-sink.spec.js --workers=1 9/9 all green. bash scripts/build.sh exit 0. Whole-tree grep for {slideDbg, SLIDE_DEBUG, slideDbgHex, serialDbg, SERIAL_DEBUG, txDbg, TX_DEBUG, txDbgHex} in www/ returns zero matches; whole-tree grep for log-tag strings [slide-debug] / [serial-debug] / [tx-debug] also returns zero matches. Phase 12 hardware UAT gap-closure milestone now code-complete (12-06 + 12-07 + 12-08 + 12-09); /gsd-verify-phase 12 next.
 
 ### Pending Todos
 
@@ -212,8 +214,8 @@ Items acknowledged and carried forward from v1.0 milestone close:
 
 ## Session Continuity
 
-Last session: 2026-05-09T17:35:00.000Z
-Stopped at: Completed 12-08-PLAN.md
+Last session: 2026-05-09T19:20:35.123Z
+Stopped at: Completed 12-09-PLAN.md
 Resume file: None
 
 **Next Phase:** Phase 8 — Wasm Boundary, JS Dispatcher & ESC^ Wakeup. Phase 7 delivered the pure-Rust SLIDE state machine; Phase 8 wraps `Slide` in `lib.rs:wasm_boundary` with `feed_byte` / `feed_chunk` / `outbound_ptr/_len/clear_outbound` / `state` / `cancel` / `force_idle` exports (per ARCHITECTURE.md §1). The `Slide` struct shape is pinned via `tests/slide_boundary_shape.rs` fn-pointer coercion (Plan 07-04) so any drift fails at compile time. ADR-003 (Plan 07-05) is the canonical document for the v0.2.1 CAN-bidirectional amendment that Phase 8's wasm wrapper exposes to JS.
