@@ -1,6 +1,6 @@
 ---
 phase: 12-slide-ux-polish-docs-real-hardware-uat
-reviewed: 2026-05-08T00:00:00Z
+reviewed: 2026-05-09T00:00:00Z
 depth: standard
 files_reviewed: 13
 files_reviewed_list:
@@ -19,10 +19,19 @@ files_reviewed_list:
   - www/transport/slide.js
 findings:
   critical: 0
-  warning: 2
-  info: 4
-  total: 6
+  warning: 3
+  info: 8
+  total: 11
 status: issues_found
+passes:
+  - reviewed: 2026-05-08
+    scope: full-phase
+    files_reviewed: 13
+    findings: { critical: 0, warning: 2, info: 4 }
+  - reviewed: 2026-05-09
+    scope: gaps-only (Plan 12-06)
+    files_reviewed: 4
+    findings: { critical: 0, warning: 1, info: 4 }
 ---
 
 # Phase 12: Code Review Report
@@ -250,3 +259,124 @@ function isSessionActive() {
 _Reviewed: 2026-05-08_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
+
+---
+
+# Phase 12 — Gap-Closure Re-Review (Plan 12-06 only)
+
+**Scope:** `--gaps-only` execution on 2026-05-09. Reviews the four files touched by Plan 12-06 (SLIDE-36 modal default-focus + SLIDE-38 auto-send invalid border). Plans 12-01..12-05 are unchanged since the 2026-05-08 pass and are not re-reviewed here.
+
+**Files Reviewed (4):**
+- `www/index.html`
+- `www/input/file-source.js`
+- `www/tests/render/modal-default-focus.spec.js`
+- `www/tests/transport/slide-autosend-safety.spec.js`
+
+**Findings:** 0 critical / 1 warning / 4 info
+
+## Summary (Gap-Closure Pass)
+
+Plan 12-06 closes two UAT gaps via the canonical Phase 6 `[data-focused="true"]` attribute idiom (Gap 1) and the new `--chrome-invalid-strong` token (Gap 2). The CSS-and-attribute contract is correct end-to-end and the change-handler / `onClose` lifecycle is sound for the use cases in scope.
+
+One Warning calls out an inconsistency in how the two halves of Plan 12-06 apply the project's "no source-order trap" specificity discipline: the SLIDE-38 invalid rule was deliberately bumped to (0,2,2,0) to win on specificity alone, but the new SLIDE-36 modal-focus rule sits at (0,2,1,1) — TIED with the sibling `:focus-visible` and `:hover` rules, so it relies entirely on source order. The same anti-pattern the SLIDE-38 comment block calls out is reintroduced one block earlier.
+
+The data-focused clear lifecycle in `onClose` correctly covers the only two buttons that ever receive `data-focused="true"` today (`sendRenamedBtnRef`, `cancelBtnRef`), so there is no live stale-state hole. The two new tests in `modal-default-focus.spec.js` use the correct production code path (file-input change → showModal → focus()) and treat the attribute poll as the load-bearing assertion, not the borderColor check. The two new blurred-state tests in `slide-autosend-safety.spec.js` correctly pin the round-trip and acknowledge the `:focus-visible` interaction in their comments.
+
+No XSS or injection surface introduced — CSS tokens, attribute writes with hard-coded literal strings, and test data only.
+
+## Warnings (Gap-Closure Pass)
+
+### WR-03: New modal-focus CSS rule reintroduces the source-order trap that the SLIDE-38 fix was specifically designed to avoid
+
+**File:** `www/index.html:743`
+
+The new rule
+
+```css
+#send-modal footer button[data-focused="true"] {
+  border-color: var(--chrome-accent);
+  outline: none;
+}
+```
+
+has specificity (0, 2, 1, 1). The existing rule four lines earlier
+
+```css
+#send-modal footer button:hover,
+#send-modal footer button:focus-visible {
+  border-color: var(--chrome-accent);
+  outline: none;
+}
+```
+
+ALSO has specificity (0, 2, 1, 1). They tie, so the cascade falls back to source order. The data-focused rule appears AFTER `:focus-visible` so today it wins — but only on source order.
+
+This is exactly the regression vector that Plan 12-06's other half spends a 25-line CSS comment block (lines 753-776) warning future authors away from. The auto-send invalid rule was bumped to (0,2,2,0) on the explicit reasoning *"(0,2,2,0) wins regardless of order — no source-order trap."* Applying that principle inconsistently within the same plan is a maintenance hazard.
+
+A second-order concern: today both rules paint the same color (`var(--chrome-accent)`), so the source-order tie is invisible at runtime. If the modal-focus rule ever needs a distinct color or style, the source-order dependency becomes load-bearing.
+
+**Fix:**
+
+```css
+[data-theme] #send-modal footer button[data-focused="true"] {
+  border-color: var(--chrome-accent);
+  outline: none;
+}
+```
+
+`[data-theme]` adds (0,1,0,0) so the rule becomes (0,3,1,1) — beats both competing (0,2,1,1) rules on specificity alone. Same `<body data-theme>` ancestry argument the SLIDE-38 comment block already documents applies. Then add a symmetric "(0,3,1,1) wins regardless of order" comment for parity with the SLIDE-38 block.
+
+## Info (Gap-Closure Pass)
+
+### IN-05: `data-focused` clear uses string `"false"` rather than `removeAttribute`; OK for current selector but slightly off-idiom
+
+**File:** `www/input/file-source.js:499-500`
+
+The clear path writes literal `"false"`. The CSS selector is `[data-focused="true"]` so `"false"` correctly fails to match — no live bug. The local analog in `www/renderer/chrome.js` uses the same string-`"false"` convention, so this matches local precedent and the test (`getAttribute('data-focused')).toBe('false')`) depends on the literal string.
+
+**Fix:** No change recommended — current code matches the established `chrome.js` precedent and the test contract.
+
+### IN-06: `data-focused` clear list omits `firstOnly` and `refuse` buttons; correct today, but a maintenance landmine
+
+**File:** `www/input/file-source.js:496-500`
+
+The `onClose` handler clears `data-focused` on `sendRenamedBtnRef` and `cancelBtnRef` only. Today the set call site only ever targets one of those two, so this is sufficient. But if a future change extends `initialFocusTarget` to include `firstOnlyBtnRef` or `refuseBtnRef`, the clear path will silently miss them and a stale `data-focused="true"` leaks into the next modal open.
+
+**Fix:**
+
+```javascript
+[sendRenamedBtnRef, cancelBtnRef, sendBtnRef, firstOnlyBtnRef, refuseBtnRef]
+    .forEach((btn) => btn?.setAttribute('data-focused', 'false'));
+```
+
+…or leave a comment at the clear site stating "must mirror `initialFocusTarget` candidates". The full-set sweep is cheaper than the cognitive tax.
+
+### IN-07: Modal-default-focus borderColor assertion is not load-bearing under Playwright's synthetic file-input path
+
+**File:** `www/tests/render/modal-default-focus.spec.js:66-69`
+
+The test header comment (lines 53-56) already acknowledges this — the borderColor check matches `--chrome-accent` whether `:focus-visible` or `[data-focused="true"]` paints it. The attribute poll on lines 57-60 is the load-bearing contract.
+
+**Fix:** No code change — the test author already calls this out and uses the attribute poll as the load-bearing contract. Optionally swap one variant to a clean-theme borderColor (`rgb(127, 219, 202)` = `#7fdbca`) for theme coverage; gold-plating.
+
+### IN-08: Slide-autosend safety blurred-state tests assume body `data-theme` remains `"crt"` at test time
+
+**File:** `www/tests/transport/slide-autosend-safety.spec.js:269-276, 301-307`
+
+Both new tests assert hard-coded RGB tuples (`rgb(224, 64, 64)` for invalid; `rgba(255, 255, 255, 0.08)` for muted). Both tokens (`--chrome-invalid-strong`, `--chrome-border`) are NOT redefined per theme — confirmed against `www/index.html` lines 38-58 — so the assertions are robust to a theme change.
+
+**Fix:** None required. Optionally add a one-line `// theme-independent token` comment so a future maintainer doesn't have to walk the CSS.
+
+## Focus-Area Notes (Gap-Closure Pass)
+
+1. **Specificity contract correctness:** SLIDE-38 invalid rule's (0,2,2,0) bump correctly beats the (0,2,1,0) `:focus-visible` rule on specificity alone — verified. SLIDE-36 modal-focus rule does NOT carry the same discipline through (WR-03).
+2. **setAttribute / removeAttribute lifecycle:** No race or stale-state hole today. Set is synchronous before `.focus()`, clear is synchronous in `onClose`, `removeEventListener` inside `onClose` prevents handler accumulation. Implicit assumption that `initialFocusTarget` will only ever be sendRenamed or cancel — see IN-06.
+3. **Test contract realism:** Both new modal-default-focus tests drive the production trigger path (`setInputFiles → 'change' → processFiles → showModal`) rather than calling `.focus()` directly, which would trigger `:focus-visible` and mask the bug. The blurred-state tests in `slide-autosend-safety.spec.js` correctly pin blur — the actual UX moment when the user sees the invalid cue.
+4. **Security / XSS surface:** Clean. CSS-only token addition + `setAttribute` writes with hard-coded literal strings ("true" / "false"). No user-controlled content reaches attribute names or values; no `innerHTML`, no `eval`. Test fixtures use `Buffer.from()` with literal byte strings.
+
+---
+
+_Re-Reviewed: 2026-05-09_
+_Reviewer: Claude (gsd-code-reviewer)_
+_Depth: standard_
+_Scope: gaps-only (Plan 12-06)_
