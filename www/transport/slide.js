@@ -74,6 +74,26 @@ export { isAutoSendSafe as __isAutoSendSafeForTests };
 // cargo test; Plan 08-04's Playwright dispatcher harness drives a CTRL_RDY
 // byte and asserts the reported event kind matches EVT_RDY for orthogonal
 // drift detection.
+// Diagnostic instrumentation gate — Phase 12 hardware UAT root-cause work.
+// Opt-in: in DevTools console run `localStorage.setItem('beastty.debug.slide','1')`
+// then hard-reload. Logs prefix `[slide-debug]`. Silent in normal use.
+// Remove this block + all slideDbg() call sites once the diagnosis lands.
+const SLIDE_DEBUG = (() => {
+    try { return typeof localStorage !== 'undefined' && localStorage.getItem('beastty.debug.slide') === '1'; }
+    catch { return false; }
+})();
+function slideDbg(tag, payload) {
+    if (!SLIDE_DEBUG) return;
+    try { console.log('[slide-debug]', tag, payload === undefined ? '' : payload); } catch {}
+}
+function slideDbgHex(bytes, max = 16) {
+    if (!bytes) return '<null>';
+    const len = Math.min(bytes.length, max);
+    const parts = [];
+    for (let i = 0; i < len; i++) parts.push(bytes[i].toString(16).padStart(2, '0'));
+    return `[${bytes.length}B] ${parts.join(' ')}${bytes.length > max ? ' …' : ''}`;
+}
+
 export const EVT_NONE = 0;
 const EVT_RDY         = 1 << 16;       // 0x00010000
 const EVT_ACK         = 2 << 16;
@@ -213,16 +233,20 @@ let sendDispatchTail = Promise.resolve();
 const AUTO_SEND_DEFAULT = 'B:SLIDE R\r';
 function readAutoSendCommandBytes() {
     let cmd;
+    let cmdSource;
     if (prefsRef) {
         // prefs explicitly provided — honour the user's value verbatim
         // (including the explicit empty string which disables auto-type).
         cmd = prefsRef.slideAutoSendCommand;
-        if (cmd === undefined || cmd === null) cmd = AUTO_SEND_DEFAULT;
+        if (cmd === undefined || cmd === null) { cmd = AUTO_SEND_DEFAULT; cmdSource = 'prefsRef.slideAutoSendCommand=undef→default'; }
+        else cmdSource = 'prefsRef.slideAutoSendCommand';
     } else {
         // No prefs available — use Phase 9 default for backwards compatibility.
         cmd = AUTO_SEND_DEFAULT;
+        cmdSource = 'prefsRef=null→default';
     }
-    if (cmd.length === 0) return new Uint8Array(0);
+    slideDbg('readAutoSendCommandBytes:enter', { cmdSource, cmd: JSON.stringify(cmd), prefsRefIsNull: prefsRef === null });
+    if (cmd.length === 0) { slideDbg('readAutoSendCommandBytes:empty-disables', {}); return new Uint8Array(0); }
     // Phase 12 SLIDE-38 use-time hard gate (T-12-03). Validate before placing
     // bytes on the wire. Failure path returns zero-length Uint8Array (matches
     // SLIDE-13 disabled-auto-type semantic — caller's `length === 0` skip
@@ -230,6 +254,7 @@ function readAutoSendCommandBytes() {
     // chip is wired, and surfaces the validation hint + data-invalid attribute
     // on the Settings DOM (defense-in-depth UX feedback).
     if (!isAutoSendSafe(cmd)) {
+        slideDbg('readAutoSendCommandBytes:UNSAFE-rejected', { cmd: JSON.stringify(cmd) });
         console.error('[slide] Auto-send command failed safety check; auto-type skipped:',
                       JSON.stringify(cmd));
         if (slideChipRef && typeof slideChipRef.enterError === 'function') {
@@ -246,7 +271,9 @@ function readAutoSendCommandBytes() {
         } catch { /* ignore — DOM may not exist in tests */ }
         return new Uint8Array(0);
     }
-    return new TextEncoder().encode(cmd);
+    const out = new TextEncoder().encode(cmd);
+    slideDbg('readAutoSendCommandBytes:produced', { hex: slideDbgHex(out) });
+    return out;
 }
 
 // Phase 12 SLIDE-38 — first-use-confirm gate helpers. shouldSurfaceFirstUseConfirm
@@ -260,13 +287,24 @@ function readAutoSendCommandBytes() {
 // callback resolves the Promise — once resolved, slide.js proceeds with
 // enterAwaitingWakeup OR aborts the send.
 function shouldSurfaceFirstUseConfirm(cmd) {
-    if (cmd === AUTO_SEND_DEFAULT) return false;
-    if (!prefsRef) return false;
-    if (prefsRef.slideAutoSendCommandConfirmed === cmd) return false;
+    if (cmd === AUTO_SEND_DEFAULT) {
+        slideDbg('shouldSurfaceFirstUseConfirm', { decision: false, why: 'cmd===AUTO_SEND_DEFAULT' });
+        return false;
+    }
+    if (!prefsRef) {
+        slideDbg('shouldSurfaceFirstUseConfirm', { decision: false, why: 'prefsRef=null' });
+        return false;
+    }
+    if (prefsRef.slideAutoSendCommandConfirmed === cmd) {
+        slideDbg('shouldSurfaceFirstUseConfirm', { decision: false, why: 'already confirmed', confirmed: JSON.stringify(prefsRef.slideAutoSendCommandConfirmed) });
+        return false;
+    }
+    slideDbg('shouldSurfaceFirstUseConfirm', { decision: true, cmd: JSON.stringify(cmd), confirmed: JSON.stringify(prefsRef.slideAutoSendCommandConfirmed), prefsCmd: JSON.stringify(prefsRef.slideAutoSendCommand) });
     return true;
 }
 
 function surfaceFirstUseConfirm(cmd) {
+    slideDbg('surfaceFirstUseConfirm:enter', { cmd: JSON.stringify(cmd), chipWired: !!(slideChipRef && typeof slideChipRef.enterFirstUseConfirm === 'function') });
     return new Promise((resolve) => {
         // Fail-open if chip isn't wired (test harnesses without slideChip opt
         // get Phase 9/10/11 behaviour: command flows directly to wire after
@@ -274,14 +312,16 @@ function surfaceFirstUseConfirm(cmd) {
         // that drive enterSendMode without a chip and lets unit-style
         // safety-only spec runs work without the chip plumbing.
         if (!slideChipRef || typeof slideChipRef.enterFirstUseConfirm !== 'function') {
+            slideDbg('surfaceFirstUseConfirm:fail-open-no-chip', {});
             resolve(true);
             return;
         }
         slideChipRef.enterFirstUseConfirm({
             value: cmd,
-            onConfirm: () => resolve(true),
-            onReset: () => resolve(false),
+            onConfirm: () => { slideDbg('surfaceFirstUseConfirm:onConfirm-fired', {}); resolve(true); },
+            onReset:   () => { slideDbg('surfaceFirstUseConfirm:onReset-fired',   {}); resolve(false); },
         });
+        slideDbg('surfaceFirstUseConfirm:awaiting-user-click', {});
     });
 }
 
@@ -333,6 +373,7 @@ export function wireSlideDispatcher(opts) {
 // Phase 11 Plan 11-04 D-15 — handle Retry / Cancel / Force-start inline
 // actions from the chip's awaiting-timeout state.
 function handleChipInlineAction(action) {
+    slideDbg('handleChipInlineAction:enter', { action, pendingSendSessionIsNull: pendingSendSession === null, mode });
     switch (action) {
         case 'retry':
             // Re-emit the auto-type and restart the 3 s wakeup timer. The
@@ -413,6 +454,7 @@ export function dispatchInbound(value) {
         // on slide.outbound_len() / slide.clear_outbound() and duplicate
         // the outbound data frames on the wire.
         sendDispatchTail = sendDispatchTail.then(() => dispatchSendMode(value)).catch((err) => {
+            slideDbg('sendDispatchTail:CAUGHT-error', { msg: err && err.message, stack: err && err.stack && err.stack.split('\n').slice(0, 4).join(' | ') });
             console.error('[slide.js] dispatchSendMode failed:', err);
         });
     }
@@ -546,6 +588,7 @@ function dispatchTerminalMode(value) {
                 // Z80 SLIDE program that subsequently launched is now
                 // emitting the wakeup. Consume the pending session and
                 // transition to send mode rather than recv.
+                slideDbg('dispatchTerminalMode:wakeup-match', { hasPendingSend: pendingSendSession !== null });
                 if (pendingSendSession) {
                     enterSendModeInternal(pendingSendSession);
                     pendingSendSession = null;
@@ -812,6 +855,16 @@ export function forceExitRecvMode() {
 /// are kept in fileBytes for the sender pump + NAK retransmit (Pitfall 6
 /// Option A — JS holds the ground-truth payload, re-feeds on NAK).
 export function enterSendMode({ files }) {
+    slideDbg('enterSendMode:enter', {
+        fileCount: files ? files.length : 0,
+        pendingSendSessionIsNull: pendingSendSession === null,
+        firstUseConfirmPending,
+        mode,
+        prefsRefIsNull: prefsRef === null,
+        prefs_slideAutoSendCommand: prefsRef ? JSON.stringify(prefsRef.slideAutoSendCommand) : '<no-prefs>',
+        prefs_slideAutoSendCommandConfirmed: prefsRef ? JSON.stringify(prefsRef.slideAutoSendCommandConfirmed) : '<no-prefs>',
+        prefs_slideCompatibilityMode: prefsRef ? prefsRef.slideCompatibilityMode : '<no-prefs>',
+    });
     // Phase 9 WR-05 — first-click-wins. If a pendingSendSession is already
     // queued (the 200ms button-disable poll has not yet caught up to the
     // first click's state change), refuse to push auto-type bytes a second
@@ -911,12 +964,15 @@ export function enterSendMode({ files }) {
 // unresolved and this function never returns — flagged as a Phase 12.1
 // cleanup in 12-03-SUMMARY.md (T-12-07).
 async function enterSendModeAfterFirstUseConfirm({ files, cmd }) {
+    slideDbg('enterSendModeAfterFirstUseConfirm:enter', { cmd: JSON.stringify(cmd) });
     let confirmed;
     try {
         confirmed = await surfaceFirstUseConfirm(cmd);
-    } catch {
+    } catch (err) {
+        slideDbg('enterSendModeAfterFirstUseConfirm:surface-threw', { err: err && err.message });
         confirmed = false;
     }
+    slideDbg('enterSendModeAfterFirstUseConfirm:awaited', { confirmed });
     // Phase 12 WR-02 — clear the in-flight sentinel BEFORE any further
     // dispatch so subsequent enterSendMode invocations are not refused
     // after the chip has resolved (whether the user confirmed, reset to
@@ -953,11 +1009,13 @@ async function enterSendModeAfterFirstUseConfirm({ files, cmd }) {
 // — readAutoSendCommandBytes will re-read prefs internally, applying the
 // use-time safety gate.
 function enterSendModeProceed({ files /* cmd */ }) {
+    slideDbg('enterSendModeProceed:enter', { fileCount: files ? files.length : 0 });
     // Plan 09-02 ships the metadata packer co-located with slide.js for
     // self-containment (file-source.js doesn't exist yet at the end of
     // this plan). Plan 09-03 will move packMetadataInline to file-source.js
     // (per CONTEXT Claude's-Discretion default) and import it here.
     const metadata = packMetadataInline(files);
+    slideDbg('enterSendModeProceed:metadata-packed', { hex: slideDbgHex(metadata, 32) });
     const fileBytes = files.map((f) => f.bytes);
 
     // Phase 9 Pitfall 3 ORDER CRITICAL:
@@ -973,8 +1031,10 @@ function enterSendModeProceed({ files /* cmd */ }) {
     // Phase 9 D-14 hardcoded constant). Empty-string disables auto-type per
     // SLIDE-13 semantic — preserved verbatim.
     const autoSendBytes = readAutoSendCommandBytes();
+    slideDbg('enterSendModeProceed:autoSendBytes', { len: autoSendBytes.length, hex: slideDbgHex(autoSendBytes) });
     if (autoSendBytes.length > 0) {
         pushTxBytes(autoSendBytes);
+        slideDbg('enterSendModeProceed:pushTxBytes-done', {});
         // Phase 11 Plan 11-04 SLIDE-14 — arm the echo-swallow filter with the
         // post-rewrite TX bytes. CP/M echoes what it received (which is what
         // went on the wire); CR/LF mode (Phase 4 D-13) applies before
@@ -983,10 +1043,13 @@ function enterSendModeProceed({ files /* cmd */ }) {
         // semantic skips this naturally — autoSendBytes.length === 0 leaves
         // the filter idle (no swallow buffer arming when no auto-type fired).
         pushAutoTypedBytes(autoSendBytes);
+    } else {
+        slideDbg('enterSendModeProceed:auto-type-SKIPPED-empty', {});
     }
     // (else: empty-string-disables semantic — preserved from Phase 9 D-14.)
 
     pendingSendSession = { metadata, fileBytes };
+    slideDbg('enterSendModeProceed:pendingSendSession-set', { mode, compatModeWillRead: prefsRef ? prefsRef.slideCompatibilityMode : '<no-prefs>' });
 
     // Phase 11 Plan 11-04 D-16 — Compatibility mode 3-way branch governs how
     // the wakeup wait is handled. prefs.slideCompatibilityMode comes from the
@@ -1069,9 +1132,11 @@ function packMetadataInline(files) {
 /// kicks an initial drain so the CTRL_RDY pushed by enter_send_mode reaches
 /// the wire promptly.
 function enterSendModeInternal({ metadata, fileBytes }) {
+    slideDbg('enterSendModeInternal:enter', { metadataHex: slideDbgHex(metadata, 32), fileCount: fileBytes.length, fileSizes: fileBytes.map((b) => b.length) });
     if (slide && typeof slide.free === 'function') slide.free();
     slide = new SlideCtor();
     slide.enter_send_mode(metadata);
+    slideDbg('enterSendModeInternal:slide-constructed', { state: slide.state(), outbound_len: slide.outbound_len() });
     currentSendCtx = {
         fileBytes,
         currentFileIdx: 0,
@@ -1080,6 +1145,7 @@ function enterSendModeInternal({ metadata, fileBytes }) {
     // D-09 — synchronous handoff. mode + owner flipped together; Pitfall 3.
     txSinkRef.setWireOwner('slide');
     mode = 'send';
+    slideDbg('enterSendModeInternal:mode=send,owner=slide', {});
     // Initial CTRL_RDY was pushed by enter_send_mode — drain it immediately.
     // Pitfall 4: dispatcher-driven serialization is not yet active because
     // no inbound chunk has arrived yet; spawn a microtask drain so the
@@ -1135,11 +1201,17 @@ function exitSendMode() {
 ///   4. await drainEventsAndOutboundAwaitable() — drain again (step 3 added bytes)
 ///   5. maybeExitSendMode()                     — exit on Done/Error/CancelPending
 async function dispatchSendMode(value) {
+    slideDbg('dispatchSendMode:cycle-begin', { inboundLen: value.length, inboundHex: slideDbgHex(value, 24), state: slide ? slide.state() : '<no-slide>' });
     feedSlide(value);
+    slideDbg('dispatchSendMode:after-feed', { state: slide ? slide.state() : '<no-slide>' });
     await drainEventsAndOutboundAwaitable();
+    slideDbg('dispatchSendMode:after-drain1', { state: slide ? slide.state() : '<no-slide>' });
     pumpNextDataChunkIfReady();
+    slideDbg('dispatchSendMode:after-pump', { state: slide ? slide.state() : '<no-slide>' });
     await drainEventsAndOutboundAwaitable();
+    slideDbg('dispatchSendMode:after-drain2', { state: slide ? slide.state() : '<no-slide>' });
     maybeExitSendMode();
+    slideDbg('dispatchSendMode:cycle-end', { mode, state: slide ? slide.state() : '<no-slide>' });
 }
 
 /// Drain SLIDE events + outbound bytes; the awaitable variant uses
@@ -1154,6 +1226,7 @@ async function drainEventsAndOutboundAwaitable() {
         if (evt === EVT_NONE) break;
         const kind = evt & 0xFFFF_0000;
         const aux  = evt & 0xFFFF;
+        slideDbg('drainEvents:event', { kind: '0x' + (kind >>> 16).toString(16).padStart(4, '0'), aux, evt: '0x' + evt.toString(16).padStart(8, '0') });
         if (kind === EVT_FILE_COMPLETE) {
             // SM has just emitted EVT_FILE_COMPLETE | file_idx and pushed
             // the next file's header onto outbound (or transitioned to
@@ -1234,7 +1307,9 @@ async function drainSlideOutboundAwaitable() {
         // Pitfall 5 — slice to JS-owned buffer BEFORE await writer.write
         // so a concurrent memory growth doesn't strand the byte serialization.
         const owned = new Uint8Array(outboundView.subarray(0, len));
+        slideDbg('drainOutbound:write-pending', { len, hex: slideDbgHex(owned, 32) });
         await txSinkRef.writeSlideFrameAwaitable(owned);
+        slideDbg('drainOutbound:write-resolved', { len });
         slide.clear_outbound();
     }
 }
@@ -1252,20 +1327,21 @@ async function drainSlideOutboundAwaitable() {
 /// distinct chunks and the JS-side cursor could disagree with the SM's
 /// `send_ctx.current_file_idx`.
 function pumpNextDataChunkIfReady() {
-    if (!slide || !currentSendCtx) return;
+    if (!slide || !currentSendCtx) { slideDbg('pumpNext:skip', { reason: 'no slide or ctx' }); return; }
     const st = slide.state();
     // STATE_DATA_PHASE = 3 (per slide_boundary_shape.rs:slide_state_enum_repr_u32_pinned).
-    if (st !== STATE_DATA_PHASE) return;
+    if (st !== STATE_DATA_PHASE) { slideDbg('pumpNext:skip', { reason: 'not in DataPhase', state: st }); return; }
     const ctx = currentSendCtx;
     // WR-04 — authoritative cursor from Rust SM.
     const fileIdx = slide.send_current_file_idx();
     const file = ctx.fileBytes[fileIdx];
-    if (!file) return;
-    if (ctx.sentBytesInFile >= file.length) return;   // SM is mid-await on ACK
+    if (!file) { slideDbg('pumpNext:skip', { reason: 'no file at fileIdx', fileIdx }); return; }
+    if (ctx.sentBytesInFile >= file.length) { slideDbg('pumpNext:skip', { reason: 'fileFullySent (await ACK)', fileIdx, sent: ctx.sentBytesInFile, total: file.length }); return; }
     const chunkStart = ctx.sentBytesInFile;
     const chunkEnd = Math.min(chunkStart + FRAME_SIZE, file.length);
     const payload = file.subarray(chunkStart, chunkEnd);
     const isEof = chunkEnd === file.length;
+    slideDbg('pumpNext:feed', { fileIdx, chunkStart, chunkEnd, len: payload.length, isEof });
     slide.feed_send_chunk(payload, isEof);
     ctx.sentBytesInFile = chunkEnd;
 }
@@ -1276,6 +1352,7 @@ function pumpNextDataChunkIfReady() {
 function maybeExitSendMode() {
     if (!slide) return;
     const st = slide.state();
+    slideDbg('maybeExitSendMode', { state: st, willExit: (st === STATE_DONE || st === STATE_ERROR || st === STATE_CANCEL_PEND) });
     if (st === STATE_DONE || st === STATE_ERROR || st === STATE_CANCEL_PEND) {
         exitSendMode();
     }
