@@ -899,6 +899,11 @@
       Show all serial devices in picker
     </label>
     <p class="hint">Off by default — the picker only lists the Silicon Labs CP2102N (the chip on stock MicroBeast hardware). Turn this on if your MicroBeast uses a different USB-serial bridge (FTDI, CH340, CP2104) or you're connecting via a virtual COM port (USB-IP, Bluetooth-SPP, ser2net). Takes effect on the next Connect click.</p>
+    <label for="serial-assert-rts-on-connect-checkbox">
+      <input type="checkbox" id="serial-assert-rts-on-connect-checkbox" checked>
+      Assert RTS on connect
+    </label>
+    <p class="hint">On by default. The MicroBeast's Z80 UART uses host-side RTS as its CTS input for hardware auto-flow-control — without this, Z80→PC transmits (wakeup byte, ACKs, file data) are blocked at the Z80 UART. Turn this off if your hardware has RTS wired to a reset line instead. DTR is always de-asserted on connect (Pitfall #12 reset-pulse concern). Takes effect on the next Connect click.</p>
     <!-- Phase 6 D-31 (Plan 06-05) — per-connection RX log download. Disabled
          until the first byte arrives; tooltip cycles per session-log.js. -->
     <button id="download-log-button" type="button" disabled
