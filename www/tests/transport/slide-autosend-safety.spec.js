@@ -237,3 +237,71 @@ test('SLIDE-38 — confirmation flag re-arms when user changes auto-send command
         { timeout: 2000 },
     ).toBe('');
 });
+
+// ===== Phase 12 Plan 12-06 (Gap 2 — UAT Test 7) appended tests =====
+// Closes the gap diagnosed at .planning/debug/12-uat-no-red-border.md:
+// CSS specificity collision suppressed the data-invalid border indicator.
+// Plan 12-06 fixes via [data-theme] + #settings-slide ancestors
+// (specificity 0,2,2,0 — beats both base 0,2,0,0 AND :focus-visible
+// 0,2,1,0 on specificity alone, no source-order trap) and switches the
+// color to var(--chrome-invalid-strong) = #e04040 per the user's
+// 2026-05-09 design call (deliberate exception to the muted/destructive
+// policy for this security-relevant control).
+//
+// BLURRED-STATE CONTRACT: tests blur the input before reading borderColor.
+// The :focus-visible rule at index.html line 227 has specificity (0,2,1,0)
+// and would paint var(--chrome-accent) on a focused input regardless of
+// valid/invalid state. The realistic UX moment when the user sees the
+// invalid cue is AFTER they type and tab/click away. Pinning the blurred
+// state makes the contract under test unambiguous and test-stable.
+
+test('Plan 12-06 — Settings input invalid value paints red border (specificity + token fix)', async ({ page }) => {
+    await setup(page);
+    await page.locator('#slide-auto-send-input').fill('B:RM *.* ; SLIDE R');
+    await page.locator('#slide-auto-send-input').dispatchEvent('change');
+    // Wait for the data-invalid attribute write (existing contract).
+    await expect.poll(
+        () => page.locator('#slide-auto-send-input').getAttribute('data-invalid'),
+        { timeout: 2000 },
+    ).toBe('true');
+    // Blur the input so the :focus-visible rule (0,2,1,0) no longer paints
+    // var(--chrome-accent). After blur, the (0,2,2,0) invalid rule wins.
+    await page.locator('#slide-auto-send-input').blur();
+    // Plan 12-06 contract — bumped-specificity rule + --chrome-invalid-strong
+    // resolves to rgb(224, 64, 64) = #e04040.
+    const borderColor = await page.locator('#slide-auto-send-input').evaluate((el) =>
+        window.getComputedStyle(el).borderColor
+    );
+    expect(borderColor).toBe('rgb(224, 64, 64)');
+});
+
+test('Plan 12-06 — Settings input safe value returns border to base muted token', async ({ page }) => {
+    await setup(page);
+    // Warm-up: type unsafe → assert red (sanity), then type safe → assert
+    // border returns to base. This pins the round-trip so a future
+    // regression that pins data-invalid="true" permanently surfaces.
+    await page.locator('#slide-auto-send-input').fill('B:RM *.* ; SLIDE R');
+    await page.locator('#slide-auto-send-input').dispatchEvent('change');
+    await expect.poll(
+        () => page.locator('#slide-auto-send-input').getAttribute('data-invalid'),
+        { timeout: 2000 },
+    ).toBe('true');
+    // Now switch to a safe value (default — already in SAFE_CASES).
+    await page.locator('#slide-auto-send-input').fill('B:SLIDE R');
+    await page.locator('#slide-auto-send-input').dispatchEvent('change');
+    // The change handler removes data-invalid on safe values.
+    await expect.poll(
+        () => page.locator('#slide-auto-send-input').getAttribute('data-invalid'),
+        { timeout: 2000 },
+    ).not.toBe('true');
+    // Blur the input so the :focus-visible rule (0,2,1,0) no longer paints
+    // var(--chrome-accent). After blur, the base rule (0,2,0,0) wins
+    // (no more invalid rule to override; the safe-value path leaves only
+    // the base #settings-slide #slide-auto-send-input rule painting).
+    await page.locator('#slide-auto-send-input').blur();
+    // Border returns to the base rule (--chrome-border = rgba(255,255,255,0.08)).
+    const borderColor = await page.locator('#slide-auto-send-input').evaluate((el) =>
+        window.getComputedStyle(el).borderColor
+    );
+    expect(borderColor).toBe('rgba(255, 255, 255, 0.08)');
+});
