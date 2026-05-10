@@ -78,18 +78,32 @@ driver with a real MicroBeast — nothing else matters if that doesn't hold.
 - [x] Permissive open-source license on a public repo.
       *(Validated in Phase 6: SPDX MIT canonical text, Copyright 2026 Ant
       Skelton, repo root `LICENSE` file.)*
+- [x] Bidirectional file transfer over the Web Serial wire (PC ↔ Z80) via
+      the SLIDE protocol — picker + drag-drop send, anchor-click +
+      directory-picker receive, cancellation, chip UI.
+      *(Validated in v1.1 milestone, Phases 7–12: pure-Rust state machine
+      in `slide/` module with CRC-16-CCITT + sliding window + RDY/ACK/NAK/
+      CAN/FIN; JS dispatcher + 7-byte `ESC ^ S L I D E` wakeup matcher;
+      anchor-click-by-default + opt-in `showDirectoryPicker` for batches;
+      ADR-003 5-step cancel sequence; Compatibility-mode 3-way pref for
+      legacy slide.com fallback; 42 SLIDE-* requirements all complete.)*
 
 ### Active
 
 <!-- Current scope. Building toward these. -->
 
-v1.1 FileTransfer milestone — see `## Current Milestone` below. v1.1 requirements will
-be enumerated in `.planning/REQUIREMENTS.md` (SLIDE-* and DROP-* IDs) once the milestone
-roadmap is built.
+No active milestone. v1.0 (MVP) and v1.1 (SLIDE FileTransfer) both shipped — see
+`## Current State` below and `.planning/MILESTONES.md`. Use `/gsd-new-milestone`
+to scope the next milestone.
 
-All v1.0 active requirements moved to Validated after Phase 6 completion. The 24-h
-memory-flat soak and daily-driver full-session UAT are documented as out-of-band
-manual sign-off items in `06-HUMAN-UAT.md` and `06-SOAK.md`.
+v2 candidates (not yet committed to a milestone) live in
+`.planning/REQUIREMENTS.md` under `## v2 Requirements`:
+
+- v2-RENDER-01 — Scanline / phosphor intensity slider for CRT theme
+- v2-RENDER-02 — VT52 graphics-mode glyphs (math fractions, scan lines)
+- v2-XPORT-01 — Send Break button
+- v2-AUDIO-01 — Audible bell (one default tone, muted by default)
+- v2-SESS-01 — Settings export / import as JSON
 
 ### Out of Scope
 
@@ -154,7 +168,15 @@ manual sign-off items in `06-HUMAN-UAT.md` and `06-SOAK.md`.
 | CR/LF override is TX-side only (JS post-encode rewrite); default CR; 3 modes (CR/LF/CRLF) | Phase 1 D-13 locks Phase 4 to JS-only; default CR matches both Phase 1 captures (CP/M shell + BASIC-80); 3-way covers both observed failure modes. | Validated in Phase 4 |
 | `mousedown` preventDefault on top-bar and Settings controls | Retains canvas focus across all chrome clicks without a visible refocus flicker; preserves native keyboard activation (Tab + Space). | Validated in Phase 4 |
 | Browser-reserved Ctrl combos (W/N/T) documented via user-visible note | Chromium issue #33056 confirms these are genuinely unpreventable from a web page; the correct mitigation is a discoverable note in the Settings pane, not API acrobatics. | Validated in Phase 4 |
-| Permissive license (MIT / Apache-2.0) | VT52 emulators are rare; low-friction licensing maximises usefulness to other MicroBeast owners. | — Pending |
+| Permissive license (MIT / Apache-2.0) | VT52 emulators are rare; low-friction licensing maximises usefulness to other MicroBeast owners. | Validated in Phase 6 (MIT) |
+| Web Serial driven from JS, not Rust | Rust Web Serial bindings are considered brittle/unmaintained; going through JS is the path of least pain. | Validated in Phase 5 |
+| Chromium-only + polite fail on others | Web Serial is Chromium-only; pluggable transport abstraction isn't worth the design cost. | Validated in Phase 5 |
+| Pure-Rust SLIDE state machine in `slide/` module, JS shell owns wire bytes | Mirrors v1.0 architectural seam (Rust = pure logic, JS = I/O); CRC + state-machine logic stays portable + native-testable. | Validated in v1.1 (Phases 7–12) |
+| 7-byte wakeup signature `ESC ^ S L I D E` (vs 2-byte `ESC ^`) | Reduces false-positive collisions on benign Z80 output that might emit `ESC ^` for unrelated reasons. | Validated in v1.1 (Phase 8 dispatcher tests) |
+| ADR-003: SLIDE v0.2.1 CAN-bidirectional amendment | SLIDE v0.2 spec didn't define PC-initiated CTRL_CAN with Z80 echo; required for clean wire-neutral cancel. Upstream PR target: github.com/blowback/slide. | Validated in v1.1 (Phase 10 cancel state machine + force_idle escape hatch) |
+| Per-file anchor-click download default; `showDirectoryPicker` opt-in for batches > 1 file | One user gesture saves all subsequent files into the chosen folder; ≥ 250 ms inter-file gap dodges Chrome multi-download throttling. | Validated in v1.1 (Phase 10) |
+| Compatibility-mode 3-way pref (`auto` / `wakeup-required` / `force-start`) | Lets users running pre-v0.2.1 `slide.com` (no wakeup signature) still complete a transfer; `auto` arms a 3 s timer post-auto-type and prompts `[Retry] [Cancel] [Force start]`. | Validated in v1.1 (Phase 11 + 12 UAT-fix) |
+| RTS-on-connect prefs gate (`serialAssertRtsOnConnect: true` default) | Real-hardware UAT showed RTS-as-reset interfering with Z80 connect handshake on some MicroBeasts; pref allows opting out without breaking default Phase 5 behaviour. | Validated in v1.1 (Phase 12.8 hardware UAT) |
 
 ## Evolution
 
@@ -175,53 +197,34 @@ This document evolves at phase transitions and milestone boundaries.
 
 ## Current State
 
-v1.0 milestone code-complete after Phase 6. All 54 mapped requirements validated at the
-code level. Three out-of-band manual sign-offs remain: GitHub Pages first-deploy smoke
-check (one-time repo setting + push), 24-hour memory-flat soak (`06-SOAK.md` protocol),
-and full daily-driver work session (`06-HUMAN-UAT.md` 8-test checklist). These do not
-block code completion; they confirm the daily-driver experience on real hardware.
+**v1.1 SLIDE FileTransfer milestone shipped 2026-05-10.** Phases 7–12 (28 plans,
+42 SLIDE-* requirements, all complete). Bidirectional file transfer over Web Serial
+landed end-to-end: pure-Rust state machine, JS dispatcher, host-initiated send via
+picker + drag-drop, Z80-initiated receive via Chrome downloads, floating chip with
+ADR-003 5-step cancel, Compatibility-mode fallback for legacy slide.com.
 
-A small post-v1.0 polish stream landed afterwards (font system with selectable bitmap
-fonts, ESC F/G graphics-mode wiring, copy-paste UX fixes, disconnect race fix, cursor
-ghosting fix, optional unfiltered serial picker, log-filename rotation, Ctrl+Shift+Esc
-clear-selection chord). Tracked in commit history; no separate phase.
+**v1.0 MVP shipped (informal) 2026-04-25.** Phases 1–6 (54 v1 requirements, all
+complete). Was never formally archived at the time; recorded retroactively as
+historical context during v1.1 milestone close.
 
-## Current Milestone: v1.1 FileTransfer
+Both milestones used as a daily driver throughout v1.1 development — the v1.0
+out-of-band sign-offs (24-h soak, daily-driver UAT, GitHub Pages first-deploy smoke
+check) have effectively been validated by continuous use, though the formal protocol
+checklists were never re-run.
 
-**Goal:** Add browser-side SLIDE protocol so users can transfer files between PC and
-MicroBeast without leaving Beastty — both directions, multi-file, with progress
-feedback.
+**Codebase shape:** Rust workspace 283 tests green; www/ Playwright suite green at
+`--workers=4` (some 10-worker parallelism flakes documented per phase deferred-items).
+No structural technical debt. The Rust core remains pure-logic with the v1.0 boundary
+contract intact; v1.1 added a sibling `Slide` wasm-bindgen struct without disturbing
+`Terminal`.
 
-**Target features:**
-- Host-initiated send: file picker → optional auto-typed `B:SLIDE R` → frame-perfect
-  upload to Z80
-- Z80-initiated receive: detect `ESC ^` wakeup → consume session → save each file via
-  Chrome download
-- Drag-and-drop onto the canvas to trigger host-initiated send
-- Floating SLIDE chip (mirroring the Phase 6 scrollback `↓ N new lines` pattern) — file
-  count, byte count, progress, cancel
-- Settings: configurable auto-send command (default `B:SLIDE R`), with "off / type
-  manually" option
+**Pending real-hardware UAT:** `docs/SLIDE-UAT.md` end-to-end against patched
+MicroBeast — gated on upstream `github.com/blowback/slide` PR merge. Out-of-band.
 
-**Architecture (locked):**
-- **Rust core (wasm)** owns SLIDE state machine: framer, CRC-16-CCITT (poly 0x1021,
-  init 0xFFFF), sliding-window send/receive, RDY/ACK/NAK/CAN/FIN handshakes
-- **JS shell** owns Web Serial bytes in/out, File API + drag-drop, browser downloads,
-  the floating chip UI, the auto-send command emitter
-- During a SLIDE session the terminal parser is fully suspended — SLIDE owns the wire
-  from `ESC ^` (`0x1B 0x5E`) to FIN-FIN; stray bytes abort the session
+## Next Milestone
 
-**Z80-side change** (separate repo, github.com/blowback/slide):
-- Modify `slide.asm` to emit `ESC ^` at the start of every send-mode session, before
-  the existing RDY. `slide-rs` and `slide-py` ignore everything until they see RDY, so
-  this is forward-compatible with the existing PC tools.
-
-**Out of scope for v1.1:**
-- Bulk save / batch download UI (one-per-file is enough)
-- IndexedDB virtual filesystem
-- Long-filename support beyond CP/M 8.3 — auto-uppercase + truncate on send
-- Wildcard expansion in the auto-send command (rely on Z80's CP/M shell behaviour)
-- Slack / GitHub Issues notifications when transfer finishes
+No active milestone. Use `/gsd-new-milestone` to scope the next one. v2 candidates
+listed under `### Active` above and in `.planning/REQUIREMENTS.md`.
 
 ---
-*Last updated: 2026-05-08 — Phase 10 complete (SLIDE Receiver & Cancellation: Rust receiver SM payload exposure via VecDeque<Vec<u8>> queue + pop_recv_payload accessor; slide-recv.js with anchor-click + showDirectoryPicker opt-in via Settings toggle + IndexedDB persistence; ~N tilde collision suffix retry; ADR-003 5-step cancel state machine 200/500/100/2000ms; mid-session ESC^SLIDE re-entry matcher; mock-bot sender role as 4th independent SLIDE impl). 11 SLIDE-* requirements flipped Complete (SLIDE-18..24, 27, 29, 30, 34). Code review found 2 critical + 4 warnings; 5/6 fixed before completion. 6 human UAT items pending (10-HUMAN-UAT.md). Next: Phase 11 (SLIDE JS Bridge & v1.0 Integration).*
+*Last updated: 2026-05-10 after v1.1 SLIDE FileTransfer milestone close*

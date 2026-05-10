@@ -1,36 +1,36 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.0
-milestone_name: Integration
-status: milestone_complete
-stopped_at: Completed 12-09-PLAN.md
-last_updated: "2026-05-09T19:20:50.605Z"
-last_activity: 2026-05-09
+milestone: v1.1
+milestone_name: SLIDE FileTransfer
+status: milestone_archived
+stopped_at: v1.1 milestone closed 2026-05-10
+last_updated: "2026-05-10T13:00:00.000Z"
+last_activity: 2026-05-10
 progress:
   total_phases: 12
-  completed_phases: 13
+  completed_phases: 12
   total_plans: 74
   completed_plans: 74
-  percent: 108
+  percent: 100
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-05-06)
+See: .planning/PROJECT.md (updated 2026-05-10)
 
 **Core value:** A modern, reliable, in-browser VT52 emulator good enough to use as a daily driver with a real MicroBeast.
-**Current focus:** Phase 12 — slide-ux-polish-docs-real-hardware-uat
+**Current focus:** Between milestones — v1.1 SLIDE FileTransfer archived 2026-05-10. Next: `/gsd-new-milestone` when ready.
 
 ## Current Position
 
-Phase: 12
-Plan: Not started
-Status: Milestone complete
+Phase: — (between milestones)
+Plan: —
+Status: Milestone archived (v1.1)
 Last activity: 2026-05-10
 
-Progress: [██████████] 100%
+Progress: [██████████] 100% (v1.0 + v1.1 both shipped)
 
 ## Performance Metrics
 
@@ -205,20 +205,23 @@ None for v1.1 yet — milestone roadmap just landed.
 
 ## Deferred Items
 
-Items acknowledged and carried forward from v1.0 milestone close:
+Items acknowledged and carried forward from v1.1 milestone close (2026-05-10):
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
-| v1.0 OOB | 24-h memory-flat soak (06-SOAK.md) | Pending out-of-band run | 2026-04-25 |
-| v1.0 OOB | Daily-driver full-session UAT (06-HUMAN-UAT.md) | Pending out-of-band run | 2026-04-25 |
+| v1.0 OOB | 24-h memory-flat soak (06-SOAK.md) | Effectively validated by daily-driver use during v1.1 dev; formal protocol never re-run | 2026-04-25 |
+| v1.0 OOB | Daily-driver full-session UAT (06-HUMAN-UAT.md) | Effectively validated by daily-driver use during v1.1 dev; formal protocol never re-run | 2026-04-25 |
 | v1.0 OOB | GitHub Pages first-deploy smoke check | Pending one-time push + repo setting | 2026-04-25 |
+| v1.1 hardware | docs/SLIDE-UAT.md end-to-end against patched MicroBeast | Gated on upstream `github.com/blowback/slide` PR merge — out-of-band | 2026-05-10 |
+| v1.1 test infra | log-download.spec.js filename drift (`bestialitty-` vs `beastty-` from project rename) | Logged in phase deferred-items | 2026-05-10 |
+| v1.1 test infra | 10-worker parallel test-suite flakes (slide-recv-settings, slide-recv-fsap, slide-cancel timing-window) | Green at `--workers=4`; logged in phase deferred-items | 2026-05-10 |
 
 ## Session Continuity
 
 Last session: 2026-05-10
-Stopped at: Phase 12 complete + UAT re-verified (4 gaps + 3 niggles closed in fix session); milestone v1.0 ready to archive
+Stopped at: v1.1 SLIDE FileTransfer milestone archived. Phases 7–12 closed; 28 plans, 42 SLIDE-* requirements, all complete. Tag `v1.1` created.
 Resume file: None
 
-**Next:** `/gsd-complete-milestone v1.0` — archive milestone v1.0 (Integration) and prepare for next milestone (v1.1 SLIDE FileTransfer real-hardware UAT scaffolded at `docs/SLIDE-UAT.md`, gated on upstream `github.com/blowback/slide` PR per Phase 10/12 convention — out-of-band).
+**Next:** `/gsd-new-milestone` — scope the next milestone when ready. v2 candidates listed in PROJECT.md `### Active` and REQUIREMENTS.md `## v2 Requirements`.
 
-**Planned Phase:** 12 (SLIDE UX Polish, Docs & Real-Hardware UAT) — 5 plans — 2026-05-08T21:34:02.672Z
+**Planned Phase:** None — between milestones.
