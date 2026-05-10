@@ -207,7 +207,7 @@ test('SLIDE-36 — [Refuse batch] prevents enterSendMode call (no bytes on wire)
     expect(mode).toBe('terminal');
 });
 
-test('SLIDE-36 — no-collision happy path preserves Phase 9 Cancel-default focus (regression)', async ({ page }) => {
+test('SLIDE-36 — no-collision happy path focuses [Send N files] (Phase 12 UAT Niggle 2)', async ({ page }) => {
     await page.setInputFiles('#send-file-input', [
         { name: 'unique.txt', mimeType: 'text/plain', buffer: Buffer.from('a') },
     ]);
@@ -219,6 +219,9 @@ test('SLIDE-36 — no-collision happy path preserves Phase 9 Cancel-default focu
     await expect(page.locator('#send-modal-send-renamed')).toBeHidden();
     await expect(page.locator('#send-modal-first-only')).toBeHidden();
     await expect(page.locator('#send-modal-refuse')).toBeHidden();
-    // Phase 9 default focus preserved (Pitfall 2):
-    await expect(page.locator('#send-modal-cancel')).toBeFocused();
+    // Phase 12 UAT Niggle 2 — [Send 1 file] is now the default-focused button
+    // and gets the [data-focused="true"] attribute so the focus border paints
+    // immediately (mirrors the Phase 12 Plan 12-06 collision-mode pattern).
+    await expect(page.locator('#send-modal-send')).toBeFocused();
+    await expect(page.locator('#send-modal-send')).toHaveAttribute('data-focused', 'true');
 });

@@ -1101,8 +1101,14 @@
       All files rejected — see details below.
     </p>
     <footer>
-      <button id="send-modal-cancel" type="button">Don't send</button>
+      <!-- Phase 12 UAT Niggle 2 — order swapped so [Send N files] is on the
+           LEFT (default focus + default action) and [Don't send] is on the
+           RIGHT, matching the reading-order convention "primary action first"
+           used by the rest of Beastty's UI. file-source.js's no-collision
+           initialFocusTarget is sendBtnRef (was cancelBtnRef) and the
+           [data-focused="true"] CSS rule paints the focus border on it. -->
       <button id="send-modal-send" type="button">Send 0 files</button>
+      <button id="send-modal-cancel" type="button">Don't send</button>
       <!-- Phase 12 SLIDE-36 — three-action button row (collision-mode footer).
            Hidden by default; runtime-toggled by file-source.js showConfirmModal
            when collisionRows.length > 0 (D-06). The single <footer> is reused

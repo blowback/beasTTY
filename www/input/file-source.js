@@ -498,6 +498,10 @@ function showConfirmModal(rows, surviving, collisionRows) {
             // button that no longer has focus when the modal next opens.
             if (sendRenamedBtnRef) sendRenamedBtnRef.setAttribute('data-focused', 'false');
             if (cancelBtnRef)      cancelBtnRef.setAttribute('data-focused', 'false');
+            // Phase 12 UAT Niggle 2 — Send button is now the no-collision
+            // default focus target; clear its data-focused on close too so a
+            // stale attribute doesn't paint on next open.
+            if (sendBtnRef)        sendBtnRef.setAttribute('data-focused', 'false');
             // Phase 12 SLIDE-36 — tagged returnValue (replaces Phase 9 boolean).
             const action = modalElRef.returnValue || null;
             // Focus restoration:
@@ -512,12 +516,14 @@ function showConfirmModal(rows, surviving, collisionRows) {
         };
         modalElRef.addEventListener('close', onClose);
         modalElRef.showModal();
-        // Phase 12 SLIDE-36 D-03 default-focus override: scoped to collision-
-        // present mode only. The no-collision happy path retains Phase 9's
-        // Cancel-default focus (Pitfall 2).
+        // Phase 12 UAT Niggle 2 — default-focus on Send button for the
+        // no-collision case (was Phase 9 Cancel-default Pitfall 2). Reading-
+        // order convention: primary action [Send N files] is leftmost AND
+        // default-focused so Enter triggers send. Collision-present mode
+        // continues to focus [Send N renamed] per Phase 12 SLIDE-36 D-03.
         const initialFocusTarget = collisionsPresent
             ? (sendRenamedBtnRef || cancelBtnRef)
-            : cancelBtnRef;
+            : (sendBtnRef || cancelBtnRef);
         if (initialFocusTarget) {
             // Phase 12 Plan 12-06 (Gap 1 — UAT Test 5) — set data-focused="true"
             // BEFORE .focus() so the index.html [data-focused="true"] CSS rule
