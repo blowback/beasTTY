@@ -125,10 +125,8 @@ in-flight send or receive. The wire returns to a clean CP/M prompt.
 
 Detection of inbound transfers and the auto-typed-command handshake both
 rely on a small patch to the Z80-side `slide.asm` that emits the 7-byte
-`ESC ^ S L I D E` wakeup signature when SLIDE starts up. Stock upstream
-`slide.com` does **not** emit this signature yet (the patch is pending
-upstream merge — see [`docs/SLIDE_Z80_REQUIREMENT.md`](docs/SLIDE_Z80_REQUIREMENT.md)
-for the protocol details and PR target).
+`ESC ^ S L I D E` wakeup signature when SLIDE starts up. `slide.com` versions 
+0.5.0 and upwards have this support built in.
 
 To use BeasTTY with an unpatched `slide.com`:
 
