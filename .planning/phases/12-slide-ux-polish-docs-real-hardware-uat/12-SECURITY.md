@@ -85,6 +85,21 @@ Phase 12 threats from PLAN `<threat_model>` blocks. Status verified 2026-05-09.
 | Audit Date | Threats Total | Closed | Open | Run By |
 |------------|---------------|--------|------|--------|
 | 2026-05-09 | 18 | 18 | 0 | gsd-security-auditor (Opus 4.7) |
+| 2026-05-10 | 18 | 18 | 0 | re-audit after UAT fix session (Opus 4.7) |
+
+Notes for 2026-05-10 re-audit run:
+- Triggered by post-UAT fix session (commits 153aaed, facece4, 728cbfe, 882c192, e1ba1e8, 7fd276c, 760fbab, 7365b9b). All four UAT gaps closed (Gap A/B/C/D) plus three UX niggles. Two debug sessions resolved: `slide-stale-auto-send-cmd.md` and `slide-active-cancel-broken.md`.
+- Code-level changes inspected for new threat surface:
+  • `livePrefs()` helper + `getPrefs()` live-read retrofit in `www/transport/slide.js` (Gap C/B fix): mirrors Plan 12-08's pattern in `www/transport/serial.js` (already covered under T-12-03 envelope). No new wire-safety boundary — `readAutoSendCommandBytes` still gates via `isAutoSendSafe` AFTER reading the live cmd. Threat model unchanged.
+  • `cancelSlideSend()` + `forceExitSendMode()` exports in `www/transport/slide.js` (Gap D fix): mirrors `cancelSlideRecv` already covered by Phase 10's threat model (5-step ADR-003 dance, 2 s absolute timeout, slide.cancel() boundary). No new attack surface — calls existing Rust state.rs:382 entry point.
+  • Mode-dispatching `onCancel` in `www/main.js` (Gap D fix): routes to `cancelSlideSend` / `cancelSlideRecvLazy` based on `__slideGetStateForTests().mode`. No new external trust crossing — both branches already audited.
+  • Focus-restoration in `forceExitSendMode` / `forceExitRecvMode` (Niggle 1 fix): pure UI — `wrapperElRef.focus()` after chip hide. Zero threat surface.
+  • Send-modal button reorder + default-focus on `[Send N files]` (Niggle 2 fix): markup-only swap in `www/index.html`; `data-focused` attribute pattern already audited under Plan 12-06. No threat surface.
+  • Validation-hint unhide-on-blur in `www/main.js` (Gap A fix): adds one DOM mutation (hint `hidden = false`) on the existing change handler path. T-12-11's accepted-risk rationale (R-12-11) still holds: O(1) per-blur, no amplification.
+  • Hint copy tightened to "Auto-send command unsafe — disabled." (commit 7365b9b): text-only, zero surface.
+- Phase 12 zero-Rust invariant preserved across all fix commits (cargo workspace untouched).
+- New regression test coverage adds 5 Playwright tests pinning the post-fix contracts (Gap A/B/C/D + Niggle 2 default-focus). No production code in test files.
+- Conclusion: all 18 threats remain closed. No new threats introduced. `threats_open: 0` reaffirmed.
 
 Notes for 2026-05-09 run:
 - 5 PLANs reviewed: 12-01, 12-02, 12-03, 12-04, 12-05.
