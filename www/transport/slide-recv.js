@@ -683,6 +683,17 @@ function forceExitRecvMode() {
     currentFile = null;
     sessionFolderFallback = false;
     inflightDownloads = [];
+    // Phase 12 UAT Niggle 1 (symmetric with slide.js forceExitSendMode) —
+    // restore focus to terminal-wrapper so the [data-focused] border
+    // re-paints after a cancel-driven recv exit. Hidden chip + cancel
+    // button leaves browser focus on a display:none element which falls
+    // through to <body>; pointer-down preventDefault then blocks click
+    // refocus until the user types.
+    try {
+        if (wrapperElRef && typeof wrapperElRef.focus === 'function') {
+            wrapperElRef.focus();
+        }
+    } catch {}
 }
 
 // slidePumpOnPortLost — port lost mid-recv (T-10-port-lost / SLIDE-32 / D-14).

@@ -153,6 +153,14 @@ let slideChipRef = null;  // { enterActive, enterAwaitingWakeup, enterFirstUseCo
 // older boot paths / test harnesses without savePrefs threaded through still
 // observe the same fail-open behaviour as Phase 11.
 let savePrefsRef = null;
+// Phase 12 UAT Niggle 1 — terminal-wrapper element ref for focus restore
+// after cancelSlideSend. Without this, hiding the chip leaves the browser's
+// focus on a now-display:none button so it falls back to <body>; clicking
+// the canvas can't restore the [data-focused] border because selection.js's
+// onPointerDown calls preventDefault, blocking the native focus shift to
+// the wrapper. Programmatic .focus() in forceExitSendMode fires the focus
+// event the wrapper's chrome.js listener uses to set data-focused="true".
+let wrapperElRef = null;
 
 // Phase 12 UAT Gap C/B fix (.planning/debug/slide-stale-auto-send-cmd.md).
 // livePrefs() returns the always-current cached prefs blob. Order:
@@ -324,7 +332,7 @@ const FRAME_SIZE = 1024;
 // --- Public API -----------------------------------------------------------
 
 export function wireSlideDispatcher(opts) {
-    const { term, txSink, slideCtor, wasm, prefs, pastePump, slideChip, savePrefs } = opts;
+    const { term, txSink, slideCtor, wasm, prefs, pastePump, slideChip, savePrefs, wrapperEl } = opts;
     termRef = term;
     txSinkRef = txSink;
     SlideCtor = slideCtor;
@@ -341,6 +349,9 @@ export function wireSlideDispatcher(opts) {
     // slideAutoSendCommandConfirmed on [Confirm], resets to default on
     // [Reset to default]). Optional — fail-open if not threaded through.
     savePrefsRef = (typeof savePrefs === 'function') ? savePrefs : null;
+    // Phase 12 UAT Niggle 1 — wrapper element ref for focus restore after
+    // cancelSlideSend. Optional — fail-open if not threaded through.
+    wrapperElRef = wrapperEl || null;
     // Phase 11 Plan 11-04 SLIDE-14 — wire the echo-swallow filter once during
     // dispatcher init (CONTEXT C-03). The filter is module-scope state inside
     // echo-swallow.js; wireEchoSwallow injects the term ref so flushPending can
@@ -1218,6 +1229,15 @@ function forceExitSendMode() {
     currentSendCtx = null;
     pendingSendSession = null;
     slide = null;
+    // Phase 12 UAT Niggle 1 — restore focus to terminal-wrapper so the
+    // [data-focused] border re-paints. Without this, focus stayed on the
+    // hidden chip's [Cancel] button → browser dropped to <body> →
+    // wrapper's focus event never fired → data-focused stayed false.
+    try {
+        if (wrapperElRef && typeof wrapperElRef.focus === 'function') {
+            wrapperElRef.focus();
+        }
+    } catch {}
 }
 
 export async function cancelSlideSend() {

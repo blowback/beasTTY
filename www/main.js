@@ -517,6 +517,8 @@ wireSlideDispatcher({
     savePrefs,                                  // Phase 12 SLIDE-38 — first-use-confirm chip writes
                                                 //   slideAutoSendCommandConfirmed on [Confirm] /
                                                 //   resets prefs on [Reset to default]
+    wrapperEl: terminalWrapper,                 // Phase 12 UAT Niggle 1 — refocus terminal-wrapper
+                                                //   after cancelSlideSend so [data-focused] border re-paints
 });
 
 // Phase 10 Plan 10-03 — wire SLIDE recv plumbing AFTER wireSlideDispatcher.
