@@ -1338,6 +1338,21 @@ async function dispatchSendMode(value) {
     maybeExitSendMode();
 }
 
+// Inter-file delay before pushing the next file's header onto the wire.
+// After a file completes, slide.com on the Z80 prints `\r\nTransfer
+// complete!\r\n` via per-byte BDOS calls and then closes the file via
+// BDOS F_CLOSE — neither operation reads the UART. The MicroBeast UART's
+// hardware FIFO (typically 16 bytes) is smaller than a header frame
+// (~13-25 bytes), so any header pushed during this window risks losing
+// the SOF byte to FIFO overflow, which leaves the Z80 polling .file_loop
+// forever and Beastty stuck in HeaderPhase. Mirrors the defensive
+// `thread::sleep(500ms)` slide-rs uses post-header-ACK in send.rs.
+const INTER_FILE_HEADER_DELAY_MS = 500;
+
+function sleepMs(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 /// Drain SLIDE events + outbound bytes; the awaitable variant uses
 /// writeSlideFrameAwaitable so backpressure is gated per PITFALLS §4.
 /// Handles Phase 9 EVT_FILE_COMPLETE / EVT_SESSION_COMPLETE /
@@ -1345,6 +1360,7 @@ async function dispatchSendMode(value) {
 /// (drained as no-ops here — receiver attaches handlers via Phase 10).
 async function drainEventsAndOutboundAwaitable() {
     if (!slide) return;
+    let sawFileCompleteWithMoreFiles = false;
     while (true) {
         const evt = slide.take_event_packed();
         if (evt === EVT_NONE) break;
@@ -1358,6 +1374,9 @@ async function drainEventsAndOutboundAwaitable() {
             if (currentSendCtx) {
                 currentSendCtx.currentFileIdx = aux + 1;
                 currentSendCtx.sentBytesInFile = 0;
+                if (currentSendCtx.currentFileIdx < currentSendCtx.fileBytes.length) {
+                    sawFileCompleteWithMoreFiles = true;
+                }
             }
         } else if (kind === EVT_SESSION_COMPLETE) {
             // SM is in Done; final FIN exchange completed. Don't exit here
@@ -1409,6 +1428,14 @@ async function drainEventsAndOutboundAwaitable() {
         // EVT_ACK / EVT_NAK / EVT_RDY / EVT_FIN / EVT_CAN — no JS action;
         // SM internalises the transitions and produces outbound bytes that
         // drainSlideOutboundAwaitable below pushes to the wire.
+    }
+    // Inter-file breathing room. The next file's header is currently sitting
+    // in slide.outbound_buf; if we drain it immediately, the Z80 hasn't yet
+    // returned from msg_done print + close_file and its UART RX FIFO will
+    // overflow on the header bytes. Holding the bytes JS-side for 500 ms
+    // mirrors slide-rs/send.rs's defensive post-header-ACK sleep.
+    if (sawFileCompleteWithMoreFiles) {
+        await sleepMs(INTER_FILE_HEADER_DELAY_MS);
     }
     // Drain outbound — await each write per PITFALLS §4.
     await drainSlideOutboundAwaitable();
