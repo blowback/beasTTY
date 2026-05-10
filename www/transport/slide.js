@@ -58,7 +58,18 @@ import {
 // in prefs.js for testability + to keep the regex in one canonical location.
 // Hard-gates at readAutoSendCommandBytes BEFORE TextEncoder.encode so unsafe
 // values never reach the wire (T-12-03 mitigation).
-import { isAutoSendSafe } from '../state/prefs.js';
+// getPrefs() is the live-read entry point — Plan 12-08's pattern (mirrored
+// from www/transport/serial.js:27). savePrefs() in prefs.js reassigns the
+// module-level `cached` to a new object on every change, so a boot-time
+// snapshot held in slide.js's prefsRef captures only the original blob and
+// misses subsequent Settings edits. Reading via getPrefs() at use-time
+// (readAutoSendCommandBytes, shouldSurfaceFirstUseConfirm, enterSendMode
+// compatMode dispatch) closes the Phase 12 UAT Gap C/B cluster
+// (.planning/debug/slide-stale-auto-send-cmd.md): old auto-send command
+// reaching the wire after Settings change without a page reload, AND the
+// first-use-confirm chip being skipped because the stale prefsRef.confirmed
+// equality compare matched against the previous value.
+import { isAutoSendSafe, getPrefs } from '../state/prefs.js';
 // Phase 12 SLIDE-38 — re-export the pure helper so main.js can attach it to
 // window.__slide.__isAutoSendSafeForTests alongside the existing __slide
 // introspection surface (Phase 8/9/10 pattern: every test-observable knob
@@ -143,6 +154,19 @@ let slideChipRef = null;  // { enterActive, enterAwaitingWakeup, enterFirstUseCo
 // observe the same fail-open behaviour as Phase 11.
 let savePrefsRef = null;
 
+// Phase 12 UAT Gap C/B fix (.planning/debug/slide-stale-auto-send-cmd.md).
+// livePrefs() returns the always-current cached prefs blob. Order:
+//   1. getPrefs() — live read of the module-level `cached` object in prefs.js,
+//      which savePrefs() updates on every Settings change.
+//   2. prefsRef — boot-time snapshot from wireSlideDispatcher opts. Retained
+//      ONLY as a fallback for test harnesses that wire { prefs: customObj }
+//      without going through loadPrefs() (so getPrefs() returns null).
+//   3. null — caller must guard. Existing default branches at the call sites
+//      (AUTO_SEND_DEFAULT, 'auto' compatMode) cover the null path.
+function livePrefs() {
+    return getPrefs() || prefsRef || null;
+}
+
 // Cached outbound view (re-derived on memory growth — Pitfall 4 mirror of
 // main.js:reDeriveHostReplyView at lines 274-279).
 let outboundBuffer = null;
@@ -212,11 +236,14 @@ let sendDispatchTail = Promise.resolve();
 // (alphanumeric + `:` + `\r` only); Phase 11 stores whatever the user types.
 const AUTO_SEND_DEFAULT = 'B:SLIDE R\r';
 function readAutoSendCommandBytes() {
+    // Live read so post-Settings-change values reach the wire without a reload
+    // (Phase 12 UAT Gap C — see livePrefs() block above).
+    const p = livePrefs();
     let cmd;
-    if (prefsRef) {
-        // prefs explicitly provided — honour the user's value verbatim
-        // (including the explicit empty string which disables auto-type).
-        cmd = prefsRef.slideAutoSendCommand;
+    if (p) {
+        // prefs available — honour the user's value verbatim (including the
+        // explicit empty string which disables auto-type).
+        cmd = p.slideAutoSendCommand;
         if (cmd === undefined || cmd === null) cmd = AUTO_SEND_DEFAULT;
     } else {
         // No prefs available — use Phase 9 default for backwards compatibility.
@@ -262,8 +289,12 @@ function readAutoSendCommandBytes() {
 // enterAwaitingWakeup OR aborts the send.
 function shouldSurfaceFirstUseConfirm(cmd) {
     if (cmd === AUTO_SEND_DEFAULT) return false;
-    if (!prefsRef) return false;
-    if (prefsRef.slideAutoSendCommandConfirmed === cmd) return false;
+    // Live read — Settings change handler resets slideAutoSendCommandConfirmed
+    // to '' on every edit; a stale prefsRef snapshot would still hold the prior
+    // confirmed value and skip the chip (Phase 12 UAT Gap B).
+    const p = livePrefs();
+    if (!p) return false;
+    if (p.slideAutoSendCommandConfirmed === cmd) return false;
     return true;
 }
 
@@ -347,7 +378,10 @@ function handleChipInlineAction(action) {
                     try { pushTxBytes(autoSendBytes); } catch {}
                     try { pushAutoTypedBytes(autoSendBytes); } catch {}
                 }
-                const compatMode = (prefsRef && prefsRef.slideCompatibilityMode) || 'auto';
+                // Live read — user may have changed Compatibility mode in
+                // Settings between original click and Retry click.
+                const compatModeRetry = livePrefs();
+                const compatMode = (compatModeRetry && compatModeRetry.slideCompatibilityMode) || 'auto';
                 const armTimer = compatMode === 'auto';
                 try {
                     if (slideChipRef && typeof slideChipRef.enterAwaitingWakeup === 'function') {
@@ -892,8 +926,12 @@ export function enterSendMode({ files }) {
     // this gate ONLY runs for safe but non-default values that have not
     // been confirmed yet. autoSendBytes.length === 0 (SLIDE-13 disabled OR
     // safety-rejected) skips the gate entirely.
-    const cmd = (prefsRef && prefsRef.slideAutoSendCommand !== undefined && prefsRef.slideAutoSendCommand !== null)
-        ? prefsRef.slideAutoSendCommand
+    // Live read — Settings change handler updates slideAutoSendCommand on
+    // every edit; stale prefsRef snapshot caused Gap C/B (post-Settings-change
+    // value never reaching this gate without a reload).
+    const enterSendModePrefs = livePrefs();
+    const cmd = (enterSendModePrefs && enterSendModePrefs.slideAutoSendCommand !== undefined && enterSendModePrefs.slideAutoSendCommand !== null)
+        ? enterSendModePrefs.slideAutoSendCommand
         : AUTO_SEND_DEFAULT;
     if (cmd.length > 0 && shouldSurfaceFirstUseConfirm(cmd)) {
         // Re-validate at gate time: if the value is unsafe, we never want to
@@ -1020,7 +1058,11 @@ function enterSendModeProceed({ files /* cmd */ }) {
     //     entirely. Chip surfaces awaiting-wakeup briefly, then a microtask-
     //     scheduled enterSendModeInternal jumps directly into send mode (no
     //     wakeup matcher arm).
-    const compatMode = (prefsRef && prefsRef.slideCompatibilityMode) || 'auto';
+    // Live read — Settings change handler updates slideCompatibilityMode on
+    // every edit; stale prefsRef would route Auto/Wakeup/Force-start branching
+    // off the boot-time value.
+    const compatModeProceed = livePrefs();
+    const compatMode = (compatModeProceed && compatModeProceed.slideCompatibilityMode) || 'auto';
     if (compatMode === 'force-start') {
         // CONTEXT D-07 / D-16 — skip wakeup wait. Chip enters awaiting-wakeup
         // briefly so the user sees the auto-type land, then we transition to
