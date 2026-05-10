@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: Integration
-status: verifying
+status: milestone_complete
 stopped_at: Completed 12-09-PLAN.md
 last_updated: "2026-05-09T19:20:50.605Z"
 last_activity: 2026-05-09
 progress:
   total_phases: 12
-  completed_phases: 12
+  completed_phases: 13
   total_plans: 74
   completed_plans: 74
-  percent: 100
+  percent: 108
 ---
 
 # Project State
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-05-06)
 
 ## Current Position
 
-Phase: 12 (slide-ux-polish-docs-real-hardware-uat) — EXECUTING
-Plan: 9 of 9 (post 12-08 RTS-on-connect fix)
-Status: Phase complete — ready for verification
-Last activity: 2026-05-09
+Phase: 12
+Plan: Not started
+Status: Milestone complete
+Last activity: 2026-05-10
 
 Progress: [██████████] 100%
 
@@ -36,7 +36,7 @@ Progress: [██████████] 100%
 
 **Velocity:**
 
-- Total plans completed: 54
+- Total plans completed: 63
 - Average duration: —
 - Total execution time: 0.0 hours
 
@@ -59,6 +59,7 @@ Progress: [██████████] 100%
 | 08 | 4 | - | - |
 | 09 | 4 | - | - |
 | 10 | 5 | - | - |
+| 12 | 9 | - | - |
 
 **Recent Trend:**
 
@@ -214,10 +215,10 @@ Items acknowledged and carried forward from v1.0 milestone close:
 
 ## Session Continuity
 
-Last session: 2026-05-09T19:20:35.123Z
-Stopped at: Completed 12-09-PLAN.md
+Last session: 2026-05-10
+Stopped at: Phase 12 complete + UAT re-verified (4 gaps + 3 niggles closed in fix session); milestone v1.0 ready to archive
 Resume file: None
 
-**Next Phase:** Phase 8 — Wasm Boundary, JS Dispatcher & ESC^ Wakeup. Phase 7 delivered the pure-Rust SLIDE state machine; Phase 8 wraps `Slide` in `lib.rs:wasm_boundary` with `feed_byte` / `feed_chunk` / `outbound_ptr/_len/clear_outbound` / `state` / `cancel` / `force_idle` exports (per ARCHITECTURE.md §1). The `Slide` struct shape is pinned via `tests/slide_boundary_shape.rs` fn-pointer coercion (Plan 07-04) so any drift fails at compile time. ADR-003 (Plan 07-05) is the canonical document for the v0.2.1 CAN-bidirectional amendment that Phase 8's wasm wrapper exposes to JS.
+**Next:** `/gsd-complete-milestone v1.0` — archive milestone v1.0 (Integration) and prepare for next milestone (v1.1 SLIDE FileTransfer real-hardware UAT scaffolded at `docs/SLIDE-UAT.md`, gated on upstream `github.com/blowback/slide` PR per Phase 10/12 convention — out-of-band).
 
 **Planned Phase:** 12 (SLIDE UX Polish, Docs & Real-Hardware UAT) — 5 plans — 2026-05-08T21:34:02.672Z
