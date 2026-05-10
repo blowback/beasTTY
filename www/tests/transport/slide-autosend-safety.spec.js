@@ -275,6 +275,92 @@ test('Plan 12-06 — Settings input invalid value paints red border (specificity
     expect(borderColor).toBe('rgb(224, 64, 64)');
 });
 
+// ===== Phase 12 UAT Gap C/B regression — slide.js getPrefs() live-read =====
+// Closes .planning/debug/slide-stale-auto-send-cmd.md: slide.js previously
+// captured a boot-time prefsRef snapshot in wireSlideDispatcher; savePrefs()
+// reassigns the cached blob in prefs.js, so the snapshot went stale and the
+// next ↑ Send file sent the OLD command on the wire. A page reload masked
+// the bug. The fix mirrors Plan 12-08's serial.js getPrefs()-live pattern.
+//
+// This regression specifically exercises the savePrefs() path (NOT the
+// in-place __prefs.live mutation that earlier tests use), because savePrefs
+// is what the Settings change handler in main.js actually calls.
+
+test('Phase 12 UAT Gap C — savePrefs(slideAutoSendCommand) updates wire bytes without page reload', async ({ page }) => {
+    await setupConnected(page);
+    // Pre-confirm the value so first-use-confirm chip does NOT surface and
+    // gate the wire-byte path under test (Gap B has its own regression below).
+    await page.evaluate(() => {
+        window.__prefs.savePrefs({
+            slideAutoSendCommand: 'A:DIFFER R\r',
+            slideAutoSendCommandConfirmed: 'A:DIFFER R\r',
+        });
+    });
+    // Drive enterSendMode via the file picker (matches the user-facing flow).
+    await page.setInputFiles('#send-file-input', {
+        name: 'hello.txt', mimeType: 'text/plain', buffer: Buffer.from('hi'),
+    });
+    await expect(page.locator('#send-modal')).toBeVisible();
+    await page.locator('#send-modal-send').click();
+    // Allow auto-type to flush.
+    await expect.poll(
+        () => page.evaluate(() => {
+            const log = window.__mockWriterLog || [];
+            const decoder = new TextDecoder();
+            for (const entry of log) {
+                const raw = entry.bytes || entry;
+                const u8 = raw instanceof Uint8Array ? raw : new Uint8Array(raw);
+                const text = decoder.decode(u8);
+                if (text.includes('A:DIFFER R\r')) return 'new';
+                if (text.includes('B:SLIDE R\r')) return 'stale';
+            }
+            return null;
+        }),
+        { timeout: 4000 },
+    ).toBe('new');
+});
+
+test('Phase 12 UAT Gap B — savePrefs(slideAutoSendCommandConfirmed) re-arms first-use-confirm chip without reload', async ({ page }) => {
+    await setupConnected(page);
+    // Step 1 — savePrefs flow: change the command AND clear the confirmed
+    // flag. With the live-read fix, slide.js's shouldSurfaceFirstUseConfirm
+    // must see the cleared flag and surface the chip on the next send.
+    await page.evaluate(() => {
+        window.__prefs.savePrefs({
+            slideAutoSendCommand: 'A:OTHER R\r',
+            slideAutoSendCommandConfirmed: '',
+        });
+    });
+    // Drive enterSendMode.
+    await page.setInputFiles('#send-file-input', {
+        name: 'hello.txt', mimeType: 'text/plain', buffer: Buffer.from('hi'),
+    });
+    await expect(page.locator('#send-modal')).toBeVisible();
+    await page.locator('#send-modal-send').click();
+    // Chip MUST enter first-use-confirm — pre-fix this would skip and the
+    // wire would receive the bytes immediately (Gap B reproduction).
+    await expect.poll(
+        () => page.evaluate(() =>
+            window.__slideChip && window.__slideChip.__getStateForTests
+                ? window.__slideChip.__getStateForTests().lifecycle
+                : null,
+        ),
+        { timeout: 8000 },
+    ).toBe('first-use-confirm');
+    // No bytes on wire yet (chip is gating).
+    const wireBytesSent = await page.evaluate(() => {
+        const log = window.__mockWriterLog || [];
+        const decoder = new TextDecoder();
+        for (const entry of log) {
+            const raw = entry.bytes || entry;
+            const u8 = raw instanceof Uint8Array ? raw : new Uint8Array(raw);
+            if (decoder.decode(u8).includes('OTHER')) return true;
+        }
+        return false;
+    });
+    expect(wireBytesSent).toBe(false);
+});
+
 test('Plan 12-06 — Settings input safe value returns border to base muted token', async ({ page }) => {
     await setup(page);
     // Warm-up: type unsafe → assert red (sanity), then type safe → assert
