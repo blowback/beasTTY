@@ -294,4 +294,44 @@ test.describe('slide-compatibility — Force start button', () => {
             { timeout: 2000 },
         ).toBe('active');
     });
+
+    // Phase 12 UAT Gap D regression — [Cancel] on the active-state chip
+    // reached via [Force start] must dismiss the chip and exit send mode.
+    // Pre-fix: chip's onCancel was wired to cancelSlideRecvLazy which short-
+    // circuits in send mode; the inline-action observer also returned without
+    // action for active-lifecycle. Result: dead button, only page reload
+    // recovered. Diagnosis: .planning/debug/slide-active-cancel-broken.md.
+    test('[Cancel] on active chip after [Force start] dismisses chip and exits send mode', async ({ page }) => {
+        await commonReset(page);
+        await page.evaluate(() => { window.__mockSlideBot.setWakeupDelay(20000); });
+        await page.evaluate(() => {
+            const file = new File([new Uint8Array([0x41])], 'A.TXT');
+            window.__slide.enterSendMode({ files: [file] });
+        });
+        await expect.poll(
+            () => page.evaluate(() => window.__slideChip.__getStateForTests().lifecycle),
+            { timeout: 5000 },
+        ).toBe('awaiting-timeout');
+        await page.locator('#slide-chip button.slide-inline[data-action="force-start"]').click();
+        // Lifecycle reaches 'active' (Plan 12-07 fix).
+        await expect.poll(
+            () => page.evaluate(() => window.__slideChip.__getStateForTests().lifecycle),
+            { timeout: 2000 },
+        ).toBe('active');
+        // Now click [Cancel] on the active-state chip.
+        await page.locator('#slide-chip button.slide-inline[data-action="cancel"]').click();
+        // Chip hidden + mode returned to terminal — proves cancelSlideSend
+        // ran end-to-end (5-step ADR-003 + forceExitSendMode).
+        await expect.poll(
+            () => page.evaluate(() => window.__slideChip.__getStateForTests().lifecycle),
+            { timeout: 4000 },   // 2 s absolute timeout + 500 ms echo wait + slack
+        ).toBe('hidden');
+        await expect.poll(
+            () => page.evaluate(() => window.__slide.__getStateForTests().mode),
+            { timeout: 1000 },
+        ).toBe('terminal');
+        const hasPending = await page.evaluate(
+            () => window.__slide.__getStateForTests().hasPendingSendSession);
+        expect(hasPending).toBe(false);
+    });
 });
