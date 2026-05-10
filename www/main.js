@@ -579,20 +579,21 @@ if (slideAutoSendInput) {
     const stored = prefs.slideAutoSendCommand || '';
     slideAutoSendInput.value = stored.endsWith('\r') ? stored.slice(0, -1) : stored;
 
+    const slideAutoSendValidationHint = document.getElementById('slide-auto-send-validation-hint');
+
     // Phase 12 SLIDE-38 — boot-time data-invalid sync. If the persisted value
     // is unsafe (e.g. user reloaded after typing a bad command in a previous
     // session), set the visual cue immediately on first paint so the user
-    // sees the rejection state without waiting for a Send-file click. Hint
-    // row stays hidden until the use-time gate fires (UI-SPEC §D visibility
-    // rule — save-time validation is forbidden; use-time fires it).
+    // sees the rejection state without waiting for a Send-file click. Phase
+    // 12 UAT Gap A — also surface the validation hint at boot (symmetric
+    // with the change handler's blur path).
     try {
         if (!isAutoSendSafe(stored)) {
             slideAutoSendInput.setAttribute('data-invalid', 'true');
             slideAutoSendInput.setAttribute('aria-invalid', 'true');
+            if (slideAutoSendValidationHint) slideAutoSendValidationHint.hidden = false;
         }
     } catch {}
-
-    const slideAutoSendValidationHint = document.getElementById('slide-auto-send-validation-hint');
 
     slideAutoSendInput.addEventListener('change', (e) => {
         const v = e.target.value;
@@ -613,10 +614,17 @@ if (slideAutoSendInput) {
         } else {
             slideAutoSendInput.setAttribute('data-invalid', 'true');
             slideAutoSendInput.setAttribute('aria-invalid', 'true');
-            // Hint stays hidden here — UI-SPEC §D locks "shown ONLY after
-            // the use-time validation fails (i.e. user clicked ↑ Send file
-            // and SAFE_AUTO_SEND_RE.test(cmd) === false)". The slide.js
-            // use-time gate unhides it on its rejection path.
+            // Phase 12 UAT Gap A — surface the validation hint on blur too
+            // (symmetric with the red [data-invalid] border). Original
+            // UI-SPEC §D restricted the hint to use-time only; the test 7
+            // user expectation explicitly wanted the hint on blur as well
+            // ("a sub-row hint appears reading 'Auto-send command unsafe —
+            // using disabled.'"). Save-time visual feedback ≠ save-time
+            // validation; savePrefs still persists the unsafe value below
+            // (Anti-Patterns: save BLOCKING is forbidden; visual feedback
+            // is welcomed). The use-time gate inside slide.js
+            // readAutoSendCommandBytes is still the wire-safety boundary.
+            if (slideAutoSendValidationHint) slideAutoSendValidationHint.hidden = false;
         }
 
         // Persist + re-arm first-use confirmation (any change to the auto-send

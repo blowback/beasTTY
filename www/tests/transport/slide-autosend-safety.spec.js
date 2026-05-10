@@ -113,6 +113,23 @@ test('SLIDE-38 — Settings input invalid value sets data-invalid attribute', as
     ).toBe('true');
 });
 
+test('Phase 12 UAT Gap A — validation-hint sub-row appears on blur with unsafe value', async ({ page }) => {
+    await setup(page);
+    // Hint starts hidden.
+    await expect(page.locator('#slide-auto-send-validation-hint')).toBeHidden();
+    // Type unsafe value, dispatch change (blur) — hint MUST become visible.
+    await page.locator('#slide-auto-send-input').fill('B:RM *.* ; SLIDE R');
+    await page.locator('#slide-auto-send-input').dispatchEvent('change');
+    await expect(page.locator('#slide-auto-send-validation-hint')).toBeVisible();
+    // Hint copy matches UI-SPEC §D (verbatim).
+    await expect(page.locator('#slide-auto-send-validation-hint'))
+        .toHaveText('Auto-send command unsafe — using disabled.');
+    // Now switch to a safe value — hint hides again.
+    await page.locator('#slide-auto-send-input').fill('B:SLIDE R');
+    await page.locator('#slide-auto-send-input').dispatchEvent('change');
+    await expect(page.locator('#slide-auto-send-validation-hint')).toBeHidden();
+});
+
 test('SLIDE-38 — Settings input invalid value still persists to localStorage (save not blocked)', async ({ page }) => {
     await setup(page);
     // Same unsafe value — the SAVE must still happen even though the input
