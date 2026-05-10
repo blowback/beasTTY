@@ -111,16 +111,25 @@ blocked: 1
 
 - truth: "When the user changes the SLIDE auto-send command in Settings, the new value is read at use-time on the next send (not a stale snapshot from boot or prior load)"
   status: failed
-  reason: "User reported (test 12 mixed report): changed setting to 'B:OLDSLIDE r' from 'A:SLIDE r', dragged file, but CP/M echoed 'A:SLIDE?' — wire received the OLD value. Suggests slide.js readAutoSendCommandBytes does not getPrefs() live (cf. Plan 12-08's serial.js pattern)."
+  reason: "User reported (test 12 mixed report): changed setting to 'B:OLDSLIDE r' from 'A:SLIDE r', dragged file WITHOUT a page reload, CP/M echoed 'A:SLIDE?' — wire received the OLD value. In test 14 (post-reload), the new 'B:OLDSLIDE r' value DID reach the wire (Z80 ran the legacy OLDSLIDE.COM successfully — note: B:OLDSLIDE.COM is a real legacy slide.com on the Z80 without ESC^SLIDE wakeup, NOT a misnamed file). Pattern: stale boot-time prefs snapshot in slide.js readAutoSendCommandBytes. Plan 12-08's getPrefs()-live pattern was applied to serial.js but not here."
   severity: major
   test: 12
-  artifacts: []  # Filled by diagnosis
-  missing: []    # Filled by diagnosis
+  artifacts:
+    - path: "www/transport/slide.js"
+      issue: "readAutoSendCommandBytes likely reads a boot-time prefsRef snapshot instead of calling getPrefs() at use-time"
+  missing:
+    - "Apply Plan 12-08's getPrefs()-live pattern to slide.js readAutoSendCommandBytes so post-Settings-change values reach the wire without a reload"
 
 - truth: "The [Cancel] button on the active-state SLIDE chip dismisses the chip and aborts the in-flight transfer when clicked"
   status: failed
-  reason: "User reported (test 12 mixed report): after Force-start transitioned chip to active over a stalled transfer, [Cancel] click did nothing — 'I can't get rid of it'. No recovery short of page reload. Possibly Plan 12-07's enterActive() call leaves the chip in a state where the cancel inline-action handler is unwired or the dispatcher Promise is stuck."
+  reason: "User reported (test 12 mixed report): after Force-start transitioned chip to active over a stalled transfer, [Cancel] click did nothing — 'I can't get rid of it'. No recovery short of page reload. Specific to active-state chip after force-start path; in test 14 the user reported [Cancel] DID dismiss the awaiting-wakeup-Confirm chip ('I click cancel. If I repeat the process, exactly the same result'). Suggests Plan 12-07's enterActive() call site sets a chip state where the active-state inline-action handler routes [Cancel] click to a no-op, OR the dispatcher Promise is stuck so the cancel-side abort path never resolves."
   severity: major
   test: 12
-  artifacts: []  # Filled by diagnosis
-  missing: []    # Filled by diagnosis
+  artifacts:
+    - path: "www/renderer/slide-chip.js"
+      issue: "active-state [Cancel] handler may be unwired when chip enters active via Plan 12-07's enterActive() force-start path (vs. the wakeup-completion path)"
+    - path: "www/transport/slide.js"
+      issue: "case 'force-start' enterActive() call may leave dispatcher in a state where cancel signal can't reach the running transfer"
+  missing:
+    - "Verify slideChipRef.enterActive() called from case 'force-start' produces a chip whose [Cancel] inline action triggers the same cancel path as wakeup-completion-state Cancel"
+    - "Verify the dispatcher Promise can be cancelled from the post-force-start active state"
