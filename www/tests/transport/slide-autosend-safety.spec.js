@@ -123,7 +123,7 @@ test('Phase 12 UAT Gap A — validation-hint sub-row appears on blur with unsafe
     await expect(page.locator('#slide-auto-send-validation-hint')).toBeVisible();
     // Hint copy matches UI-SPEC §D (verbatim).
     await expect(page.locator('#slide-auto-send-validation-hint'))
-        .toHaveText('Auto-send command unsafe — using disabled.');
+        .toHaveText('Auto-send command unsafe — disabled.');
     // Now switch to a safe value — hint hides again.
     await page.locator('#slide-auto-send-input').fill('B:SLIDE R');
     await page.locator('#slide-auto-send-input').dispatchEvent('change');
