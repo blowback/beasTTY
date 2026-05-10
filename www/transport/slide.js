@@ -439,9 +439,19 @@ function handleChipInlineAction(action) {
                         slideChipRef.hide();
                     }
                 } catch {}
+            } else if (lc === 'active') {
+                // Phase 12 UAT Gap D — active-state cancel must dispatch
+                // by mode. main.js's onCancel is the primary path but
+                // belt-and-braces here so the inline-action observer fan-out
+                // also reaches the right handler when the chip's own
+                // onCancelFn somehow short-circuits.
+                if (mode === 'send') {
+                    void cancelSlideSend();
+                }
+                // Recv-mode active cancel is still handled exclusively via
+                // main.js's onCancel → cancelSlideRecv path (Phase 10/11
+                // contract preserved). Do not double-fire here.
             }
-            // Active sessions: chip's onCancel callback handles via
-            // cancelSlideRecv (5-step ADR-003 state machine).
             return;
         }
     }
@@ -1154,6 +1164,112 @@ function enterSendModeInternal({ metadata, fileBytes }) {
     sendDispatchTail = sendDispatchTail.then(() => drainSlideOutboundAwaitable()).catch((err) => {
         console.error('[slide.js] enterSendModeInternal initial drain failed:', err);
     });
+}
+
+// Phase 12 UAT Gap D fix (.planning/debug/slide-active-cancel-broken.md).
+// cancelSlideSend mirrors slide-recv.js cancelSlideRecv but for send mode.
+// Wired into the chip's [Cancel] button via main.js's mode-dispatching
+// onCancel callback. Without this, force-start (and any wakeup-completion)
+// active-state cancellation was a dead button — chip stayed visible until
+// page reload because main.js routed onCancel only to cancelSlideRecv,
+// whose !isSlideActive() guard short-circuits in send mode (slide-recv.js
+// never sees a slideRef in send sessions).
+//
+// 5-step ADR-003 dance, 2 s absolute timeout escape:
+//   1. settle in-flight pump (200 ms)
+//   2. slide.cancel() pushes CTRL_CAN to outbound; drain to wire
+//   3. wait up to 500 ms for Z80 echo (state transitions Done)
+//   4. drain 100 ms post-echo
+//   5. if no echo, force_idle escape hatch + forceExitSendMode
+const SEND_CANCEL_INFLIGHT_TIMEOUT_MS = 200;
+const SEND_CANCEL_ECHO_WAIT_MS = 500;
+const SEND_CANCEL_DRAIN_MS = 100;
+const SEND_CANCEL_ABSOLUTE_TIMEOUT_MS = 2000;
+let sendCancelInFlight = false;
+
+function sendCancelDelay(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function waitForSendState(targetState, timeoutMs) {
+    return new Promise((resolve) => {
+        const start = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+        const now = () => (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+        const tick = () => {
+            if (slide && slide.state() === targetState) return resolve(true);
+            if (now() - start >= timeoutMs) return resolve(false);
+            setTimeout(tick, 10);
+        };
+        tick();
+    });
+}
+
+function forceExitSendMode() {
+    // Quick exit on cancel — does NOT call enterSummary (which advertises
+    // "Sent N files"). Hides the chip, releases wire owner, clears send
+    // context. Mirror of slide-recv.js forceExitRecvMode.
+    try {
+        if (slideChipRef && typeof slideChipRef.hide === 'function') slideChipRef.hide();
+    } catch {}
+    try {
+        if (txSinkRef && typeof txSinkRef.setWireOwner === 'function') txSinkRef.setWireOwner('terminal');
+    } catch {}
+    mode = 'terminal';
+    currentSendCtx = null;
+    pendingSendSession = null;
+    slide = null;
+}
+
+export async function cancelSlideSend() {
+    if (sendCancelInFlight) return;
+    if (mode !== 'send' || !slide) {
+        // Defensive: no active send session. Clear any queued pending session
+        // and hide the chip. Covers the race against a still-pending
+        // enterSendMode that hasn't flipped mode yet.
+        pendingSendSession = null;
+        try {
+            if (slideChipRef && typeof slideChipRef.hide === 'function') slideChipRef.hide();
+        } catch {}
+        return;
+    }
+    sendCancelInFlight = true;
+
+    const absoluteTimeout = setTimeout(() => {
+        console.warn('[slide.js] send-cancel absolute timeout (2s); force_idle');
+        try {
+            if (slide && typeof slide.force_idle === 'function') slide.force_idle();
+        } catch {}
+        forceExitSendMode();
+    }, SEND_CANCEL_ABSOLUTE_TIMEOUT_MS);
+
+    try {
+        // Step 1 — settle window for any pending dispatchSendMode pump.
+        await sendCancelDelay(SEND_CANCEL_INFLIGHT_TIMEOUT_MS);
+        // Step 2 — push CTRL_CAN onto outbound (Rust state.rs:382 boundary).
+        if (slide && typeof slide.cancel === 'function') {
+            slide.cancel();
+        }
+        try { await drainSlideOutboundAwaitable(); } catch {}
+        // Step 3 — wait up to 500 ms for Z80 echo (state Done).
+        const echoArrived = await waitForSendState(STATE_DONE, SEND_CANCEL_ECHO_WAIT_MS);
+        // Step 4 — drain 100 ms post-echo.
+        await sendCancelDelay(SEND_CANCEL_DRAIN_MS);
+        // Step 5 — escape hatch.
+        if (!echoArrived && slide && typeof slide.force_idle === 'function') {
+            slide.force_idle();
+        }
+        clearTimeout(absoluteTimeout);
+        forceExitSendMode();
+    } catch (e) {
+        clearTimeout(absoluteTimeout);
+        console.error('[slide.js] send-cancel sequence threw:', e);
+        try {
+            if (slide && typeof slide.force_idle === 'function') slide.force_idle();
+        } catch {}
+        forceExitSendMode();
+    } finally {
+        sendCancelInFlight = false;
+    }
 }
 
 function exitSendMode() {

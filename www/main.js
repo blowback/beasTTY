@@ -87,6 +87,7 @@ import {
     __resetForTests as __slideResetForTests,
     __getStateForTests as __slideGetStateForTests,
     __isAutoSendSafeForTests as __slideIsAutoSendSafeForTests,   // Phase 12 SLIDE-38
+    cancelSlideSend,                                              // Phase 12 UAT Gap D — send-side cancel
 } from './transport/slide.js';
 import {
     enqueuePaste,
@@ -478,7 +479,19 @@ const slideChipApi = wireSlideChip({
     chipEl: slideChipEl,
     chipTextEl: slideChipTextEl,
     getSlideState: __slideGetStateForTests,    // imported from transport/slide.js (existing)
-    onCancel: () => cancelSlideRecvLazy(),     // thunk-holder — resolved after wireSlideRecv
+    // Phase 12 UAT Gap D — chip [Cancel] dispatches by current SLIDE mode.
+    // Send-side cancel (cancelSlideSend) was previously absent — onCancel
+    // routed only to cancelSlideRecv whose !isSlideActive() guard
+    // short-circuits in send mode, leaving force-start (and any
+    // wakeup-completion) active-state cancels as dead buttons.
+    onCancel: () => {
+        const state = __slideGetStateForTests();
+        if (state && state.mode === 'send') {
+            cancelSlideSend();   // imported from transport/slide.js (resolved at module load)
+        } else {
+            cancelSlideRecvLazy();   // thunk-holder — resolved after wireSlideRecv
+        }
+    },
     prefs,                                      // existing prefs object loaded at boot
 });
 
