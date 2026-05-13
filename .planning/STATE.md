@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-05-10)
 Phase: — (between milestones)
 Plan: —
 Status: Milestone archived (v1.1)
-Last activity: 2026-05-10
+Last activity: 2026-05-13 — Completed quick task 260513-grs (v1.1 polish: Clean zoom, Confirm-transfers toggle, post-FIN forward)
 
 Progress: [██████████] 100% (v1.0 + v1.1 both shipped)
 
@@ -203,6 +203,12 @@ None for v1.1 yet — milestone roadmap just landed.
 - **Phase 12 OQ-4 (Z80 PR coordination)** — Real-hardware UAT requires patched slide.asm. PR to github.com/blowback/slide is a Phase 12 dependency. Host-initiated send (Phase 9) can be tested without Z80 PR; Z80-initiated receive (Phase 10) cannot.
 - **Phase 11 OQ-5 (wakeup tail timing after auto-type)** — After auto-typing B:SLIDE R\r, how long does CP/M take to load slide.com and emit ESC ^ S L I D E? Hardware-dependent. Researcher suggests 3 s timeout default — verify on real hardware. Flag for Phase 11 human UAT and Phase 12 docs.
 
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 260513-grs | v1.1 polish: Clean theme zoom bump to CRT parity + "Confirm file transfers" SLIDE toggle + post-FIN bytes forwarded to terminal parser (send+recv) | 2026-05-13 | 256d87d | [260513-grs-v1-1-polish-bump-clean-theme-default-zoo](./quick/260513-grs-v1-1-polish-bump-clean-theme-default-zoo/) |
+
 ## Deferred Items
 
 Items acknowledged and carried forward from v1.1 milestone close (2026-05-10):
@@ -218,10 +224,10 @@ Items acknowledged and carried forward from v1.1 milestone close (2026-05-10):
 
 ## Session Continuity
 
-Last session: 2026-05-10
-Stopped at: v1.1 SLIDE FileTransfer milestone archived. Phases 7–12 closed; 28 plans, 42 SLIDE-* requirements, all complete. Tag `v1.1` created.
+Last session: 2026-05-13
+Stopped at: Quick task 260513-grs complete (Clean theme zoom parity + "Confirm file transfers" SLIDE toggle + post-FIN bytes forwarded to terminal parser, send+recv symmetric). Three atomic commits on `main` (6fb9c0f, 9f1ceae, 256d87d) plus this docs commit.
 Resume file: None
 
-**Next:** `/gsd-new-milestone` — scope the next milestone when ready. v2 candidates listed in PROJECT.md `### Active` and REQUIREMENTS.md `## v2 Requirements`.
+**Next:** `/gsd-new-milestone` when ready, or more `/gsd-quick` polish if other rough edges surface.
 
 **Planned Phase:** None — between milestones.
