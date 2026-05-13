@@ -1061,6 +1061,17 @@
         </label>
       </div>
 
+      <!-- Row — Confirm file transfers (v1.1 polish 260513-grs Task 2; default ON).
+           When OFF, drops + picker selections start transferring immediately;
+           collisions auto-rename via the SLIDE-36 scheme. -->
+      <div class="settings-row" id="slide-confirm-transfers-row">
+        <label>
+          <input type="checkbox" id="slide-confirm-transfers-checkbox" checked>
+          Confirm file transfers
+        </label>
+        <p class="hint">When off, drops and picker selections begin transferring immediately. Filename collisions are auto-renamed.</p>
+      </div>
+
       <!-- Row 4 — Compatibility mode (NEW Phase 11 — D-07). -->
       <div class="settings-row" id="slide-compat-row">
         <label for="slide-compat-select">Compatibility mode:</label>

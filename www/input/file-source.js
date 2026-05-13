@@ -19,6 +19,11 @@
 // (injected via wireFileSource opts — dependency injection per paste-pump.js
 // precedent).
 
+// v1.1 polish (260513-grs Task 2) — getPrefs is read live inside processFiles
+// so the slideConfirmTransfers toggle takes effect on the very next picker /
+// drop without re-wiring or boot.
+import { getPrefs } from '../state/prefs.js';
+
 // ===== CP/M validation constants (D-06) =====
 const CPM_INVALID_CHARS = new Set(['<','>',',',';',':','=','?','*','[',']']);
 
@@ -341,6 +346,31 @@ async function processFiles(filesArr) {
                 renamed: computeRenameScheme(group),    // parallel to members
             });
         }
+    }
+
+    // v1.1 polish 260513-grs Task 2 — skip modal entirely when the user has
+    // disabled confirmation in Settings. Default ON (slideConfirmTransfers=true)
+    // preserves the Phase 9 / Phase 12 modal flow verbatim. When OFF:
+    //   - collisions present → silent auto-rename (same scheme as the modal's
+    //     [Send N renamed] button — applyCollisionRenames over collisionRows).
+    //   - no collisions → use `surviving` as-is.
+    // In both branches, enterSendModeFn is invoked directly without user
+    // confirmation. All-rejected (surviving.length === 0) still short-circuits
+    // because the silent branch only fires enterSendMode when finalFiles.length > 0.
+    const livePrefsForConfirm = (typeof getPrefs === 'function') ? getPrefs() : null;
+    const confirmEnabled = (!livePrefsForConfirm || livePrefsForConfirm.slideConfirmTransfers !== false);
+
+    if (!confirmEnabled) {
+        let silentFinal;
+        if (collisionRows.length > 0) {
+            silentFinal = applyCollisionRenames(surviving, collisionRows);
+        } else {
+            silentFinal = surviving;
+        }
+        if (enterSendModeFn && silentFinal && silentFinal.length > 0) {
+            enterSendModeFn({ files: silentFinal });
+        }
+        return;
     }
 
     // Show modal; await tagged user choice (D-06: 'send' | 'first-only' | 'refuse' | falsy).

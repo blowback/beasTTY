@@ -33,6 +33,15 @@ const DEFAULTS = Object.freeze({
     slideAutoSendCommandConfirmed: '',            // Phase 12 SLIDE-38: exact-match flag, keyed to the value last confirmed.
                                                   //   Empty string = never confirmed. Re-arms on every Settings change.
                                                   //   CURRENT_VERSION NOT bumped per Phase 6 D-32 defensive merge.
+    slideConfirmTransfers: true,
+        // v1.1 polish (260513-grs Task 2) — default ON preserves the existing
+        // confirm-modal flow. Toggle in #settings-slide → "Confirm file transfers".
+        // When false, www/input/file-source.js's processFiles skips
+        // showConfirmModal entirely; collisions auto-rename via the SLIDE-36
+        // applyCollisionRenames helper (same logic the modal's [Send N renamed]
+        // button uses). CURRENT_VERSION NOT bumped per Phase 6 D-32 defensive
+        // merge (older blobs missing this field receive `true` via the
+        // loadPrefs spread fill).
     serialAssertRtsOnConnect: true,
         // Phase 12.1 Plan 12-08 — gates connect-time setSignals.requestToSend
         // (true = assert RTS on every port.open(); false = de-assert RTS as

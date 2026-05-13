@@ -572,6 +572,7 @@ cancelSlideRecvLazy = cancelSlideRecv;
 // behavior is delivered by Plan 11-04.
 const slideAutoSendInput = document.getElementById('slide-auto-send-input');
 const slideShowSummaryCheckbox = document.getElementById('slide-show-summary');
+const slideConfirmTransfersCheckbox = document.getElementById('slide-confirm-transfers-checkbox');
 const slideCompatSelect = document.getElementById('slide-compat-select');
 
 if (slideAutoSendInput) {
@@ -641,6 +642,18 @@ if (slideShowSummaryCheckbox) {
     slideShowSummaryCheckbox.checked = !!prefs.slideShowSummary;
     slideShowSummaryCheckbox.addEventListener('change', (e) => {
         savePrefs({ slideShowSummary: !!e.target.checked });
+    });
+}
+
+// v1.1 polish (260513-grs Task 2) — Confirm file transfers boot mirror + change listener.
+// Default ON preserves Phase 9/12 modal flow. When toggled OFF, www/input/file-source.js
+// processFiles skips showConfirmModal entirely (collisions auto-rename via the
+// SLIDE-36 applyCollisionRenames helper). Defensive `!== false` matches the
+// slideAssertRtsOnConnect / slideShowSummary precedent.
+if (slideConfirmTransfersCheckbox) {
+    slideConfirmTransfersCheckbox.checked = (prefs.slideConfirmTransfers !== false);
+    slideConfirmTransfersCheckbox.addEventListener('change', (e) => {
+        savePrefs({ slideConfirmTransfers: !!e.target.checked });
     });
 }
 
@@ -1022,6 +1035,11 @@ function applyPrefs(p) {
     // restores the checked state.
     const serialAssertRtsCheckboxRef = document.getElementById('serial-assert-rts-on-connect-checkbox');
     if (serialAssertRtsCheckboxRef) serialAssertRtsCheckboxRef.checked = (p.serialAssertRtsOnConnect !== false);
+    // v1.1 polish (260513-grs Task 2) — Confirm file transfers applyPrefs mirror.
+    // Same defensive `!== false` pattern as serialAssertRtsOnConnect so a reset
+    // restores the default-ON checked state.
+    const slideConfirmTransfersCheckboxRef = document.getElementById('slide-confirm-transfers-checkbox');
+    if (slideConfirmTransfersCheckboxRef) slideConfirmTransfersCheckboxRef.checked = (p.slideConfirmTransfers !== false);
     // Serial-config form: mirror stored values so a fresh load shows the
     // persisted config in the Connection-pane form. The Phase 5 D-08
     // reconnect-required hint pattern handles live config changes.
