@@ -1409,58 +1409,76 @@ async function dispatchSendMode(value) {
         return;
     }
 
-    // v1.1 polish 260513-grs Task 3 — post-FIN tail forwarding (send side).
+    // v1.1 polish 260513-grs Task 3 (revised) — JS-side classifier for
+    // send-mode inbound bytes.
     //
-    // When the Z80's CTRL_FIN echo lands in the same wire chunk as trailing
-    // console text (e.g. slide.com's `Session complete.` from msg_done_session),
-    // the SLIDE SM transitions to Done on the FIN byte and the Rust
-    // state.rs:347-349 early-return SILENTLY DROPS every subsequent byte.
-    // exitSendMode flips mode back to 'terminal' but those post-FIN bytes are
-    // already lost — the user sees the SLIDE chip vanish without the Z80's
-    // post-transfer summary ever reaching the terminal.
+    // PRIOR ATTEMPT (STATE_FIN_PENDING byte-walk) only handled the FIN echo
+    // + tail boundary, but slide.asm prints `msg_done` ("Transfer complete!")
+    // via BDOS C_WRITESTR between the EOF ACK and the FIN echo — those bytes
+    // arrive while the SM is in FinPending and hit the Rust framer's Idle
+    // arm, which silent-discards everything that isn't a recognised control
+    // byte (framer.rs Idle `_ => EVT_NONE`). Same applies to msg_done_session
+    // ("Session complete.") that arrives in a separate chunk WHILE SM is still
+    // FinPending (FIN not yet echoed back).
     //
-    // Approach: when the SM is in STATE_FIN_PENDING entering this chunk, feed
-    // byte-by-byte and capture the index at which the SM transitions to
-    // STATE_DONE / STATE_ERROR. The bytes AFTER that index are the post-FIN
-    // tail. After the existing drain/pump/drain/exit cycle has fired, if mode
-    // has flipped back to 'terminal' and we have a captured tail, forward
-    // it to termRef.feed. For any other entry state, keep the existing
-    // single-feed_chunk fast path (the tail-capture overhead is irrelevant
-    // for those — Done isn't imminent).
-    let postFinTail = null;
-    const entryState = slide ? slide.state() : -1;
-    if (entryState === STATE_FIN_PENDING) {
-        let doneAt = -1;
-        for (let i = 0; i < value.length; i++) {
-            slide.feed_byte(value[i]);
-            const st = slide.state();
-            if (st === STATE_DONE || st === STATE_ERROR) {
-                doneAt = i;
-                break;
+    // Real fix: in SEND MODE, the Z80 is the receiver — it NEVER sends
+    // SLIDE frames (no SOF). Its inbound vocabulary is exactly:
+    //   - CTRL_RDY (0x11)  — handshake response
+    //   - CTRL_ACK + seq   — frame ack (2 bytes)
+    //   - CTRL_NAK + seq   — retransmit request (2 bytes)
+    //   - CTRL_FIN (0x04)  — session end echo
+    //   - CTRL_CAN (0x18)  — peer-initiated cancel
+    // Everything else IS BY DEFINITION terminal console output from BDOS
+    // C_WRITESTR (msg_done, msg_done_session, msg_cancelled, error
+    // messages, etc.). Classify in JS, feed only protocol bytes to the
+    // Rust SM, accumulate terminal bytes for term.feed at end-of-chunk.
+    //
+    // The control-byte values (0x04 / 0x06 / 0x11 / 0x15 / 0x18) are all
+    // non-printable ASCII control characters — none appear in normal
+    // BDOS WRITESTR output, so the heuristic is unambiguous.
+    const CTRL_RDY = 0x11;
+    const CTRL_ACK = 0x06;
+    const CTRL_NAK = 0x15;
+    const CTRL_FIN = 0x04;
+    const CTRL_CAN = 0x18;
+    const SOF     = 0x01;  // defensive — Z80 in recv-session shouldn't emit
+    const terminalBytes = [];
+    let i = 0;
+    while (i < value.length) {
+        const b = value[i];
+        if (b === CTRL_ACK || b === CTRL_NAK) {
+            // 2-byte sequence: control + seq. Feed both atomically.
+            slide.feed_byte(b);
+            if (i + 1 < value.length) {
+                slide.feed_byte(value[i + 1]);
+                i += 2;
+            } else {
+                // Lone ACK/NAK at chunk end — the seq byte spans chunks.
+                // Feed what we have; framer.AfterAckOrNak holds across the
+                // boundary and will pick up the seq on the next chunk.
+                i += 1;
             }
+        } else if (b === CTRL_RDY || b === CTRL_FIN || b === CTRL_CAN || b === SOF) {
+            slide.feed_byte(b);
+            i += 1;
+        } else {
+            // Non-control byte during a SLIDE session = terminal console
+            // output from the Z80 (BDOS C_WRITESTR). Route to term.feed.
+            terminalBytes.push(b);
+            i += 1;
         }
-        if (doneAt >= 0 && doneAt < value.length - 1) {
-            postFinTail = value.subarray(doneAt + 1);
-        }
-        // If the chunk ended without a Done transition (FIN echo spans chunks),
-        // no tail to capture — existing flow handles the next chunk normally.
-    } else {
-        feedSlide(value);
     }
     await drainEventsAndOutboundAwaitable();
     pumpNextDataChunkIfReady();
     await drainEventsAndOutboundAwaitable();
     maybeExitSendMode();
-    // After maybeExitSendMode, if we captured a post-FIN tail and the mode
-    // has indeed flipped back to terminal, forward the trailing bytes to the
-    // VT52 parser. Defensive mode check: if cancellation or error landed us
-    // in a different state, drop the tail (safer than feeding to a half-state
-    // terminal). termRef may be null in early-boot edge cases; guard.
-    if (postFinTail && mode === 'terminal' && postFinTail.length > 0 && termRef) {
+    // Forward any terminal-classified bytes captured during the byte-walk
+    // to the VT52 parser. termRef may be null in early-boot edge cases; guard.
+    if (terminalBytes.length > 0 && termRef) {
         try {
-            termRef.feed(new Uint8Array(postFinTail));
+            termRef.feed(new Uint8Array(terminalBytes));
         } catch (e) {
-            console.error('[slide.js] post-FIN tail forward (send) threw:', e);
+            console.error('[slide.js] terminal byte forward (send) threw:', e);
         }
     }
 }
