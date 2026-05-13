@@ -754,9 +754,50 @@ function dispatchRecvMode(value) {
         return;
     }
     // No re-entry — normal recv path.
-    feedSlide(value);
+    //
+    // v1.1 polish 260513-grs Task 3 — post-FIN tail forwarding (recv side).
+    // When the Z80's own CTRL_FIN arrives in the same chunk as trailing
+    // terminal text, the Rust SM transitions to Done on the FIN byte and
+    // state.rs:347-349 silently drops every subsequent byte (same root cause
+    // as the send side). Feed byte-by-byte and capture the tail at the Done
+    // transition; after maybeExitRecvMode flips mode back to 'terminal',
+    // forward the tail to termRef.feed.
+    //
+    // Pre-FIN state on recv side is broader than send (state.rs ~line 609:
+    // recv transitions Done from HeaderPhase on EVT_FIN), so the predicate
+    // is just "any transition to Done while bytes remain in the chunk".
+    // The byte-walk is uniformly applied — single feed_byte calls are roughly
+    // equivalent to feed_chunk on a 1-byte slice and recv-mode chunks are
+    // typically short (line-buffered or small Z80 writes), so the perf
+    // overhead is negligible.
+    let recvPostFinTail = null;
+    let recvDoneAt = -1;
+    for (let i = 0; i < value.length; i++) {
+        const stBefore = slide.state();
+        if (stBefore === STATE_DONE || stBefore === STATE_ERROR) {
+            // Already Done before this byte — bytes from here on are tail.
+            recvDoneAt = i - 1;
+            break;
+        }
+        slide.feed_byte(value[i]);
+        const stAfter = slide.state();
+        if (stAfter === STATE_DONE || stAfter === STATE_ERROR) {
+            recvDoneAt = i;
+            break;
+        }
+    }
+    if (recvDoneAt >= 0 && recvDoneAt < value.length - 1) {
+        recvPostFinTail = value.subarray(recvDoneAt + 1);
+    }
     drainEventsAndOutbound();
     maybeExitRecvMode();
+    if (recvPostFinTail && mode === 'terminal' && recvPostFinTail.length > 0 && termRef) {
+        try {
+            termRef.feed(new Uint8Array(recvPostFinTail));
+        } catch (e) {
+            console.error('[slide.js] post-FIN tail forward (recv) threw:', e);
+        }
+    }
 }
 
 function feedSlide(bytes) {
@@ -1331,11 +1372,60 @@ function exitSendMode() {
 ///   4. await drainEventsAndOutboundAwaitable() — drain again (step 3 added bytes)
 ///   5. maybeExitSendMode()                     — exit on Done/Error/CancelPending
 async function dispatchSendMode(value) {
-    feedSlide(value);
+    // v1.1 polish 260513-grs Task 3 — post-FIN tail forwarding (send side).
+    //
+    // When the Z80's CTRL_FIN echo lands in the same wire chunk as trailing
+    // console text (e.g. slide.com's `Session complete.` from msg_done_session),
+    // the SLIDE SM transitions to Done on the FIN byte and the Rust
+    // state.rs:347-349 early-return SILENTLY DROPS every subsequent byte.
+    // exitSendMode flips mode back to 'terminal' but those post-FIN bytes are
+    // already lost — the user sees the SLIDE chip vanish without the Z80's
+    // post-transfer summary ever reaching the terminal.
+    //
+    // Approach: when the SM is in STATE_FIN_PENDING entering this chunk, feed
+    // byte-by-byte and capture the index at which the SM transitions to
+    // STATE_DONE / STATE_ERROR. The bytes AFTER that index are the post-FIN
+    // tail. After the existing drain/pump/drain/exit cycle has fired, if mode
+    // has flipped back to 'terminal' and we have a captured tail, forward
+    // it to termRef.feed. For any other entry state, keep the existing
+    // single-feed_chunk fast path (the tail-capture overhead is irrelevant
+    // for those — Done isn't imminent).
+    let postFinTail = null;
+    const entryState = slide ? slide.state() : -1;
+    if (entryState === STATE_FIN_PENDING) {
+        let doneAt = -1;
+        for (let i = 0; i < value.length; i++) {
+            slide.feed_byte(value[i]);
+            const st = slide.state();
+            if (st === STATE_DONE || st === STATE_ERROR) {
+                doneAt = i;
+                break;
+            }
+        }
+        if (doneAt >= 0 && doneAt < value.length - 1) {
+            postFinTail = value.subarray(doneAt + 1);
+        }
+        // If the chunk ended without a Done transition (FIN echo spans chunks),
+        // no tail to capture — existing flow handles the next chunk normally.
+    } else {
+        feedSlide(value);
+    }
     await drainEventsAndOutboundAwaitable();
     pumpNextDataChunkIfReady();
     await drainEventsAndOutboundAwaitable();
     maybeExitSendMode();
+    // After maybeExitSendMode, if we captured a post-FIN tail and the mode
+    // has indeed flipped back to terminal, forward the trailing bytes to the
+    // VT52 parser. Defensive mode check: if cancellation or error landed us
+    // in a different state, drop the tail (safer than feeding to a half-state
+    // terminal). termRef may be null in early-boot edge cases; guard.
+    if (postFinTail && mode === 'terminal' && postFinTail.length > 0 && termRef) {
+        try {
+            termRef.feed(new Uint8Array(postFinTail));
+        } catch (e) {
+            console.error('[slide.js] post-FIN tail forward (send) threw:', e);
+        }
+    }
 }
 
 // Inter-file delay before pushing the next file's header onto the wire.
