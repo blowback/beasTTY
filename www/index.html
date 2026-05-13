@@ -173,11 +173,15 @@
     }
 
     /* ==== Floating SLIDE chip (Phase 11 — D-01 / SLIDE-25) ==== */
-    /* Mirror partner of #scrollback-indicator with right→left flip per Pitfall 14. */
+    /* Sits inside #terminal-wrapper at the top-right corner — out of the way of
+       the CP/M prompt (typically bottom-left of the canvas) and off the same
+       row as #scrollback-indicator (bottom-right), so the two chips never
+       compete for horizontal space and the max-width reservation that used to
+       guard against that overlap is no longer needed. */
     #slide-chip {
       position: absolute;
-      bottom: 8px;
-      left: 8px;
+      top: 8px;
+      right: 8px;
       z-index: 5;
       font-family: inherit;
       font-size: 12px;
@@ -189,7 +193,7 @@
       cursor: pointer;
       box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
       white-space: nowrap;
-      max-width: calc(100% - 16px - 288px);
+      max-width: calc(100% - 16px);
     }
     [data-theme="crt"] #slide-chip {
       color: var(--phosphor-fg);
@@ -936,11 +940,13 @@
     <div id="drop-overlay" aria-hidden="true">
       <span id="drop-overlay-text">Drop file(s) to send via SLIDE</span>
     </div>
-    <!-- Phase 11 D-01 / SLIDE-25 — floating SLIDE chip. Mirror partner of
-         #scrollback-indicator at the opposite corner (bottom: 8px; left: 8px).
-         Lifecycle owned by www/renderer/slide-chip.js (refreshChip + 250 ms
-         tick). aria-live=polite + aria-atomic=true per UI-SPEC §Accessibility
-         so screen readers announce state transitions politely. -->
+    <!-- Phase 11 D-01 / SLIDE-25 — floating SLIDE chip. Sits at top-right of
+         #terminal-wrapper (top: 8px; right: 8px), out of the way of the CP/M
+         prompt at bottom-left and clear of #scrollback-indicator at
+         bottom-right. Lifecycle owned by www/renderer/slide-chip.js
+         (refreshChip + 250 ms tick). aria-live=polite + aria-atomic=true per
+         UI-SPEC §Accessibility so screen readers announce state transitions
+         politely. -->
     <button id="slide-chip" type="button" hidden
             aria-live="polite" aria-atomic="true"
             aria-label="SLIDE file transfer chip">
