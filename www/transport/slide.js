@@ -700,6 +700,23 @@ function dispatchTerminalMode(value) {
 // feed to the existing SM (last-ditch ACK opportunity); bytes AFTER feed to a
 // fresh SM. Pattern mirrors dispatchTerminalMode (lines 229-310) for consistency.
 function dispatchRecvMode(value) {
+    // Defensive: dispatchRecvMode is synchronous (unlike dispatchSendMode's
+    // async-chained path), but if mode flipped to 'terminal' between
+    // dispatchInbound's mode-read and this call (e.g., a re-entrant
+    // call path or future refactor), forward the chunk straight to the
+    // terminal parser so trailing bytes never get silent-dropped by a
+    // Done-state SM. Mirror of the dispatchSendMode async-chain guard.
+    if (mode !== 'recv') {
+        if (value && value.length > 0 && termRef) {
+            try {
+                termRef.feed(new Uint8Array(value));
+            } catch (e) {
+                console.error('[slide.js] dispatchRecvMode post-session forward threw:', e);
+            }
+        }
+        return;
+    }
+
     let matchEnd = -1;
     for (let i = 0; i < value.length; i++) {
         const b = value[i];
@@ -1372,6 +1389,26 @@ function exitSendMode() {
 ///   4. await drainEventsAndOutboundAwaitable() — drain again (step 3 added bytes)
 ///   5. maybeExitSendMode()                     — exit on Done/Error/CancelPending
 async function dispatchSendMode(value) {
+    // Async-chain race: dispatchInbound queued us with `mode === 'send'`
+    // captured at call time, but the sendDispatchTail FIFO may have run a
+    // prior chunk's dispatchSendMode in between and flipped `mode` to
+    // 'terminal' via exitSendMode. If so, this chunk is post-session — the
+    // Z80's trailing text (e.g. `Session complete.` from slide.asm's
+    // msg_done_session) following the FIN echo in a SEPARATE wire chunk.
+    // Forward straight to the terminal parser; without this, feedSlide would
+    // call slide.feed_chunk on a Done-state SM which state.rs:347-349 silent-
+    // drops, and the user never sees the post-transfer summary on screen.
+    if (mode !== 'send') {
+        if (value && value.length > 0 && termRef) {
+            try {
+                termRef.feed(new Uint8Array(value));
+            } catch (e) {
+                console.error('[slide.js] dispatchSendMode post-session forward threw:', e);
+            }
+        }
+        return;
+    }
+
     // v1.1 polish 260513-grs Task 3 — post-FIN tail forwarding (send side).
     //
     // When the Z80's CTRL_FIN echo lands in the same wire chunk as trailing
