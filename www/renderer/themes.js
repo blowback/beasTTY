@@ -68,8 +68,13 @@ export const THEMES = {
         accent: '#7fdbca',
         font:   'JetBrains Mono',
         rasteriser: 'vector',
-        cellW: 9, cellH: 18,    // measured from JetBrains Mono 14 px at ~1.3 line-height
-        fontPx: 14,
+        // v1.1 polish (260513-grs Task 1): bumped 9/18/14 → 16/32/25 so Clean
+        // theme z=1 renders 1280x768 (parity with CRT z=1). 16/9 ≈ 32/18 ≈ 25/14 ≈ 1.78
+        // linear scale. JetBrains Mono is a vector font so fractional-ish pt sizes
+        // rasterise cleanly; the chosen 25 px keeps the 1.78× ratio close enough that
+        // the 16x32 cell is still a comfortable home for the glyph (descender room).
+        cellW: 16, cellH: 32,
+        fontPx: 25,
         baseline: 0,            // textBaseline: 'top' — glyph anchors at cell top-left
         cursor: {
             shape: 'block',
