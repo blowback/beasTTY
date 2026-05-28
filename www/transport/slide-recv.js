@@ -340,6 +340,18 @@ async function bootHandleHydration() {
 // per-session lifecycle — new Slide() per session). Plan 10-03 invokes from
 // slide.js's enterRecvMode. Plan 10-02 just defines the export.
 export function setSlideRef(slide) {
+    // Invalidate cached recv_buf / filename views — a fresh Slide instance
+    // allocates its recv_buf and recv_filename at new wasm-heap addresses,
+    // and the memory.buffer-identity check in onRecvData / readRecvFilenameOwned
+    // only catches wasm memory growth (mirror of slide.js outboundView fix).
+    // Without this, a stale view from the prior instance would yield the prior
+    // session's last frame bytes — silently corrupting the next download.
+    if (slide !== slideRef) {
+        recvBuffer = null;
+        recvView = null;
+        filenameBuffer = null;
+        filenameView = null;
+    }
     slideRef = slide;
 }
 
