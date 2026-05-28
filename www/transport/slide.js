@@ -176,7 +176,13 @@ function livePrefs() {
 }
 
 // Cached outbound view (re-derived on memory growth — Pitfall 4 mirror of
-// main.js:reDeriveHostReplyView at lines 274-279).
+// main.js:reDeriveHostReplyView at lines 274-279). Also invalidated on every
+// new SlideCtor() in enterRecvMode / enterSendModeInternal: the cache is
+// keyed off `slide.outbound_ptr()` from the PREVIOUS instance, and a new
+// Slide allocates a fresh outbound_buf at a different wasm-heap address
+// when the prior instance was leaked (e.g. forceExitSendMode/forceExitRecvMode
+// null the JS ref without calling slide.free()). The memory.buffer-identity
+// check below only catches wasm memory growth, not new-instance address drift.
 let outboundBuffer = null;
 let outboundView = null;
 // Phase 9 D-08: grown from 16 to 4128 in lockstep with Rust OUTBOUND_RESERVE
@@ -867,6 +873,10 @@ function enterRecvMode() {
     // SLIDE's session cadence).
     if (slide && typeof slide.free === 'function') slide.free();
     slide = new SlideCtor();
+    // The new Slide's outbound_buf is at a different wasm-heap address than
+    // any cached view. Force re-derive on the next drain.
+    outboundBuffer = null;
+    outboundView = null;
     slide.enter_recv_mode();
     // Phase 10 Plan 10-03 — give slide-recv module the live instance per
     // CONTEXT C-05 per-session lifecycle. slide-recv reads slideRef in
@@ -1210,6 +1220,10 @@ function packMetadataInline(files) {
 function enterSendModeInternal({ metadata, fileBytes }) {
     if (slide && typeof slide.free === 'function') slide.free();
     slide = new SlideCtor();
+    // The new Slide's outbound_buf is at a different wasm-heap address than
+    // any cached view. Force re-derive on the next drain.
+    outboundBuffer = null;
+    outboundView = null;
     slide.enter_send_mode(metadata);
     currentSendCtx = {
         fileBytes,
@@ -1286,6 +1300,15 @@ function forceExitSendMode() {
     mode = 'terminal';
     currentSendCtx = null;
     pendingSendSession = null;
+    // Free the WASM Slide struct before dropping the JS ref so the next
+    // SlideCtor() can reuse the freed allocation. Without this the leaked
+    // struct keeps its outbound_buf bytes intact at the old wasm-heap
+    // address (Vec::clear preserves capacity bytes), and a stale cached
+    // outboundView in drainSlideOutbound* would read those bytes on the
+    // next session — observed by Z80 slide.com as a leading CTRL_CAN.
+    try {
+        if (slide && typeof slide.free === 'function') slide.free();
+    } catch {}
     slide = null;
     // Phase 12 UAT Niggle 1 — restore focus to terminal-wrapper so the
     // [data-focused] border re-paints. Without this, focus stayed on the
