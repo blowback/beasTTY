@@ -154,6 +154,24 @@ const crlfRadios        = document.querySelectorAll('input[name="crlf"]');
 const txStripEl         = document.getElementById('tx-strip');
 const txResetButton     = document.getElementById('tx-reset');
 const TX_STRIP_PLACEHOLDER = '(none yet — press any key on the terminal to see TX bytes)';
+// Defect 00001 — surface the build SHA in the Debug pane (and on window for the
+// console) so defect reports self-identify the exact running build. build-info.js
+// is emitted by scripts/build.sh into pkg/ (gitignored, regenerated per build).
+// Loaded dynamically with a fallback so a build that skipped build.sh (raw
+// wasm-pack per www/README.md) still boots — the stamp just reads "unbuilt".
+const buildShaEl = document.getElementById('build-sha');
+import('./pkg/build-info.js')
+    .then(({ BUILD_INFO }) => {
+        window.__buildInfo = BUILD_INFO;
+        if (buildShaEl) {
+            buildShaEl.textContent = BUILD_INFO.sha;
+            buildShaEl.title = `built ${BUILD_INFO.builtAt}`;
+        }
+    })
+    .catch(() => {
+        window.__buildInfo = { sha: 'unknown (unbuilt)', builtAt: null };
+        if (buildShaEl) buildShaEl.textContent = 'unknown (unbuilt)';
+    });
 // Phase 5 — Connection pane DOM refs (see www/index.html Plan 02 Wave 1).
 const connectButton     = document.getElementById('connect-button');
 const connectionPane    = document.getElementById('connection');

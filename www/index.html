@@ -1087,6 +1087,10 @@
   <!-- Debug harness (D-15) — retained Phase 2 SC-4 demonstration path. -->
   <details id="debug">
     <summary>Debug</summary>
+    <!-- Defect 00001 — build identifier. Populated by www/main.js from the
+         SHA scripts/build.sh stamps into pkg/build-info.js. Lets a user report
+         the exact build they are running regardless of version-number bumps. -->
+    <p class="hint">Build: <code id="build-sha">loading…</code></p>
     <p class="hint">
       Paste raw bytes, or use <code>\xNN</code> escapes for control bytes
       (e.g., <code>\x1B</code> = ESC, <code>\x07</code> = BEL). Click <b>Feed</b>
