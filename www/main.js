@@ -126,6 +126,14 @@ import {
     __resetForTests as __slideChipResetForTests,
     __getStateForTests as __slideChipGetStateForTests,
 } from './renderer/slide-chip.js';
+// Epic E0 Story E0.1 (AD-10) — shared focus-retention helper. retainFocus is
+// imported directly by the chrome modules that own controls (see chrome.js);
+// main.js only surfaces its test hooks as window.__focus for the Playwright
+// chromium suite.
+import {
+    __getStateForTests as __focusGetStateForTests,
+    __resetForTests as __focusResetForTests,
+} from './renderer/focus.js';
 import { getRecvDirHandle, setRecvDirHandle, clearRecvDirHandle } from './state/idb.js';
 import { wireClipboard, copySelection, pasteFromClipboard } from './input/clipboard.js';
 import {
@@ -815,6 +823,13 @@ window.__slideChip = {
     enterError: slideChipApi.enterError,
     flashDropRejected: slideChipApi.flashDropRejected,
     hide: slideChipApi.hide,
+};
+
+// Epic E0 Story E0.1 (AD-10) — retainFocus test-hook introspection for the
+// focus-helper.spec.js chromium suite.
+window.__focus = {
+    __resetForTests: __focusResetForTests,
+    __getStateForTests: __focusGetStateForTests,
 };
 
 // Phase 5 — wire Web Serial transport. opts mirror Phase 4 wireKeyboard

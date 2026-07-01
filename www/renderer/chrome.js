@@ -22,6 +22,10 @@ import {
     getActiveFont,
     getActiveZoom as getActiveZoomFn,
 } from './canvas.js';
+// Epic E0 Story E0.1 (AD-10) — shared focus-retention helper. Picks the right
+// branch (mousedown-preventDefault for buttons, change-restore for <select>)
+// so callers stop hand-writing either one.
+import { retainFocus } from './focus.js';
 
 function labelFor(destinationThemeName) {
     // The button label shows the theme the user will switch TO on click.
@@ -127,8 +131,8 @@ export function wireChrome(opts) {
             if (ss) ss.snapToBottom();   // D-04 trigger — clear is a snap-to-bottom action.
             if (requestFrame) requestFrame();
         });
-        // Phase 4 D-16 sacred — focus retention.
-        clearButton.addEventListener('mousedown', (e) => e.preventDefault());
+        // Phase 4 D-16 sacred — focus retention (AD-10 shared helper).
+        retainFocus(clearButton);
     }
 
     // ==== Theme toggle button (click) ====
@@ -144,9 +148,8 @@ export function wireChrome(opts) {
     // above still fires (click and mousedown are separate events).
     // Keyboard activation (Tab-to-button + Space) is unaffected because
     // mousedown does not fire on keyboard activation.
-    themeButton.addEventListener('mousedown', (e) => {
-        e.preventDefault();
-    });
+    // Epic E0 Story E0.1 (AD-10) — relocated into the shared retainFocus helper.
+    retainFocus(themeButton);
 
     // ==== Phosphor radio-group (click) ====
     for (const btn of phosphorButtons) {
@@ -158,9 +161,7 @@ export function wireChrome(opts) {
             // Phase 6 Plan 06 (PREF-01) — persist phosphor choice.
             if (savePrefs) savePrefs({ phosphor: color });
         });
-        btn.addEventListener('mousedown', (e) => {
-            e.preventDefault();            // Phase 4 D-16 — focus retention.
-        });
+        retainFocus(btn);                  // Phase 4 D-16 — focus retention (AD-10).
     }
 
     // ==== Keyboard shortcuts (keydown on wrapper — synchronous preventDefault) ====
@@ -283,7 +284,7 @@ export function wireChrome(opts) {
             if (ss) ss.snapToBottom();   // D-04 trigger.
             if (requestFrame) requestFrame();
         });
-        clearScrollbackButton.addEventListener('mousedown', (e) => e.preventDefault());
+        retainFocus(clearScrollbackButton);   // Phase 4 D-16 — focus retention (AD-10).
     }
 
     // ==== Bitmap font selector (CRT-only) ====
@@ -297,12 +298,11 @@ export function wireChrome(opts) {
         fontSelect.addEventListener('change', (e) => {
             setFont(e.target.value);
             if (savePrefs) savePrefs({ font: e.target.value });
-            // Restore wrapper focus after the dropdown closes — Phase 4 D-16.
-            // <select> needs the native focus transfer to open its picker, so
-            // we cannot use the mousedown-preventDefault pattern that buttons
-            // and radios use; restore focus on change instead.
-            if (terminalWrapper) terminalWrapper.focus();
         });
+        // Restore wrapper focus after the dropdown closes — Phase 4 D-16. The
+        // <select> branch of the shared helper owns this (it restores on change
+        // because a select needs the native focus transfer to open its picker).
+        retainFocus(fontSelect, terminalWrapper);
     }
 
     // ==== Phase 6 Plan 06 (Wave 5) — Auto connect checkbox (D-34) ====
@@ -315,7 +315,7 @@ export function wireChrome(opts) {
         autoConnectCheckbox.addEventListener('change', (e) => {
             if (savePrefs) savePrefs({ autoConnect: e.target.checked });
         });
-        autoConnectCheckbox.addEventListener('mousedown', (e) => e.preventDefault());
+        retainFocus(autoConnectCheckbox);   // Phase 4 D-16 — focus retention (AD-10).
     }
 
     // ==== "Show all serial devices" checkbox ====
@@ -330,7 +330,7 @@ export function wireChrome(opts) {
         showAllSerialCheckbox.addEventListener('change', (e) => {
             if (savePrefs) savePrefs({ showAllSerialDevices: e.target.checked });
         });
-        showAllSerialCheckbox.addEventListener('mousedown', (e) => e.preventDefault());
+        retainFocus(showAllSerialCheckbox);   // Phase 4 D-16 — focus retention (AD-10).
     }
 
     // ==== Phase 6 Plan 06 (Wave 5) — Reset prefs 2-click confirm (D-35) ====
@@ -358,7 +358,7 @@ export function wireChrome(opts) {
                 resetPrefsButton.textContent = RESET_PREFS_IDLE_LABEL;
             }
         });
-        resetPrefsButton.addEventListener('mousedown', (e) => e.preventDefault());
+        retainFocus(resetPrefsButton);   // Phase 4 D-16 — focus retention (AD-10).
     }
 
     // Auto-focus the wrapper at boot so cursor blinks and Ctrl+Shift+T works immediately.
