@@ -1,0 +1,121 @@
+# generated: 2026-07-01
+# last_updated: 2026-07-01
+# project: beastty
+# project_key: NOKEY
+# tracking_system: file-system
+# story_location: _bmad-output/implementation-artifacts
+
+# STATUS DEFINITIONS:
+# ==================
+# Epic Status:
+#   - backlog: Epic not yet started
+#   - in-progress: Epic actively being worked on
+#   - done: All stories in epic completed
+#
+# Epic Status Transitions:
+#   - backlog → in-progress: Automatically when first story is created (via create-story)
+#   - in-progress → done: Manually when all stories reach 'done' status
+#
+# Story Status:
+#   - backlog: Story only exists in epic file
+#   - ready-for-dev: Story file created in stories folder
+#   - in-progress: Developer actively working on implementation
+#   - review: Ready for code review (via Dev's code-review workflow)
+#   - done: Story completed
+#
+# Retrospective Status:
+#   - optional: Can be completed but not required
+#   - done: Retrospective has been completed
+#
+# Action Item Status:
+#   - open: Committed during a retrospective, not yet addressed
+#   - in-progress: Actively being worked on
+#   - done: Completed
+#
+# WORKFLOW NOTES:
+# ===============
+# - Epic transitions to 'in-progress' automatically when first story is created
+# - Stories can be worked in parallel if team capacity allows
+# - Developer typically creates next story after previous one is 'done' to incorporate learnings
+# - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
+# - Retrospective appends its action items to action_items; sprint-status surfaces open ones
+#
+# DEPENDENCY ORDER (from EPIC-SPLIT.md — informational, not enforced by status):
+# ==============================================================================
+#   E0 → E1 → {E2, E3, E5, E6};  E4 depends on E1 + E2;  E7 depends on E0.
+#   E1 is the backbone and must land before the other menu/modal epics.
+
+generated: 2026-07-01
+last_updated: 2026-07-01
+# retrospective action items (surface open ones during sprint status)
+action_items:
+  - epic: "e0"
+    action: "Establish a flaky-test protocol: serialize/quarantine the parallel-load transport specs, OR codify 'judge regressions by named oracles in isolation (--workers=1)' as a standing convention"
+    owner: "Amelia (Dev)"
+    status: open
+  - epic: "e0"
+    action: "Decide openModal returnValue-reset policy for future new modals and document it in modal.js"
+    owner: "Winston + Amelia"
+    status: open
+  - epic: "e0"
+    action: "Note in E1.3 plan that chrome.js already has zero inline focus sites (migrated in E0.1) so the work is not re-planned"
+    owner: "Amelia"
+    status: open
+project: beastty
+project_key: NOKEY
+tracking_system: file-system
+story_location: _bmad-output/implementation-artifacts
+
+development_status:
+  # ── Epic E0 · Shared UI Primitives (depends on: nothing) ──
+  epic-e0: done
+  e0-1-focus-retention-helper: done
+  e0-2-modal-helper-openmodal-send-modal-refactor: done
+  epic-e0-retrospective: done
+
+  # ── Epic E1 · Menu Bar Backbone + View Menu (depends on: E0) ──
+  epic-e1: in-progress
+  e1-1-menu-bar-shell-dropdown-mechanics: done
+  e1-2-keyboard-navigation-esc-passthrough-guard: backlog
+  e1-3-chrome-js-decomposition-boot-order-reset-re-projection: backlog
+  e1-4-view-menu-theme-phosphor: backlog
+  e1-5-view-menu-font-zoom-clear: backlog
+  epic-e1-retrospective: optional
+
+  # ── Epic E2 · Connection & Serial Configuration (depends on: E0, E1) ──
+  epic-e2: backlog
+  e2-1-connect-disconnect-single-writer-menu-item: backlog
+  e2-2-auto-connect-toggle-choose-microbeast: backlog
+  e2-3-serial-configuration-modal: backlog
+  epic-e2-retrospective: optional
+
+  # ── Epic E3 · File, Settings & Transfer Configuration (depends on: E0, E1) ──
+  epic-e3: backlog
+  e3-1-file-menu-send-file-download-session-log: backlog
+  e3-2-settings-menu-local-echo-enter-key-sends: backlog
+  e3-3-settings-menu-reset-all-preferences-reserved-ctrl-info: backlog
+  e3-4-slide-file-transfer-modal: backlog
+  epic-e3-retrospective: optional
+
+  # ── Epic E4 · Bottom Status Bar (depends on: E1, E2) ──
+  epic-e4: backlog
+  e4-1-connection-device-baud-readout: backlog
+  e4-2-build-sha-zoom-readout: backlog
+  e4-3-recent-errors-affordance: backlog
+  epic-e4-retrospective: optional
+
+  # ── Epic E5 · Debug Menu & In-Page Debug Panel (depends on: E1) ──
+  epic-e5: backlog
+  e5-1-debug-menu-panel-toggle: backlog
+  epic-e5-retrospective: optional
+
+  # ── Epic E6 · Help Menu (depends on: E0, E1) ──
+  epic-e6: backlog
+  e6-1-keyboard-shortcuts-modal: backlog
+  e6-2-about-beastty-modal: backlog
+  epic-e6-retrospective: optional
+
+  # ── Epic E7 · Paste Toast (depends on: E0) ──
+  epic-e7: backlog
+  e7-1-paste-progress-large-paste-confirm-toast: backlog
+  epic-e7-retrospective: optional

@@ -65,6 +65,7 @@ import {
     readRowText,               // Phase 6 Plan 04 — selection asks canvas for decoded row text
 } from './renderer/canvas.js';
 import { wireChrome } from './renderer/chrome.js';
+import { wireMenuBar } from './renderer/menu-bar.js';
 import { wireScrollState } from './renderer/scroll-state.js';
 import { wireSelection } from './input/selection.js';
 import { wireKeyboard, setLocalEcho, setCrlfMode } from './input/keyboard.js';
@@ -246,6 +247,17 @@ wireChrome({
     cancelSlideRecv: () => cancelSlideRecvLazy(),  // Phase 11 D-13 — thunk-holder; resolved below
     txSink: { writeSlideFrame, writeSlideFrameAwaitable },  // Phase 11 D-13 — fire-and-forget CTRL_CAN
 });
+
+// ---- Epic E1 Story E1.1 — menu-bar shell ----
+// Wired at the wireChrome seam (AD-12), AFTER wireChrome and BEFORE
+// wireKeyboard, so chrome.js's #terminal-wrapper keydown listener still
+// registers ahead of keyboard.js and its defaultPrevented short-circuit keeps
+// winning on chords. menu-bar.js registers NO keydown handler this story
+// (Esc-passthrough guard + keyboard nav are E1.2), so paste-cancel / SLIDE-
+// cancel are unaffected. The bar is additive — it COEXISTS with #top-bar and
+// the <details> panes (Scope Decision); nothing incumbent is removed here.
+const menuBar = wireMenuBar({ terminalWrapper });
+window.__menuBar = menuBar;   // Playwright hook (mirrors window.__scrollState / window.__modal)
 
 // ---- Phase 6 Plan 03 (Wave 2) — wire scrollback state machine ----
 // wireScrollState owns the wheel listener (attached to #terminal-wrapper),

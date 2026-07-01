@@ -41,6 +41,17 @@
       --chrome-fg:     #e4e8ee;
       --chrome-accent: #7fdbca;
       --chrome-border: rgba(255, 255, 255, 0.08);
+      /* Epic E1 Story E1.1 — neutral-shell tokens (DESIGN.md :7-18, verbatim
+         from the throwaway chrome mock). Reused by #menu-bar; NOT a new
+         palette (DESIGN.md:118 "reuse the existing :root tokens"). --chrome-muted
+         and --field-bg are theme-independent by design; the four --status-*
+         values are the discrete connection-dot states (never animated). */
+      --chrome-muted:  rgba(255, 255, 255, 0.6);
+      --field-bg:      #0f1419;
+      --status-green:  #33ff66;
+      --status-amber:  #e0b030;
+      --status-red:    #e04040;
+      --status-gray:   rgba(255, 255, 255, 0.4);
       /* Phase 12 Plan 12-06 (Gap 2 — UAT Test 7) — strong invalid tone. Used
          ONLY by the security-relevant auto-send command field per the user's
          locked design call (2026-05-09): "it's a serious matter so red is
@@ -73,9 +84,103 @@
       min-height: 100vh;
     }
 
+    /* ==== Menu bar shell (Epic E1 Story E1.1) — neutral modern chrome ==== */
+    /* AD-9 / NFR-2 / AC-5: renders IDENTICALLY across Console↔CRT. The global
+       [data-theme="crt"] block above flips --chrome-bg/fg/accent for the OLD
+       #top-bar; we PIN the neutral static values on #menu-bar so the new chrome
+       never adapts to the terminal theme. This is a scoped token pin, not a
+       [data-theme] styling branch — there is no theme selector, no phosphor var,
+       and no box-shadow anywhere in this block (depth = tone + 1px hairlines).
+       The pin (and the whole [data-theme] chrome override) is retired in E1.3+
+       when #top-bar goes away. */
+    #menu-bar {
+      --chrome-bg:     #1e242c;
+      --chrome-fg:     #e4e8ee;
+      --chrome-accent: #7fdbca;
+      position: sticky; top: 0; z-index: 20;
+      /* <body> is a centering flex column (index.html:212), so a bare flex
+         child shrink-wraps and centres. Stretch to fill the cross axis so the
+         bar spans full width and the status region right-aligns (AC-1). */
+      align-self: stretch;
+      display: flex; align-items: center; gap: 2px;
+      height: 32px;
+      padding: 0 6px;
+      background: var(--chrome-bg);
+      border-bottom: 1px solid var(--chrome-border);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+    #menu-bar .menu-group { position: relative; display: flex; align-items: center; }
+    #menu-bar .menu-title {
+      appearance: none; border: none; background: transparent;
+      font-family: inherit; font-size: 14px; color: var(--chrome-fg);
+      padding: 5px 10px; border-radius: 4px;
+      cursor: default; white-space: nowrap;
+    }
+    #menu-bar .menu-title:hover,
+    #menu-bar .menu-title[data-open="true"] {
+      background: var(--chrome-accent); color: var(--chrome-bg);
+    }
+    #menu-bar .menu-spacer { flex: 1; }
+    #menu-bar .menu-status {
+      display: flex; align-items: center; gap: 8px;
+      padding: 0 8px; color: var(--chrome-muted); font-size: 13px; white-space: nowrap;
+    }
+    #menu-conn-dot {
+      width: 9px; height: 9px; flex: 0 0 9px;
+      border-radius: 50%;                 /* the one intentional circle */
+      background: var(--status-gray);
+    }
+    /* Dropdown panel — md 6px, 1px hairline, NO box-shadow (UX-DR5). Opens below
+       its own title because it is an absolutely-positioned child of the
+       position:relative .menu-group — so no inline left offset is ever set. */
+    #menu-bar .dropdown {
+      position: absolute; top: 100%; left: 0; margin-top: 1px;
+      min-width: 240px;
+      background: var(--chrome-bg);
+      border: 1px solid var(--chrome-border);
+      border-radius: 6px;
+      padding: 5px;
+      z-index: 30;
+    }
+    #menu-bar .dropdown[hidden] { display: none; }
+    #menu-bar .menu-item {
+      appearance: none; border: none; background: transparent;
+      font-family: inherit; font-size: 14px; color: var(--chrome-fg);
+      display: flex; align-items: center; gap: 10px;
+      width: 100%; text-align: left;
+      padding: 6px 10px; border-radius: 4px;
+      cursor: default; white-space: nowrap;
+    }
+    /* Highlight is attribute-driven ([data-focused]) + :hover — NOT :focus-visible.
+       Solid chrome-accent fill + chrome-bg text (spec beats the mock's tint). */
+    #menu-bar .menu-item:hover,
+    #menu-bar .menu-item[data-focused="true"] {
+      background: var(--chrome-accent); color: var(--chrome-bg);
+    }
+    #menu-bar .menu-item:hover .check,
+    #menu-bar .menu-item:hover .hint,
+    #menu-bar .menu-item:hover .caret,
+    #menu-bar .menu-item[data-focused="true"] .check,
+    #menu-bar .menu-item[data-focused="true"] .hint,
+    #menu-bar .menu-item[data-focused="true"] .caret { color: var(--chrome-bg); }
+    #menu-bar .menu-item[data-disabled="true"] { color: var(--chrome-muted); }
+    #menu-bar .menu-item[data-disabled="true"]:hover {
+      background: none; color: var(--chrome-muted);
+    }
+    #menu-bar .menu-item .check { width: 14px; text-align: center; color: var(--chrome-accent); }
+    #menu-bar .menu-item .lbl { flex: 1; }
+    #menu-bar .menu-item .hint { color: var(--chrome-muted); font-size: 12px; }
+    #menu-bar .menu-item .caret { color: var(--chrome-muted); font-size: 12px; }
+    #menu-bar .menu-sep { height: 1px; background: var(--chrome-border); margin: 5px 8px; }
+
     /* ==== Top bar (UI-SPEC §Layout Contract) ==== */
     #top-bar {
-      position: sticky; top: 0; z-index: 10;
+      /* Epic E1 Story E1.1 — during the E1 coexistence period #top-bar sits
+         BELOW the 32px sticky #menu-bar. Both are position:sticky and #menu-bar
+         has the higher z-index (20 > 10), so a top:0 here would let the menu bar
+         paint over #top-bar's still-live controls (Connect / theme / phosphor)
+         once the page scrolls. Reverts to top:0 when #menu-bar retires (E1.3+). */
+      position: sticky; top: 32px; z-index: 10;
       display: flex; align-items: center; gap: 16px;
       padding: 8px 16px;
       background: var(--chrome-bg);
@@ -812,6 +917,129 @@
   </style>
 </head>
 <body data-theme="crt">
+  <!-- ============================================================= -->
+  <!-- Menu bar shell — Epic E1 Story E1.1 (menu-bar.js owns it).     -->
+  <!-- COEXISTS with the incumbent #top-bar + <details> panes during   -->
+  <!-- the E1→E2/E3/E5 migration (Scope Decision, 2026-07-01): the new -->
+  <!-- bar is additive; each old surface is retired by the story that  -->
+  <!-- migrates its function. Dropdown items here are STRUCTURAL        -->
+  <!-- PLACEHOLDERS demonstrating the four menu-item variants — they    -->
+  <!-- are NOT wired to canvas/prefs setters this story.               -->
+  <!-- Positioning: each title+panel sits in a position:relative       -->
+  <!-- .menu-group so the panel opens below its own title via CSS —     -->
+  <!-- no inline left offsets (the mock's style="left:56px" is         -->
+  <!-- forbidden; state is expressed via [hidden] + data-* only).      -->
+  <!-- ============================================================= -->
+  <nav id="menu-bar" aria-label="Application menu">
+    <div class="menu-group">
+      <button id="menu-file" class="menu-title" type="button" aria-haspopup="true">File</button>
+      <div id="dropdown-file" class="dropdown" role="menu" hidden>
+        <button class="menu-item" type="button" role="menuitem" data-variant="action">
+          <span class="check"></span><span class="lbl">Send File…</span><span class="caret">▸ modal</span>
+        </button>
+        <button class="menu-item" type="button" role="menuitem" data-variant="disabled"
+                data-disabled="true" title="No bytes received yet">
+          <span class="check"></span><span class="lbl">Download Session Log</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="menu-group">
+      <button id="menu-connection" class="menu-title" type="button" aria-haspopup="true">Connection</button>
+      <div id="dropdown-connection" class="dropdown" role="menu" hidden>
+        <button class="menu-item" type="button" role="menuitem" data-variant="action">
+          <span class="check"></span><span class="lbl">Connect</span>
+        </button>
+        <button class="menu-item" type="button" role="menuitem" data-variant="disabled"
+                data-disabled="true" title="Connect first to choose a device">
+          <span class="check"></span><span class="lbl">Choose MicroBeast…</span>
+        </button>
+        <div class="menu-sep"></div>
+        <button class="menu-item" type="button" role="menuitem" data-variant="action">
+          <span class="check"></span><span class="lbl">Serial Configuration…</span><span class="caret">▸ modal</span>
+        </button>
+        <div class="menu-sep"></div>
+        <button class="menu-item" type="button" role="menuitemcheckbox"
+                data-variant="checkable" data-checked="true">
+          <span class="check"></span><span class="lbl">Auto-connect on load</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="menu-group">
+      <button id="menu-view" class="menu-title" type="button" aria-haspopup="true">View</button>
+      <div id="dropdown-view" class="dropdown" role="menu" hidden>
+        <button class="menu-item" type="button" role="menuitem" data-variant="radio-submenu">
+          <span class="check"></span><span class="lbl">Theme</span><span class="caret">▸</span>
+        </button>
+        <button class="menu-item" type="button" role="menuitem" data-variant="radio-submenu">
+          <span class="check"></span><span class="lbl">Phosphor</span><span class="caret">▸</span>
+        </button>
+        <button class="menu-item" type="button" role="menuitem" data-variant="radio-submenu">
+          <span class="check"></span><span class="lbl">Font</span><span class="caret">▸</span>
+        </button>
+        <div class="menu-sep"></div>
+        <button class="menu-item" type="button" role="menuitem" data-variant="action">
+          <span class="check"></span><span class="lbl">Zoom In</span><span class="hint">Ctrl+=</span>
+        </button>
+        <button class="menu-item" type="button" role="menuitem" data-variant="action">
+          <span class="check"></span><span class="lbl">Zoom Out</span><span class="hint">Ctrl+-</span>
+        </button>
+        <button class="menu-item" type="button" role="menuitem" data-variant="action">
+          <span class="check"></span><span class="lbl">Clear</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="menu-group">
+      <button id="menu-settings" class="menu-title" type="button" aria-haspopup="true">Settings</button>
+      <div id="dropdown-settings" class="dropdown" role="menu" hidden>
+        <button class="menu-item" type="button" role="menuitemcheckbox"
+                data-variant="checkable" data-checked="false">
+          <span class="check"></span><span class="lbl">Local echo</span>
+        </button>
+        <button class="menu-item" type="button" role="menuitem" data-variant="radio-submenu">
+          <span class="check"></span><span class="lbl">Enter key sends</span><span class="caret">▸</span>
+        </button>
+        <div class="menu-sep"></div>
+        <button class="menu-item" type="button" role="menuitem" data-variant="action">
+          <span class="check"></span><span class="lbl">Reset all preferences</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="menu-group">
+      <button id="menu-debug" class="menu-title" type="button" aria-haspopup="true">Debug</button>
+      <div id="dropdown-debug" class="dropdown" role="menu" hidden>
+        <button class="menu-item" type="button" role="menuitemcheckbox"
+                data-variant="checkable" data-checked="false">
+          <span class="check"></span><span class="lbl">Show Debug Panel</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="menu-group">
+      <button id="menu-help" class="menu-title" type="button" aria-haspopup="true">Help</button>
+      <div id="dropdown-help" class="dropdown" role="menu" hidden>
+        <button class="menu-item" type="button" role="menuitem" data-variant="action">
+          <span class="check"></span><span class="lbl">Keyboard Shortcuts…</span><span class="caret">▸ modal</span>
+        </button>
+        <button class="menu-item" type="button" role="menuitem" data-variant="action">
+          <span class="check"></span><span class="lbl">About Beastty…</span><span class="caret">▸ modal</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="menu-spacer"></div>
+
+    <!-- Connection-status PLACEHOLDER (live wiring lands in E2/E4). The dot is
+         the single intentional circle in the chrome (DESIGN.md:180). -->
+    <div class="menu-status">
+      <span id="menu-conn-dot" aria-hidden="true"></span>
+      <span id="menu-conn-label">Not connected</span>
+    </div>
+  </nav>
+
   <!-- Top bar — Connect button (Phase 5 D-01) + theme toggle + phosphor radio-group (D-12). -->
   <!-- Phase 5 Plan 09 (Gap 2 fix): #paste-progress-row was relocated here from
        inside the Connection pane so a paste-in-flight does not auto-expand the
