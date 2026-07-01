@@ -134,6 +134,13 @@ import {
     __getStateForTests as __focusGetStateForTests,
     __resetForTests as __focusResetForTests,
 } from './renderer/focus.js';
+// Epic E0 Story E0.2 (AD-8) — shared openModal helper. openModal is imported
+// directly by the modules that own dialogs (see file-source.js); main.js only
+// surfaces its test hooks as window.__modal for the Playwright chromium suite.
+import {
+    __getStateForTests as __modalGetStateForTests,
+    __resetForTests as __modalResetForTests,
+} from './renderer/modal.js';
 import { getRecvDirHandle, setRecvDirHandle, clearRecvDirHandle } from './state/idb.js';
 import { wireClipboard, copySelection, pasteFromClipboard } from './input/clipboard.js';
 import {
@@ -830,6 +837,13 @@ window.__slideChip = {
 window.__focus = {
     __resetForTests: __focusResetForTests,
     __getStateForTests: __focusGetStateForTests,
+};
+
+// Epic E0 Story E0.2 (AD-8) — openModal test-hook introspection for the
+// modal.spec.js chromium suite.
+window.__modal = {
+    __resetForTests: __modalResetForTests,
+    __getStateForTests: __modalGetStateForTests,
 };
 
 // Phase 5 — wire Web Serial transport. opts mirror Phase 4 wireKeyboard

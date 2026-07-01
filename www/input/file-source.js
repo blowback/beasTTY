@@ -23,6 +23,11 @@
 // so the slideConfirmTransfers toggle takes effect on the very next picker /
 // drop without re-wiring or boot.
 import { getPrefs } from '../state/prefs.js';
+// Epic E0 Story E0.2 (AD-8) — the one shared open/close/focus primitive.
+// file-source.js is the proof caller: #send-modal is the only <dialog> today,
+// so this leaf import (mirroring chrome.js importing retainFocus from
+// ./focus.js) is what pins the openModal contract for the future config modals.
+import { openModal } from '../renderer/modal.js';
 
 // ===== CP/M validation constants (D-06) =====
 const CPM_INVALID_CHARS = new Set(['<','>',',',';',':','=','?','*','[',']']);
@@ -520,50 +525,24 @@ function showConfirmModal(rows, surviving, collisionRows) {
         if (refuseBtnRef)      refuseBtnRef.hidden      = true;
     }
 
-    return new Promise((resolve) => {
-        const onClose = () => {
-            modalElRef.removeEventListener('close', onClose);
-            // Phase 12 Plan 12-06 (Gap 1) — clear data-focused on every footer
-            // button so a stale attribute cannot paint a ghost indicator on a
-            // button that no longer has focus when the modal next opens.
-            if (sendRenamedBtnRef) sendRenamedBtnRef.setAttribute('data-focused', 'false');
-            if (cancelBtnRef)      cancelBtnRef.setAttribute('data-focused', 'false');
-            // Phase 12 UAT Niggle 2 — Send button is now the no-collision
-            // default focus target; clear its data-focused on close too so a
-            // stale attribute doesn't paint on next open.
-            if (sendBtnRef)        sendBtnRef.setAttribute('data-focused', 'false');
-            // Phase 12 SLIDE-36 — tagged returnValue (replaces Phase 9 boolean).
-            const action = modalElRef.returnValue || null;
-            // Focus restoration:
-            //   'send' | 'first-only' → terminal-wrapper (transfer is starting)
-            //   'refuse' | 'cancel' | falsy → top-bar Send-file button
-            if (action === 'send' || action === 'first-only') {
-                wrapperElRef?.focus();
-            } else {
-                topBarSendBtnRef?.focus();
-            }
-            resolve(action);
-        };
-        modalElRef.addEventListener('close', onClose);
-        modalElRef.showModal();
-        // Phase 12 UAT Niggle 2 — default-focus on Send button for the
-        // no-collision case (was Phase 9 Cancel-default Pitfall 2). Reading-
-        // order convention: primary action [Send N files] is leftmost AND
-        // default-focused so Enter triggers send. Collision-present mode
-        // continues to focus [Send N renamed] per Phase 12 SLIDE-36 D-03.
-        const initialFocusTarget = collisionsPresent
-            ? (sendRenamedBtnRef || cancelBtnRef)
-            : (sendBtnRef || cancelBtnRef);
-        if (initialFocusTarget) {
-            // Phase 12 Plan 12-06 (Gap 1 — UAT Test 5) — set data-focused="true"
-            // BEFORE .focus() so the index.html [data-focused="true"] CSS rule
-            // paints the border immediately. :focus-visible alone is suppressed
-            // by Chromium when the modal is opened via a pointer-initiated path.
-            // Mirrors the Phase 6 gap #7 pattern in chrome.js wireChrome.
-            initialFocusTarget.setAttribute('data-focused', 'true');
-            initialFocusTarget.focus();
-        }
-    });
+    // Epic E0 Story E0.2 (AD-8) — open/close/focus now lives in openModal. The
+    // caller keeps ONLY the two decisions that vary per dialog:
+    //   initialFocus — which footer button to light (data-focused + .focus()).
+    //     Phase 12 UAT Niggle 2: no-collision default is [Send N files] (leftmost
+    //     primary, so Enter sends); collision mode keeps [Send N renamed] per
+    //     SLIDE-36 D-03. openModal clears data-focused on exactly this element on
+    //     close (the old defensive clears of the other footer buttons are no
+    //     longer needed — the helper always clears the one it lit).
+    //   restoreTo — the conditional restore expressed as a callback so openModal
+    //     stays ignorant of SLIDE actions: 'send' | 'first-only' → #terminal-wrapper
+    //     (transfer is starting), else ('refuse' | 'cancel' | '') → top-bar trigger.
+    // openModal resolves to the RAW returnValue ('' for Esc); processFiles' own
+    // `!action` guard maps '' → bail, preserving showConfirmModal's contract.
+    const initialFocus = collisionsPresent
+        ? (sendRenamedBtnRef || cancelBtnRef)
+        : (sendBtnRef || cancelBtnRef);
+    const restoreTo = (rv) => (rv === 'send' || rv === 'first-only') ? wrapperElRef : topBarSendBtnRef;
+    return openModal(modalElRef, { initialFocus, restoreTo });
 }
 
 function spanText(text, ariaHidden, className) {

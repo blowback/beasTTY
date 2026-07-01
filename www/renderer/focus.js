@@ -32,7 +32,7 @@ const retained = [];
 // retainFocus(el) (re-init, hot reload, test re-wire) is a no-op instead of
 // stacking duplicate listeners and double-counting in the registry. WeakSet
 // holds no strong ref, so it never keeps a detached element alive.
-const wired = new WeakSet();
+let wired = new WeakSet();
 
 export function retainFocus(el, restoreTarget) {
     if (!el) return el;
@@ -74,4 +74,8 @@ export function __getStateForTests() {
 
 export function __resetForTests() {
     retained.length = 0;
+    // Swap in a fresh WeakSet (WeakSet has no clear()) so re-wiring the SAME
+    // element instance after a reset actually re-attaches instead of hitting the
+    // idempotency skip — otherwise a re-wire test sees retainedCount stuck at 0.
+    wired = new WeakSet();
 }
