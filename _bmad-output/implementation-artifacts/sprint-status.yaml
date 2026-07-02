@@ -46,19 +46,39 @@
 #   E1 is the backbone and must land before the other menu/modal epics.
 
 generated: 2026-07-01
-last_updated: 2026-07-02
+last_updated: 2026-07-02  # E1 retrospective completed
 # retrospective action items (surface open ones during sprint status)
 action_items:
   - epic: "e0"
     action: "Establish a flaky-test protocol: serialize/quarantine the parallel-load transport specs, OR codify 'judge regressions by named oracles in isolation (--workers=1)' as a standing convention"
     owner: "Amelia (Dev)"
-    status: open
+    status: done   # resolved 2026-07-02 by the E1 flake fix (playwright.config.js transport project + retry)
   - epic: "e0"
     action: "Decide openModal returnValue-reset policy for future new modals and document it in modal.js"
     owner: "Winston + Amelia"
-    status: open
+    status: done   # 2026-07-02 — policy block added to modal.js header; clear-scrollback modal audited
   - epic: "e0"
     action: "Note in E1.3 plan that chrome.js already has zero inline focus sites (migrated in E0.1) so the work is not re-planned"
+    owner: "Amelia"
+    status: done
+  - epic: "e1"
+    action: "Land the real flake fix (serialize/quarantine transport connect-handshake specs in playwright.config.js, or bounded retry) so the full parallel suite is trustworthy without per-story --workers=1 re-diagnosis"
+    owner: "Amelia (Dev)"
+    status: done   # 2026-07-02 — transport isolated to a non-fully-parallel project + retries:1; verified 397 passed / 0 failed at full parallelism
+  - epic: "e1"
+    action: "Ratify or flip the Font shown-but-disabled-off-CRT decision (dev resolved architecture-authoritative per AD-7/AD-9 against silent FR-9; flip is a one-line syncFontDisabled removal)"
+    owner: "Ant + Amelia"
+    status: done   # 2026-07-02 — Ant confirmed: Font selection disabled when not in CRT mode is correct
+  - epic: "e1"
+    action: "Decide and document the openModal returnValue-reset policy in modal.js before E2.3, retro-auditing the E1.5 #clear-scrollback-confirm modal"
+    owner: "Winston + Amelia"
+    status: done   # 2026-07-02 — policy block in modal.js; clear-scrollback modal conforms
+  - epic: "e1"
+    action: "Codify menu-driven testing idioms (window.__menuBar.open, force:true on aria-disabled, snap-to-bottom as scrollback-flush fingerprint) for E2/E3/E6"
+    owner: "Amelia"
+    status: open
+  - epic: "e1"
+    action: "Track the #top-bar/<details> coexistence variance to its E7 close-out so dual-chrome is never shipped mid-migration and the neutral-shell pin retires with it"
     owner: "Amelia"
     status: open
 project: beastty
@@ -80,7 +100,7 @@ development_status:
   e1-3-chrome-js-decomposition-boot-order-reset-re-projection: done
   e1-4-view-menu-theme-phosphor: done
   e1-5-view-menu-font-zoom-clear: done
-  epic-e1-retrospective: optional
+  epic-e1-retrospective: done
 
   # ── Epic E2 · Connection & Serial Configuration (depends on: E0, E1) ──
   epic-e2: backlog

@@ -27,6 +27,22 @@
 //   - resolves to the RAW dialogEl.returnValue string (may be ''). Mapping
 //                   '' → null and switching on the tag is the CALLER's job.
 //
+// Policy for new modals (E2.3 Serial Config, E3 SLIDE, E6 About/Shortcuts) —
+// decided once here so no future caller re-litigates the returnValue contract
+// (E0 retro action #2 / E1 retro action #3):
+//   1. openModal resets dialogEl.returnValue = '' before every showModal(), so an
+//      Esc / backdrop dismissal ALWAYS resolves '' — never a stale prior tag.
+//   2. Signal an affirmative result with a NON-EMPTY tag only: a
+//      <form method="dialog"> submit button with value="confirm" (native), or an
+//      explicit dialogEl.close('confirm'). Give Cancel a distinct tag
+//      (value="cancel"), or just let Esc resolve ''.
+//   3. The caller maps the resolved string: treat '' AND any cancel tag as bail;
+//      act only on the affirmative tag (e.g. `.then(rv => rv === 'confirm')`).
+//   4. Destructive actions default-focus the SAFE choice (Cancel) and set
+//      restoreTo to the terminal wrapper so focus returns to the terminal (NFR-1).
+// Reference implementation: the E1.5 #clear-scrollback-confirm modal
+// (main.js confirmClearScrollback) — audited against this policy 2026-07-02.
+//
 // AD-1: no build step, native ESM, named exports only (no default).
 // AD-2: carries test hooks (__getStateForTests / __resetForTests) but is a leaf
 //       helper (like focus.js), so it has no wireXxx initializer; main.js
