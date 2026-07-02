@@ -160,10 +160,28 @@ const term = new Terminal(24, 80, 10_000);             // #[wasm_bindgen(constru
 await bootRenderer({ wasm, term });
 
 const terminalWrapper = document.getElementById('terminal-wrapper');
-const themeButton     = document.getElementById('theme-toggle');
-const phosphorGroup   = document.getElementById('phosphor-group');
-const phosphorButtons = phosphorGroup.querySelectorAll('button[data-phosphor]');
+// Epic E1 Story E1.4 — #theme-toggle / #phosphor-group retired to the View menu
+// (menu-bar.js owns the actions now, AD-7). Their module consts, wireChrome
+// args, applyPrefs mirrors, and D-19 capture listeners are all removed with
+// them. #font-select / #clear-button stay in #top-bar (E1.5 / E7).
 const bellOverlay     = document.getElementById('bell-overlay');
+// Epic E1 Story E1.4 — the ONE shared post-theme hook. Every theme-change site
+// routes through here: the Ctrl+Alt+T chord (via wireChrome), the View ▸ Theme
+// menu action (via wireMenuBar), and applyPrefs at boot / reset. It owns the two
+// side-effects that `setTheme` (the single body[data-theme] writer) does not:
+//   1. #font-row CRT-gate (TEMPORARY — E1.5 relocates Font; delete that line then).
+//   2. Re-projecting the View menu so an ALREADY-OPEN menu reflects the new theme.
+//      savePrefs does NOT fan out to subscribers, so without this a chord fired
+//      while View is open would leave a stale theme ✓ and a stale-enabled Phosphor
+//      row (AD-9 violation). Every caller persists via savePrefs BEFORE invoking
+//      this, and savePrefs updates the cached blob synchronously (AD-4), so
+//      projectPrefs()'s getPrefs() read already reflects the new theme. projectPrefs
+//      is idempotent and no-ops when View is absent — safe to call on every change.
+function onThemeChange(name) {
+    const fontRow = document.getElementById('font-row');
+    if (fontRow) fontRow.hidden = (name !== 'crt');
+    menuBar.projectPrefs();
+}
 // Phase 4 Plan 03 — Settings pane + Debug TX strip refs.
 const localEchoCheckbox = document.getElementById('local-echo');
 const crlfRadios        = document.querySelectorAll('input[name="crlf"]');
@@ -237,12 +255,16 @@ let cancelSlideRecvLazy = () => { /* no-op until wireSlideRecv runs */ };
 // 11-03 — the function reference is always defined but its internal state is
 // only populated after wireSlideRecv runs.
 wireChrome({
-    terminalWrapper, themeButton, phosphorButtons, phosphorGroup, bellOverlay, requestFrame,
+    terminalWrapper, bellOverlay, requestFrame,
     // Epic E1 Story E1.3 (AD-13) — the two Clear buttons moved OUT of chrome.js
     // into menu-bar.js, so `term` / `getScrollState` no longer belong here.
     // `requestFrame` STAYS (the visibilitychange catch-up repaint still uses it).
+    // Epic E1 Story E1.4 (AD-13) — theme/phosphor controls retired to the View
+    // menu; only the Ctrl+Alt+T chord stays here. onThemeChange re-gates
+    // #font-row on the chord path (the retired applyThemeSideEffects used to).
+    onThemeChange,                              // E1.4 — #font-row CRT-gate for the chord
     prefs,                                      // Phase 6 Plan 06 — Auto connect checkbox initial state
-    savePrefs,                                  // Phase 6 Plan 06 — persist Auto connect changes + theme/phosphor toggles
+    savePrefs,                                  // Phase 6 Plan 06 — persist Auto connect + the Ctrl+Alt+T chord theme change
     resetPrefs,                                 // Phase 6 Plan 06 — Reset all preferences 2-click confirm
     isSlideActive: isSlideActive,               // Phase 11 D-13 — predicate gate for CTRL_CAN branch
     cancelSlideRecv: () => cancelSlideRecvLazy(),  // Phase 11 D-13 — thunk-holder; resolved below
@@ -267,6 +289,12 @@ const menuBar = wireMenuBar({
     term,
     getScrollState: () => scrollStateRef,
     requestFrame,
+    // Epic E1 Story E1.4 — View ▸ Theme re-gates #font-row (shared with the
+    // chord) and both Theme/Phosphor selects clear the selection (D-19 rehomed).
+    // clearSelection is a thunk: `selection` is wired further below, so the live
+    // ref resolves at click time (same late-bind pattern as getScrollState).
+    onThemeChange,
+    clearSelection: () => selection.clearSelection(),
 });
 window.__menuBar = menuBar;   // Playwright hook (mirrors window.__scrollState / window.__modal)
 
@@ -321,16 +349,13 @@ const selection = wireSelection({
 window.__selection = selection;
 window.__getActiveCellSize = getActiveCellSize;
 
-// D-19 — selection clears on theme/phosphor/zoom toggle. The theme + phosphor
-// + zoom-keyboard chords land via chrome.js handlers we don't own; rather than
-// thread an onChange callback through wireChrome's API, we register our own
-// click listeners in capture phase to fire BEFORE the toggle handler runs.
-// Selection observers don't depend on the toggle outcome — clearing pre-emptively
-// is correct (the Phase 3 side-effects will repaint the canvas afterwards).
-themeButton.addEventListener('click', () => selection.clearSelection(), true);
-for (const btn of phosphorButtons) {
-    btn.addEventListener('click', () => selection.clearSelection(), true);
-}
+// D-19 — selection clears on theme/phosphor/zoom change. Epic E1 Story E1.4 —
+// the theme/phosphor D-19 capture listeners on #theme-toggle / #phosphor-group
+// are GONE with those controls; the View ▸ Theme / Phosphor menu actions now
+// clear the selection via the injected clearSelection opt (wireMenuBar above),
+// matching the incumbent click-driven behavior. The Ctrl+Alt+T chord is
+// unchanged (it never cleared the selection). The zoom keyboard chord below is
+// still owned by chrome.js, so its D-19 capture listener stays here.
 // Ctrl+{+,-,0} zoom keyboard chord — chrome.js handles it; clear selection in
 // capture phase from the wrapper.
 terminalWrapper.addEventListener('keydown', (e) => {
@@ -1062,28 +1087,19 @@ document.getElementById('stress64k').addEventListener('click', () => {
 // Phase 5 D-08 reconnect-required hint owns "config changed mid-connection."
 // Auto-connect toggle takes effect on NEXT page load (D-34); no immediate connect.
 function applyPrefs(p) {
-    setTheme(p.theme);
-    // body[data-theme] drives scanline visibility + token overrides; chrome.js
-    // sets it on theme-toggle clicks but applyPrefs is called from prefsSubscribe
-    // (theme-toggle button doesn't fire — e.g. Reset prefs path).
-    document.body.setAttribute('data-theme', p.theme);
+    setTheme(p.theme);   // AD-14 single-writer; also sets body[data-theme] (E1.4 Task 1, canvas.js)
     // Epic E1 Story E1.3 (AD-14) — decomposition: single-writer per canvas
     // setter. Each canvas setter (setTheme/setPhosphor/setFont/setZoom) is
     // called from EXACTLY ONE place on this reset path (menu-bar.projectPrefs
     // owns the View menu projection and must never call a canvas setter, so no
-    // double-apply race). The #top-bar/<details> mirrors below are written
-    // unconditionally against the controls that exist today; when a later epic
-    // relocates a control into the menu bar (E1.4 theme/phosphor, E1.5 font,
-    // E3 local-echo/crlf) it owns removing the mirror here at the same time —
-    // exactly as E1.3 relocated the Clear buttons rather than null-guard them.
-    // Theme-button label shows the DESTINATION theme (UI-SPEC Copywriting).
-    themeButton.textContent = (p.theme === 'crt') ? 'Clean' : 'CRT';
-    // Phosphor group hidden in clean theme.
-    phosphorGroup.hidden = (p.theme !== 'crt');
+    // double-apply race).
+    // Epic E1 Story E1.4 — the #theme-toggle label + #phosphor-group mirrors and
+    // the redundant body[data-theme] set are GONE (setTheme is the single writer
+    // of the scanline attr now; menu-bar.projectPrefs re-projects the View menu's
+    // Theme/Phosphor check glyphs + Phosphor disabled state on reset). Re-gate
+    // #font-row here too so boot / reset restores font visibility (E1.5 bridge).
+    onThemeChange(p.theme);
     setPhosphor(p.phosphor);
-    for (const btn of phosphorButtons) {
-        btn.setAttribute('aria-pressed', btn.dataset.phosphor === p.phosphor ? 'true' : 'false');
-    }
     if (p.font) {
         setFont(p.font);
         const fontSelect = document.getElementById('font-select');

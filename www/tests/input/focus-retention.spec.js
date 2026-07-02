@@ -2,25 +2,34 @@
 import { test, expect } from '@playwright/test';
 
 test.describe('SC-5 — Focus retention on toolbar click', () => {
-    test('click #theme-toggle keeps #terminal-wrapper focused @fast', async ({ page }) => {
+    // Epic E1 Story E1.4 — theme/phosphor retired to View ▸ Theme / Phosphor.
+    // retainFocus on every submenu row keeps #terminal-wrapper focused (D-16/AD-10).
+    test('View ▸ Theme select keeps #terminal-wrapper focused @fast', async ({ page }) => {
         await page.goto('/');
+        await page.waitForFunction(() => window.__menuBar && typeof window.__menuBar.open === 'function');
         await page.locator('#terminal-wrapper').focus();
         await expect(page.locator('#terminal-wrapper')).toBeFocused();
 
-        await page.locator('#theme-toggle').click();
+        await page.evaluate(() => window.__menuBar.open('view'));
+        await page.click('#dropdown-view .menu-item[data-submenu="theme"]');
+        await page.click('#dropdown-view .submenu[data-submenu-panel="theme"] .menu-item[data-value="clean"]');
         await expect(page.locator('#terminal-wrapper')).toBeFocused();
-        // Confirm the click action fired (theme flipped).
+        // Confirm the action fired (theme flipped).
         await expect(page.locator('body')).toHaveAttribute('data-theme', 'clean');
     });
 
-    test('click each phosphor button keeps wrapper focused', async ({ page }) => {
+    test('View ▸ Phosphor selects keep wrapper focused', async ({ page }) => {
         await page.goto('/');
+        await page.waitForFunction(() => window.__menuBar && typeof window.__menuBar.open === 'function');
         await page.locator('#terminal-wrapper').focus();
 
+        const P = '#dropdown-view .submenu[data-submenu-panel="phosphor"]';
         for (const color of ['amber', 'white', 'green']) {
-            await page.locator(`[data-phosphor="${color}"]`).click();
+            await page.evaluate(() => window.__menuBar.open('view'));
+            await page.click('#dropdown-view .menu-item[data-submenu="phosphor"]');
+            await page.click(`${P} .menu-item[data-value="${color}"]`);
             await expect(page.locator('#terminal-wrapper')).toBeFocused();
-            await expect(page.locator(`[data-phosphor="${color}"]`)).toHaveAttribute('aria-pressed', 'true');
+            await expect(page.locator(`${P} .menu-item[data-value="${color}"]`)).toHaveAttribute('aria-checked', 'true');
         }
     });
 

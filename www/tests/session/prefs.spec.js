@@ -244,19 +244,19 @@ test.describe('PREF-01/PREF-02/PLAT-05 — Preferences persistence', () => {
 
     test('phosphor DOM state survives the 250ms debounce window — no race-revert @fast', async ({ page }) => {
         await setup(page);
-        // Click a phosphor button (real user interaction path) — Amber.
-        await page.locator('[data-phosphor="amber"]').click();
-        // Capture aria-pressed immediately after click (synchronous DOM update).
-        const pressedAfterClick = await page.locator('[data-phosphor="amber"]').getAttribute('aria-pressed');
-        expect(pressedAfterClick).toBe('true');
-        // Wait past the 250 ms debounce — applyPrefs would have fired pre-fix
-        // and (because cached state matches) would in this case be a no-op,
-        // BUT in the snapPreset analog it would have caused a revert. The
-        // structural fix makes this guarantee uniform across ALL DOM-mutating
-        // user actions.
+        await page.waitForFunction(() => window.__menuBar && typeof window.__menuBar.open === 'function');
+        // Epic E1 Story E1.4 — select Amber via View ▸ Phosphor (real user path).
+        const AMBER = '#dropdown-view .submenu[data-submenu-panel="phosphor"] .menu-item[data-value="amber"]';
+        await page.evaluate(() => window.__menuBar.open('view'));
+        await page.click('#dropdown-view .menu-item[data-submenu="phosphor"]');
+        await page.click(AMBER);
+        // aria-checked is the synchronous DOM update.
+        expect(await page.locator(AMBER).getAttribute('aria-checked')).toBe('true');
+        // Wait past the 250 ms debounce — flushPrefs does NOT fire subscribers
+        // (AD-4), so the menu radio state must not revert. Same guarantee the
+        // snapPreset fix pinned, now for the relocated phosphor control.
         await page.waitForTimeout(350);
-        const pressedAfterDebounce = await page.locator('[data-phosphor="amber"]').getAttribute('aria-pressed');
-        expect(pressedAfterDebounce).toBe('true');
+        expect(await page.locator(AMBER).getAttribute('aria-checked')).toBe('true');
     });
 });
 
@@ -281,7 +281,13 @@ test.describe('E1.3 AC-5 — applyPrefs re-applies defaults in-place on reset', 
         expect(await page.evaluate(() => window.__prefs.getPrefs().theme)).toBe('crt');
         expect(await page.evaluate(() => window.__prefs.getPrefs().phosphor)).toBe('green');
         expect(await page.evaluate(() => window.__prefs.getPrefs().fontZoom)).toBe(1);
-        // The theme-button label mirror re-projected to the default destination.
-        await expect(page.locator('#theme-toggle')).toHaveText('Clean');
+        // Epic E1 Story E1.4 — projectPrefs re-projects the View ▸ Theme active
+        // radio to the default (CRT) on reset (replacing the retired #theme-toggle
+        // label mirror).
+        await page.evaluate(() => window.__menuBar.open('view'));
+        await expect(page.locator('#dropdown-view .submenu[data-submenu-panel="theme"] .menu-item[data-value="crt"]'))
+            .toHaveAttribute('aria-checked', 'true');
+        await expect(page.locator('#dropdown-view .submenu[data-submenu-panel="theme"] .menu-item[data-value="clean"]'))
+            .toHaveAttribute('aria-checked', 'false');
     });
 });

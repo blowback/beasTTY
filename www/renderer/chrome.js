@@ -12,13 +12,11 @@
 
 import {
     setTheme,
-    setPhosphor,
     setFont,
     zoomStep,
     resetZoom,
     setFocus,
     getActiveTheme,
-    getActivePhosphor,
     getActiveFont,
     getActiveZoom as getActiveZoomFn,
 } from './canvas.js';
@@ -26,11 +24,6 @@ import {
 // branch (mousedown-preventDefault for buttons, change-restore for <select>)
 // so callers stop hand-writing either one.
 import { retainFocus } from './focus.js';
-
-function labelFor(destinationThemeName) {
-    // The button label shows the theme the user will switch TO on click.
-    return destinationThemeName === 'crt' ? 'CRT' : 'Clean';
-}
 
 // Phase 11 Plan 11-04 D-13 / SLIDE-31 — module-scope refs for the
 // visibilitychange + pagehide CTRL_CAN best-effort branches. Set inside
@@ -41,44 +34,42 @@ let isSlideActiveRef = null;
 let cancelSlideRecvRef = null;
 let txSinkRef = null;
 
-function applyThemeSideEffects(newTheme, { themeButton, phosphorGroup }) {
-    // Body attribute drives scanline visibility via CSS (RENDER-04 / D-11).
-    document.body.setAttribute('data-theme', newTheme);
-    // Phosphor group is hidden in clean theme (D-12).
-    phosphorGroup.hidden = (newTheme !== 'crt');
-    // Bitmap font selector is CRT-only — clean theme renders vector glyphs.
-    const fontRow = document.getElementById('font-row');
-    if (fontRow) fontRow.hidden = (newTheme !== 'crt');
-    // Button label shows the OTHER theme name (UI-SPEC Copywriting).
-    const destination = (newTheme === 'crt') ? 'clean' : 'crt';
-    themeButton.textContent = labelFor(destination);
-}
+// Epic E1 Story E1.4 — the theme/phosphor CONTROLS retired to the View menu
+// (menu-bar.js owns them, AD-7), but the Ctrl+Alt+T chord STAYS here (AD-13).
+// toggleTheme is now the chord's only caller; it drives only the surviving
+// side-effects. onThemeChangeRef re-gates #font-row (the retired
+// applyThemeSideEffects used to); savePrefsRef persists the chord's theme
+// change (the retired button handler persisted — the chord path does now too).
+let onThemeChangeRef = null;
+let savePrefsRef = null;
 
-function applyPhosphorSideEffects(selectedColor, phosphorButtons) {
-    // Update aria-pressed on every phosphor button.
-    for (const btn of phosphorButtons) {
-        btn.setAttribute('aria-pressed', btn.dataset.phosphor === selectedColor ? 'true' : 'false');
-    }
-}
-
-function toggleTheme(ctx) {
+function toggleTheme() {
     const current = getActiveTheme().name;
     const destination = (current === 'crt') ? 'clean' : 'crt';
-    setTheme(destination);
-    applyThemeSideEffects(destination, ctx);
+    setTheme(destination);                        // E1.4 Task 1 — also sets body[data-theme]
+    // Persist BEFORE the shared post-theme hook: onThemeChange re-projects the View
+    // menu from getPrefs(), so the new theme must already be in the cached blob
+    // (AD-4, synchronous) or an open menu would re-project to the stale theme.
+    if (savePrefsRef) savePrefsRef({ theme: destination }); // persist the chord theme change
+    if (onThemeChangeRef) onThemeChangeRef(destination);    // #font-row CRT-gate + re-project open View menu
 }
 
 export function wireChrome(opts) {
     const {
-        terminalWrapper, themeButton, phosphorButtons, phosphorGroup, bellOverlay, requestFrame,
+        terminalWrapper, bellOverlay, requestFrame,
         // Epic E1 Story E1.3 (AD-13) — the two Clear buttons relocated to
         // menu-bar.js, so `term` / `getScrollState` no longer arrive here.
         // `requestFrame` STAYS: the visibilitychange catch-up repaint uses it.
+        // Epic E1 Story E1.4 (AD-13) — #theme-toggle / #phosphor-group retired to
+        // the View menu; only the Ctrl+Alt+T chord stays here. onThemeChange
+        // re-gates #font-row on the chord path (the retired applyThemeSideEffects
+        // used to).
+        onThemeChange,
         // Phase 6 Plan 06 (Wave 5) — pref persistence + Settings new rows.
         // prefs:        starting blob (loadPrefs() result) — used for the Auto
         //               connect checkbox's initial DOM state at boot.
-        // savePrefs:    debounced merge-and-persist; called on every theme /
-        //               phosphor / zoom / Auto-connect change.
+        // savePrefs:    debounced merge-and-persist; called on the Ctrl+Alt+T
+        //               theme chord / zoom / Auto-connect change.
         // resetPrefs:   D-35 reset-all-preferences trigger.
         prefs,
         savePrefs,
@@ -92,7 +83,6 @@ export function wireChrome(opts) {
         cancelSlideRecv,
         txSink,
     } = opts;
-    const ctx = { terminalWrapper, themeButton, phosphorButtons, phosphorGroup, bellOverlay };
 
     // Phase 11 Plan 11-04 D-13 — bind module-scope refs for the SLIDE
     // best-effort CTRL_CAN branch (visibilitychange + pagehide listeners
@@ -100,10 +90,10 @@ export function wireChrome(opts) {
     isSlideActiveRef = isSlideActive || null;
     cancelSlideRecvRef = cancelSlideRecv || null;
     txSinkRef = txSink || null;
-
-    // Initial paint of chrome side-effects (reflects canvas.js default state).
-    applyThemeSideEffects(getActiveTheme().name, ctx);
-    applyPhosphorSideEffects(getActivePhosphor(), phosphorButtons);
+    // Epic E1 Story E1.4 — bind the chord's surviving side-effect refs
+    // (#font-row gate + theme persistence). Both optional (guarded at use).
+    onThemeChangeRef = onThemeChange || null;
+    savePrefsRef = savePrefs || null;
 
     // ==== Epic E1 Story E1.3 (AD-13) — Clear buttons relocated to menu-bar.js ====
     // The #clear-button (top-bar) and #clear-scrollback-button (Settings) click
@@ -112,34 +102,11 @@ export function wireChrome(opts) {
     // resize_scrollback(0)→(10000) / snapToBottom / requestFrame semantics. No
     // behaviour changed — only the ownership. Do NOT re-wire them here.
 
-    // ==== Theme toggle button (click) ====
-    themeButton.addEventListener('click', () => {
-        toggleTheme(ctx);
-        // Phase 6 Plan 06 (PREF-01) — persist new theme. getActiveTheme().name
-        // reads the post-toggle value (toggleTheme already called setTheme above).
-        if (savePrefs) savePrefs({ theme: getActiveTheme().name });
-    });
-    // Phase 4 D-16 — focus retention: suppress native focus transfer on mouse
-    // click so #terminal-wrapper keeps focus. mousedown fires BEFORE focus
-    // move; preventDefault at this phase blocks it entirely. Click handler
-    // above still fires (click and mousedown are separate events).
-    // Keyboard activation (Tab-to-button + Space) is unaffected because
-    // mousedown does not fire on keyboard activation.
-    // Epic E0 Story E0.1 (AD-10) — relocated into the shared retainFocus helper.
-    retainFocus(themeButton);
-
-    // ==== Phosphor radio-group (click) ====
-    for (const btn of phosphorButtons) {
-        btn.addEventListener('click', () => {
-            const color = btn.dataset.phosphor;
-            if (color !== 'green' && color !== 'amber' && color !== 'white') return;
-            setPhosphor(color);
-            applyPhosphorSideEffects(color, phosphorButtons);
-            // Phase 6 Plan 06 (PREF-01) — persist phosphor choice.
-            if (savePrefs) savePrefs({ phosphor: color });
-        });
-        retainFocus(btn);                  // Phase 4 D-16 — focus retention (AD-10).
-    }
+    // ==== Epic E1 Story E1.4 (AD-7) — theme/phosphor controls retired ====
+    // The #theme-toggle button click + #phosphor-group radio loop moved OUT of
+    // chrome.js this story. menu-bar.js (View ▸ Theme / Phosphor) is now their
+    // sole owner, calling the SAME setTheme / setPhosphor + savePrefs verbatim.
+    // Only the Ctrl+Alt+T chord below remains here (AD-13). Do NOT re-wire them.
 
     // ==== Keyboard shortcuts (keydown on wrapper — synchronous preventDefault) ====
     terminalWrapper.addEventListener('keydown', (e) => {
@@ -154,7 +121,7 @@ export function wireChrome(opts) {
         // Ctrl+Alt+T (no extra modifier).
         if (e.ctrlKey && e.altKey && !e.shiftKey && !e.metaKey && e.code === 'KeyT') {
             e.preventDefault();          // SYNCHRONOUS first — RESEARCH Pitfall #3.
-            toggleTheme(ctx);
+            toggleTheme();
             return;
         }
         // Ctrl+{+, -, 0} — integer zoom (RENDER-09 / D-10).
@@ -250,8 +217,10 @@ export function wireChrome(opts) {
     // ==== Bitmap font selector (CRT-only) ====
     // Same-value short-circuit lives inside setFont; persists via savePrefs so
     // the choice survives a reload. Initial DOM value mirrors the loaded blob
-    // so a fresh page reflects persisted state. Hidden in clean theme by
-    // applyThemeSideEffects above (vector rasteriser ignores font selection).
+    // so a fresh page reflects persisted state. #font-row is CRT-gated by the
+    // onThemeChange helper (main.js) — invoked at boot via applyPrefs and on
+    // every theme change (chord + View ▸ Theme) — since the retired
+    // applyThemeSideEffects no longer hides it (vector rasteriser ignores font).
     const fontSelect = document.getElementById('font-select');
     if (fontSelect) {
         fontSelect.value = (prefs && prefs.font) || getActiveFont();

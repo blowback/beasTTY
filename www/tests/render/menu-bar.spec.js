@@ -252,10 +252,11 @@ test.describe('E1.1 AC-5 — neutral, non-adaptive shell', () => {
     const crtTitleBg = await page.$eval('#menu-file', (el) => getComputedStyle(el).backgroundColor);
     expect(crtBarBg).toBe(NEUTRAL_BG_RGB);
     expect(crtTitleBg).toBe(ACCENT_RGB);
-    await page.click('#terminal-wrapper');   // close
+    await page.click('#terminal-wrapper');   // close (also focuses wrapper for the chord)
 
-    // Toggle to Console (clean) — the incumbent #top-bar flips, the menu bar must NOT.
-    await page.click('#theme-toggle');
+    // Toggle to Console (clean) via the Ctrl+Alt+T chord (E1.4 retired
+    // #theme-toggle). The theme flips the canvas; the menu bar must NOT change.
+    await page.keyboard.press('Control+Alt+KeyT');
     await expect(page.locator('body')).toHaveAttribute('data-theme', 'clean');
 
     await page.click('#menu-file');

@@ -476,6 +476,12 @@ export async function bootRenderer(opts) {
 
 export function setTheme(name) {
     if (!(name in THEMES)) return;
+    // Epic E1 Story E1.4 (RENDER-04 / D-11) — body[data-theme] drives the CRT
+    // scanline CSS layer. Centralised here (single writer) so every caller —
+    // the Ctrl+Alt+T chord, the View ▸ Theme menu, and applyPrefs on boot/reset —
+    // gets it for free. Set BEFORE the same-value short-circuit below so it
+    // still fires on the boot no-op (setTheme('crt') when already crt).
+    if (typeof document !== 'undefined') document.body.setAttribute('data-theme', name);
     // Same-value short-circuit (REVIEW warning 3): clicking the already-active
     // theme button must NOT evict the atlas, mark every row dirty, re-prime
     // ASCII, or re-dispatch a rAF — the visible result would be an unnecessary

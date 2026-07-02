@@ -41,7 +41,14 @@ import { retainFocus } from './focus.js';
 // E1.3 (AD-3 / AD-14) — menu-bar.js may import prefs.js directly. getPrefs is
 // the use-time read for the reset re-projection seam (projectPrefs below); it
 // is never cached across a save (AD-4: savePrefs reassigns the cached blob).
-import { getPrefs } from '../state/prefs.js';
+// E1.4 (AD-3 / AD-4) — savePrefs joins getPrefs as a direct prefs import: the
+// View ▸ Theme / Phosphor selects persist via savePrefs (the graph edge
+// `menu -->|direct import OK| prefs` is authoritative over the AD-3 prose).
+import { getPrefs, savePrefs } from '../state/prefs.js';
+// E1.4 (AD-3 / AD-7) — the theme/phosphor menu actions relocate the SAME canvas
+// setters the retired #theme-toggle / #phosphor-group handlers called, verbatim.
+// canvas.js setters are the only other allowed direct import (AD-3 allowlist).
+import { setTheme, setPhosphor } from './canvas.js';
 
 // Left-to-right menu order. Keys map to the #menu-<key> / #dropdown-<key> IDs.
 const MENUS = ['file', 'connection', 'view', 'settings', 'debug', 'help'];
@@ -70,6 +77,21 @@ let requestFrameRef = null;
 let focusedIndex = -1;
 let liveRegionEl = null;      // #menu-bar-live — aria-live=polite announcer
 let lastAnnounced = '';       // coalesce: only rewrite the live region on change
+
+// E1.4 — second-level (radio-submenu) state. openSubmenuPanel is the currently
+// open .submenu element (or null); submenuFocusIndex indexes its focusable
+// radios. This is a DISTINCT state layer from the top-level openMenu/focusedIndex
+// — render() stays the SOLE writer of top-level open/close; the submenu is
+// projected by openSubmenu/closeSubmenu/renderSubmenuFocus only.
+let openSubmenuPanel = null;
+let submenuFocusIndex = -1;
+
+// E1.4 — injected opts (AD-3: everything other than canvas setters + prefs must
+// arrive via wireMenuBar). onThemeChangeRef re-gates #font-row (the temporary
+// E1.5 bridge); clearSelectionRef rehomes the D-19 selection-clear onto the
+// theme/phosphor menu actions.
+let onThemeChangeRef = null;
+let clearSelectionRef = null;
 
 // Every listener this module attaches, recorded so dispose() — and an
 // idempotent re-wire — can detach ALL of them. retainFocus's mousedown handlers
@@ -154,10 +176,17 @@ export function wireMenuBar(opts = {}) {
     termRef = opts.term || null;
     getScrollStateRef = opts.getScrollState || null;
     requestFrameRef = opts.requestFrame || null;
+    // E1.4 — font-row gate + D-19 selection-clear, injected (AD-3). Both are
+    // optional: a test harness that omits them leaves the corresponding
+    // side-effect inert (guarded at each call site).
+    onThemeChangeRef = opts.onThemeChange || null;
+    clearSelectionRef = opts.clearSelection || null;
     menuBarEl = document.getElementById('menu-bar');
     liveRegionEl = document.getElementById('menu-bar-live');
     openMenu = null;
     focusedIndex = -1;
+    openSubmenuPanel = null;
+    submenuFocusIndex = -1;
     lastAnnounced = '';
 
     // The two incumbent Clear buttons live in #top-bar / the Settings <details>,
@@ -226,7 +255,11 @@ function onMenuKeydown(e) {
     //              FR-4 regression this story forbids.
     if (e.key === 'Escape') {
         if (openMenu === null) return;           // passthrough — DO NOT touch e
-        closeMenu();                             // closes one level (only level today)
+        // E1.4 — Esc collapses ONE level: an open submenu first, else the menu.
+        // Either way the event is consumed so keyboard.js short-circuits (the
+        // E1.2 contract — Esc must not reach the terminal while a menu is open).
+        if (openSubmenuPanel) closeSubmenu();
+        else closeMenu();
         e.preventDefault();
         return;
     }
@@ -235,6 +268,20 @@ function onMenuKeydown(e) {
     // pass through untouched so keyboard.js still encodes arrows/Enter to the
     // Z80 (AC-4) — no preventDefault, no side effect.
     if (openMenu === null) return;
+
+    // E1.4 — when a radio submenu is open, keys drive the submenu radios: ↑/↓
+    // move, Enter/→ select, ← collapse back to the parent level. All consume the
+    // event (a menu is open).
+    if (openSubmenuPanel) {
+        switch (e.key) {
+            case 'ArrowDown': moveSubmenuFocus(+1); e.preventDefault(); return;
+            case 'ArrowUp':   moveSubmenuFocus(-1); e.preventDefault(); return;
+            case 'ArrowLeft': closeSubmenu();       e.preventDefault(); return;
+            case 'Enter':
+            case 'ArrowRight': selectSubmenuFocused(); e.preventDefault(); return;
+            default: return;                     // other keys pass through untouched
+        }
+    }
 
     switch (e.key) {
         case 'ArrowLeft':
@@ -270,22 +317,27 @@ function onMenuKeydown(e) {
     }
 }
 
-// The open menu's focusable (non-disabled) rows, in DOM order.
+// The open menu's TOP-LEVEL focusable (non-disabled) rows, in DOM order. E1.4 —
+// rows inside a .submenu panel are a distinct nav layer (submenuItems), so they
+// are excluded here; the radio-submenu PARENT rows (Theme/Phosphor/Font) are not
+// in a .submenu and remain top-level.
 function focusableItems() {
     if (openMenu === null) return [];
     const dropdown = dropdownEls[openMenu];
     if (!dropdown) return [];
     return Array.from(dropdown.querySelectorAll('.menu-item'))
+        .filter((el) => !el.closest('.submenu'))
         .filter((el) => el.getAttribute('data-disabled') !== 'true');
 }
 
-// Every row (incl. disabled) of the open menu — used only for the disabled
-// neighbour announcement (AC-2).
+// Every top-level row (incl. disabled) of the open menu — used only for the
+// disabled neighbour announcement (AC-2). Excludes submenu children (E1.4).
 function allItems() {
     if (openMenu === null) return [];
     const dropdown = dropdownEls[openMenu];
     if (!dropdown) return [];
-    return Array.from(dropdown.querySelectorAll('.menu-item'));
+    return Array.from(dropdown.querySelectorAll('.menu-item'))
+        .filter((el) => !el.closest('.submenu'));
 }
 
 function currentFocusedItem() {
@@ -294,23 +346,38 @@ function currentFocusedItem() {
     return items[focusedIndex];
 }
 
+// ---- Shared nav helpers (used by BOTH the top-level and submenu layers) ----
+
+// Wrapping index step: seed from an empty selection (-1) to the first/last row
+// per direction, else step and wrap. Single source of truth so the two nav
+// layers can never drift on an off-by-one.
+function nextWrappedIndex(idx, dir, len) {
+    if (len === 0) return -1;
+    if (idx < 0) return dir > 0 ? 0 : len - 1;
+    return (idx + dir + len) % len;
+}
+
+// Clear the [data-focused] highlight from every row under `root` (a dropdown or
+// a submenu panel) so the focus-marking convention lives in one place.
+function clearFocused(root) {
+    root.querySelectorAll('.menu-item[data-focused="true"]')
+        .forEach((el) => el.removeAttribute('data-focused'));
+}
+
 // ←/→ — open the wrapped neighbour of the current (or first) menu and land
-// focus on its first enabled row (per Task 3.2).
+// focus on its first enabled row (per Task 3.2). Delegates to openMenuNamed's
+// focusFirstRow path so opening + focusing is a SINGLE render (no double pass).
 function openNeighbour(dir) {
     const base = openMenu !== null ? MENUS.indexOf(openMenu) : 0;
     const next = (base + dir + MENUS.length) % MENUS.length;
-    openMenuNamed(MENUS[next]);                  // resets focusedIndex to -1
-    focusedIndex = focusableItems().length > 0 ? 0 : -1;
-    render();
-    refreshLiveRegion();
+    openMenuNamed(MENUS[next], true);
 }
 
 // ↑/↓ — move focus over the focusable rows, wrapping within the dropdown.
 function moveFocus(dir) {
     const items = focusableItems();
     if (items.length === 0) { focusedIndex = -1; render(); return; }
-    if (focusedIndex < 0) focusedIndex = dir > 0 ? 0 : items.length - 1;
-    else focusedIndex = (focusedIndex + dir + items.length) % items.length;
+    focusedIndex = nextWrappedIndex(focusedIndex, dir, items.length);
     render();
     refreshLiveRegion();
 }
@@ -322,11 +389,147 @@ function activateFocused() {
     if (item) onItemClick(item);
 }
 
-// E1.4/E1.5 seam — the single documented attach point for a real submenu
-// panel. A structural no-op today that keeps the menu open (never closes,
-// never throws), so Enter/→ on a radio-submenu row is inert-but-safe.
+// ====== E1.4 — radio submenu (second-level) mechanic ======
+
+// Resolve the .submenu panel a radio-submenu PARENT row controls (via the row's
+// data-submenu key). Font's parent has no data-submenu / panel yet (E1.5), so
+// this returns null there and openSubmenu no-ops safely.
+function panelForParent(item) {
+    const key = item && item.getAttribute('data-submenu');
+    if (!key) return null;
+    const dropdown = item.closest('.dropdown');
+    if (!dropdown) return null;
+    return dropdown.querySelector(`.submenu[data-submenu-panel="${key}"]`);
+}
+
+// Open a radio-submenu parent's child panel (Enter/→/click on the parent row).
+// Toggles: re-activating the currently-open parent collapses it. Shows the panel
+// via [hidden] only (never inline styles), sets aria-expanded, and lands focus
+// on the active (checked) radio, else the first. Never writes top-level
+// open/close state — render() stays its sole writer.
 function openSubmenu(item) {
-    return;   // no-op hook — real second-level panel lands in E1.4/E1.5
+    const panel = panelForParent(item);
+    if (!panel) return;                          // Font (E1.5) / unknown — inert
+    if (openSubmenuPanel === panel) { closeSubmenu(); return; }
+    if (openSubmenuPanel) closeSubmenu();        // only one submenu open at a time
+    openSubmenuPanel = panel;
+    panel.removeAttribute('hidden');
+    item.setAttribute('aria-expanded', 'true');
+    const items = submenuItems();
+    const activeIdx = items.findIndex((el) => el.getAttribute('data-checked') === 'true');
+    submenuFocusIndex = items.length ? (activeIdx >= 0 ? activeIdx : 0) : -1;
+    renderSubmenuFocus();
+}
+
+// Collapse the open submenu back to the parent level: hide the panel, clear its
+// [data-focused] highlight, restore the parent's aria-expanded. Never throws
+// with no submenu open (idempotent). Terminal focus is untouched (retainFocus).
+function closeSubmenu() {
+    if (!openSubmenuPanel) return;
+    openSubmenuPanel.setAttribute('hidden', '');
+    clearFocused(openSubmenuPanel);
+    const key = openSubmenuPanel.getAttribute('data-submenu-panel');
+    const parent = menuBarEl && menuBarEl.querySelector(`.menu-item[data-submenu="${key}"]`);
+    if (parent) parent.setAttribute('aria-expanded', 'false');
+    openSubmenuPanel = null;
+    submenuFocusIndex = -1;
+}
+
+// The open submenu's focusable radios (none are individually disabled today).
+function submenuItems() {
+    if (!openSubmenuPanel) return [];
+    return Array.from(openSubmenuPanel.querySelectorAll('.menu-item'))
+        .filter((el) => el.getAttribute('data-disabled') !== 'true');
+}
+
+// ↑/↓ within the open submenu, wrapping.
+function moveSubmenuFocus(dir) {
+    const items = submenuItems();
+    if (items.length === 0) { submenuFocusIndex = -1; return; }
+    submenuFocusIndex = nextWrappedIndex(submenuFocusIndex, dir, items.length);
+    renderSubmenuFocus();
+}
+
+// Enter/→ within the open submenu — select the focused radio (routes to
+// onItemClick → onRadioSelect, the same path a click takes).
+function selectSubmenuFocused() {
+    const items = submenuItems();
+    const item = items[submenuFocusIndex];
+    if (item) onItemClick(item);
+}
+
+// [data-focused] projection for the open submenu — mirrors renderFocus() but for
+// the submenu layer (kept separate so the two never clobber each other).
+function renderSubmenuFocus() {
+    if (!openSubmenuPanel) return;
+    clearFocused(openSubmenuPanel);
+    const items = submenuItems();
+    const item = items[submenuFocusIndex];
+    if (item) item.setAttribute('data-focused', 'true');
+}
+
+// A radio was selected (Theme or Phosphor child). Relocated VERBATIM from the
+// retired chrome.js handlers (AD-7): setTheme + savePrefs({theme}) /
+// setPhosphor + savePrefs({phosphor}). Moves the check glyph, rehomes the D-19
+// selection-clear (clearSelectionRef), re-gates #font-row (onThemeChangeRef,
+// theme only), and re-derives Phosphor's disabled state live (AC-3). Radio
+// select keeps the menu (and submenu) open — checkable/radio semantics (AD-7).
+function onRadioSelect(panel, item) {
+    const group = panel.getAttribute('data-submenu-panel');
+    const value = item.getAttribute('data-value');
+    if (!value) return;
+    if (group === 'theme') {
+        setTheme(value);                         // AD-7 verbatim (also sets body[data-theme], E1.4 Task 1)
+        savePrefs({ theme: value });             // AD-4 — persist
+        setRadioChecked(panel, value);
+        if (onThemeChangeRef) onThemeChangeRef(value);   // #font-row CRT-gate (E1.5 bridge)
+        if (clearSelectionRef) clearSelectionRef();      // D-19 rehomed onto the menu action
+        // AC-3 — re-derive Phosphor enable/disable from the just-picked theme,
+        // collapsing its submenu if now disabled, in the SAME interaction.
+        const view = dropdownEls.view || document.getElementById('dropdown-view');
+        if (view) syncPhosphorDisabled(view, value);
+        // Phosphor's disabled state (and thus its aria-live reason) just changed;
+        // re-announce so AT reflects it without waiting for the next keystroke. NOT
+        // render() — the theme submenu is still open and render()/renderFocus would
+        // clobber its [data-focused]; refreshLiveRegion touches neither.
+        refreshLiveRegion();
+    } else if (group === 'phosphor') {
+        setPhosphor(value);                      // AD-7 verbatim (no-op off-CRT — canvas guards it)
+        savePrefs({ phosphor: value });          // AD-4 — persist
+        setRadioChecked(panel, value);
+        if (clearSelectionRef) clearSelectionRef();      // D-19 rehomed onto the menu action
+    }
+}
+
+// Project the active radio within a submenu panel: exactly one row carries
+// data-checked="true" + the ✓ glyph (deselecting siblings). Reuses
+// syncCheckGlyph so aria-checked + the glyph stay in lockstep with data-checked.
+function setRadioChecked(panel, value) {
+    panel.querySelectorAll('.menu-item').forEach((el) => {
+        el.setAttribute('data-checked', el.getAttribute('data-value') === value ? 'true' : 'false');
+        syncCheckGlyph(el);
+    });
+}
+
+// AD-9 — Phosphor is CRT-only: SHOWN but data-disabled off-CRT (not hidden),
+// aria-disabled, skipped in nav (data-disabled → focusableItems filters it), and
+// announced via #menu-bar-live (the row's title is surfaced by refreshLiveRegion
+// when a neighbour is focused). Collapses an open Phosphor submenu on disable.
+function syncPhosphorDisabled(viewDropdown, theme) {
+    const parent = viewDropdown.querySelector('.menu-item[data-submenu="phosphor"]');
+    if (!parent) return;
+    if (theme !== 'crt') {
+        parent.setAttribute('data-disabled', 'true');
+        parent.setAttribute('aria-disabled', 'true');
+        parent.setAttribute('title', 'Phosphor — CRT theme only');
+        if (openSubmenuPanel && openSubmenuPanel.getAttribute('data-submenu-panel') === 'phosphor') {
+            closeSubmenu();
+        }
+    } else {
+        parent.removeAttribute('data-disabled');
+        parent.removeAttribute('aria-disabled');
+        parent.removeAttribute('title');
+    }
 }
 
 // AC-2 — announce a disabled row's reason when focus lands beside it. Coalesced
@@ -357,8 +560,10 @@ function refreshLiveRegion() {
 function wireDropdownItems(dropdown) {
     const items = dropdown.querySelectorAll('.menu-item');
     items.forEach((item) => {
-        retainFocus(item);               // AD-10 focus retention on every row
-        if (item.getAttribute('data-variant') === 'checkable') {
+        retainFocus(item);               // AD-10 focus retention on every row (incl. submenu radios)
+        // E1.4 — sync the glyph for any checkable/radio row from its
+        // data-checked source of truth (was checkable-only; radios need it too).
+        if (item.hasAttribute('data-checked')) {
             syncCheckGlyph(item);        // single source of truth = data-checked
         }
         trackListener(item, 'click', () => onItemClick(item));
@@ -366,10 +571,15 @@ function wireDropdownItems(dropdown) {
 }
 
 function onItemClick(item) {
-    const variant = item.getAttribute('data-variant');
     const disabled = item.getAttribute('data-disabled') === 'true';
-    if (disabled) return;                // inert
+    if (disabled) return;                // inert (incl. Phosphor parent off-CRT)
 
+    // E1.4 — a click inside a .submenu panel is a radio SELECT (Theme/Phosphor).
+    // Routed before the variant switch; radio select keeps the menu open (AD-7).
+    const panel = item.closest('.submenu');
+    if (panel) { onRadioSelect(panel, item); return; }
+
+    const variant = item.getAttribute('data-variant');
     if (variant === 'checkable') {
         const on = item.getAttribute('data-checked') === 'true';
         item.setAttribute('data-checked', on ? 'false' : 'true');
@@ -377,8 +587,8 @@ function onItemClick(item) {
         return;                          // checkable keeps the menu open (AC-2)
     }
     if (variant === 'radio-submenu') {
-        openSubmenu(item);               // E1.2 submenu-open hook (no-op today)
-        return;                          // submenu placeholder — keep open (E1.4/E1.5)
+        openSubmenu(item);               // E1.4 — open/toggle the child panel
+        return;                          // parent row keeps the menu open
     }
     closeMenu();                         // action item closes the menu (AC-2)
 }
@@ -401,22 +611,42 @@ function syncCheckGlyph(item) {
 // establishes focus explicitly. This keeps [data-focused] a pure projection of
 // focusedIndex and avoids a stale index bleeding across menus.
 function toggleMenu(key) {
+    closeSubmenu();                       // E1.4 — a top-level change collapses any open submenu
     openMenu = (openMenu === key) ? null : key;
     focusedIndex = -1;
+    render();
+    projectViewOnOpen();                  // E1.4 — re-derive Theme/Phosphor from prefs at open (read-at-use)
+    refreshLiveRegion();
+}
+
+// focusFirstRow (←/→ nav) lands focus on the first enabled row; the default
+// (click / public open() API) shows no highlight. projectViewOnOpen runs BEFORE
+// the focus computation so focusableItems() sees the freshly-derived Phosphor
+// disabled state, and a single render() then opens the menu AND projects
+// [data-focused] — no second pass.
+function openMenuNamed(key, focusFirstRow = false) {
+    if (!MENUS.includes(key)) return;
+    closeSubmenu();                       // E1.4 — collapse any submenu from the previous menu
+    openMenu = key;
+    projectViewOnOpen();                  // E1.4 — re-derive Theme/Phosphor from prefs at open (read-at-use)
+    focusedIndex = (focusFirstRow && focusableItems().length > 0) ? 0 : -1;
     render();
     refreshLiveRegion();
 }
 
-function openMenuNamed(key) {
-    if (!MENUS.includes(key)) return;
-    openMenu = key;
-    focusedIndex = -1;
-    render();
-    refreshLiveRegion();
+// E1.4 — when the View menu opens, re-derive its Theme/Phosphor check glyphs +
+// Phosphor disabled state from prefs (read-at-use). This is what keeps the menu
+// correct after a Ctrl+Alt+T chord fired while the menu was closed — savePrefs
+// updates `cached` synchronously (AD-4), so getPrefs() already reflects the
+// chord, and NO chrome→menu notify edge is needed (AD-3). Reuses projectPrefs,
+// which reads getPrefs() and never calls a canvas setter / open-close writer.
+function projectViewOnOpen() {
+    if (openMenu === 'view') projectPrefs();
 }
 
 function closeMenu() {
     if (openMenu === null) return;
+    closeSubmenu();                       // E1.4 — collapse any open submenu with the menu
     openMenu = null;
     focusedIndex = -1;
     render();
@@ -456,9 +686,7 @@ function render() {
 function renderFocus() {
     for (const key of MENUS) {
         const dropdown = dropdownEls[key];
-        if (!dropdown) continue;
-        dropdown.querySelectorAll('.menu-item[data-focused="true"]')
-            .forEach((el) => el.removeAttribute('data-focused'));
+        if (dropdown) clearFocused(dropdown);
     }
     const item = currentFocusedItem();
     if (item) item.setAttribute('data-focused', 'true');
@@ -489,10 +717,18 @@ export function projectPrefs(prefs) {
     if (!p) return;                                  // nothing to project — no-op
     const viewDropdown = dropdownEls.view || document.getElementById('dropdown-view');
     if (!viewDropdown) return;                       // View menu absent — no-op
-    // E1.4 fills: project p.theme (CRT/Clean) + p.phosphor onto the Theme /
-    // Phosphor submenu rows' check glyphs.
+    // E1.4 — project p.theme + p.phosphor onto the submenu radio check glyphs and
+    // re-derive Phosphor's disabled state from the theme. Reads at USE-TIME (the
+    // passed blob, else getPrefs()), NEVER calls a canvas setter (applyPrefs owns
+    // those on reset — AD-14 single-writer), NEVER writes top-level open/close
+    // state, and is idempotent + no-throw (every lookup guarded).
+    const themePanel = viewDropdown.querySelector('.submenu[data-submenu-panel="theme"]');
+    if (themePanel && p.theme) setRadioChecked(themePanel, p.theme);
+    const phosphorPanel = viewDropdown.querySelector('.submenu[data-submenu-panel="phosphor"]');
+    if (phosphorPanel && p.phosphor) setRadioChecked(phosphorPanel, p.phosphor);
+    if (p.theme) syncPhosphorDisabled(viewDropdown, p.theme);
     // E1.5 fills: project p.font onto the Font radio + p.fontZoom onto the Zoom
-    // label. Until then there is no projectable View-item state → no-op.
+    // label. Until then that half stays a no-op.
 }
 
 // ====== Public API ======
@@ -514,6 +750,7 @@ function buildApi() {
 export function dispose() {
     // Close any open dropdown FIRST so a disposed bar is left visually shut
     // (render() clears [hidden]/data-open/data-active-menu + [data-focused]).
+    closeSubmenu();                       // E1.4 — collapse any open submenu too
     openMenu = null;
     focusedIndex = -1;
     render();
@@ -528,6 +765,11 @@ export function dispose() {
 export function __getStateForTests() {
     const focused = currentFocusedItem();
     const lbl = focused ? focused.querySelector('.lbl') : null;
+    // E1.4 — additive submenu introspection (openMenu/focusedIndex shape from
+    // E1.1/E1.2 is unchanged). openSubmenu is the open panel's key or null;
+    // submenuFocusLabel is the focused radio's label within it.
+    const subFocused = openSubmenuPanel ? submenuItems()[submenuFocusIndex] : null;
+    const subLbl = subFocused ? subFocused.querySelector('.lbl') : null;
     return {
         openMenu,
         focusedIndex,                                  // E1.2 — index into focusable rows; -1 = none
@@ -535,10 +777,14 @@ export function __getStateForTests() {
         menus: MENUS.slice(),
         wired: menuBarEl !== null,
         hasTerminalWrapper: terminalWrapperRef !== null,
+        openSubmenu: openSubmenuPanel ? openSubmenuPanel.getAttribute('data-submenu-panel') : null,
+        submenuFocusIndex,                             // E1.4 — index into open submenu radios; -1 = none
+        submenuFocusLabel: subLbl ? subLbl.textContent.trim() : null,
     };
 }
 
 export function __resetForTests() {
+    closeSubmenu();                       // E1.4 — collapse any open submenu
     openMenu = null;
     focusedIndex = -1;
     lastAnnounced = '';

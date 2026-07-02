@@ -110,7 +110,13 @@ test.describe('SESS-02 — Selection', () => {
         await page.mouse.up();
         let sel = await page.evaluate(() => window.__selection.getSelection());
         expect(sel).not.toBeNull();
-        await page.locator('#theme-toggle').click();
+        // Epic E1 Story E1.4 — the D-19 selection-clear rehomed from #theme-toggle
+        // onto the View ▸ Theme menu action. Selecting a theme clears the
+        // selection (retainFocus keeps terminal focus, so this is the D-19 path,
+        // not a focus-loss clear).
+        await page.evaluate(() => window.__menuBar.open('view'));
+        await page.click('#dropdown-view .menu-item[data-submenu="theme"]');
+        await page.click('#dropdown-view .submenu[data-submenu-panel="theme"] .menu-item[data-value="clean"]');
         sel = await page.evaluate(() => window.__selection.getSelection());
         expect(sel).toBeNull();
     });

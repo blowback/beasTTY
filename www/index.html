@@ -173,6 +173,21 @@
     #menu-bar .menu-item .caret { color: var(--chrome-muted); font-size: 12px; }
     #menu-bar .menu-sep { height: 1px; background: var(--chrome-border); margin: 5px 8px; }
 
+    /* Epic E1 Story E1.4 — radio submenu (right-flyout). Token-safe (only
+       --chrome-*), no drop shadow (UX-DR5). .submenu-group anchors the panel to
+       its parent row; the panel sits above the parent dropdown (z 31 > 30). */
+    #menu-bar .submenu-group { position: relative; }
+    #menu-bar .submenu {
+      position: absolute; left: 100%; top: -5px;
+      min-width: 168px;
+      background: var(--chrome-bg);
+      border: 1px solid var(--chrome-border);
+      border-radius: 6px;
+      padding: 5px;
+      z-index: 31;
+    }
+    #menu-bar .submenu[hidden] { display: none; }
+
     /* E1.2 — visually-hidden but still in the accessibility tree (clip idiom,
        NOT display:none) for the #menu-bar-live aria-live announcer. No palette
        tokens → theme-neutral. */
@@ -208,15 +223,8 @@
       border-color: var(--chrome-accent);
       outline: none;
     }
-    #phosphor-group {
-      display: flex; gap: 4px;
-    }
-    #phosphor-group[hidden] { display: none; }
-    #phosphor-group button[aria-pressed="true"] {
-      border-color: var(--chrome-accent);
-      background: var(--chrome-accent);
-      color: var(--chrome-bg);
-    }
+    /* Epic E1 Story E1.4 — #phosphor-group CSS removed with the control (retired
+       to View ▸ Phosphor; the submenu uses the neutral .menu-item tokens). */
 
     /* ==== Terminal wrapper + overlays (UI-SPEC §Layout + D-13 focus) ==== */
     #terminal-wrapper {
@@ -978,12 +986,49 @@
     <div class="menu-group">
       <button id="menu-view" class="menu-title" type="button" aria-haspopup="true" aria-expanded="false">View</button>
       <div id="dropdown-view" class="dropdown" role="menu" hidden>
-        <button class="menu-item" type="button" role="menuitem" data-variant="radio-submenu">
-          <span class="check"></span><span class="lbl">Theme</span><span class="caret">▸</span>
-        </button>
-        <button class="menu-item" type="button" role="menuitem" data-variant="radio-submenu">
-          <span class="check"></span><span class="lbl">Phosphor</span><span class="caret">▸</span>
-        </button>
+        <!-- Epic E1 Story E1.4 — Theme radio submenu (Console (Clean) / CRT).
+             Parent row + right-flyout panel wrapped in .submenu-group so the
+             panel positions relative to the row. Default checked = CRT. -->
+        <div class="submenu-group">
+          <button class="menu-item" type="button" role="menuitem" data-variant="radio-submenu"
+                  data-submenu="theme" aria-haspopup="true" aria-expanded="false">
+            <span class="check"></span><span class="lbl">Theme</span><span class="caret">▸</span>
+          </button>
+          <div class="submenu" role="menu" data-submenu-panel="theme" aria-label="Theme" hidden>
+            <button class="menu-item" type="button" role="menuitemradio" data-value="clean"
+                    data-checked="false" aria-checked="false">
+              <span class="check"></span><span class="lbl">Console (Clean)</span>
+            </button>
+            <button class="menu-item" type="button" role="menuitemradio" data-value="crt"
+                    data-checked="true" aria-checked="true">
+              <span class="check">✓</span><span class="lbl">CRT</span>
+            </button>
+          </div>
+        </div>
+        <!-- Epic E1 Story E1.4 — Phosphor radio submenu (Green / Amber / White).
+             Shown-but-data-disabled off-CRT (AD-9), announced via #menu-bar-live.
+             Default checked = Green. -->
+        <div class="submenu-group">
+          <button class="menu-item" type="button" role="menuitem" data-variant="radio-submenu"
+                  data-submenu="phosphor" aria-haspopup="true" aria-expanded="false">
+            <span class="check"></span><span class="lbl">Phosphor</span><span class="caret">▸</span>
+          </button>
+          <div class="submenu" role="menu" data-submenu-panel="phosphor" aria-label="Phosphor color" hidden>
+            <button class="menu-item" type="button" role="menuitemradio" data-value="green"
+                    data-checked="true" aria-checked="true">
+              <span class="check">✓</span><span class="lbl">Green</span>
+            </button>
+            <button class="menu-item" type="button" role="menuitemradio" data-value="amber"
+                    data-checked="false" aria-checked="false">
+              <span class="check"></span><span class="lbl">Amber</span>
+            </button>
+            <button class="menu-item" type="button" role="menuitemradio" data-value="white"
+                    data-checked="false" aria-checked="false">
+              <span class="check"></span><span class="lbl">White</span>
+            </button>
+          </div>
+        </div>
+        <!-- Font submenu panel is E1.5 — this stays a bare placeholder row. -->
         <button class="menu-item" type="button" role="menuitem" data-variant="radio-submenu">
           <span class="check"></span><span class="lbl">Font</span><span class="caret">▸</span>
         </button>
@@ -1081,12 +1126,10 @@
     <button id="send-file-button" type="button"
             title="Send file(s) to MicroBeast via SLIDE">↑ Send file</button>
     <input id="send-file-input" type="file" multiple hidden>
-    <button id="theme-toggle" type="button" title="Toggle theme (Ctrl+Alt+T)">Clean</button>
-    <div id="phosphor-group" role="radiogroup" aria-label="Phosphor color">
-      <button type="button" data-phosphor="green" aria-pressed="true">Green</button>
-      <button type="button" data-phosphor="amber" aria-pressed="false">Amber</button>
-      <button type="button" data-phosphor="white" aria-pressed="false">White</button>
-    </div>
+    <!-- Epic E1 Story E1.4 — #theme-toggle + #phosphor-group retired to the View
+         menu (View ▸ Theme / Phosphor). The Ctrl+Alt+T chord (chrome.js) and the
+         data-theme scanline attribute survive; #font-select / #clear-button stay
+         in #top-bar (E1.5 / E7). -->
     <div id="paste-progress-row" hidden>
       <span id="paste-progress-text"></span>
       <button id="paste-cancel" type="button">Cancel</button>

@@ -96,8 +96,12 @@ test.describe('SESS-01 — Scrollback navigation', () => {
         await setup(page);
         await page.evaluate(() => window.__scrollState.scrollByLines(20));
         const before = await page.evaluate(() => window.__scrollState.getOffset());
-        // Click the theme button — switches CRT → clean (or vice-versa).
-        await page.locator('#theme-toggle').click();
+        // Epic E1 Story E1.4 — theme now switches via View ▸ Theme (retired
+        // #theme-toggle). Menu path is focus-independent and drives the same
+        // setTheme; the scroll offset must survive it (D-13).
+        await page.evaluate(() => window.__menuBar.open('view'));
+        await page.click('#dropdown-view .menu-item[data-submenu="theme"]');
+        await page.click('#dropdown-view .submenu[data-submenu-panel="theme"] .menu-item[data-value="clean"]');
         const after = await page.evaluate(() => window.__scrollState.getOffset());
         expect(after).toBe(before);   // D-13 — viewport keeps offset
         await expect(page.locator('#terminal-wrapper')).toHaveAttribute('data-scrolled-back', 'true');
