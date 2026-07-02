@@ -76,7 +76,7 @@ development_status:
   # ── Epic E1 · Menu Bar Backbone + View Menu (depends on: E0) ──
   epic-e1: in-progress
   e1-1-menu-bar-shell-dropdown-mechanics: done
-  e1-2-keyboard-navigation-esc-passthrough-guard: backlog
+  e1-2-keyboard-navigation-esc-passthrough-guard: review
   e1-3-chrome-js-decomposition-boot-order-reset-re-projection: backlog
   e1-4-view-menu-theme-phosphor: backlog
   e1-5-view-menu-font-zoom-clear: backlog

@@ -173,6 +173,15 @@
     #menu-bar .menu-item .caret { color: var(--chrome-muted); font-size: 12px; }
     #menu-bar .menu-sep { height: 1px; background: var(--chrome-border); margin: 5px 8px; }
 
+    /* E1.2 — visually-hidden but still in the accessibility tree (clip idiom,
+       NOT display:none) for the #menu-bar-live aria-live announcer. No palette
+       tokens → theme-neutral. */
+    .sr-only {
+      position: absolute; width: 1px; height: 1px;
+      padding: 0; margin: -1px; overflow: hidden;
+      clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+    }
+
     /* ==== Top bar (UI-SPEC §Layout Contract) ==== */
     #top-bar {
       /* Epic E1 Story E1.1 — during the E1 coexistence period #top-bar sits
@@ -932,26 +941,26 @@
   <!-- ============================================================= -->
   <nav id="menu-bar" aria-label="Application menu">
     <div class="menu-group">
-      <button id="menu-file" class="menu-title" type="button" aria-haspopup="true">File</button>
+      <button id="menu-file" class="menu-title" type="button" aria-haspopup="true" aria-expanded="false">File</button>
       <div id="dropdown-file" class="dropdown" role="menu" hidden>
         <button class="menu-item" type="button" role="menuitem" data-variant="action">
           <span class="check"></span><span class="lbl">Send File…</span><span class="caret">▸ modal</span>
         </button>
         <button class="menu-item" type="button" role="menuitem" data-variant="disabled"
-                data-disabled="true" title="No bytes received yet">
+                data-disabled="true" aria-disabled="true" title="No bytes received yet">
           <span class="check"></span><span class="lbl">Download Session Log</span>
         </button>
       </div>
     </div>
 
     <div class="menu-group">
-      <button id="menu-connection" class="menu-title" type="button" aria-haspopup="true">Connection</button>
+      <button id="menu-connection" class="menu-title" type="button" aria-haspopup="true" aria-expanded="false">Connection</button>
       <div id="dropdown-connection" class="dropdown" role="menu" hidden>
         <button class="menu-item" type="button" role="menuitem" data-variant="action">
           <span class="check"></span><span class="lbl">Connect</span>
         </button>
         <button class="menu-item" type="button" role="menuitem" data-variant="disabled"
-                data-disabled="true" title="Connect first to choose a device">
+                data-disabled="true" aria-disabled="true" title="Connect first to choose a device">
           <span class="check"></span><span class="lbl">Choose MicroBeast…</span>
         </button>
         <div class="menu-sep"></div>
@@ -960,14 +969,14 @@
         </button>
         <div class="menu-sep"></div>
         <button class="menu-item" type="button" role="menuitemcheckbox"
-                data-variant="checkable" data-checked="true">
+                data-variant="checkable" data-checked="true" aria-checked="true">
           <span class="check"></span><span class="lbl">Auto-connect on load</span>
         </button>
       </div>
     </div>
 
     <div class="menu-group">
-      <button id="menu-view" class="menu-title" type="button" aria-haspopup="true">View</button>
+      <button id="menu-view" class="menu-title" type="button" aria-haspopup="true" aria-expanded="false">View</button>
       <div id="dropdown-view" class="dropdown" role="menu" hidden>
         <button class="menu-item" type="button" role="menuitem" data-variant="radio-submenu">
           <span class="check"></span><span class="lbl">Theme</span><span class="caret">▸</span>
@@ -992,10 +1001,10 @@
     </div>
 
     <div class="menu-group">
-      <button id="menu-settings" class="menu-title" type="button" aria-haspopup="true">Settings</button>
+      <button id="menu-settings" class="menu-title" type="button" aria-haspopup="true" aria-expanded="false">Settings</button>
       <div id="dropdown-settings" class="dropdown" role="menu" hidden>
         <button class="menu-item" type="button" role="menuitemcheckbox"
-                data-variant="checkable" data-checked="false">
+                data-variant="checkable" data-checked="false" aria-checked="false">
           <span class="check"></span><span class="lbl">Local echo</span>
         </button>
         <button class="menu-item" type="button" role="menuitem" data-variant="radio-submenu">
@@ -1009,17 +1018,17 @@
     </div>
 
     <div class="menu-group">
-      <button id="menu-debug" class="menu-title" type="button" aria-haspopup="true">Debug</button>
+      <button id="menu-debug" class="menu-title" type="button" aria-haspopup="true" aria-expanded="false">Debug</button>
       <div id="dropdown-debug" class="dropdown" role="menu" hidden>
         <button class="menu-item" type="button" role="menuitemcheckbox"
-                data-variant="checkable" data-checked="false">
+                data-variant="checkable" data-checked="false" aria-checked="false">
           <span class="check"></span><span class="lbl">Show Debug Panel</span>
         </button>
       </div>
     </div>
 
     <div class="menu-group">
-      <button id="menu-help" class="menu-title" type="button" aria-haspopup="true">Help</button>
+      <button id="menu-help" class="menu-title" type="button" aria-haspopup="true" aria-expanded="false">Help</button>
       <div id="dropdown-help" class="dropdown" role="menu" hidden>
         <button class="menu-item" type="button" role="menuitem" data-variant="action">
           <span class="check"></span><span class="lbl">Keyboard Shortcuts…</span><span class="caret">▸ modal</span>
@@ -1038,6 +1047,13 @@
       <span id="menu-conn-dot" aria-hidden="true"></span>
       <span id="menu-conn-label">Not connected</span>
     </div>
+
+    <!-- E1.2 — visually-hidden aria-live region owned by menu-bar.js. When
+         keyboard nav lands beside a disabled row, its title reason is written
+         here so assistive tech announces WHY the item is unavailable (AC-2).
+         sr-only (clip) not [hidden]/display:none so it stays in the a11y tree.
+         Token-safe: no palette, no [data-theme] branch. -->
+    <span id="menu-bar-live" class="sr-only" aria-live="polite" aria-atomic="true"></span>
   </nav>
 
   <!-- Top bar — Connect button (Phase 5 D-01) + theme toggle + phosphor radio-group (D-12). -->

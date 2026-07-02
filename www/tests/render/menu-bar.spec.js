@@ -229,8 +229,15 @@ test.describe('E1.1 AC-3 — four menu-item variants', () => {
     const bg = await disabled.evaluate((el) => getComputedStyle(el).backgroundColor);
     expect(bg).toBe('rgba(0, 0, 0, 0)');
 
-    // Inert — clicking it neither closes the menu nor throws.
-    await disabled.click();
+    // Correct ARIA disabled state (exposed to AT, unlike data-* alone).
+    await expect(disabled).toHaveAttribute('aria-disabled', 'true');
+
+    // Inert — clicking it neither closes the menu nor throws. force:true
+    // bypasses Playwright's actionability guard (which honours aria-disabled),
+    // simulating the physical click a real user can still perform on this
+    // aria-disabled-but-not-natively-disabled <button>; the onItemClick
+    // data-disabled guard is what keeps it inert.
+    await disabled.click({ force: true });
     await expect(page.locator('#dropdown-connection')).toBeVisible();
   });
 });
@@ -256,5 +263,35 @@ test.describe('E1.1 AC-5 — neutral, non-adaptive shell', () => {
     const cleanTitleBg = await page.$eval('#menu-file', (el) => getComputedStyle(el).backgroundColor);
     expect(cleanBarBg).toBe(crtBarBg);
     expect(cleanTitleBg).toBe(crtTitleBg);
+  });
+});
+
+test.describe('E1.1 ARIA state — roles carry their required state attributes', () => {
+  test('aria-expanded on a title mirrors open/closed @fast', async ({ page }) => {
+    await ready(page);
+    const view = page.locator('#menu-view');
+    await expect(view).toHaveAttribute('aria-expanded', 'false');
+    await view.click();
+    await expect(view).toHaveAttribute('aria-expanded', 'true');
+    await page.click('#terminal-wrapper');   // click-away closes
+    await expect(view).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  test('aria-checked on a menuitemcheckbox tracks data-checked and toggles @fast', async ({ page }) => {
+    await ready(page);
+    // Connection ▸ Auto-connect starts checked.
+    await page.click('#menu-connection');
+    const auto = page.locator('#dropdown-connection .menu-item[data-variant="checkable"]');
+    await expect(auto).toHaveAttribute('aria-checked', 'true');
+    await auto.click();
+    await expect(auto).toHaveAttribute('aria-checked', 'false');   // toggled + conveyed to AT
+    await expect(auto).toHaveAttribute('data-checked', 'false');   // stays in lockstep
+  });
+
+  test('disabled items expose aria-disabled to assistive tech @fast', async ({ page }) => {
+    await ready(page);
+    await page.click('#menu-connection');
+    const disabled = page.locator('#dropdown-connection .menu-item[data-disabled="true"]');
+    await expect(disabled).toHaveAttribute('aria-disabled', 'true');
   });
 });
