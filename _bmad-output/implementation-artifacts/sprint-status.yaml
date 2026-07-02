@@ -46,7 +46,7 @@
 #   E1 is the backbone and must land before the other menu/modal epics.
 
 generated: 2026-07-01
-last_updated: 2026-07-02  # E1 retrospective completed
+last_updated: 2026-07-02  # E2.1 done (code-review fixes applied, story complete)
 # retrospective action items (surface open ones during sprint status)
 action_items:
   - epic: "e0"
@@ -103,8 +103,8 @@ development_status:
   epic-e1-retrospective: done
 
   # ── Epic E2 · Connection & Serial Configuration (depends on: E0, E1) ──
-  epic-e2: backlog
-  e2-1-connect-disconnect-single-writer-menu-item: backlog
+  epic-e2: in-progress
+  e2-1-connect-disconnect-single-writer-menu-item: done
   e2-2-auto-connect-toggle-choose-microbeast: backlog
   e2-3-serial-configuration-modal: backlog
   epic-e2-retrospective: optional

@@ -1,7 +1,16 @@
 // Beastty Phase 5 — Web Serial transport (JS-only; no Rust bindings).
 //
 // Public API: renderPoliteFail, wireSerial, connectMicroBeast, disconnect,
-// getState, onStateChange, getWriter.
+// getState, onStateChange, getWriter, toggleConnection.
+//
+// Epic E2 Story E2.1 (AD-15) — the connect-button DOM *projection* moved OUT of
+// this module. serial.js still owns the connection STATE MACHINE (state,
+// setState fan-out, onStateChange, getState) but no longer writes any Connect
+// DOM. menu-bar.js subscribes to onStateChange and is now the SOLE writer of the
+// Connect item / status dot / label / legacy #connect-button. toggleConnection()
+// is the exported click action (its state-branch logic stays here — it reads the
+// internal `state`); the out-of-band "Choose MicroBeast…" prompt is surfaced via
+// the injected opts.signalConnectLabel signal, not a direct button write.
 //
 // Sources:
 //   - 05-CONTEXT.md D-01..D-42.
@@ -34,13 +43,8 @@ const PRESET_CONFIG = Object.freeze({
 });
 const STORAGE_KEY = 'beastty.port.preset';   // D-31 — localStorage key for VID/PID persistence
 const ERROR_LOG_CAP = 5;                          // D-27 — ring-of-5 newest-first
-const BUTTON_LABELS = Object.freeze({
-    disconnected:  'Connect',
-    connecting:    'Connecting…',          // U+2026 ellipsis
-    connected:     'Disconnect',
-    reconnecting:  'Reconnecting…',        // U+2026 ellipsis
-    'port-lost':   'Reconnect',
-});
+// E2.1 (AD-15) — the Connect-button label map moved to menu-bar.js's
+// CONNECT_LABELS (the new sole writer). serial.js no longer projects any label.
 
 // Module-scope state — Wave 2+ populates these via connectMicroBeast/disconnect.
 let port = null;
@@ -60,7 +64,10 @@ let term = null;
 let sampleBellFn = null;
 let drainHostReplyFn = null;
 let requestFrameFn = null;
-let connectButton = null;
+// E2.1 (AD-15) — injected signal for the out-of-band "Choose MicroBeast…" label
+// (the multi-adapter guard). menu-bar.js owns the actual DOM write; serial.js
+// only hands it the string. Null-guarded — a harness that omits it is inert.
+let signalConnectLabelFn = null;
 let connectionPane = null;
 let portStatusEl = null;
 let errorLogEl = null;
@@ -102,8 +109,9 @@ export function renderPoliteFail() {
 export async function wireSerial(opts) {
     const {
         term: termArg, sampleBell, drainHostReply, requestFrame,
-        connectButton: btn, connectionPane: pane,
+        connectionPane: pane,
         portStatusEl: status, errorLogEl: log,
+        signalConnectLabel,                  // E2.1 (AD-15) — "Choose MicroBeast…" out-of-band signal
         serialConfigEls,                     // Wave 3 (D-08) — form refs
         sessionLog,                          // Phase 6 Plan 05 — { reset, append }
         prefs,                               // Phase 6 Plan 06 (D-34) — auto-connect gate + form persist
@@ -113,7 +121,7 @@ export async function wireSerial(opts) {
     sampleBellFn = sampleBell;
     drainHostReplyFn = drainHostReply;
     requestFrameFn = requestFrame;
-    connectButton = btn;
+    signalConnectLabelFn = signalConnectLabel || null;
     connectionPane = pane;
     portStatusEl = status;
     errorLogEl = log;
@@ -239,9 +247,10 @@ export async function wireSerial(opts) {
         // handler owns the flow.
     }
 
-    // Connect button click handler — D-01 stateful toggle.
-    connectButton.addEventListener('click', onConnectButtonClick);
-    connectButton.addEventListener('mousedown', (e) => e.preventDefault());  // UI-SPEC §Focus retention line 575
+    // E2.1 (AD-15) — the Connect-button click/mousedown wiring moved to
+    // menu-bar.js (the new sole owner of every Connect surface). serial.js
+    // exports toggleConnection() so the relocated wiring drives the SAME
+    // state-branch logic without duplicating machine knowledge.
 
     // Phase 5 D-08 — serial-config form listeners (Wave 3).
     // UI-SPEC §"Connection pane form-control behaviors" — change a select and
@@ -281,10 +290,14 @@ export async function wireSerial(opts) {
         }
     }
 
-    applyStateToButton();  // Set initial label + data-state=disconnected.
+    // E2.1 (AD-15) — no initial button paint here anymore. menu-bar.js does the
+    // initial disconnected paint via getConnectionState() at its own wire time.
 }
 
-async function onConnectButtonClick() {
+// E2.1 (AD-15) — exported so the relocated menu-bar wiring drives the SAME
+// D-01 stateful toggle. The state-branch logic stays here (it reads the internal
+// `state`); menu-bar.js owns only the DOM click that calls this.
+export async function toggleConnection() {
     // Transient states are click-inert (UI-SPEC §"Connect button pointer-events during transient states").
     if (state === 'connecting' || state === 'reconnecting') return;
 
@@ -557,14 +570,10 @@ async function teardown({ deassertSignals = true } = {}) {
 // State machine helper (05-RESEARCH Pattern 5). Fires observers after every transition.
 function setState(s) {
     state = s;
-    applyStateToButton();
+    // E2.1 (AD-15) — no DOM projection here anymore; the observer fan-out is the
+    // ONLY side effect. menu-bar.js's projectConnection subscriber owns every
+    // Connect-surface write (label / dot / status / legacy button).
     for (const fn of stateObservers) fn(s);
-}
-
-function applyStateToButton() {
-    if (!connectButton) return;
-    connectButton.dataset.state = state;
-    connectButton.textContent = BUTTON_LABELS[state] || BUTTON_LABELS.disconnected;
 }
 
 function updatePortStatusConnected() {
@@ -677,7 +686,12 @@ async function onNavSerialConnect(ev) {
         target = matches.find((p) => p === lastPortRef);
         if (!target) {
             setState('port-lost');
-            if (connectButton) connectButton.textContent = 'Choose MicroBeast…';   // U+2026
+            // E2.1 (AD-15, AC-4) — the out-of-band "Choose MicroBeast…" label is
+            // not representable by the 5-state map; hand it to menu-bar.js (the
+            // sole writer) via the injected signal instead of writing the DOM here.
+            // Fires AFTER setState so it overrides the port-lost 'Reconnect' label
+            // the fan-out just projected (until the next setState re-projects). U+2026.
+            if (signalConnectLabelFn) signalConnectLabelFn('Choose MicroBeast…');
             appendErrorLog('multiple-adapters', 'Multiple CP2102N adapters connected — pick one');
             return;
         }

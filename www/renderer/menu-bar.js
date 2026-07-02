@@ -56,6 +56,31 @@ import { setTheme, setPhosphor, setFont, zoomStep, resetZoom, getActiveZoom } fr
 // Left-to-right menu order. Keys map to the #menu-<key> / #dropdown-<key> IDs.
 const MENUS = ['file', 'connection', 'view', 'settings', 'debug', 'help'];
 
+// E2.1 (AD-15) — the Connect item / legacy #connect-button ACTION label per
+// connection state. Moved VERBATIM (incl. the literal U+2026 ellipsis) from the
+// retired serial.js BUTTON_LABELS: menu-bar.js is now the sole writer of every
+// Connect surface, projecting state → label + data-state via this frozen map.
+const CONNECT_LABELS = Object.freeze({
+    disconnected:  'Connect',
+    connecting:    'Connecting…',          // U+2026 ellipsis — do not paraphrase
+    connected:     'Disconnect',
+    reconnecting:  'Reconnecting…',        // U+2026 ellipsis
+    'port-lost':   'Reconnect',
+});
+
+// E2.1 (AC-3) — the right-aligned #menu-conn-label status text per state.
+// disconnected/connecting/reconnecting are verbatim-sourced (placeholder +
+// EXPERIENCE.md state table); connected/port-lost wording is the dev default
+// ratified with Ant (2026-07-02). Distinct from CONNECT_LABELS — the status
+// label DESCRIBES the state; the Connect item names the ACTION.
+const CONN_STATUS_LABELS = Object.freeze({
+    disconnected:  'Not connected',
+    connecting:    'Connecting…',
+    connected:     'Connected',
+    reconnecting:  'Reconnecting…',
+    'port-lost':   'Connection lost',
+});
+
 // ====== Module-scope state ======
 
 let openMenu = null;          // null = all closed; otherwise one of MENUS
@@ -103,6 +128,20 @@ let clearSelectionRef = null;
 // owns the modal (openModal) so modal.js stays out of menu-bar's import set (AD-3).
 let pushZoomRef = null;
 let confirmClearScrollbackRef = null;
+
+// E2.1 (AD-15) — connection projection state. serial.js arrives via opts (never a
+// direct import — AD-3): toggleConnectionRef is the exported click action;
+// getConnectionStateRef reads the current state for the initial paint;
+// connUnsub is the onStateChange unsubscribe closure (called on re-wire + dispose
+// so the subscriber never double-registers — AC-6). The four DOM refs are the
+// Connect surfaces this module is the SOLE writer of.
+let toggleConnectionRef = null;
+let getConnectionStateRef = null;
+let connUnsub = null;
+let connectItemEl = null;     // #menu-connect-item (the Connect/Disconnect menu row)
+let connDotEl = null;         // #menu-conn-dot
+let connLabelEl = null;       // #menu-conn-label
+let legacyConnectBtnEl = null; // #connect-button — coexistence mirror, retires with #top-bar in E7
 
 // Every listener this module attaches, recorded so dispose() — and an
 // idempotent re-wire — can detach ALL of them. retainFocus's mousedown handlers
@@ -182,6 +221,10 @@ export function wireMenuBar(opts = {}) {
     // unconfirmed (guarded at each call site).
     pushZoomRef = opts.pushZoom || null;
     confirmClearScrollbackRef = opts.confirmClearScrollback || null;
+    // E2.1 (AD-15) — serial injected via opts (AD-3: not a direct import). All
+    // optional: a harness that omits them leaves the Connect projection inert.
+    toggleConnectionRef = opts.toggleConnection || null;
+    getConnectionStateRef = opts.getConnectionState || null;
     menuBarEl = document.getElementById('menu-bar');
     liveRegionEl = document.getElementById('menu-bar-live');
     openMenu = null;
@@ -227,6 +270,40 @@ export function wireMenuBar(opts = {}) {
     // first and the terminal Esc chain reaches keyboard last. Do NOT attach to
     // document/window — that would break the ordering vs keyboard.js.
     if (terminalWrapperRef) trackListener(terminalWrapperRef, 'keydown', onMenuKeydown);
+
+    // E2.1 (AD-15) — discover the Connect surfaces by convention (mirrors how the
+    // titles/dropdowns are discovered above), then subscribe to the serial state
+    // machine and take the initial paint. Every write goes through
+    // projectConnection (the sole writer); each ref is null-guarded there.
+    connectItemEl = document.getElementById('menu-connect-item');
+    connDotEl = document.getElementById('menu-conn-dot');
+    connLabelEl = document.getElementById('menu-conn-label');
+    // Coexistence mirror (Task 3) — the legacy #connect-button stays a valid
+    // serial-state oracle for the transport/session suite until #top-bar is
+    // removed in E7 (E1 retro open action #5). menu-bar.js now OWNS its click +
+    // mousedown too (moved out of serial.js), so it is not a second writer.
+    legacyConnectBtnEl = document.getElementById('connect-button');
+    if (legacyConnectBtnEl) {
+        retainFocus(legacyConnectBtnEl);   // AD-10 — mousedown→preventDefault (AC-5)
+        trackListener(legacyConnectBtnEl, 'click', () => {
+            if (toggleConnectionRef) toggleConnectionRef();
+        });
+    }
+    // Drop any prior onStateChange subscription BEFORE re-subscribing so an
+    // idempotent re-wire never double-registers projectConnection (AC-6).
+    // (connUnsub is a serial closure, not a tracked DOM listener, so
+    // removeTrackedListeners above does not cover it.) Kept adjacent to the
+    // re-subscribe — PAST the `!menuBarEl` early return — so a defensive re-wire
+    // on a missing bar leaves the live subscription intact instead of dropping it
+    // and never re-registering (which would freeze every Connect surface).
+    if (connUnsub) { connUnsub(); connUnsub = null; }
+    // Subscribe (AC-1) + initial paint. onStateChange fires projectConnection on
+    // every transition; the initial read yields 'disconnected' at boot (menu-bar
+    // wires before wireSerial — AD-12), so the first paint is Connect/gray.
+    if (opts.onConnectionStateChange) {
+        connUnsub = opts.onConnectionStateChange(projectConnection);
+    }
+    projectConnection(getConnectionStateRef ? (getConnectionStateRef() || 'disconnected') : 'disconnected');
 
     render();
     return buildApi();
@@ -619,9 +696,18 @@ function onItemClick(item, ev) {
         openSubmenu(item);               // E1.4 — open/toggle the child panel
         return;                          // parent row keeps the menu open
     }
+    // E2.1 — the Connection ▸ Connect/Disconnect row drives the exported serial
+    // toggle (relocated from the retired #connect-button handler), then closes the
+    // menu (action semantics). Transient states are click-inert inside
+    // toggleConnection itself, so no extra guard is needed here.
+    const action = item.getAttribute('data-action');
+    if (action === 'connect-toggle') {
+        if (toggleConnectionRef) toggleConnectionRef();
+        closeMenu();
+        return;
+    }
     // E1.5 — an action row carrying data-action drives a View action (zoom / clear);
     // a bare action row just closes the menu.
-    const action = item.getAttribute('data-action');
     if (action) { runViewAction(action, ev); return; }
     closeMenu();                         // plain action item closes the menu (AC-2)
 }
@@ -836,6 +922,50 @@ export function projectPrefs(prefs) {
     // not here, so the zoom half is a deliberate no-op.
 }
 
+// ====== E2.1 (AD-15) — connection projection (the sole Connect-surface writer) ======
+
+// The SOLE writer of every Connect surface: the Connect menu item (label +
+// data-state), the right-aligned status dot (data-state → discrete colour) and
+// its label, and — during coexistence — the legacy #connect-button (label +
+// data-state) so the transport/session oracles stay green (Task 3). Fed by the
+// serial onStateChange subscription + the boot initial paint; NEVER calls a
+// serial setter / connect / disconnect (reading state must not re-drive the
+// machine — the E1.4 double-apply lesson). Mirrors projectPrefs's contract:
+// read-at-use, no-throw (every ref null-guarded), idempotent. Does NOT touch
+// menu open/close state — render() stays that sole writer.
+function projectConnection(state) {
+    const label = CONNECT_LABELS[state] || CONNECT_LABELS.disconnected;
+    writeConnectLabel(label);                      // action label (item + legacy button)
+    if (connectItemEl) connectItemEl.dataset.state = state;
+    if (connDotEl) connDotEl.dataset.state = state;
+    if (connLabelEl) connLabelEl.textContent = CONN_STATUS_LABELS[state] || CONN_STATUS_LABELS.disconnected;
+    // Coexistence mirror — retires with #top-bar in E7 (E1 retro action #5).
+    if (legacyConnectBtnEl) legacyConnectBtnEl.dataset.state = state;
+}
+
+// The single source of truth for WHICH surfaces carry the Connect ACTION label:
+// the #menu-connect-item .lbl and — during coexistence — the legacy
+// #connect-button. Shared by projectConnection (the state path) and
+// signalConnectLabel (the out-of-band override) so the surface list can never
+// drift between them. Null-guarded — a missing surface is a no-op.
+function writeConnectLabel(label) {
+    if (connectItemEl) {
+        const lbl = connectItemEl.querySelector('.lbl');
+        if (lbl) lbl.textContent = label;
+    }
+    if (legacyConnectBtnEl) legacyConnectBtnEl.textContent = label;
+}
+
+// AC-4 — the out-of-band "Choose MicroBeast…" prompt (multi-adapter guard). Not
+// representable by the 5-state CONNECT_LABELS map, so serial.js hands the literal
+// string here via opts.signalConnectLabel; menu-bar.js (the sole writer) paints
+// it onto the Connect ACTION surfaces until the next setState re-projects. The
+// status dot/label keep their port-lost state (red / "Connection lost") — only
+// the actionable label is overridden, matching the incumbent button behaviour.
+function signalConnectLabel(label) {
+    writeConnectLabel(label);
+}
+
 // ====== Public API ======
 
 function buildApi() {
@@ -846,6 +976,14 @@ function buildApi() {
         // E1.3 (AD-14) — reset re-projection seam; main.js registers it as a
         // prefsSubscribe subscriber and tests drive it via window.__menuBar.
         projectPrefs,
+        // E2.1 (AC-4) — main.js hands this to wireSerial as opts.signalConnectLabel
+        // so the multi-adapter guard can surface "Choose MicroBeast…" through the
+        // sole writer. Also exposed for tests to drive the override directly.
+        signalConnectLabel,
+        // E2.1 (AC-3) — expose the projection so tests can drive discrete states
+        // deterministically (incl. the transient connecting/reconnecting labels)
+        // without racing a live serial handshake.
+        projectConnection,
         dispose,
         __getStateForTests,
         __resetForTests,
@@ -860,9 +998,12 @@ export function dispose() {
     focusedIndex = -1;
     render();
     // Detach every listener we attached (title clicks + item clicks + the
-    // document click-away) so the disposed bar is fully inert — clicking a title
-    // no longer toggles a dropdown.
+    // document click-away + the legacy #connect-button click) so the disposed bar
+    // is fully inert — clicking a title no longer toggles a dropdown.
     removeTrackedListeners();
+    // E2.1 (AC-6) — unsubscribe the serial onStateChange subscriber so a disposed
+    // bar stops projecting connection state (and a re-wire never double-subscribes).
+    if (connUnsub) { connUnsub(); connUnsub = null; }
 }
 
 // ====== Test introspection (matches the window.__* pattern) ======

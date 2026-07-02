@@ -129,7 +129,14 @@
       width: 9px; height: 9px; flex: 0 0 9px;
       border-radius: 50%;                 /* the one intentional circle */
       background: var(--status-gray);
+      /* E2.1 (AC-3, UX-DR3) — discrete state colours, never animated. Mirrors the
+         #connect-button[data-state] rule set; red reserved for port-lost only.
+         disconnected uses the base --status-gray above (no explicit rule needed). */
     }
+    #menu-conn-dot[data-state="connecting"],
+    #menu-conn-dot[data-state="reconnecting"] { background: var(--status-amber); }
+    #menu-conn-dot[data-state="connected"]    { background: var(--status-green); }
+    #menu-conn-dot[data-state="port-lost"]    { background: var(--status-red); }
     /* Dropdown panel — md 6px, 1px hairline, NO box-shadow (UX-DR5). Opens below
        its own title because it is an absolutely-positioned child of the
        position:relative .menu-group — so no inline left offset is ever set. */
@@ -964,7 +971,11 @@
     <div class="menu-group">
       <button id="menu-connection" class="menu-title" type="button" aria-haspopup="true" aria-expanded="false">Connection</button>
       <div id="dropdown-connection" class="dropdown" role="menu" hidden>
-        <button class="menu-item" type="button" role="menuitem" data-variant="action">
+        <!-- E2.1 (AD-15) — Connect/Disconnect single-writer item. menu-bar.js is
+             the sole writer of the .lbl text + data-state (via projectConnection);
+             data-action routes the click through onItemClick → toggleConnection. -->
+        <button id="menu-connect-item" class="menu-item" type="button" role="menuitem"
+                data-variant="action" data-action="connect-toggle" data-state="disconnected">
           <span class="check"></span><span class="lbl">Connect</span>
         </button>
         <button class="menu-item" type="button" role="menuitem" data-variant="disabled"

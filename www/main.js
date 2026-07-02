@@ -80,7 +80,10 @@ import {
     writeSlideFrameAwaitable,
     isWriterReady,                         // Phase 9 WR-03 — top-bar button gate
 } from './input/tx-sink.js';
-import { wireSerial } from './transport/serial.js';
+// E2.1 (AD-15, AD-3) — serial reaches menu-bar ONLY via wireMenuBar opts (like
+// term/getScrollState), never a direct menu-bar import. main.js is the composition
+// root that hands onStateChange/getState/toggleConnection across the seam.
+import { wireSerial, onStateChange, getState, toggleConnection } from './transport/serial.js';
 import {
     wireSlideDispatcher,
     dispatchInbound,
@@ -232,7 +235,8 @@ import('./pkg/build-info.js')
         if (buildShaEl) buildShaEl.textContent = 'unknown (unbuilt)';
     });
 // Phase 5 — Connection pane DOM refs (see www/index.html Plan 02 Wave 1).
-const connectButton     = document.getElementById('connect-button');
+// E2.1 (AD-15) — the #connect-button ref moved to menu-bar.js (the sole writer +
+// click owner via its own getElementById); main.js no longer holds it.
 const connectionPane    = document.getElementById('connection');
 const portStatusEl      = document.getElementById('port-status');
 const errorLogEl        = document.getElementById('error-log');
@@ -326,6 +330,12 @@ const menuBar = wireMenuBar({
     // deliberate-friction confirm before the wipe (main.js owns the modal, AD-3).
     pushZoom,
     confirmClearScrollback,
+    // Epic E2 Story E2.1 (AD-15) — the Connect item is now menu-bar-owned. Inject
+    // the serial machine's subscribe/read/toggle so menu-bar can be the sole
+    // writer of every Connect surface without importing serial.js (AD-3).
+    onConnectionStateChange: onStateChange,
+    getConnectionState: getState,
+    toggleConnection,
 });
 window.__menuBar = menuBar;   // Playwright hook (mirrors window.__scrollState / window.__modal)
 
@@ -937,7 +947,11 @@ await wireSerial({
     sampleBell,
     drainHostReply,
     requestFrame,
-    connectButton,
+    // Epic E2 Story E2.1 (AD-15) — serial.js no longer writes any Connect DOM, so
+    // it no longer receives connectButton. The multi-adapter "Choose MicroBeast…"
+    // out-of-band label is surfaced through menu-bar (the sole writer) via this
+    // signal instead of a direct button write (AC-4).
+    signalConnectLabel: menuBar.signalConnectLabel,
     connectionPane,
     portStatusEl,
     errorLogEl,
