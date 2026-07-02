@@ -158,6 +158,10 @@
       padding: 6px 10px; border-radius: 4px;
       cursor: default; white-space: nowrap;
     }
+    /* E2.2 — the [hidden] "Choose MicroBeast…" row: the explicit display:flex
+       above outranks the UA [hidden]{display:none} rule (same reason the
+       .dropdown / .submenu rules above re-declare it), so restore it here. */
+    #menu-bar .menu-item[hidden] { display: none; }
     /* Highlight is attribute-driven ([data-focused]) + :hover — NOT :focus-visible.
        Solid chrome-accent fill + chrome-bg text (spec beats the mock's tint). */
     #menu-bar .menu-item:hover,
@@ -978,8 +982,11 @@
                 data-variant="action" data-action="connect-toggle" data-state="disconnected">
           <span class="check"></span><span class="lbl">Connect</span>
         </button>
-        <button class="menu-item" type="button" role="menuitem" data-variant="disabled"
-                data-disabled="true" aria-disabled="true" title="Connect first to choose a device">
+        <!-- E2.2 (FR-13) — Choose MicroBeast… drives the CP2102N-filtered picker.
+             Starts [hidden] (the ≤1-adapter default); menu-bar toggles presence
+             from the live granted-adapter count on each Connection-menu open. -->
+        <button id="menu-choose-microbeast-item" class="menu-item" type="button" role="menuitem"
+                data-variant="action" data-action="choose-microbeast" hidden>
           <span class="check"></span><span class="lbl">Choose MicroBeast…</span>
         </button>
         <div class="menu-sep"></div>
@@ -987,8 +994,13 @@
           <span class="check"></span><span class="lbl">Serial Configuration…</span><span class="caret">▸ modal</span>
         </button>
         <div class="menu-sep"></div>
-        <button class="menu-item" type="button" role="menuitemcheckbox"
-                data-variant="checkable" data-checked="true" aria-checked="true">
+        <!-- E2.2 (FR-14, AD-4) — Auto-connect toggle. data-pref="autoConnect"
+             makes the generic checkable branch persist via savePrefs (reusable
+             seam for Settings ▸ Local echo / Enter-key-sends in E3). data-checked
+             starts "false" (the prefs.autoConnect default) and is re-derived from
+             prefs at wire-time / on open / on reset — never trusted as a literal. -->
+        <button id="menu-autoconnect-item" class="menu-item" type="button" role="menuitemcheckbox"
+                data-variant="checkable" data-pref="autoConnect" data-checked="false" aria-checked="false">
           <span class="check"></span><span class="lbl">Auto-connect on load</span>
         </button>
       </div>

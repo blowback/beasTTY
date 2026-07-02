@@ -198,15 +198,25 @@ test.describe('E1.1 AC-3 — four menu-item variants', () => {
 
   test('checkable shows a leading check glyph only when on @fast', async ({ page }) => {
     await ready(page);
-    // Connection ▸ Auto-connect starts checked → glyph present.
+    // E2.2 — Connection ▸ Auto-connect is now bound to prefs.autoConnect (default
+    // false), so a fresh page starts UNCHECKED → no glyph.
     await page.click('#menu-connection');
-    const auto = page.locator('#dropdown-connection .menu-item[data-variant="checkable"]');
+    const auto = page.locator('#menu-autoconnect-item');
+    await expect(auto).toHaveAttribute('data-checked', 'false');
+    await expect(auto.locator('.check')).toHaveText('');
+    // Toggle on → glyph present, aria in lockstep, and the menu STAYS OPEN
+    // (checkable semantics — AC-1) with prefs.autoConnect persisted (AD-4).
+    await auto.click();
     await expect(auto).toHaveAttribute('data-checked', 'true');
+    await expect(auto).toHaveAttribute('aria-checked', 'true');
     await expect(auto.locator('.check')).toHaveText('✓');
+    expect(await page.evaluate(() => window.__menuBar.getOpenMenu())).toBe('connection');
+    expect(await page.evaluate(() => window.__prefs.getPrefs().autoConnect)).toBe(true);
     // Toggle off → glyph gone.
     await auto.click();
     await expect(auto).toHaveAttribute('data-checked', 'false');
     await expect(auto.locator('.check')).toHaveText('');
+    expect(await page.evaluate(() => window.__prefs.getPrefs().autoConnect)).toBe(false);
   });
 
   test('radio-submenu uses the ▸ caret @fast', async ({ page }) => {
@@ -218,8 +228,11 @@ test.describe('E1.1 AC-3 — four menu-item variants', () => {
 
   test('disabled is muted, has a title tooltip, and no hover fill + inert @fast', async ({ page }) => {
     await ready(page);
-    await page.click('#menu-connection');
-    const disabled = page.locator('#dropdown-connection .menu-item[data-disabled="true"]');
+    // E2.2 — the former Connection ▸ Choose MicroBeast… disabled placeholder is
+    // now a live, count-gated action row, so this exercises the File ▸ Download
+    // Session Log placeholder (still permanently data-disabled until E3.1).
+    await page.click('#menu-file');
+    const disabled = page.locator('#dropdown-file .menu-item[data-disabled="true"]');
     await expect(disabled).toHaveAttribute('title', /.+/);
     const color = await disabled.evaluate((el) => getComputedStyle(el).color);
     expect(color).toBe('rgba(255, 255, 255, 0.6)');   // chrome-muted
@@ -238,7 +251,7 @@ test.describe('E1.1 AC-3 — four menu-item variants', () => {
     // aria-disabled-but-not-natively-disabled <button>; the onItemClick
     // data-disabled guard is what keeps it inert.
     await disabled.click({ force: true });
-    await expect(page.locator('#dropdown-connection')).toBeVisible();
+    await expect(page.locator('#dropdown-file')).toBeVisible();
   });
 });
 
@@ -280,19 +293,21 @@ test.describe('E1.1 ARIA state — roles carry their required state attributes',
 
   test('aria-checked on a menuitemcheckbox tracks data-checked and toggles @fast', async ({ page }) => {
     await ready(page);
-    // Connection ▸ Auto-connect starts checked.
+    // E2.2 — Connection ▸ Auto-connect is prefs-bound (default false) → starts unchecked.
     await page.click('#menu-connection');
-    const auto = page.locator('#dropdown-connection .menu-item[data-variant="checkable"]');
-    await expect(auto).toHaveAttribute('aria-checked', 'true');
+    const auto = page.locator('#menu-autoconnect-item');
+    await expect(auto).toHaveAttribute('aria-checked', 'false');
     await auto.click();
-    await expect(auto).toHaveAttribute('aria-checked', 'false');   // toggled + conveyed to AT
-    await expect(auto).toHaveAttribute('data-checked', 'false');   // stays in lockstep
+    await expect(auto).toHaveAttribute('aria-checked', 'true');    // toggled + conveyed to AT
+    await expect(auto).toHaveAttribute('data-checked', 'true');    // stays in lockstep
   });
 
   test('disabled items expose aria-disabled to assistive tech @fast', async ({ page }) => {
     await ready(page);
-    await page.click('#menu-connection');
-    const disabled = page.locator('#dropdown-connection .menu-item[data-disabled="true"]');
+    // E2.2 — Connection's disabled placeholder is gone; File ▸ Download Session Log
+    // remains the permanently-disabled row (until E3.1).
+    await page.click('#menu-file');
+    const disabled = page.locator('#dropdown-file .menu-item[data-disabled="true"]');
     await expect(disabled).toHaveAttribute('aria-disabled', 'true');
   });
 });

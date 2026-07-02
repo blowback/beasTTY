@@ -143,6 +143,20 @@ let connDotEl = null;         // #menu-conn-dot
 let connLabelEl = null;       // #menu-conn-label
 let legacyConnectBtnEl = null; // #connect-button — coexistence mirror, retires with #top-bar in E7
 
+// E2.2 (FR-13/FR-14, AD-3) — Auto-connect + Choose MicroBeast injected seams.
+// getAdapterCountRef is serial's async CP2102N count (present-when->1 gate);
+// chooseMicroBeastRef opens the existing filtered requestPort picker. Both arrive
+// via opts (serial is never a direct import). The two DOM refs are the rows this
+// module projects: the checkable auto-connect row and the count-gated Choose row.
+let getAdapterCountRef = null;
+let chooseMicroBeastRef = null;
+let autoConnectItemEl = null;      // #menu-autoconnect-item — checkable, derived from prefs.autoConnect
+let chooseMicroBeastItemEl = null; // #menu-choose-microbeast-item — [hidden] unless >1 adapter
+// Bumped on every refreshChooseMicroBeast() kickoff so an EARLIER open's async
+// count (getPorts() latency is non-deterministic) can't resolve last and stomp a
+// later open's visibility with a stale adapter count. Only the newest seq applies.
+let chooseCountSeq = 0;
+
 // Every listener this module attaches, recorded so dispose() — and an
 // idempotent re-wire — can detach ALL of them. retainFocus's mousedown handlers
 // are WeakSet-guarded in focus.js, but the click handlers below are not, so a
@@ -225,6 +239,11 @@ export function wireMenuBar(opts = {}) {
     // optional: a harness that omits them leaves the Connect projection inert.
     toggleConnectionRef = opts.toggleConnection || null;
     getConnectionStateRef = opts.getConnectionState || null;
+    // E2.2 — serial's adapter count + filtered picker (AD-3 injected). Both
+    // optional: a harness that omits getAdapterCount leaves Choose MicroBeast…
+    // permanently absent; one that omits chooseMicroBeast leaves its click inert.
+    getAdapterCountRef = opts.getAdapterCount || null;
+    chooseMicroBeastRef = opts.chooseMicroBeast || null;
     menuBarEl = document.getElementById('menu-bar');
     liveRegionEl = document.getElementById('menu-bar-live');
     openMenu = null;
@@ -304,6 +323,15 @@ export function wireMenuBar(opts = {}) {
         connUnsub = opts.onConnectionStateChange(projectConnection);
     }
     projectConnection(getConnectionStateRef ? (getConnectionStateRef() || 'disconnected') : 'disconnected');
+
+    // E2.2 — discover the Auto-connect + Choose MicroBeast rows (same by-id
+    // convention as the Connect surfaces above) and take the auto-connect initial
+    // paint from prefs so the row is correct BEFORE the first Connection-menu open
+    // (never trust the HTML data-checked literal — AC-3). Choose MicroBeast… stays
+    // [hidden] at boot (the ≤1-adapter default); it is re-derived async on open.
+    autoConnectItemEl = document.getElementById('menu-autoconnect-item');
+    chooseMicroBeastItemEl = document.getElementById('menu-choose-microbeast-item');
+    projectAutoConnect();
 
     render();
     return buildApi();
@@ -404,7 +432,11 @@ function focusableItems() {
     if (!dropdown) return [];
     return Array.from(dropdown.querySelectorAll('.menu-item'))
         .filter((el) => !el.closest('.submenu'))
-        .filter((el) => el.getAttribute('data-disabled') !== 'true');
+        .filter((el) => el.getAttribute('data-disabled') !== 'true')
+        // E2.2 (AC-2) — a [hidden] row (Choose MicroBeast… when ≤1 adapter) is not
+        // visible, so ↑/↓ keyboard nav must not land focus on it. It appears /
+        // disappears between opens; excluding it keeps the index math valid.
+        .filter((el) => !el.hasAttribute('hidden'));
 }
 
 // Every top-level row (incl. disabled) of the open menu — used only for the
@@ -414,7 +446,12 @@ function allItems() {
     const dropdown = dropdownEls[openMenu];
     if (!dropdown) return [];
     return Array.from(dropdown.querySelectorAll('.menu-item'))
-        .filter((el) => !el.closest('.submenu'));
+        .filter((el) => !el.closest('.submenu'))
+        // E2.2 — a [hidden] row (Choose MicroBeast… when ≤1 adapter) is neither a
+        // focus target nor a visible neighbour, so refreshLiveRegion's AC-2
+        // disabled-neighbour scan must not see it (keeps this index space aligned
+        // with focusableItems, which already excludes [hidden]).
+        .filter((el) => !el.hasAttribute('hidden'));
 }
 
 function currentFocusedItem() {
@@ -688,9 +725,27 @@ function onItemClick(item, ev) {
     const variant = item.getAttribute('data-variant');
     if (variant === 'checkable') {
         const on = item.getAttribute('data-checked') === 'true';
-        item.setAttribute('data-checked', on ? 'false' : 'true');
+        const next = !on;
+        item.setAttribute('data-checked', next ? 'true' : 'false');
         syncCheckGlyph(item);
-        return;                          // checkable keeps the menu open (AC-2)
+        // E2.2 (AC-1, AD-4) — a pref-backed checkable persists its new value via
+        // savePrefs. The pref key rides on the row (data-pref) so the branch stays
+        // generic: Settings ▸ Local echo / Enter-key-sends (E3) reuse this path.
+        // savePrefs touches ONLY the named key (AD-4) and does NOT fire subscribers.
+        const prefKey = item.getAttribute('data-pref');
+        if (prefKey) {
+            savePrefs({ [prefKey]: next });
+            // E2.2 (AC-4) — menu→pane lockstep during the E7 coexistence window:
+            // savePrefs does not fan out, so the legacy #auto-connect-checkbox in
+            // the <details> pane would go stale in-session. Mirror it here. This
+            // line retires with #top-bar in E7 (E1 retro open action #5), same as
+            // the #connect-button mirror in projectConnection.
+            if (prefKey === 'autoConnect') {
+                const legacy = document.getElementById('auto-connect-checkbox');
+                if (legacy) legacy.checked = next;
+            }
+        }
+        return;                          // checkable keeps the menu open (AC-1)
     }
     if (variant === 'radio-submenu') {
         openSubmenu(item);               // E1.4 — open/toggle the child panel
@@ -703,6 +758,14 @@ function onItemClick(item, ev) {
     const action = item.getAttribute('data-action');
     if (action === 'connect-toggle') {
         if (toggleConnectionRef) toggleConnectionRef();
+        closeMenu();
+        return;
+    }
+    // E2.2 (AC-5, FR-13) — Choose MicroBeast… drives the existing CP2102N-filtered
+    // requestPort picker (injected as opts.chooseMicroBeast → connectMicroBeast),
+    // letting the user pick which board, then closes the menu (action semantics).
+    if (action === 'choose-microbeast') {
+        if (chooseMicroBeastRef) chooseMicroBeastRef();
         closeMenu();
         return;
     }
@@ -774,12 +837,12 @@ function toggleMenu(key) {
     openMenu = (openMenu === key) ? null : key;
     focusedIndex = -1;
     render();
-    projectViewOnOpen();                  // E1.4 — re-derive Theme/Phosphor from prefs at open (read-at-use)
+    projectMenuOnOpen();                  // re-derive prefs-driven rows at open (View: theme/phosphor; Connection: auto-connect + adapter count)
     refreshLiveRegion();
 }
 
 // focusFirstRow (←/→ nav) lands focus on the first enabled row; the default
-// (click / public open() API) shows no highlight. projectViewOnOpen runs BEFORE
+// (click / public open() API) shows no highlight. projectMenuOnOpen runs BEFORE
 // the focus computation so focusableItems() sees the freshly-derived Phosphor
 // disabled state, and a single render() then opens the menu AND projects
 // [data-focused] — no second pass.
@@ -787,20 +850,73 @@ function openMenuNamed(key, focusFirstRow = false) {
     if (!MENUS.includes(key)) return;
     closeSubmenu();                       // E1.4 — collapse any submenu from the previous menu
     openMenu = key;
-    projectViewOnOpen();                  // E1.4 — re-derive Theme/Phosphor from prefs at open (read-at-use)
+    projectMenuOnOpen();                  // re-derive prefs-driven rows at open (View: theme/phosphor; Connection: auto-connect + adapter count)
     focusedIndex = (focusFirstRow && focusableItems().length > 0) ? 0 : -1;
     render();
     refreshLiveRegion();
 }
 
-// E1.4 — when the View menu opens, re-derive its Theme/Phosphor check glyphs +
-// Phosphor disabled state from prefs (read-at-use). This is what keeps the menu
-// correct after a Ctrl+Alt+T chord fired while the menu was closed — savePrefs
-// updates `cached` synchronously (AD-4), so getPrefs() already reflects the
-// chord, and NO chrome→menu notify edge is needed (AD-3). Reuses projectPrefs,
-// which reads getPrefs() and never calls a canvas setter / open-close writer.
-function projectViewOnOpen() {
+// When a menu opens, re-derive its prefs-driven / live-state rows at USE-TIME.
+// E1.4 — View: re-derive Theme/Phosphor check glyphs + Phosphor disabled state
+// (keeps the menu correct after a Ctrl+Alt+T chord fired while it was closed —
+// savePrefs updates `cached` synchronously (AD-4), so getPrefs() already reflects
+// it; no chrome→menu notify edge (AD-3)). E2.2 — Connection: re-derive the
+// Auto-connect row from prefs (AC-3 pane→menu; a legacy-checkbox toggle is
+// reflected on the next open) and kick off the async adapter count that gates
+// Choose MicroBeast… (AC-2). All reads are at USE-TIME; none call a setter.
+function projectMenuOnOpen() {
     if (openMenu === 'view') projectPrefs();
+    if (openMenu === 'connection') {
+        projectAutoConnect();
+        refreshChooseMicroBeast();
+    }
+}
+
+// E2.2 (AC-1/AC-3) — project the Auto-connect checkable row from prefs.autoConnect
+// at USE-TIME (the passed blob on reset, else getPrefs()). Read-at-use, no-throw,
+// idempotent; NEVER calls a serial setter. Shared by the wire-time initial paint,
+// the Connection-menu open re-derive, and the reset re-projection (projectPrefs).
+function projectAutoConnect(prefs) {
+    if (!autoConnectItemEl) return;                  // row absent (harness) — no-op
+    const p = prefs || getPrefs();
+    if (!p) return;
+    autoConnectItemEl.setAttribute('data-checked', p.autoConnect ? 'true' : 'false');
+    syncCheckGlyph(autoConnectItemEl);               // projects glyph + aria-checked
+}
+
+// E2.2 (AC-2, FR-13) — async-count the granted CP2102N adapters and show Choose
+// MicroBeast… only when >1. The count is async and must never throw or block the
+// menu open; the stale-guard reapplies only if the Connection menu is still open
+// when the promise resolves (it may have closed first). No-op without the seam.
+function refreshChooseMicroBeast() {
+    if (!chooseMicroBeastItemEl || !getAdapterCountRef) return;
+    const seq = ++chooseCountSeq;                    // this open's count; a stale one no-ops below
+    Promise.resolve()
+        .then(() => getAdapterCountRef())
+        // Apply only if this is still the newest count AND the Connection menu is
+        // still open — an out-of-order earlier resolve would otherwise stomp it.
+        .then((n) => { if (seq === chooseCountSeq && openMenu === 'connection') setChooseMicroBeastPresent(n > 1); })
+        .catch(() => {});                            // no-throw — never break the open
+}
+
+// Toggle the Choose MicroBeast… row's presence via the [hidden] attribute (a
+// native [hidden] <button> is display:none — no extra CSS). A row appearing /
+// disappearing between opens can strand keyboard focus on a now-hidden row, so
+// re-derive top-level focus (a no-op on the mouse/click open path, focusedIndex -1).
+function setChooseMicroBeastPresent(present) {
+    if (!chooseMicroBeastItemEl) return;
+    // Capture WHICH row is keyboard-focused BEFORE the membership change: adding /
+    // removing Choose MicroBeast… (above other rows) shifts every focusableItems()
+    // index, so a plain index clamp would silently slide the highlight onto a
+    // different row. Re-anchor to the same row's new index; clamp only if it's gone.
+    const focused = currentFocusedItem();
+    if (present) chooseMicroBeastItemEl.removeAttribute('hidden');
+    else chooseMicroBeastItemEl.setAttribute('hidden', '');
+    if (focused) {
+        const idx = focusableItems().indexOf(focused);
+        if (idx >= 0) { focusedIndex = idx; renderFocus(); refreshLiveRegion(); return; }
+    }
+    reconcileFocusedRow();
 }
 
 function closeMenu() {
@@ -891,6 +1007,11 @@ function reconcileFocusedRow() {
 export function projectPrefs(prefs) {
     const p = prefs || getPrefs();
     if (!p) return;                                  // nothing to project — no-op
+    // E2.2 (AC-3) — re-project the Connection ▸ Auto-connect row from p.autoConnect
+    // so resetPrefs() (AD-14) restores the unchecked default in the menu DOM.
+    // Resolved BEFORE (and independently of) the View-dropdown guard below: a
+    // View-less harness must still get the auto-connect reset re-projection.
+    projectAutoConnect(p);
     const viewDropdown = dropdownEls.view || document.getElementById('dropdown-view');
     if (!viewDropdown) return;                       // View menu absent — no-op
     // E1.4 — project p.theme + p.phosphor onto the submenu radio check glyphs and

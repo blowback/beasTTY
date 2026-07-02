@@ -83,7 +83,7 @@ import {
 // E2.1 (AD-15, AD-3) — serial reaches menu-bar ONLY via wireMenuBar opts (like
 // term/getScrollState), never a direct menu-bar import. main.js is the composition
 // root that hands onStateChange/getState/toggleConnection across the seam.
-import { wireSerial, onStateChange, getState, toggleConnection } from './transport/serial.js';
+import { wireSerial, onStateChange, getState, toggleConnection, connectMicroBeast, disconnect, countMicroBeastAdapters } from './transport/serial.js';
 import {
     wireSlideDispatcher,
     dispatchInbound,
@@ -336,6 +336,25 @@ const menuBar = wireMenuBar({
     onConnectionStateChange: onStateChange,
     getConnectionState: getState,
     toggleConnection,
+    // Epic E2 Story E2.2 (AD-3, FR-13/FR-14) — the adapter-count gate for
+    // "Choose MicroBeast…" and the filtered picker it opens, injected across the
+    // same seam (menu-bar cannot import serial). getAdapterCount is async +
+    // no-throw; chooseMicroBeast reuses the existing connectMicroBeast picker.
+    getAdapterCount: countMicroBeastAdapters,
+    // Disconnect-first when already connected (§"Choose MicroBeast… click
+    // behavior" open Q#2): a bare connectMicroBeast() while connected would
+    // setState('connecting') then, on picker-cancel, setState('disconnected')
+    // over a still-live port (UI↔reality divergence), or open a second port and
+    // leak the old writer/read loop when a different board is picked. Tearing the
+    // existing connection down first makes "choose which board" a clean switch.
+    // NOT awaited: connectMicroBeast() must call requestPort() synchronously in
+    // this click tick to keep Web Serial's transient user-activation valid;
+    // teardown finishes in ms, long before the user picks. .catch guards the
+    // floating promise from surfacing as an unhandled rejection.
+    chooseMicroBeast: () => {
+        if (getState() === 'connected') disconnect().catch(() => {});
+        connectMicroBeast();
+    },
 });
 window.__menuBar = menuBar;   // Playwright hook (mirrors window.__scrollState / window.__modal)
 

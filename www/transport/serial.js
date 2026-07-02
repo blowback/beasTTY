@@ -1,7 +1,7 @@
 // Beastty Phase 5 — Web Serial transport (JS-only; no Rust bindings).
 //
 // Public API: renderPoliteFail, wireSerial, connectMicroBeast, disconnect,
-// getState, onStateChange, getWriter, toggleConnection.
+// getState, onStateChange, getWriter, toggleConnection, countMicroBeastAdapters.
 //
 // Epic E2 Story E2.1 (AD-15) — the connect-button DOM *projection* moved OUT of
 // this module. serial.js still owns the connection STATE MACHINE (state,
@@ -467,6 +467,20 @@ export function onStateChange(fn) {
 }
 
 export function getWriter() { return writer; }
+
+// E2.2 (FR-13) — count the currently-granted CP2102N MicroBeast adapters. Reuses
+// the same VID/PID predicate as the onNavSerialConnect multi-adapter guard
+// (:673). menu-bar.js gates "Choose MicroBeast…" on count > 1 but cannot import
+// serial (AD-3), so main.js injects this as opts.getAdapterCount. No-throw:
+// resolves to 0 if getPorts() rejects (never blocks / breaks the menu open).
+export async function countMicroBeastAdapters() {
+    let ports;
+    try { ports = await navigator.serial.getPorts(); } catch { return 0; }
+    return ports.filter((p) => {
+        const i = p.getInfo();
+        return i.usbVendorId === VID_MICROBEAST && i.usbProductId === PID_MICROBEAST;
+    }).length;
+}
 
 // --- Internals ------------------------------------------------------------
 

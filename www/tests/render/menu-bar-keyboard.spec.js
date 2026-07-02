@@ -121,10 +121,11 @@ test.describe('E1.2 AC-1 — ←/→ between menus, ↑/↓ within a dropdown', 
     expect(await page.evaluate(() => window.__menuBar.getOpenMenu())).toBe('file');
   });
 
-  test('↑/↓ move [data-focused], skip disabled, never steal terminal focus @fast', async ({ page }) => {
+  test('↑/↓ move [data-focused], skip inert rows, never steal terminal focus @fast', async ({ page }) => {
     await ready(page);
-    // Connection: focusable = [Connect, Serial Configuration…, Auto-connect];
-    // "Choose MicroBeast…" is disabled and must be skipped.
+    // E2.2 — Connection: focusable = [Connect, Serial Configuration…, Auto-connect].
+    // "Choose MicroBeast…" is [hidden] with ≤1 adapter (the fresh-page default)
+    // and must be skipped by ↑/↓ nav (focusableItems excludes [hidden]).
     await page.evaluate(() => window.__menuBar.open('connection'));
 
     const focusedLabel = () => page.$eval(
@@ -136,17 +137,17 @@ test.describe('E1.2 AC-1 — ←/→ between menus, ↑/↓ within a dropdown', 
     expect(await focusedLabel()).toBe('Connect');
     expect(await page.evaluate(() => window.__menuBar.__getStateForTests().focusedIndex)).toBe(0);
 
-    // Second ↓ SKIPS the disabled "Choose MicroBeast…" → Serial Configuration.
+    // Second ↓ SKIPS the hidden "Choose MicroBeast…" → Serial Configuration.
     await page.keyboard.press('ArrowDown');
     expect(await focusedLabel()).toBe('Serial Configuration…');
     expect(await page.evaluate(() => window.__menuBar.__getStateForTests().focusedIndex)).toBe(1);
 
-    // The disabled row is NEVER [data-focused].
-    const disabledFocused = await page.$eval(
-      '#dropdown-connection .menu-item[data-disabled="true"]',
+    // The hidden row is NEVER [data-focused].
+    const hiddenFocused = await page.$eval(
+      '#menu-choose-microbeast-item',
       (el) => el.getAttribute('data-focused'),
     );
-    expect(disabledFocused).toBeNull();
+    expect(hiddenFocused).toBeNull();
 
     // ↑ moves back.
     await page.keyboard.press('ArrowUp');
@@ -220,13 +221,15 @@ test.describe('E1.2 AC-1 — Enter / → activation per variant', () => {
 test.describe('E1.2 AC-2 — disabled reason announced via aria-live', () => {
   test('live region text equals the disabled row title when nav lands beside it @fast', async ({ page }) => {
     await ready(page);
-    await page.evaluate(() => window.__menuBar.open('connection'));
-    // Nav down to Serial Configuration — adjacent to the disabled
-    // "Choose MicroBeast…" row (title = "Connect first to choose a device").
-    await page.keyboard.press('ArrowDown');   // Connect (adjacent to disabled below)
-    await page.keyboard.press('ArrowDown');   // Serial Configuration (adjacent to disabled above)
+    // E2.2 — Connection's disabled "Choose MicroBeast…" placeholder is now a live
+    // row; use File ▸ Download Session Log (disabled, title "No bytes received
+    // yet") as the disabled-neighbour fixture instead.
+    await page.evaluate(() => window.__menuBar.open('file'));
+    // Nav down to Send File… — adjacent to the disabled "Download Session Log"
+    // row below it.
+    await page.keyboard.press('ArrowDown');   // Send File… (adjacent to disabled below)
     const live = page.locator('#menu-bar-live');
-    await expect(live).toHaveText('Connect first to choose a device');
+    await expect(live).toHaveText('No bytes received yet');
   });
 
   test('aria-live region is visually hidden but present @fast', async ({ page }) => {
