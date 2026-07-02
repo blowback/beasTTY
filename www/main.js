@@ -59,6 +59,7 @@ import {
     getActiveTheme,
     getActivePhosphor,
     getActiveZoom,
+    getActiveFont,             // E1.5 — surfaced on window.__canvasState for the font oracle
     triggerBellFlash,          // Plan 03 owns bell sampling; canvas.js provides the CSS helper
     markAllRowsDirty,          // Phase 6 Plan 03 — passed to wireScrollState for snap-to-bottom repaint
     getActiveCellSize,         // Phase 6 Plan 04 — selection / tests resolve px-cell math via this
@@ -139,6 +140,7 @@ import {
 // directly by the modules that own dialogs (see file-source.js); main.js only
 // surfaces its test hooks as window.__modal for the Playwright chromium suite.
 import {
+    openModal,                 // E1.5 — Clear Scrollback… deliberate-friction confirm (FR-11)
     __getStateForTests as __modalGetStateForTests,
     __resetForTests as __modalResetForTests,
 } from './renderer/modal.js';
@@ -163,24 +165,47 @@ const terminalWrapper = document.getElementById('terminal-wrapper');
 // Epic E1 Story E1.4 — #theme-toggle / #phosphor-group retired to the View menu
 // (menu-bar.js owns the actions now, AD-7). Their module consts, wireChrome
 // args, applyPrefs mirrors, and D-19 capture listeners are all removed with
-// them. #font-select / #clear-button stay in #top-bar (E1.5 / E7).
+// them. Epic E1 Story E1.5 — #font-select + the two Clear buttons are likewise
+// retired to the View menu; #top-bar keeps Connect (E2) / Send file (E3) / the
+// paste-progress row (E7) until #top-bar is removed in E7.
 const bellOverlay     = document.getElementById('bell-overlay');
-// Epic E1 Story E1.4 — the ONE shared post-theme hook. Every theme-change site
-// routes through here: the Ctrl+Alt+T chord (via wireChrome), the View ▸ Theme
-// menu action (via wireMenuBar), and applyPrefs at boot / reset. It owns the two
-// side-effects that `setTheme` (the single body[data-theme] writer) does not:
-//   1. #font-row CRT-gate (TEMPORARY — E1.5 relocates Font; delete that line then).
-//   2. Re-projecting the View menu so an ALREADY-OPEN menu reflects the new theme.
-//      savePrefs does NOT fan out to subscribers, so without this a chord fired
-//      while View is open would leave a stale theme ✓ and a stale-enabled Phosphor
-//      row (AD-9 violation). Every caller persists via savePrefs BEFORE invoking
-//      this, and savePrefs updates the cached blob synchronously (AD-4), so
-//      projectPrefs()'s getPrefs() read already reflects the new theme. projectPrefs
-//      is idempotent and no-ops when View is absent — safe to call on every change.
-function onThemeChange(name) {
-    const fontRow = document.getElementById('font-row');
-    if (fontRow) fontRow.hidden = (name !== 'crt');
+// Epic E1 Story E1.4 — the shared post-theme hook for the theme-change sites that
+// do NOT fan out to prefs subscribers: the Ctrl+Alt+T chord (via wireChrome) and
+// the View ▸ Theme menu action (via wireMenuBar). savePrefs does not notify
+// subscribers, so without this a chord fired while View is open would leave a
+// stale theme ✓ / stale-enabled Phosphor+Font (AD-9 violation). It re-derives the
+// View menu so an ALREADY-OPEN menu reflects the new theme (Theme ✓ moves,
+// Phosphor AND Font disabled state). The applyPrefs boot/reset path does NOT call
+// this — resetPrefs()/boot re-project via the dedicated menuBar.projectPrefs
+// subscriber instead (one projection per fan-out). Every caller persists via
+// savePrefs BEFORE invoking this, and savePrefs updates the cached blob
+// synchronously (AD-4), so projectPrefs()'s getPrefs() read already reflects the
+// new theme. projectPrefs is idempotent and no-ops when View is absent.
+function onThemeChange() {
     menuBar.projectPrefs();
+}
+// Epic E1 Story E1.5 (FR-10 / AD-6) — imperative zoom→status-bar push hook. The
+// status bar is E4; until then this is a no-op stub that records the last pushed
+// level (+ a call count) on window.__zoomPush so the Playwright suite can prove
+// the hook fires from BOTH the View ▸ Zoom items and the Ctrl+{=,-,0} chord.
+window.__zoomPush = { last: null, count: 0 };
+function pushZoom(level) {
+    window.__zoomPush.last = level;
+    window.__zoomPush.count += 1;
+}
+// Epic E1 Story E1.5 (FR-11) — Clear Scrollback… deliberate-friction confirm.
+// menu-bar.js owns the wipe (clearScrollback); main.js owns the modal so modal.js
+// stays out of menu-bar's import set (AD-3). Cancel is default-focused (Enter is
+// the safe choice on a destructive action); focus restores to the terminal on
+// close (NFR-1). Resolves true ONLY when the user confirms ('confirm' returnValue).
+const clearScrollbackConfirmEl = document.getElementById('clear-scrollback-confirm');
+function confirmClearScrollback() {
+    if (!clearScrollbackConfirmEl) return Promise.resolve(true);   // no markup — don't break the feature
+    const cancelBtn = document.getElementById('clear-scrollback-confirm-cancel');
+    return openModal(clearScrollbackConfirmEl, {
+        initialFocus: cancelBtn,
+        restoreTo: terminalWrapper,
+    }).then((rv) => rv === 'confirm');
 }
 // Phase 4 Plan 03 — Settings pane + Debug TX strip refs.
 const localEchoCheckbox = document.getElementById('local-echo');
@@ -260,9 +285,10 @@ wireChrome({
     // into menu-bar.js, so `term` / `getScrollState` no longer belong here.
     // `requestFrame` STAYS (the visibilitychange catch-up repaint still uses it).
     // Epic E1 Story E1.4 (AD-13) — theme/phosphor controls retired to the View
-    // menu; only the Ctrl+Alt+T chord stays here. onThemeChange re-gates
-    // #font-row on the chord path (the retired applyThemeSideEffects used to).
-    onThemeChange,                              // E1.4 — #font-row CRT-gate for the chord
+    // menu; only the Ctrl+Alt+T / zoom chords stay here. onThemeChange re-projects
+    // the open View menu after the chord (E1.5 removed its #font-row hide-gate).
+    onThemeChange,                              // E1.4 — re-project the open View menu after the chord
+    pushZoom,                                   // E1.5 (AD-6) — feed the status bar from the zoom chord
     prefs,                                      // Phase 6 Plan 06 — Auto connect checkbox initial state
     savePrefs,                                  // Phase 6 Plan 06 — persist Auto connect + the Ctrl+Alt+T chord theme change
     resetPrefs,                                 // Phase 6 Plan 06 — Reset all preferences 2-click confirm
@@ -289,12 +315,17 @@ const menuBar = wireMenuBar({
     term,
     getScrollState: () => scrollStateRef,
     requestFrame,
-    // Epic E1 Story E1.4 — View ▸ Theme re-gates #font-row (shared with the
-    // chord) and both Theme/Phosphor selects clear the selection (D-19 rehomed).
+    // Epic E1 Story E1.4 — View ▸ Theme re-projects the menu (shared onThemeChange
+    // hook), and Theme/Phosphor/Zoom actions clear the selection (D-19 rehomed).
     // clearSelection is a thunk: `selection` is wired further below, so the live
     // ref resolves at click time (same late-bind pattern as getScrollState).
     onThemeChange,
     clearSelection: () => selection.clearSelection(),
+    // Epic E1 Story E1.5 — View ▸ Zoom pushes the new level to the status bar
+    // (E4 consumer; no-op stub now), and View ▸ Clear Scrollback… runs the
+    // deliberate-friction confirm before the wipe (main.js owns the modal, AD-3).
+    pushZoom,
+    confirmClearScrollback,
 });
 window.__menuBar = menuBar;   // Playwright hook (mirrors window.__scrollState / window.__modal)
 
@@ -348,6 +379,9 @@ const selection = wireSelection({
 });
 window.__selection = selection;
 window.__getActiveCellSize = getActiveCellSize;
+// Epic E1 Story E1.5 — read-only canvas state for the View ▸ Font / Zoom oracles
+// (mirrors the window.__prefs read pattern; never a live DOM ref).
+window.__canvasState = { getActiveFont, getActiveZoom, getActiveTheme, getActivePhosphor };
 
 // D-19 — selection clears on theme/phosphor/zoom change. Epic E1 Story E1.4 —
 // the theme/phosphor D-19 capture listeners on #theme-toggle / #phosphor-group
@@ -1095,17 +1129,18 @@ function applyPrefs(p) {
     // double-apply race).
     // Epic E1 Story E1.4 — the #theme-toggle label + #phosphor-group mirrors and
     // the redundant body[data-theme] set are GONE (setTheme is the single writer
-    // of the scanline attr now; menu-bar.projectPrefs re-projects the View menu's
-    // Theme/Phosphor check glyphs + Phosphor disabled state on reset). Re-gate
-    // #font-row here too so boot / reset restores font visibility (E1.5 bridge).
-    onThemeChange(p.theme);
+    // of the scanline attr now). The View menu's Theme/Phosphor/Font check glyphs
+    // + disabled state are re-projected on this reset/boot path by the dedicated
+    // menuBar.projectPrefs prefs subscriber (registered below) — NOT re-triggered
+    // here, so projectPrefs runs exactly once per fan-out.
     setPhosphor(p.phosphor);
-    if (p.font) {
-        setFont(p.font);
-        const fontSelect = document.getElementById('font-select');
-        if (fontSelect && fontSelect.value !== p.font) fontSelect.value = p.font;
-    }
+    // Epic E1 Story E1.5 — #font-select retired to the View menu. setFont stays
+    // the single-writer on reset (AD-14); the Font submenu radio + its disabled
+    // state are re-projected by menuBar.projectPrefs (the second prefs subscriber),
+    // NOT here (projectPrefs must never call a canvas setter).
+    if (p.font) setFont(p.font);
     setZoom(p.fontZoom);
+    pushZoom(p.fontZoom);   // E1.5 (AD-6) — feed the (future) status bar at the reset setter site
     setLocalEcho(p.localEcho);
     if (localEchoCheckbox.checked !== p.localEcho) localEchoCheckbox.checked = p.localEcho;
     setCrlfMode(p.crlfMode);

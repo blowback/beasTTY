@@ -12,12 +12,10 @@
 
 import {
     setTheme,
-    setFont,
     zoomStep,
     resetZoom,
     setFocus,
     getActiveTheme,
-    getActiveFont,
     getActiveZoom as getActiveZoomFn,
 } from './canvas.js';
 // Epic E0 Story E0.1 (AD-10) — shared focus-retention helper. Picks the right
@@ -42,6 +40,10 @@ let txSinkRef = null;
 // change (the retired button handler persisted — the chord path does now too).
 let onThemeChangeRef = null;
 let savePrefsRef = null;
+// Epic E1 Story E1.5 (FR-10 / AD-6) — the zoom chord feeds the (future) status
+// bar too, so the shortcut and the View ▸ Zoom items both push the new level.
+// Optional; a null ref no-ops the push (status bar lands in E4).
+let pushZoomRef = null;
 
 function toggleTheme() {
     const current = getActiveTheme().name;
@@ -51,7 +53,7 @@ function toggleTheme() {
     // menu from getPrefs(), so the new theme must already be in the cached blob
     // (AD-4, synchronous) or an open menu would re-project to the stale theme.
     if (savePrefsRef) savePrefsRef({ theme: destination }); // persist the chord theme change
-    if (onThemeChangeRef) onThemeChangeRef(destination);    // #font-row CRT-gate + re-project open View menu
+    if (onThemeChangeRef) onThemeChangeRef();               // re-project an open View menu (reads getPrefs)
 }
 
 export function wireChrome(opts) {
@@ -65,6 +67,10 @@ export function wireChrome(opts) {
         // re-gates #font-row on the chord path (the retired applyThemeSideEffects
         // used to).
         onThemeChange,
+        // Epic E1 Story E1.5 (AD-6) — imperative zoom→status-bar push. The chord
+        // path pushes the new level so the status bar (E4) updates from the
+        // shortcut too; no-op stub until E4 wires the real bar.
+        pushZoom,
         // Phase 6 Plan 06 (Wave 5) — pref persistence + Settings new rows.
         // prefs:        starting blob (loadPrefs() result) — used for the Auto
         //               connect checkbox's initial DOM state at boot.
@@ -94,6 +100,7 @@ export function wireChrome(opts) {
     // (#font-row gate + theme persistence). Both optional (guarded at use).
     onThemeChangeRef = onThemeChange || null;
     savePrefsRef = savePrefs || null;
+    pushZoomRef = pushZoom || null;   // E1.5 (AD-6) — zoom status-bar push on the chord path
 
     // ==== Epic E1 Story E1.3 (AD-13) — Clear buttons relocated to menu-bar.js ====
     // The #clear-button (top-bar) and #clear-scrollback-button (Settings) click
@@ -130,18 +137,21 @@ export function wireChrome(opts) {
                 e.preventDefault();
                 zoomStep(+1);
                 if (savePrefs) savePrefs({ fontZoom: getActiveZoomFn() });   // Phase 6 Plan 06 (PREF-01)
+                if (pushZoomRef) pushZoomRef(getActiveZoomFn());             // E1.5 (AD-6) — status-bar push
                 return;
             }
             if (e.code === 'Minus' || e.code === 'NumpadSubtract') {
                 e.preventDefault();
                 zoomStep(-1);
                 if (savePrefs) savePrefs({ fontZoom: getActiveZoomFn() });   // Phase 6 Plan 06 (PREF-01)
+                if (pushZoomRef) pushZoomRef(getActiveZoomFn());             // E1.5 (AD-6) — status-bar push
                 return;
             }
             if (e.code === 'Digit0' || e.code === 'Numpad0') {
                 e.preventDefault();
                 resetZoom();
                 if (savePrefs) savePrefs({ fontZoom: getActiveZoomFn() });   // Phase 6 Plan 06 (PREF-01)
+                if (pushZoomRef) pushZoomRef(getActiveZoomFn());             // E1.5 (AD-6) — status-bar push
                 return;
             }
         }
@@ -214,25 +224,11 @@ export function wireChrome(opts) {
         }
     });
 
-    // ==== Bitmap font selector (CRT-only) ====
-    // Same-value short-circuit lives inside setFont; persists via savePrefs so
-    // the choice survives a reload. Initial DOM value mirrors the loaded blob
-    // so a fresh page reflects persisted state. #font-row is CRT-gated by the
-    // onThemeChange helper (main.js) — invoked at boot via applyPrefs and on
-    // every theme change (chord + View ▸ Theme) — since the retired
-    // applyThemeSideEffects no longer hides it (vector rasteriser ignores font).
-    const fontSelect = document.getElementById('font-select');
-    if (fontSelect) {
-        fontSelect.value = (prefs && prefs.font) || getActiveFont();
-        fontSelect.addEventListener('change', (e) => {
-            setFont(e.target.value);
-            if (savePrefs) savePrefs({ font: e.target.value });
-        });
-        // Restore wrapper focus after the dropdown closes — Phase 4 D-16. The
-        // <select> branch of the shared helper owns this (it restores on change
-        // because a select needs the native focus transfer to open its picker).
-        retainFocus(fontSelect, terminalWrapper);
-    }
+    // ==== Epic E1 Story E1.5 (AD-7) — bitmap font selector retired ====
+    // The #font-select change handler moved OUT of chrome.js this story.
+    // menu-bar.js (View ▸ Font radio submenu) is now its sole owner, calling the
+    // SAME setFont + savePrefs verbatim, and — per AD-9 — showing the submenu
+    // disabled off-CRT instead of the old #font-row hide. Do NOT re-wire it here.
 
     // ==== Phase 6 Plan 06 (Wave 5) — Auto connect checkbox (D-34) ====
     // Toggle saves prefs.autoConnect; takes effect on NEXT page load (no

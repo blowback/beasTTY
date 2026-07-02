@@ -79,7 +79,7 @@ development_status:
   e1-2-keyboard-navigation-esc-passthrough-guard: done
   e1-3-chrome-js-decomposition-boot-order-reset-re-projection: done
   e1-4-view-menu-theme-phosphor: done
-  e1-5-view-menu-font-zoom-clear: backlog
+  e1-5-view-menu-font-zoom-clear: done
   epic-e1-retrospective: optional
 
   # ── Epic E2 · Connection & Serial Configuration (depends on: E0, E1) ──

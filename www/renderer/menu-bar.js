@@ -48,7 +48,10 @@ import { getPrefs, savePrefs } from '../state/prefs.js';
 // E1.4 (AD-3 / AD-7) — the theme/phosphor menu actions relocate the SAME canvas
 // setters the retired #theme-toggle / #phosphor-group handlers called, verbatim.
 // canvas.js setters are the only other allowed direct import (AD-3 allowlist).
-import { setTheme, setPhosphor } from './canvas.js';
+// E1.5 (AD-3 / AD-7) — View ▸ Font / Zoom relocate the SAME setters the retired
+// #font-select handler + the SACRED Ctrl+{=,-,0} chord call: setFont, zoomStep,
+// resetZoom (+ getActiveZoom to read the clamped level for savePrefs / the push).
+import { setTheme, setPhosphor, setFont, zoomStep, resetZoom, getActiveZoom } from './canvas.js';
 
 // Left-to-right menu order. Keys map to the #menu-<key> / #dropdown-<key> IDs.
 const MENUS = ['file', 'connection', 'view', 'settings', 'debug', 'help'];
@@ -93,6 +96,14 @@ let submenuFocusIndex = -1;
 let onThemeChangeRef = null;
 let clearSelectionRef = null;
 
+// E1.5 — injected opts (AD-3). pushZoomRef is the imperative status-bar zoom push
+// (AD-6): the View ▸ Zoom items own the menu-path mutation, so they push the new
+// level; it is a no-op stub until E4 wires the real status bar. confirmClearScrollbackRef
+// runs the deliberate-friction confirm for View ▸ Clear Scrollback… (FR-11) — main.js
+// owns the modal (openModal) so modal.js stays out of menu-bar's import set (AD-3).
+let pushZoomRef = null;
+let confirmClearScrollbackRef = null;
+
 // Every listener this module attaches, recorded so dispose() — and an
 // idempotent re-wire — can detach ALL of them. retainFocus's mousedown handlers
 // are WeakSet-guarded in focus.js, but the click handlers below are not, so a
@@ -113,10 +124,12 @@ function removeTrackedListeners() {
 }
 
 // ====== E1.3 (AD-13) — relocated Clear actions ======
-// The single owner of the two incumbent Clear buttons. Semantics are copied
-// VERBATIM from the pre-move chrome.js handlers (chrome.js:120-136 / :279-288)
-// so behaviour is byte-identical; E1.5 later points the View ▸ Clear menu item
-// at these SAME actions. clear_visible() is the Rust direct-clear forwarder —
+// The single owner of the Clear actions. Semantics are copied VERBATIM from the
+// pre-move chrome.js handlers (chrome.js:120-136 / :279-288) so behaviour is
+// byte-identical. E1.5 points the View ▸ Clear Screen / Clear Scrollback… menu
+// items at these SAME actions (the incumbent #clear-button / #clear-scrollback-
+// button are retired), routed through the runViewAction dispatch below.
+// clear_visible() is the Rust direct-clear forwarder —
 // it does NOT feed \x1B\x4A, so the remote VT52 state machine is untouched
 // (Plan 06-02 gate). resize_scrollback(0)→(10000) cycles the ring buffer back
 // to its Phase 1 D-12 default cap. Both snap to the live tail (D-04) via the
@@ -146,23 +159,6 @@ function clearScrollback() {
     if (requestFrameRef) requestFrameRef();
 }
 
-// Register the two incumbent Clear buttons through trackListener (so dispose()
-// detaches them) with retainFocus so terminal focus is retained (AD-10). Gated
-// on termRef so a test harness that omits term leaves the buttons inert, exactly
-// as the pre-move chrome.js gated on `termArg`.
-function wireClearButtons() {
-    const clearButton = document.getElementById('clear-button');
-    if (clearButton && termRef) {
-        trackListener(clearButton, 'click', (e) => clearScreen({ alsoScrollback: e.shiftKey }));
-        retainFocus(clearButton);            // AD-10 — focus retention.
-    }
-    const clearScrollbackButton = document.getElementById('clear-scrollback-button');
-    if (clearScrollbackButton && termRef) {
-        trackListener(clearScrollbackButton, 'click', () => clearScrollback());
-        retainFocus(clearScrollbackButton);  // AD-10 — focus retention.
-    }
-}
-
 // ====== wireMenuBar initializer ======
 
 export function wireMenuBar(opts = {}) {
@@ -181,6 +177,11 @@ export function wireMenuBar(opts = {}) {
     // side-effect inert (guarded at each call site).
     onThemeChangeRef = opts.onThemeChange || null;
     clearSelectionRef = opts.clearSelection || null;
+    // E1.5 — zoom status push (AD-6) + Clear Scrollback confirm (FR-11). Both
+    // optional: a harness that omits them leaves the push inert / the wipe
+    // unconfirmed (guarded at each call site).
+    pushZoomRef = opts.pushZoom || null;
+    confirmClearScrollbackRef = opts.confirmClearScrollback || null;
     menuBarEl = document.getElementById('menu-bar');
     liveRegionEl = document.getElementById('menu-bar-live');
     openMenu = null;
@@ -189,11 +190,10 @@ export function wireMenuBar(opts = {}) {
     submenuFocusIndex = -1;
     lastAnnounced = '';
 
-    // The two incumbent Clear buttons live in #top-bar / the Settings <details>,
-    // NOT inside #menu-bar — wire them before the menuBarEl guard so they work
-    // even if the bar element is somehow absent (defensive parity with the
-    // pre-move chrome.js, which wired them independently of any menu chrome).
-    wireClearButtons();
+    // E1.5 — the incumbent #clear-button / #clear-scrollback-button are retired;
+    // Clear Screen / Clear Scrollback… are now View-menu items wired through the
+    // dropdown item path (wireDropdownItems → onItemClick → runViewAction), so no
+    // separate button-wiring pass is needed. clearScreen / clearScrollback remain.
 
     if (!menuBarEl) return buildApi();   // defensive — nothing to wire
 
@@ -419,6 +419,13 @@ function openSubmenu(item) {
     const activeIdx = items.findIndex((el) => el.getAttribute('data-checked') === 'true');
     submenuFocusIndex = items.length ? (activeIdx >= 0 ? activeIdx : 0) : -1;
     renderSubmenuFocus();
+    // Keyboard-open path: the parent row still carries the top-level
+    // [data-focused] highlight (renderFocus set it before Enter/→). Clear it so
+    // ONLY the submenu radio shows the focus ring — otherwise the parent and a
+    // radio both paint the accent fill. closeSubmenu restores the parent
+    // highlight from focusedIndex. Mouse-open leaves focusedIndex at -1 (no
+    // parent highlight), so this is a harmless no-op there.
+    item.removeAttribute('data-focused');
 }
 
 // Collapse the open submenu back to the parent level: hide the panel, clear its
@@ -433,6 +440,12 @@ function closeSubmenu() {
     if (parent) parent.setAttribute('aria-expanded', 'false');
     openSubmenuPanel = null;
     submenuFocusIndex = -1;
+    // Restore the parent row's [data-focused] highlight that openSubmenu cleared
+    // (keyboard path) so collapsing the submenu (←/Esc) returns the visible focus
+    // to the parent. renderFocus is idempotent and no-ops when nothing is
+    // keyboard-focused (focusedIndex -1 / mouse path) or the menu is closing
+    // (a render() follows in every non-← caller).
+    renderFocus();
 }
 
 // The open submenu's focusable radios (none are individually disabled today).
@@ -482,12 +495,15 @@ function onRadioSelect(panel, item) {
         setTheme(value);                         // AD-7 verbatim (also sets body[data-theme], E1.4 Task 1)
         savePrefs({ theme: value });             // AD-4 — persist
         setRadioChecked(panel, value);
-        if (onThemeChangeRef) onThemeChangeRef(value);   // #font-row CRT-gate (E1.5 bridge)
+        if (onThemeChangeRef) onThemeChangeRef();        // re-project an open View menu (reads getPrefs)
         if (clearSelectionRef) clearSelectionRef();      // D-19 rehomed onto the menu action
         // AC-3 — re-derive Phosphor enable/disable from the just-picked theme,
         // collapsing its submenu if now disabled, in the SAME interaction.
         const view = dropdownEls.view || document.getElementById('dropdown-view');
-        if (view) syncPhosphorDisabled(view, value);
+        if (view) {
+            syncSubmenuDisabled(view, value, 'phosphor', 'Phosphor');
+            syncSubmenuDisabled(view, value, 'font', 'Font');   // E1.5 — Font is CRT-only too (AD-9)
+        }
         // Phosphor's disabled state (and thus its aria-live reason) just changed;
         // re-announce so AT reflects it without waiting for the next keystroke. NOT
         // render() — the theme submenu is still open and render()/renderFocus would
@@ -498,6 +514,14 @@ function onRadioSelect(panel, item) {
         savePrefs({ phosphor: value });          // AD-4 — persist
         setRadioChecked(panel, value);
         if (clearSelectionRef) clearSelectionRef();      // D-19 rehomed onto the menu action
+    } else if (group === 'font') {
+        // E1.5 (AD-7) — relocated VERBATIM from the retired #font-select handler
+        // (chrome.js:227-229): setFont + savePrefs({font}). Font is NOT a D-19
+        // trigger (only theme/phosphor/zoom clear the selection), so the selection
+        // is deliberately left intact here.
+        setFont(value);                          // AD-7 verbatim (same-value/unknown-id guards live in setFont)
+        savePrefs({ font: value });              // AD-4 — persist
+        setRadioChecked(panel, value);
     }
 }
 
@@ -511,18 +535,21 @@ function setRadioChecked(panel, value) {
     });
 }
 
-// AD-9 — Phosphor is CRT-only: SHOWN but data-disabled off-CRT (not hidden),
-// aria-disabled, skipped in nav (data-disabled → focusableItems filters it), and
-// announced via #menu-bar-live (the row's title is surfaced by refreshLiveRegion
-// when a neighbour is focused). Collapses an open Phosphor submenu on disable.
-function syncPhosphorDisabled(viewDropdown, theme) {
-    const parent = viewDropdown.querySelector('.menu-item[data-submenu="phosphor"]');
+// AD-9 — Phosphor AND Font are CRT-only: the vector/Clean renderer ignores the
+// bitmap font and the phosphor tint, so each submenu parent is SHOWN but
+// data-disabled off-CRT (not hidden), aria-disabled, skipped in nav (data-disabled
+// → focusableItems filters it), announced via #menu-bar-live (the row's `title` is
+// surfaced by refreshLiveRegion when a neighbour is focused), and its open submenu
+// collapsed on disable. Keyed on the `data-submenu` name so the two rows can never
+// drift on the disable behaviour (Font replaced the retired #font-row hide-gate).
+function syncSubmenuDisabled(viewDropdown, theme, key, label) {
+    const parent = viewDropdown.querySelector(`.menu-item[data-submenu="${key}"]`);
     if (!parent) return;
     if (theme !== 'crt') {
         parent.setAttribute('data-disabled', 'true');
         parent.setAttribute('aria-disabled', 'true');
-        parent.setAttribute('title', 'Phosphor — CRT theme only');
-        if (openSubmenuPanel && openSubmenuPanel.getAttribute('data-submenu-panel') === 'phosphor') {
+        parent.setAttribute('title', `${label} — CRT theme only`);
+        if (openSubmenuPanel && openSubmenuPanel.getAttribute('data-submenu-panel') === key) {
             closeSubmenu();
         }
     } else {
@@ -566,15 +593,17 @@ function wireDropdownItems(dropdown) {
         if (item.hasAttribute('data-checked')) {
             syncCheckGlyph(item);        // single source of truth = data-checked
         }
-        trackListener(item, 'click', () => onItemClick(item));
+        // E1.5 — thread the click event so a data-action row can read modifiers
+        // (Shift on Clear Screen → also clears scrollback, matching #clear-button).
+        trackListener(item, 'click', (e) => onItemClick(item, e));
     });
 }
 
-function onItemClick(item) {
+function onItemClick(item, ev) {
     const disabled = item.getAttribute('data-disabled') === 'true';
-    if (disabled) return;                // inert (incl. Phosphor parent off-CRT)
+    if (disabled) return;                // inert (incl. Phosphor / Font parent off-CRT)
 
-    // E1.4 — a click inside a .submenu panel is a radio SELECT (Theme/Phosphor).
+    // E1.4 — a click inside a .submenu panel is a radio SELECT (Theme/Phosphor/Font).
     // Routed before the variant switch; radio select keeps the menu open (AD-7).
     const panel = item.closest('.submenu');
     if (panel) { onRadioSelect(panel, item); return; }
@@ -590,7 +619,51 @@ function onItemClick(item) {
         openSubmenu(item);               // E1.4 — open/toggle the child panel
         return;                          // parent row keeps the menu open
     }
-    closeMenu();                         // action item closes the menu (AC-2)
+    // E1.5 — an action row carrying data-action drives a View action (zoom / clear);
+    // a bare action row just closes the menu.
+    const action = item.getAttribute('data-action');
+    if (action) { runViewAction(action, ev); return; }
+    closeMenu();                         // plain action item closes the menu (AC-2)
+}
+
+// ====== E1.5 — View ▸ Zoom / Clear action dispatch ======
+
+// A View ▸ Zoom item runs the SAME canvas.js function the SACRED Ctrl+{=,-,0}
+// chord runs (AD-13 keeps the chord in chrome.js; AD-7 relocates the menu action),
+// then persists fontZoom (AD-4), clears the selection (D-19 — zoom is a trigger),
+// and pushes the clamped level to the (future) status bar (AD-6 imperative push).
+function applyZoom(mutate) {
+    mutate();
+    savePrefs({ fontZoom: getActiveZoom() });        // AD-4 — persist (same key as the chord)
+    if (clearSelectionRef) clearSelectionRef();      // D-19 — selection clears on zoom change
+    if (pushZoomRef) pushZoomRef(getActiveZoom());   // AD-6 — status-bar push (no-op until E4)
+}
+
+// Route a data-action to its behaviour. Zoom + Clear Screen close the menu after
+// firing (action semantics). Clear Scrollback… closes the dropdown, then runs the
+// deliberate-friction confirm (FR-11) and wipes only on confirm; with no confirm
+// opt wired (a bare test harness) it falls back to a direct wipe.
+function runViewAction(action, ev) {
+    switch (action) {
+        case 'zoom-in':     applyZoom(() => zoomStep(+1)); closeMenu(); return;
+        case 'zoom-out':    applyZoom(() => zoomStep(-1)); closeMenu(); return;
+        case 'zoom-actual': applyZoom(() => resetZoom());  closeMenu(); return;
+        case 'clear-screen':
+            clearScreen({ alsoScrollback: !!(ev && ev.shiftKey) });   // Shift → also scrollback (D-26)
+            closeMenu();
+            return;
+        case 'clear-scrollback':
+            closeMenu();                             // close the dropdown; the confirm takes over
+            if (confirmClearScrollbackRef) {
+                confirmClearScrollbackRef().then((ok) => { if (ok) clearScrollback(); });
+            } else {
+                clearScrollback();                   // no confirm wired (harness) — direct
+            }
+            return;
+        default:
+            closeMenu();
+            return;
+    }
 }
 
 function syncCheckGlyph(item) {
@@ -692,6 +765,23 @@ function renderFocus() {
     if (item) item.setAttribute('data-focused', 'true');
 }
 
+// Re-derive the top-level keyboard focus after a row's data-disabled state may
+// have changed while the View menu is open (a Ctrl+Alt+T chord / reset flipping
+// Phosphor+Font off-CRT). focusedIndex is an index into focusableItems(), which
+// EXCLUDES disabled rows — so once the focused row is disabled it leaves that
+// set and the stored index silently points at a different row (or past the end),
+// while the disabled row keeps its stale [data-focused] highlight. Clamp the
+// index back into range and renderFocus() (which clears every row's highlight
+// first, dropping the stale one) so the highlight and the next arrow step stay
+// valid. No-op when nothing is keyboard-focused (focusedIndex -1 / mouse path).
+function reconcileFocusedRow() {
+    if (focusedIndex < 0) return;
+    const items = focusableItems();
+    if (focusedIndex >= items.length) focusedIndex = items.length ? items.length - 1 : -1;
+    renderFocus();
+    refreshLiveRegion();
+}
+
 // ====== E1.3 (AD-14) — reset re-projection seam ======
 // menu-bar.js registers as a prefsSubscribe subscriber (main.js) and owns
 // re-projecting the View submenu's *menu DOM* (theme/phosphor check glyphs,
@@ -726,9 +816,24 @@ export function projectPrefs(prefs) {
     if (themePanel && p.theme) setRadioChecked(themePanel, p.theme);
     const phosphorPanel = viewDropdown.querySelector('.submenu[data-submenu-panel="phosphor"]');
     if (phosphorPanel && p.phosphor) setRadioChecked(phosphorPanel, p.phosphor);
-    if (p.theme) syncPhosphorDisabled(viewDropdown, p.theme);
-    // E1.5 fills: project p.font onto the Font radio + p.fontZoom onto the Zoom
-    // label. Until then that half stays a no-op.
+    if (p.theme) syncSubmenuDisabled(viewDropdown, p.theme, 'phosphor', 'Phosphor');
+    // E1.5 — project p.font onto the Font submenu's active radio and re-derive the
+    // Font parent's data-disabled from the theme (AD-9), mirroring theme/phosphor.
+    // Reads at USE-TIME, never calls a canvas setter (applyPrefs owns setFont —
+    // AD-14 single-writer), idempotent, no-throw.
+    const fontPanel = viewDropdown.querySelector('.submenu[data-submenu-panel="font"]');
+    if (fontPanel && p.font) setRadioChecked(fontPanel, p.font);
+    if (p.theme) syncSubmenuDisabled(viewDropdown, p.theme, 'font', 'Font');
+    // If this re-projection just disabled the row the user was keyboard-focused
+    // on (Ctrl+Alt+T / reset flipping Phosphor+Font off-CRT while View is open),
+    // re-derive top-level focus so no stale [data-focused] lingers and the next
+    // arrow key lands on the right row. Guarded on the open View menu; a no-op on
+    // the closed-menu reset path (focusedIndex is -1 there).
+    if (openMenu === 'view') reconcileFocusedRow();
+    // Zoom has NO persistent menu-DOM to project — the View ▸ Zoom items are
+    // stateless actions; the live level surfaces in the status bar (E4). The reset
+    // zoom→status push lives at applyPrefs's setZoom site (AD-6/AD-14 single-writer),
+    // not here, so the zoom half is a deliberate no-op.
 }
 
 // ====== Public API ======

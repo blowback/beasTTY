@@ -73,10 +73,11 @@ test.describe('E1.4 AC-2/AC-3 — Phosphor CRT-gating (disabled, announced, live
     await page.keyboard.press('ArrowDown');   // land on Theme (first focusable)
     await expect(page.locator('#menu-bar-live')).toHaveText('Phosphor — CRT theme only');
 
-    // ↓ again SKIPS the disabled Phosphor and lands on Font (not enterable).
+    // ↓ again SKIPS the disabled Phosphor AND the disabled Font (E1.5 — Font is
+    // also CRT-gated per AD-9) and lands on Zoom In (not enterable).
     await page.keyboard.press('ArrowDown');
     const st = await page.evaluate(() => window.__menuBar.__getStateForTests());
-    expect(st.focusedLabel).toBe('Font');
+    expect(st.focusedLabel).toBe('Zoom In');
     expect(st.openSubmenu).toBeNull();   // never entered the Phosphor submenu
   });
 
@@ -245,17 +246,20 @@ test.describe('E1.4 AC-6 — submenu keyboard + focus mechanic', () => {
   });
 });
 
-test.describe('E1.4 AC-5 — rehomed side-effects survive (font-row gate, D-19)', () => {
-  test('#font-row .hidden re-gates with theme (via onThemeChange) @fast', async ({ page }) => {
+test.describe('E1.4 AC-5 — rehomed side-effects survive (font gate, D-19)', () => {
+  test('Font submenu re-gates with theme (E1.5 replaced the #font-row hide) @fast', async ({ page }) => {
     await ready(page);
-    // Assert the .hidden PROPERTY the onThemeChange gate drives (independent of
-    // the Settings <details> collapsed state, which also affects visibility).
-    const fontRowHidden = () => page.evaluate(() => document.getElementById('font-row').hidden);
-    expect(await fontRowHidden()).toBe(false);   // CRT — font available
-    await selectTheme(page, 'clean');
-    expect(await fontRowHidden()).toBe(true);     // Console — CRT-gate re-homed onto the menu action
+    // Epic E1 Story E1.5 — the incumbent #font-row hide became the Font submenu
+    // parent's data-disabled (AD-9), re-derived by onThemeChange → projectPrefs.
+    const FONT_PARENT = '#dropdown-view .menu-item[data-submenu="font"]';
+    const fontDisabled = () => page.evaluate(
+      (sel) => document.querySelector(sel).getAttribute('data-disabled'), FONT_PARENT);
     await selectTheme(page, 'crt');
-    expect(await fontRowHidden()).toBe(false);
+    expect(await fontDisabled()).toBeNull();      // CRT — Font enabled
+    await selectTheme(page, 'clean');
+    expect(await fontDisabled()).toBe('true');    // Console — CRT-gate re-homed as data-disabled
+    await selectTheme(page, 'crt');
+    expect(await fontDisabled()).toBeNull();
   });
 
   test('D-19 — selecting a Phosphor clears the selection @fast', async ({ page }) => {
