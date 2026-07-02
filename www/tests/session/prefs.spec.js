@@ -259,3 +259,29 @@ test.describe('PREF-01/PREF-02/PLAT-05 — Preferences persistence', () => {
         expect(pressedAfterDebounce).toBe('true');
     });
 });
+
+// Epic E1 Story E1.3 (AC-5 / AD-14) — applyPrefs single-writer on reset.
+// applyPrefs re-applies defaults in-place on resetPrefs() (no reload): each
+// canvas setter fires from exactly one call site and the #top-bar/<details>
+// mirrors re-project to the default. This pins that in-place reset behaviour.
+test.describe('E1.3 AC-5 — applyPrefs re-applies defaults in-place on reset', () => {
+    test('resetPrefs() restores defaults in-place with no throw @fast', async ({ page }) => {
+        await page.addInitScript(() => localStorage.removeItem('beastty.prefs'));
+        await setup(page);
+        // Move state away from defaults, then reset.
+        await page.evaluate(() => {
+            window.__prefs.savePrefs({ theme: 'clean', phosphor: 'amber', fontZoom: 3 });
+        });
+        const threw = await page.evaluate(() => {
+            try { window.__prefs.resetPrefs(); return false; } catch (e) { return true; }
+        });
+        expect(threw).toBe(false);
+        // Defaults re-applied in-place (canvas single-writers fired).
+        await expect(page.locator('body')).toHaveAttribute('data-theme', 'crt');
+        expect(await page.evaluate(() => window.__prefs.getPrefs().theme)).toBe('crt');
+        expect(await page.evaluate(() => window.__prefs.getPrefs().phosphor)).toBe('green');
+        expect(await page.evaluate(() => window.__prefs.getPrefs().fontZoom)).toBe(1);
+        // The theme-button label mirror re-projected to the default destination.
+        await expect(page.locator('#theme-toggle')).toHaveText('Clean');
+    });
+});

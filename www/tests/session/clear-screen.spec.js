@@ -122,3 +122,47 @@ test.describe('SESS-06 — Clear screen', () => {
         await expect(page.locator('#terminal-wrapper')).not.toHaveAttribute('data-scrolled-back');
     });
 });
+
+// Epic E1 Story E1.3 (AC-1/AC-2) — the Settings 'Clear scrollback' button
+// (#clear-scrollback-button) is one of the two incumbent Clear controls whose
+// click handler RELOCATES from chrome.js to menu-bar.js this story. These
+// oracles pin its incumbent behavior so it stays byte-identical after the move:
+// it cycles resize_scrollback(0)→10000, snaps to the live tail (D-04), but —
+// unlike the top-bar Clear — leaves the VISIBLE grid untouched (D-15). No
+// keyboard shortcut (deliberate friction). The button lives under the Settings
+// <details>, so we open it first. [Source: chrome.js:273-288 (pre-move);
+// menu-bar.js clearScrollback (post-move); index.html #clear-scrollback-button]
+test.describe('SESS-06 — Clear scrollback (Settings)', () => {
+    async function openSettings(page) {
+        await page.locator('#settings').evaluate((el) => { el.open = true; });
+    }
+
+    test('Clear scrollback leaves the visible 80x24 grid untouched @fast', async ({ page }) => {
+        await setup(page);
+        await openSettings(page);
+        await page.evaluate(() => {
+            const s = Array.from({ length: 100 }, (_, i) => `line ${i}\r\n`).join('');
+            window.__term.feed(new TextEncoder().encode(s));
+            window.__requestFrame();
+        });
+        await page.locator('#clear-scrollback-button').click();
+        // Visible grid is UNAFFECTED (D-15) — the last-fed lines are still shown.
+        // This is the behavioral fingerprint distinguishing it from #clear-button.
+        const allBlank = await page.evaluate(isVisibleAllBlank);
+        expect(allBlank).toBe(false);
+    });
+
+    test('Clear scrollback snaps to live tail when the user is scrolled up', async ({ page }) => {
+        await setup(page);
+        await openSettings(page);
+        await page.evaluate(() => {
+            const s = Array.from({ length: 100 }, (_, i) => `line ${i}\r\n`).join('');
+            window.__term.feed(new TextEncoder().encode(s));
+            window.__scrollState.scrollByLines(20);
+        });
+        await expect(page.locator('#terminal-wrapper')).toHaveAttribute('data-scrolled-back', 'true');
+        await page.locator('#clear-scrollback-button').click();
+        // D-04 snap-to-bottom trigger — scrolled-up state cleared.
+        await expect(page.locator('#terminal-wrapper')).not.toHaveAttribute('data-scrolled-back');
+    });
+});

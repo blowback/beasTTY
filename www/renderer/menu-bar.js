@@ -38,6 +38,10 @@
 //       opening a menu never steals keyboard focus from #terminal-wrapper.
 
 import { retainFocus } from './focus.js';
+// E1.3 (AD-3 / AD-14) — menu-bar.js may import prefs.js directly. getPrefs is
+// the use-time read for the reset re-projection seam (projectPrefs below); it
+// is never cached across a save (AD-4: savePrefs reassigns the cached blob).
+import { getPrefs } from '../state/prefs.js';
 
 // Left-to-right menu order. Keys map to the #menu-<key> / #dropdown-<key> IDs.
 const MENUS = ['file', 'connection', 'view', 'settings', 'debug', 'help'];
@@ -49,6 +53,15 @@ let menuBarEl = null;         // #menu-bar
 const titleEls = {};          // key -> title <button>
 const dropdownEls = {};       // key -> dropdown panel
 let terminalWrapperRef = null;
+
+// E1.3 (AD-13) — refs for the two relocated Clear controls. Their click
+// handlers moved OUT of chrome.js into this module (the sole AD-13 handler
+// move this story). getScrollStateRef is a THUNK, not the value: scrollState
+// is wired AFTER menu-bar in main.js's boot order, so the live ref must be
+// resolved at click time (mirrors the chrome.js:130 / main.js:242 pattern).
+let termRef = null;
+let getScrollStateRef = null;
+let requestFrameRef = null;
 
 // E1.2 keyboard-nav state. focusedIndex is an index into the OPEN menu's
 // *focusable* (non-disabled) rows — so disabled rows are skipped by
@@ -77,6 +90,57 @@ function removeTrackedListeners() {
     listenerRecords = [];
 }
 
+// ====== E1.3 (AD-13) — relocated Clear actions ======
+// The single owner of the two incumbent Clear buttons. Semantics are copied
+// VERBATIM from the pre-move chrome.js handlers (chrome.js:120-136 / :279-288)
+// so behaviour is byte-identical; E1.5 later points the View ▸ Clear menu item
+// at these SAME actions. clear_visible() is the Rust direct-clear forwarder —
+// it does NOT feed \x1B\x4A, so the remote VT52 state machine is untouched
+// (Plan 06-02 gate). resize_scrollback(0)→(10000) cycles the ring buffer back
+// to its Phase 1 D-12 default cap. Both snap to the live tail (D-04) via the
+// getScrollState thunk (resolved at call time — scrollState is late-bound).
+
+function clearScreen({ alsoScrollback } = {}) {
+    if (!termRef) return;
+    termRef.clear_visible();                 // NOT \x1B\x4A — direct-clear forwarder.
+    if (alsoScrollback) {
+        // Shift+click also wipes scrollback (D-26).
+        termRef.resize_scrollback(0);
+        termRef.resize_scrollback(10000);
+    }
+    const ss = getScrollStateRef && getScrollStateRef();
+    if (ss) ss.snapToBottom();               // D-04 trigger — clear is a snap action.
+    if (requestFrameRef) requestFrameRef();
+}
+
+function clearScrollback() {
+    if (!termRef) return;
+    // Settings 'Clear scrollback' (D-15) — flush the ring buffer only; the
+    // visible 80x24 grid is deliberately untouched.
+    termRef.resize_scrollback(0);
+    termRef.resize_scrollback(10000);
+    const ss = getScrollStateRef && getScrollStateRef();
+    if (ss) ss.snapToBottom();               // D-04 trigger.
+    if (requestFrameRef) requestFrameRef();
+}
+
+// Register the two incumbent Clear buttons through trackListener (so dispose()
+// detaches them) with retainFocus so terminal focus is retained (AD-10). Gated
+// on termRef so a test harness that omits term leaves the buttons inert, exactly
+// as the pre-move chrome.js gated on `termArg`.
+function wireClearButtons() {
+    const clearButton = document.getElementById('clear-button');
+    if (clearButton && termRef) {
+        trackListener(clearButton, 'click', (e) => clearScreen({ alsoScrollback: e.shiftKey }));
+        retainFocus(clearButton);            // AD-10 — focus retention.
+    }
+    const clearScrollbackButton = document.getElementById('clear-scrollback-button');
+    if (clearScrollbackButton && termRef) {
+        trackListener(clearScrollbackButton, 'click', () => clearScrollback());
+        retainFocus(clearScrollbackButton);  // AD-10 — focus retention.
+    }
+}
+
 // ====== wireMenuBar initializer ======
 
 export function wireMenuBar(opts = {}) {
@@ -84,11 +148,23 @@ export function wireMenuBar(opts = {}) {
     // before adding fresh ones (retainFocus stays idempotent on its own).
     removeTrackedListeners();
     terminalWrapperRef = opts.terminalWrapper || null;
+    // E1.3 (AD-13) — Clear-handler opts. term / getScrollState / requestFrame
+    // arrive via opts (NOT imports — AD-3), matching the pre-move chrome.js
+    // wiring. getScrollState is a thunk; hold it as-is and call it at click time.
+    termRef = opts.term || null;
+    getScrollStateRef = opts.getScrollState || null;
+    requestFrameRef = opts.requestFrame || null;
     menuBarEl = document.getElementById('menu-bar');
     liveRegionEl = document.getElementById('menu-bar-live');
     openMenu = null;
     focusedIndex = -1;
     lastAnnounced = '';
+
+    // The two incumbent Clear buttons live in #top-bar / the Settings <details>,
+    // NOT inside #menu-bar — wire them before the menuBarEl guard so they work
+    // even if the bar element is somehow absent (defensive parity with the
+    // pre-move chrome.js, which wired them independently of any menu chrome).
+    wireClearButtons();
 
     if (!menuBarEl) return buildApi();   // defensive — nothing to wire
 
@@ -388,6 +464,37 @@ function renderFocus() {
     if (item) item.setAttribute('data-focused', 'true');
 }
 
+// ====== E1.3 (AD-14) — reset re-projection seam ======
+// menu-bar.js registers as a prefsSubscribe subscriber (main.js) and owns
+// re-projecting the View submenu's *menu DOM* (theme/phosphor check glyphs,
+// font radio, zoom label) from prefs whenever resetPrefs() fans out. The
+// division of labour that avoids the AD-14 double-apply race: applyPrefs owns
+// the canvas setters (setTheme/setPhosphor/setFont/setZoom — exactly one call
+// site each); projectPrefs owns ONLY the View menu projection and must NEVER
+// call a canvas setter.
+//
+// Those submenus are structural placeholders today (E1.4 fills theme/phosphor;
+// E1.5 fills font/zoom), so this is a SAFE, IDEMPOTENT no-op that touches only
+// present DOM. Standing up the subscription + the no-throw/idempotence contract
+// NOW means resetPrefs() already re-projects the View menu the instant E1.4/E1.5
+// add real state — they only fill the body below.
+//
+// Contract (relied on by E1.4/E1.5): reads prefs at USE-TIME (the blob
+// resetPrefs passes, else getPrefs()) — never caches the ref (AD-4); never
+// throws (guards every lookup); calling it twice yields identical DOM. It must
+// only ever touch View *item* check/label state — render() stays the SOLE
+// writer of open/close ([hidden]/data-open) state (Task 5.3 compliance).
+export function projectPrefs(prefs) {
+    const p = prefs || getPrefs();
+    if (!p) return;                                  // nothing to project — no-op
+    const viewDropdown = dropdownEls.view || document.getElementById('dropdown-view');
+    if (!viewDropdown) return;                       // View menu absent — no-op
+    // E1.4 fills: project p.theme (CRT/Clean) + p.phosphor onto the Theme /
+    // Phosphor submenu rows' check glyphs.
+    // E1.5 fills: project p.font onto the Font radio + p.fontZoom onto the Zoom
+    // label. Until then there is no projectable View-item state → no-op.
+}
+
 // ====== Public API ======
 
 function buildApi() {
@@ -395,6 +502,9 @@ function buildApi() {
         open: openMenuNamed,
         close: closeMenu,
         getOpenMenu: () => openMenu,
+        // E1.3 (AD-14) — reset re-projection seam; main.js registers it as a
+        // prefsSubscribe subscriber and tests drive it via window.__menuBar.
+        projectPrefs,
         dispose,
         __getStateForTests,
         __resetForTests,

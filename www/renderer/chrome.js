@@ -71,12 +71,9 @@ function toggleTheme(ctx) {
 export function wireChrome(opts) {
     const {
         terminalWrapper, themeButton, phosphorButtons, phosphorGroup, bellOverlay, requestFrame,
-        // Phase 6 Plan 05 (Wave 4) — Clear button needs term + scrollState.
-        // scrollState is wired AFTER wireChrome in main.js (per RESEARCH
-        // §Architecture boot order); pass a getter thunk so the Clear handler
-        // resolves the live ref at click time, not at wireChrome time.
-        term: termArg,
-        getScrollState,
+        // Epic E1 Story E1.3 (AD-13) — the two Clear buttons relocated to
+        // menu-bar.js, so `term` / `getScrollState` no longer arrive here.
+        // `requestFrame` STAYS: the visibilitychange catch-up repaint uses it.
         // Phase 6 Plan 06 (Wave 5) — pref persistence + Settings new rows.
         // prefs:        starting blob (loadPrefs() result) — used for the Auto
         //               connect checkbox's initial DOM state at boot.
@@ -108,32 +105,12 @@ export function wireChrome(opts) {
     applyThemeSideEffects(getActiveTheme().name, ctx);
     applyPhosphorSideEffects(getActivePhosphor(), phosphorButtons);
 
-    // ==== Phase 6 Plan 05 (Wave 4) — Top-bar Clear button (D-26) ====
-    // Plain click wipes the visible 80x24 grid via the Rust direct-clear API
-    // (call site below is the single authoritative source) — NOT feeding
-    // \x1B\x4A. The remote VT52 state machine
-    // never sees a fabricated escape (T-06-05-03 mitigation; Plan 06-02 Test 4
-    // is the Rust-side gate). Shift+click ALSO clears scrollback by cycling
-    // resize_scrollback(0) → resize_scrollback(10000) (the Phase 1 D-12 default
-    // cap). Both flavours snap to the live tail (D-04 trigger) so the user
-    // doesn't end up reading an empty scrolled-back viewport.
-    const clearButton = document.getElementById('clear-button');
-    if (clearButton && termArg) {
-        clearButton.addEventListener('click', (e) => {
-            termArg.clear_visible();   // Phase 6 Plan 02 wasm forwarder — NOT \x1B\x4A.
-            if (e.shiftKey) {
-                // D-26 — Shift+click also wipes scrollback. Cycle through 0
-                // and back to the Phase 1 D-12 default cap (10000).
-                termArg.resize_scrollback(0);
-                termArg.resize_scrollback(10000);
-            }
-            const ss = getScrollState && getScrollState();
-            if (ss) ss.snapToBottom();   // D-04 trigger — clear is a snap-to-bottom action.
-            if (requestFrame) requestFrame();
-        });
-        // Phase 4 D-16 sacred — focus retention (AD-10 shared helper).
-        retainFocus(clearButton);
-    }
+    // ==== Epic E1 Story E1.3 (AD-13) — Clear buttons relocated to menu-bar.js ====
+    // The #clear-button (top-bar) and #clear-scrollback-button (Settings) click
+    // handlers moved OUT of chrome.js this story. menu-bar.js is now their sole
+    // owner (clearScreen / clearScrollback), routing the same clear_visible /
+    // resize_scrollback(0)→(10000) / snapToBottom / requestFrame semantics. No
+    // behaviour changed — only the ownership. Do NOT re-wire them here.
 
     // ==== Theme toggle button (click) ====
     themeButton.addEventListener('click', () => {
@@ -269,23 +246,6 @@ export function wireChrome(opts) {
             try { if (txSinkRef && txSinkRef.writeSlideFrame) txSinkRef.writeSlideFrame(new Uint8Array([0x18])); } catch {}
         }
     });
-
-    // ==== Phase 6 Plan 06 (Wave 5) — Settings 'Clear scrollback' button (D-15) ====
-    // Cycles term.resize_scrollback(0) -> term.resize_scrollback(10000) to flush
-    // the 10K-line ring buffer back to its Phase 1 D-12 default cap. Snaps to
-    // live tail (D-04 trigger) so a scrolled-up user does not end up reading
-    // an empty viewport. No keyboard shortcut — deliberate friction (D-15).
-    const clearScrollbackButton = document.getElementById('clear-scrollback-button');
-    if (clearScrollbackButton && termArg) {
-        clearScrollbackButton.addEventListener('click', () => {
-            termArg.resize_scrollback(0);
-            termArg.resize_scrollback(10000);
-            const ss = getScrollState && getScrollState();
-            if (ss) ss.snapToBottom();   // D-04 trigger.
-            if (requestFrame) requestFrame();
-        });
-        retainFocus(clearScrollbackButton);   // Phase 4 D-16 — focus retention (AD-10).
-    }
 
     // ==== Bitmap font selector (CRT-only) ====
     // Same-value short-circuit lives inside setFont; persists via savePrefs so

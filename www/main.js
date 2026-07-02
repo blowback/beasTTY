@@ -238,8 +238,9 @@ let cancelSlideRecvLazy = () => { /* no-op until wireSlideRecv runs */ };
 // only populated after wireSlideRecv runs.
 wireChrome({
     terminalWrapper, themeButton, phosphorButtons, phosphorGroup, bellOverlay, requestFrame,
-    term,                                       // Phase 6 Plan 05 — clear_visible / resize_scrollback
-    getScrollState: () => scrollStateRef,
+    // Epic E1 Story E1.3 (AD-13) — the two Clear buttons moved OUT of chrome.js
+    // into menu-bar.js, so `term` / `getScrollState` no longer belong here.
+    // `requestFrame` STAYS (the visibilitychange catch-up repaint still uses it).
     prefs,                                      // Phase 6 Plan 06 — Auto connect checkbox initial state
     savePrefs,                                  // Phase 6 Plan 06 — persist Auto connect changes + theme/phosphor toggles
     resetPrefs,                                 // Phase 6 Plan 06 — Reset all preferences 2-click confirm
@@ -256,7 +257,17 @@ wireChrome({
 // (Esc-passthrough guard + keyboard nav are E1.2), so paste-cancel / SLIDE-
 // cancel are unaffected. The bar is additive — it COEXISTS with #top-bar and
 // the <details> panes (Scope Decision); nothing incumbent is removed here.
-const menuBar = wireMenuBar({ terminalWrapper });
+// Epic E1 Story E1.3 (AD-13) — menu-bar.js is now the sole owner of the two
+// incumbent Clear buttons, so it receives the same term / getScrollState /
+// requestFrame opts chrome.js used to hold. getScrollState is a THUNK because
+// scrollState is wired below (scrollStateRef late-binds at :282), after this
+// call — the Clear handlers resolve the live ref at click time.
+const menuBar = wireMenuBar({
+    terminalWrapper,
+    term,
+    getScrollState: () => scrollStateRef,
+    requestFrame,
+});
 window.__menuBar = menuBar;   // Playwright hook (mirrors window.__scrollState / window.__modal)
 
 // ---- Phase 6 Plan 03 (Wave 2) — wire scrollback state machine ----
@@ -1056,6 +1067,15 @@ function applyPrefs(p) {
     // sets it on theme-toggle clicks but applyPrefs is called from prefsSubscribe
     // (theme-toggle button doesn't fire — e.g. Reset prefs path).
     document.body.setAttribute('data-theme', p.theme);
+    // Epic E1 Story E1.3 (AD-14) — decomposition: single-writer per canvas
+    // setter. Each canvas setter (setTheme/setPhosphor/setFont/setZoom) is
+    // called from EXACTLY ONE place on this reset path (menu-bar.projectPrefs
+    // owns the View menu projection and must never call a canvas setter, so no
+    // double-apply race). The #top-bar/<details> mirrors below are written
+    // unconditionally against the controls that exist today; when a later epic
+    // relocates a control into the menu bar (E1.4 theme/phosphor, E1.5 font,
+    // E3 local-echo/crlf) it owns removing the mirror here at the same time —
+    // exactly as E1.3 relocated the Clear buttons rather than null-guard them.
     // Theme-button label shows the DESTINATION theme (UI-SPEC Copywriting).
     themeButton.textContent = (p.theme === 'crt') ? 'Clean' : 'CRT';
     // Phosphor group hidden in clean theme.
@@ -1112,6 +1132,17 @@ function applyPrefs(p) {
 }
 prefsSubscribe(applyPrefs);
 applyPrefs(prefs);   // Apply once at boot so initial chrome state matches loaded prefs.
+
+// Epic E1 Story E1.3 (AD-14) — register menu-bar.js as a SECOND prefs
+// subscriber. resetPrefs() fans out to both: applyPrefs re-applies canvas +
+// chrome state (single-writer per canvas setter), menuBar.projectPrefs
+// re-projects the View submenu's menu DOM. The two never fight — projectPrefs
+// touches only View *item* state, never a canvas setter (AD-14 no double-apply).
+// A no-op today (View submenus are placeholders — E1.4/E1.5 fill the body), but
+// the subscription + idempotent/no-throw contract lands now. Called once at
+// boot for parity with applyPrefs(prefs) above.
+prefsSubscribe(menuBar.projectPrefs);
+menuBar.projectPrefs(prefs);
 
 // ---- Boot-complete log ----
 console.log('[boot] Harness ready. theme=', getActiveTheme().name, 'phosphor=', getActivePhosphor(), 'zoom=', getActiveZoom());
