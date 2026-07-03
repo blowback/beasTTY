@@ -203,9 +203,12 @@ test.describe('E2.3 AC-9 — legacy pane retired; exactly one serial-config surf
             expect(await page.locator(`#serial-config-modal #${id}`).count()).toBe(1);
             expect(await page.locator(`#connection #${id}`).count()).toBe(0);
         }
-        // The vestige pane keeps only #port-status + #download-log-button.
+        // The vestige pane keeps only #download-log-button. E4.1 relocated
+        // #port-status into the #status-bar footer, so it is gone from #connection
+        // (0 here) and lives once in the bar.
         await expect(page.locator('#connection')).toBeAttached();
-        expect(await page.locator('#connection #port-status').count()).toBe(1);
+        expect(await page.locator('#connection #port-status').count()).toBe(0);
+        expect(await page.locator('#status-bar #port-status').count()).toBe(1);
         expect(await page.locator('#connection #download-log-button').count()).toBe(1);
         expect(await page.locator('#connection fieldset').count()).toBe(0);
     });

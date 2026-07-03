@@ -67,6 +67,7 @@ import {
 } from './renderer/canvas.js';
 import { wireChrome } from './renderer/chrome.js';
 import { wireMenuBar } from './renderer/menu-bar.js';
+import { wireStatusBar } from './renderer/status-bar.js';
 import { wireScrollState } from './renderer/scroll-state.js';
 import { wireSelection } from './input/selection.js';
 import { wireKeyboard, setLocalEcho, setCrlfMode, getLocalEcho, getCrlfMode } from './input/keyboard.js';
@@ -83,7 +84,7 @@ import {
 // E2.1 (AD-15, AD-3) — serial reaches menu-bar ONLY via wireMenuBar opts (like
 // term/getScrollState), never a direct menu-bar import. main.js is the composition
 // root that hands onStateChange/getState/toggleConnection across the seam.
-import { wireSerial, onStateChange, getState, toggleConnection, connectMicroBeast, disconnect, countMicroBeastAdapters } from './transport/serial.js';
+import { wireSerial, onStateChange, getState, toggleConnection, connectMicroBeast, disconnect, countMicroBeastAdapters, getActiveFraming, getLastConnectError, getConnectionDevice } from './transport/serial.js';
 import {
     wireSlideDispatcher,
     dispatchInbound,
@@ -297,7 +298,11 @@ import('./pkg/build-info.js')
 // E2.1 (AD-15) — the #connect-button ref moved to menu-bar.js (the sole writer +
 // click owner via its own getElementById); main.js no longer holds it.
 const connectionPane    = document.getElementById('connection');
-const portStatusEl      = document.getElementById('port-status');
+// E4.1 (AD-15) — #port-status relocated into #status-bar, now owned solely by
+// status-bar.js. serial.js no longer projects it, so main.js no longer fetches it
+// or passes it to wireSerial. serial.js's dead updatePortStatus* writers were
+// removed (E4.1 review fix #8); the device/framing readout is served to the status
+// bar via the getConnectionDevice/getActiveFraming getters instead.
 const errorLogEl        = document.getElementById('error-log');
 // Phase 5 Wave 3 — serial-config form refs (D-08 / UI-SPEC §"Serial config form" DOM).
 const serialBaud          = document.getElementById('serial-baud');
@@ -414,17 +419,22 @@ const menuBar = wireMenuBar({
     // no-throw; chooseMicroBeast reuses the existing connectMicroBeast picker.
     getAdapterCount: countMicroBeastAdapters,
     // Disconnect-first when already connected (§"Choose MicroBeast… click
-    // behavior" open Q#2): a bare connectMicroBeast() while connected would
-    // setState('connecting') then, on picker-cancel, setState('disconnected')
-    // over a still-live port (UI↔reality divergence), or open a second port and
-    // leak the old writer/read loop when a different board is picked. Tearing the
-    // existing connection down first makes "choose which board" a clean switch.
-    // NOT awaited: connectMicroBeast() must call requestPort() synchronously in
-    // this click tick to keep Web Serial's transient user-activation valid;
-    // teardown finishes in ms, long before the user picks. .catch guards the
-    // floating promise from surfacing as an unhandled rejection.
-    chooseMicroBeast: () => {
-        if (getState() === 'connected') disconnect().catch(() => {});
+    // behavior" open Q#2): a bare connectMicroBeast() while connected would open a
+    // second port and leak the old writer/read loop when a different board is
+    // picked. Tearing the existing connection down first makes "choose which
+    // board" a clean switch. AWAIT the teardown so disconnect()'s trailing
+    // setState('disconnected') lands BEFORE connectMicroBeast()'s
+    // setState('connecting') — the un-awaited version raced the two, so the
+    // deferred 'disconnected' stomped the 'connecting' paint (dots flipped back to
+    // gray "Not connected" while the picker was open, or worse stuck disconnected
+    // over a live port). teardown finishes in ms — well inside Web Serial's ~5s
+    // transient-activation window — so connectMicroBeast()'s requestPort() still
+    // has valid user activation. try/catch keeps a teardown failure from aborting
+    // the switch (and from surfacing as an unhandled rejection).
+    chooseMicroBeast: async () => {
+        if (getState() === 'connected') {
+            try { await disconnect(); } catch { /* teardown best-effort — still switch */ }
+        }
         connectMicroBeast();
     },
     // Epic E3 Story E3.2 (FR-18/FR-19, AD-3) — Settings ▸ Local echo / Enter-key-sends
@@ -446,6 +456,29 @@ const menuBar = wireMenuBar({
     openSlideConfig,
 });
 window.__menuBar = menuBar;   // Playwright hook (mirrors window.__scrollState / window.__modal)
+
+// ---- Epic E4 Story E4.1 (FR-26, AD-6/AD-12) — wire the bottom status bar ----
+// A connection projector fed by the same serial.onStateChange truth as menu-bar
+// (AD-5); single writer of #status-conn-dot + #port-status. Slotted at the
+// wireChrome seam AFTER wireMenuBar and BEFORE wireKeyboard (AD-12). serial's
+// onStateChange/getState arrive via opts (AD-3 — status-bar.js never imports
+// serial.js). The E4.2 build/zoom readout will hang its own hooks off this.
+const statusBar = wireStatusBar({
+    onConnectionStateChange: onStateChange,
+    getConnectionState: getState,
+    // E4.1 fix (#2) — the connected readout's framing must be the framing the LIVE
+    // port was opened with, not getPrefs().serial (which can diverge after an
+    // in-session serial-config change awaiting reconnect). serial.js owns lastConfig.
+    getConnectionFraming: getActiveFraming,
+    // E4.1 fix (#4) — surface the most-recent connect-time failure in the readout so
+    // a failed Connect is visible (the D-27 pane auto-expand was removed; the
+    // disconnected dot is gray by design). serial.js owns the message.
+    getConnectionError: getLastConnectError,
+    // E4.1 fix (#7) — the device label reflects the ACTUAL connected/granted adapter
+    // (canonical only on a real CP2102N match), not a hardcoded MicroBeast string.
+    getConnectionDevice,
+});
+window.__statusBar = statusBar;   // Playwright hook (mirrors window.__menuBar)
 
 // ---- Phase 6 Plan 03 (Wave 2) — wire scrollback state machine ----
 // wireScrollState owns the wheel listener (attached to #terminal-wrapper),
@@ -1020,6 +1053,11 @@ wireFileSource({
     modalRefuseBtn:      sendModalRefuseButton,
     // Phase 12 SLIDE-12 — post-drop selection clear.
     clearSelectionFn: () => { try { selection.clearSelection(); } catch { /* ignore */ } },
+    // E3.1 review fix (#6) — re-project the File ▸ Send File… menu row whenever the
+    // send gate flips, so it stays correct while the File menu is held open (mirrors
+    // the Download Session Log row's session-log onStateChange hook). menuBar is
+    // defined above (:380), so the ref exists.
+    onSendGateChange: () => menuBar.projectSendFile?.(),
 });
 
 // Test introspection (mirrors Phase 8 + Plan 09-02 window.__* precedent).
@@ -1078,7 +1116,9 @@ await wireSerial({
     // signal instead of a direct button write (AC-4).
     signalConnectLabel: menuBar.signalConnectLabel,
     connectionPane,
-    portStatusEl,
+    // E4.1 (AD-15) — portStatusEl dropped: #port-status is now owned by status-bar.js
+    // (fed by the same onStateChange). serial.js's dead updatePortStatus* writers were
+    // removed (E4.1 review fix #8).
     errorLogEl,
     // Phase 5 Wave 3 — serial-config form refs (D-08).
     serialConfigEls: {
@@ -1095,6 +1135,10 @@ await wireSerial({
     // Phase 6 Plan 06 (Wave 5) — auto-connect path (D-34) + serial form persist.
     prefs,
     savePrefs,
+    // E4.1 fix (#3) — when the boot getPorts() scan finds an already-granted
+    // MicroBeast, show the "…— click Connect" cue in the status bar (statusBar is
+    // wired above, so the ref exists by the time this async boot scan runs).
+    onBootDeviceRecognized: () => statusBar.showBootReady(),
 });
 
 // ---- Phase 4 Plan 03 — Settings controls ----
@@ -1309,6 +1353,42 @@ function applyPrefs(p) {
     // restores the default-ON checked state.
     const slideConfirmTransfersCheckboxRef = document.getElementById('slide-confirm-transfers-checkbox');
     if (slideConfirmTransfersCheckboxRef) slideConfirmTransfersCheckboxRef.checked = (p.slideConfirmTransfers !== false);
+    // E3.4 review fix (#5) — the Settings ▸ SLIDE File Transfer… modal controls need
+    // the same reset mirror as the sibling controls above; without it a resetPrefs()
+    // defaults the prefs blob but leaves these four showing stale values (re-opening
+    // the modal shows the OLD settings, and the next change re-persists the stale
+    // value). Direct getElementById matches the showAllSerial / confirmTransfers
+    // precedent (applyPrefs runs at boot AND reset). These controls otherwise only
+    // hydrate once at wire time — nothing re-projects them on the reset fan-out.
+    const slideRecvToFolderRef = document.getElementById('slide-recv-to-folder-checkbox');
+    if (slideRecvToFolderRef) slideRecvToFolderRef.checked = !!p.slideRecvToFolder;
+    const slideShowSummaryRef = document.getElementById('slide-show-summary');
+    if (slideShowSummaryRef) slideShowSummaryRef.checked = !!p.slideShowSummary;
+    const slideCompatRef = document.getElementById('slide-compat-select');
+    if (slideCompatRef && ['auto', 'wakeup-required', 'force-start'].includes(p.slideCompatibilityMode)) {
+        slideCompatRef.value = p.slideCompatibilityMode;
+    }
+    const slideAutoSendRef = document.getElementById('slide-auto-send-input');
+    if (slideAutoSendRef) {
+        // Display value strips the trailing \r (appended at save time — D-06), mirroring
+        // the boot hydration above.
+        const cmd = p.slideAutoSendCommand || '';
+        slideAutoSendRef.value = cmd.endsWith('\r') ? cmd.slice(0, -1) : cmd;
+        // Re-sync the SLIDE-38 validity cue so a reset to the (safe) default clears any
+        // stale [data-invalid] border + hint left by a previously-typed unsafe command.
+        let safe = true;
+        try { safe = isAutoSendSafe(cmd); } catch { safe = true; }
+        const slideAutoSendHint = document.getElementById('slide-auto-send-validation-hint');
+        if (safe) {
+            slideAutoSendRef.removeAttribute('data-invalid');
+            slideAutoSendRef.removeAttribute('aria-invalid');
+            if (slideAutoSendHint) slideAutoSendHint.hidden = true;
+        } else {
+            slideAutoSendRef.setAttribute('data-invalid', 'true');
+            slideAutoSendRef.setAttribute('aria-invalid', 'true');
+            if (slideAutoSendHint) slideAutoSendHint.hidden = false;
+        }
+    }
     // Serial-config form: mirror stored values so a fresh load shows the
     // persisted config in the Connection-pane form. The Phase 5 D-08
     // reconnect-required hint pattern handles live config changes.

@@ -48,6 +48,13 @@ let enterSendModeFn = null;
 let getSlideStateFn = null;
 let isWriterReadyFn = null;   // Phase 9 WR-03 — gate button on writer registration
 let slideChipRef = null;      // Phase 11 Plan 11-03 D-10 — chip flash on drop-during-active-session
+// E3.1 review fix (#6) — fired when the send gate (topBarSendBtnRef.disabled) flips,
+// so the File ▸ Send File… menu row can re-project WHILE the File menu is held open
+// (the poll runs every 200ms; without this the row only self-corrected on the next
+// menu open, and a stale-disabled row swallowed an otherwise-valid activation).
+// Injected by main.js as wireFileSource({ onSendGateChange }); mirrors session-log's
+// onStateChange hook. Optional + no-throw — a harness that omits it is inert.
+let onSendGateChangeFn = null;
 
 // Phase 12 SLIDE-36 — three new modal action buttons (collision-mode footer).
 let sendRenamedBtnRef = null;
@@ -82,6 +89,8 @@ export function wireFileSource(opts) {
         modalRefuseBtn,        // #send-modal-refuse
         // Phase 12 SLIDE-12 — post-drop selection clear (injected; called from onDrop).
         clearSelectionFn,
+        // E3.1 review fix (#6) — notify on send-gate transitions (menu-row re-project).
+        onSendGateChange,
     } = opts;
     wrapperElRef = wrapperEl;
     topBarSendBtnRef = sendBtn;
@@ -96,6 +105,7 @@ export function wireFileSource(opts) {
     getSlideStateFn = getSlideState;
     isWriterReadyFn = isWriterReady ?? null;
     slideChipRef = slideChip || null;
+    onSendGateChangeFn = onSendGateChange || null;   // E3.1 review fix (#6)
     // Phase 12 SLIDE-36 / SLIDE-12.
     sendRenamedBtnRef   = modalSendRenamedBtn || null;
     firstOnlyBtnRef     = modalFirstOnlyBtn   || null;
@@ -220,10 +230,12 @@ function updateButtonState() {
             topBarSendBtnRef.textContent = '↑ Send file (sending…)';   // ellipsis = U+2026
             topBarSendBtnRef.title = 'Transfer in progress — wait for completion';
         }
+        notifySendGate();   // E3.1 review fix (#6) — enabled → disabled
     } else if (!shouldDisable && topBarSendBtnRef.disabled) {
         topBarSendBtnRef.disabled = false;
         topBarSendBtnRef.textContent = '↑ Send file';
         topBarSendBtnRef.title = 'Send file(s) to MicroBeast via SLIDE';
+        notifySendGate();   // E3.1 review fix (#6) — disabled → enabled
     } else if (shouldDisable && topBarSendBtnRef.disabled) {
         // Already-disabled — keep the title in sync if the reason changed
         // (e.g. writer registered while a session was already active).
@@ -237,6 +249,13 @@ function updateButtonState() {
             topBarSendBtnRef.textContent = '↑ Send file (sending…)';
         }
     }
+}
+
+// E3.1 review fix (#6) — no-throw notify of a send-gate transition (a failing
+// subscriber must never break the 200ms poll or leak an exception into it).
+function notifySendGate() {
+    if (!onSendGateChangeFn) return;
+    try { onSendGateChangeFn(); } catch { /* subscriber must not break the poll */ }
 }
 
 // ===== Drag-drop handlers (D-04 silent rejection at dragenter for non-file drags) =====

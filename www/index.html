@@ -137,6 +137,53 @@
     #menu-conn-dot[data-state="reconnecting"] { background: var(--status-amber); }
     #menu-conn-dot[data-state="connected"]    { background: var(--status-green); }
     #menu-conn-dot[data-state="port-lost"]    { background: var(--status-red); }
+
+    /* ==== Bottom status bar (Epic E4 Story E4.1) — new surface, fed never owned ==== */
+    /* AD-9 / NFR-2: renders IDENTICALLY across Console↔CRT. The global
+       [data-theme="crt"] block flips --chrome-bg/fg/accent for the OLD #top-bar; we
+       PIN the neutral static values on #status-bar (same scoped-token pin as
+       #menu-bar) so the new chrome never adapts to the terminal theme — no phosphor
+       var, no [data-theme] selector, no box-shadow. --chrome-border/--chrome-muted
+       and --status-* are already theme-independent. Retires with the #top-bar
+       [data-theme] chrome override in E7. Layout: a flex child of the min-height:100vh
+       body flex-column — align-self:stretch gives full width (body is
+       align-items:center), margin-top:auto pins it to the bottom, position:sticky
+       keeps it at the viewport bottom on scroll. Composition mirrors the mockup
+       .statusbar (26px, gap:16px, padding:0 12px, chrome-border top hairline) minus
+       the not-yet-built right group (E4.2). z-index above the canvas. */
+    #status-bar {
+      --chrome-bg:     #1e242c;
+      --chrome-fg:     #e4e8ee;
+      --chrome-accent: #7fdbca;
+      position: sticky; bottom: 0;
+      align-self: stretch; width: 100%;
+      margin-top: auto;
+      box-sizing: border-box;
+      display: flex; align-items: center; gap: 16px;
+      height: 26px; flex: 0 0 26px;
+      padding: 0 12px;
+      background: var(--chrome-bg);
+      border-top: 1px solid var(--chrome-border);
+      color: var(--chrome-muted);
+      font-size: 12px;
+      z-index: 20;
+    }
+    /* Connection group: dot + device/baud line. The device text is brighter than
+       the bar's muted default (mockup .sb-device). */
+    #status-bar .sb-conn { display: flex; align-items: center; gap: 8px; }
+    #status-bar #port-status { color: var(--chrome-fg); }
+    /* Discrete connection-dot colours (UX-DR3) — mirrors the #menu-conn-dot rule
+       set exactly; red reserved for port-lost. NO box-shadow (DESIGN.md no-glow
+       overrides the mockup), NO transition — the dot snaps. */
+    #status-conn-dot {
+      width: 9px; height: 9px; flex: 0 0 9px;
+      border-radius: 50%;
+      background: var(--status-gray);
+    }
+    #status-conn-dot[data-state="connecting"],
+    #status-conn-dot[data-state="reconnecting"] { background: var(--status-amber); }
+    #status-conn-dot[data-state="connected"]    { background: var(--status-green); }
+    #status-conn-dot[data-state="port-lost"]    { background: var(--status-red); }
     /* Dropdown panel — md 6px, 1px hairline, NO box-shadow (UX-DR5). Opens below
        its own title because it is an absolutely-positioned child of the
        position:relative .menu-group — so no inline left offset is ever set. */
@@ -537,8 +584,9 @@
     /* E2.3 (FR-15) — the #connection fieldset / legend / label / select rules were
        removed here: those elements moved into #serial-config-modal (styled on the
        neutral --chrome-* tokens below, NOT the legacy 2px 4px select padding). The
-       #connection button / .hint / #port-status / summary rules stay — the vestige
-       still holds #download-log-button + #port-status. */
+       #connection button / .hint / summary rules stay — the vestige
+       still holds #download-log-button. E4.1 relocated #port-status to
+       #status-bar, so its #connection rule was removed here too. */
     #connection button {
       font-family: inherit; font-size: 13px;
       padding: 4px 8px;
@@ -553,10 +601,6 @@
     }
     #connection .hint {
       color: rgba(255,255,255,0.6);
-      font-size: 12px;
-      margin: 4px 0;
-    }
-    #connection #port-status {
       font-size: 12px;
       margin: 4px 0;
     }
@@ -1514,13 +1558,13 @@
   <!-- Connection pane (Phase 5 D-06, D-07) — placement between top-bar and terminal.
        E2.3 (FR-15) retired the serial-config surface (the 5 selects, Reset, both
        checkboxes + hints, the default/single-tab hint, and #error-log) into
-       #serial-config-modal (opened from Connection ▸ Serial Configuration…). This
-       pane is now a thin VESTIGE holding only #port-status (E4 status bar reads it)
-       and #download-log-button (E3 Download Session Log). Full retirement of the
-       <details> shell is E7 (#top-bar coexistence, E1 retro action #5). -->
+       #serial-config-modal (opened from Connection ▸ Serial Configuration…). E4.1
+       (FR-26) relocated #port-status into the permanent #status-bar footer, so this
+       pane is now a thin VESTIGE holding only #download-log-button (E3 Download
+       Session Log). Full retirement of the <details> shell is E7 (#top-bar
+       coexistence, E1 retro action #5 / E3 retro action #4). -->
   <details id="connection">
     <summary>Connection</summary>
-    <p id="port-status" class="hint" aria-live="polite">Not connected</p>
     <!-- Phase 6 D-31 (Plan 06-05) — per-connection RX log download. Disabled
          until the first byte arrives; tooltip cycles per session-log.js.
          E3.1 (AC-6/AC-8, E7 coexistence) — File ▸ Download Session Log now drives
@@ -1936,6 +1980,19 @@
       </form>
     </footer>
   </dialog>
+
+  <!-- Bottom status bar (Epic E4 Story E4.1, FR-26) — the permanent home of the
+       connection readout. Fed by status-bar.js (subscribes to serial.js's state
+       machine + reads getPrefs().serial for baud/framing); holds no independent
+       truth (AD-6). #status-conn-dot is decorative (aria-hidden); #port-status is
+       the canonical aria-live connection region relocated out of #connection.
+       The E4.2 right group (build SHA + zoom) slots in here later — not built. -->
+  <footer id="status-bar">
+    <span class="sb-conn">
+      <span id="status-conn-dot" aria-hidden="true"></span>
+      <span id="port-status" class="hint" aria-live="polite">Not connected</span>
+    </span>
+  </footer>
 
   <script type="module" src="./main.js"></script>
 </body>

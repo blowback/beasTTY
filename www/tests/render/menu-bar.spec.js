@@ -240,9 +240,11 @@ test.describe('E1.1 AC-3 — four menu-item variants', () => {
     await ready(page);
     // E2.2 — the former Connection ▸ Choose MicroBeast… disabled placeholder is
     // now a live, count-gated action row, so this exercises the File ▸ Download
-    // Session Log placeholder (still permanently data-disabled until E3.1).
+    // Session Log row (disabled until the first RX byte). Target it by id: the File
+    // menu now has TWO disabled rows pre-Connect (Send File… mirrors the send gate
+    // too — E3.1 follow-up), so a bare [data-disabled] locator is no longer unique.
     await page.click('#menu-file');
-    const disabled = page.locator('#dropdown-file .menu-item[data-disabled="true"]');
+    const disabled = page.locator('#dropdown-file #menu-download-log-item[data-disabled="true"]');
     await expect(disabled).toHaveAttribute('title', /.+/);
     const color = await disabled.evaluate((el) => getComputedStyle(el).color);
     expect(color).toBe('rgba(255, 255, 255, 0.6)');   // chrome-muted
@@ -316,8 +318,10 @@ test.describe('E1.1 ARIA state — roles carry their required state attributes',
     await ready(page);
     // E2.2 — Connection's disabled placeholder is gone; File ▸ Download Session Log
     // is the disabled-by-default row (dynamic since E3.1 — enables on first RX byte).
+    // Target it by id: Send File… is also disabled pre-Connect (mirrors the send gate),
+    // so a bare [data-disabled] locator matches two rows.
     await page.click('#menu-file');
-    const disabled = page.locator('#dropdown-file .menu-item[data-disabled="true"]');
+    const disabled = page.locator('#dropdown-file #menu-download-log-item[data-disabled="true"]');
     await expect(disabled).toHaveAttribute('aria-disabled', 'true');
   });
 });

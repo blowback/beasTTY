@@ -158,6 +158,22 @@ window.addEventListener('beforeunload', () => {
 export const RESET_PREFS_IDLE_LABEL = 'Reset all preferences';
 export const RESET_PREFS_CONFIRM_LABEL = 'Click again to confirm (3 s)';
 
+// E4.1 review fix (#9) — the connection-STATUS label map, single-sourced here so the
+// two connection projectors that must never disagree — menu-bar.js (#menu-conn-label)
+// and status-bar.js (#port-status) — share ONE frozen copy instead of hand-synced
+// duplicates guarded only by a comment. prefs.js is the one module both are allowed
+// to import (AD-3), and it already hosts the RESET_PREFS_* single-sourced labels (same
+// precedent). status-bar composes its own `connected` device/baud line, so it reads
+// only the four non-connected entries; menu-bar uses all five (connected → 'Connected').
+// U+2026 ellipsis in Connecting…/Reconnecting… — do not paraphrase.
+export const CONN_STATUS_LABELS = Object.freeze({
+    disconnected:  'Not connected',
+    connecting:    'Connecting…',
+    connected:     'Connected',
+    reconnecting:  'Reconnecting…',
+    'port-lost':   'Connection lost',
+});
+
 // D-35 — reset all preferences. Removes the storage key and replaces the
 // in-memory blob with defaults; subscribers re-apply defaults to chrome state
 // in-place (no page reload).

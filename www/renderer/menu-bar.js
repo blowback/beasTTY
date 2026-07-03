@@ -44,7 +44,7 @@ import { retainFocus } from './focus.js';
 // E1.4 (AD-3 / AD-4) — savePrefs joins getPrefs as a direct prefs import: the
 // View ▸ Theme / Phosphor selects persist via savePrefs (the graph edge
 // `menu -->|direct import OK| prefs` is authoritative over the AD-3 prose).
-import { getPrefs, savePrefs, RESET_PREFS_IDLE_LABEL, RESET_PREFS_CONFIRM_LABEL } from '../state/prefs.js';
+import { getPrefs, savePrefs, RESET_PREFS_IDLE_LABEL, RESET_PREFS_CONFIRM_LABEL, CONN_STATUS_LABELS } from '../state/prefs.js';
 // E1.4 (AD-3 / AD-7) — the theme/phosphor menu actions relocate the SAME canvas
 // setters the retired #theme-toggle / #phosphor-group handlers called, verbatim.
 // canvas.js setters are the only other allowed direct import (AD-3 allowlist).
@@ -72,14 +72,9 @@ const CONNECT_LABELS = Object.freeze({
 // disconnected/connecting/reconnecting are verbatim-sourced (placeholder +
 // EXPERIENCE.md state table); connected/port-lost wording is the dev default
 // ratified with Ant (2026-07-02). Distinct from CONNECT_LABELS — the status
-// label DESCRIBES the state; the Connect item names the ACTION.
-const CONN_STATUS_LABELS = Object.freeze({
-    disconnected:  'Not connected',
-    connecting:    'Connecting…',
-    connected:     'Connected',
-    reconnecting:  'Reconnecting…',
-    'port-lost':   'Connection lost',
-});
+// label DESCRIBES the state; the Connect item names the ACTION. E4.1 review fix
+// (#9) — the map itself is single-sourced in prefs.js (imported above) so this
+// projector and status-bar.js's #port-status can never drift on the shared copy.
 
 // ====== Module-scope state ======
 

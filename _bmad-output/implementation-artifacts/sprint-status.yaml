@@ -46,7 +46,7 @@
 #   E1 is the backbone and must land before the other menu/modal epics.
 
 generated: 2026-07-01
-last_updated: 2026-07-03  # E3.4 → done (code review clean; fixes applied)
+last_updated: 2026-07-03  # E4.1 → done (dev-story + code review; 9 findings fixed, suite green)
 # retrospective action items (surface open ones during sprint status)
 action_items:
   - epic: "e0"
@@ -100,6 +100,22 @@ action_items:
   - epic: "e2"
     action: "Reconcile story-file Status front-matter with sprint-status on completion, or designate one as authoritative (E2 stories read review while sprint-status reads done)"
     owner: "Amelia"
+    status: done   # 2026-07-03 (E3 retro) — all four E3 front-matters read done, matching sprint-status
+  - epic: "e3"
+    action: "Resolve the codified-idioms carry once and for all (3 epics old): extract the menu-test idioms block into a shared TESTING doc or test helper before E4, OR formally close the action as intentionally per-story. Stop carrying it unresolved. Closes carried-forward E1 #4 / E2 #1."
+    owner: "Amelia"
+    status: open
+  - epic: "e3"
+    action: "Run and record code review for E3.1 and E3.4 (both shipped done with a Pending review section), and make review-section-filled a done-gate so it cannot recur. Closes the half-adopted E2 #2."
+    owner: "Amelia + reviewer"
+    status: open
+  - epic: "e3"
+    action: "Frame E4 planning as build-new, not relocate: write acceptance criteria against the spec (subscription + imperative push, holds no independent truth), not against a v1.1 incumbent — the preservation premise that anchored E0-E3 ends here."
+    owner: "Amelia"
+    status: open
+  - epic: "e3"
+    action: "Carry the E7 dual-chrome close-out forward: settings-slide sub-pane is gone and details#settings is a local-echo/crlf-only vestige; keep the retirement checklist current through E4/E5/E6 so E7 is a clean sweep. Continues E1 #5 / E2 #4."
+    owner: "Amelia"
     status: open
 project: beastty
 project_key: NOKEY
@@ -135,11 +151,11 @@ development_status:
   e3-2-settings-menu-local-echo-enter-key-sends: done
   e3-3-settings-menu-reset-all-preferences-reserved-ctrl-info: done
   e3-4-slide-file-transfer-modal: done
-  epic-e3-retrospective: optional
+  epic-e3-retrospective: done
 
   # ── Epic E4 · Bottom Status Bar (depends on: E1, E2) ──
-  epic-e4: backlog
-  e4-1-connection-device-baud-readout: backlog
+  epic-e4: in-progress
+  e4-1-connection-device-baud-readout: done
   e4-2-build-sha-zoom-readout: backlog
   e4-3-recent-errors-affordance: backlog
   epic-e4-retrospective: optional
