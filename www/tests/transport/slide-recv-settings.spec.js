@@ -83,12 +83,15 @@ async function setup(page) {
     await page.goto('/');
     await page.locator('#terminal-wrapper').focus();
     await page.waitForFunction(() => document.getElementById('terminal').width > 0);
-    // Settings <details> is collapsed by default; open it so the SLIDE
-    // recv-to-folder row + button are visible/clickable. Plan 11-03 moved
-    // the row inside a nested <details id="settings-slide"> block, so we
-    // expand both to keep the toggle visible.
-    await page.locator('#settings').evaluate((el) => { el.open = true; });
-    await page.locator('#settings-slide').evaluate((el) => { el.open = true; });
+    // E3.4 — the SLIDE recv-to-folder row moved from the removed <details
+    // id="settings-slide"> pane into #slide-config-modal (Settings ▸ SLIDE File
+    // Transfer…). Open the modal via the menu so the toggle + button are visible.
+    await page.waitForFunction(() => window.__menuBar
+        && typeof window.__menuBar.open === 'function'
+        && typeof window.__modal === 'object' && window.__modal !== null);
+    await page.evaluate(() => window.__menuBar.open('settings'));
+    await page.click('#dropdown-settings .menu-item[data-action="slide-config"]');
+    await page.locator('#slide-config-modal').waitFor({ state: 'visible' });
 }
 
 test.describe('slide-recv-settings — toggle row state machine', () => {

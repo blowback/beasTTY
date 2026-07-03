@@ -46,7 +46,7 @@
 #   E1 is the backbone and must land before the other menu/modal epics.
 
 generated: 2026-07-01
-last_updated: 2026-07-03  # E3.3 → done (dev-story + code-review complete)
+last_updated: 2026-07-03  # E3.4 → done (code review clean; fixes applied)
 # retrospective action items (surface open ones during sprint status)
 action_items:
   - epic: "e0"
@@ -134,7 +134,7 @@ development_status:
   e3-1-file-menu-send-file-download-session-log: done
   e3-2-settings-menu-local-echo-enter-key-sends: done
   e3-3-settings-menu-reset-all-preferences-reserved-ctrl-info: done
-  e3-4-slide-file-transfer-modal: backlog
+  e3-4-slide-file-transfer-modal: done
   epic-e3-retrospective: optional
 
   # ── Epic E4 · Bottom Status Bar (depends on: E1, E2) ──

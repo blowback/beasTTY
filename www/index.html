@@ -355,26 +355,9 @@
       outline-offset: 2px;
     }
 
-    /* ==== Phase 11 Settings SLIDE sub-block form controls ==== */
-    /* Auto-send <input type="text"> + Compatibility mode <select> share the
-       Phase 5 #connection select idiom EXCEPT padding is normalized to 4px
-       (multiple of 4) per UI-SPEC §Spacing §Phase 5 legacy spacing — divergence
-       note. Phase 5 #connection select still uses legacy padding: 2px 4px. */
-    #settings-slide #slide-auto-send-input,
-    #settings-slide #slide-compat-select {
-      font-family: inherit;
-      font-size: 13px;
-      background: var(--chrome-bg);
-      color: var(--chrome-fg);
-      border: 1px solid var(--chrome-border);
-      padding: 4px;
-    }
-    #settings-slide #slide-auto-send-input { width: 200px; }
-    #settings-slide #slide-auto-send-input:focus-visible,
-    #settings-slide #slide-compat-select:focus-visible {
-      border-color: var(--chrome-accent);
-      outline: none;
-    }
+    /* E3.4 — the Phase 11 #settings-slide form-control CSS (auto-send input + compat
+       select) was removed with the pane; those controls now inherit the shared
+       .chrome-modal .field select / input[type="text"] rules inside #slide-config-modal. */
     /* Keyboard-only :focus-visible still applied to top-bar buttons (unchanged). */
     #terminal { display: block; }
 
@@ -462,19 +445,9 @@
       cursor: not-allowed;
     }
 
-    /* ==== Phase 10 — SLIDE recv-to-folder Settings row inline action ==== */
-    /* Single new rule: flex-wrap the [Choose folder…] button + state string
-       onto one row with 8px gap. The label + hint above/below inherit
-       existing #settings label and #settings .hint rules verbatim. */
-    .settings-row .settings-row-action {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      margin: 4px 0 0 24px;
-    }
-    .settings-row .settings-row-action .hint {
-      margin: 0;
-    }
+    /* E3.4 — the Phase 10 .settings-row-action recv-folder inline-action CSS was removed
+       with the pane; the [Choose folder…] button + status line now live in
+       #slide-config-modal .field-action (below). */
 
     /* ==== Settings details (Phase 4 D-13) — mirrors #debug rule ==== */
     #settings {
@@ -865,32 +838,21 @@
       cursor: not-allowed;
     }
 
-    /* ==== Phase 12 SLIDE-38 settings auto-send invalid state ==== */
-    /* Phase 12 Plan 12-06 (Gap 2 — UAT Test 7) — TWO fixes vs. Plan 12-03:
-       (1) SPECIFICITY BUMP — add [data-theme] + #settings-slide ancestors so
-           this rule (now 0,2,2,0) beats BOTH competing rules ON SPECIFICITY
-           ALONE — not on source-order:
-             - base #settings-slide #slide-auto-send-input (line 217):    (0,2,0,0)  LOSES
-             - focused #settings-slide ...:focus-visible (line 227):      (0,2,1,0)  LOSES
-             - this rule [data-theme] #settings-slide ...[data-invalid]:  (0,2,2,0)  WINS
-           [data-theme] is on <body> (line 768) so the input is always a
-           descendant — semantic match is identical to scoping without it,
-           but the [data-theme] attribute selector adds 0,1,0 of specificity.
-           WHY NOT JUST (0,2,1,0)? The :focus-visible rule at line 227 ties
-           at (0,2,1,0); the cascade falls back to source-order. A future
-           author moving rules around silently regresses focused-and-invalid.
-           (0,2,2,0) wins regardless of order — no source-order trap.
-       (2) RED TOKEN — switch from rgba(255,255,255,0.6) (muted) to
-           var(--chrome-invalid-strong) (= #e04040). DELIBERATE EXCEPTION
-           to the muted/destructive policy (12-UI-SPEC §D), locked by the
-           user 2026-05-09: "it's a serious matter so red is appropriate."
-           This control gates wire-bound auto-typed bytes, so the visual
-           cue is treated as security-relevant rather than UX-neutral.
-           Defense-in-depth ONLY — the wire-safety gate remains the
-           use-time check in slide.js readAutoSendCommandBytes (T-12-03
-           mitigation; the visual cue does NOT block savePrefs).
+    /* ==== Phase 12 SLIDE-38 auto-send invalid state (E3.4 re-scoped to the modal) ==== */
+    /* The auto-send input relocated from #settings-slide into #slide-config-modal (E3.4),
+       so the invalid-border rule is re-anchored on the modal id. Two ids (0,2,1,0) beat
+       BOTH competing shared rules on specificity ALONE — no source-order trap:
+         - base   .chrome-modal .field input[type="text"]              (0,0,3,1)  LOSES
+         - focused .chrome-modal .field input[type="text"]:focus-visible (0,0,4,1) LOSES
+       So invalid stays red even while the input is focused. The former [data-theme] +
+       #settings-slide specificity hack is no longer needed (the id anchor wins outright).
+       RED TOKEN (var(--chrome-invalid-strong) = #e04040) is a DELIBERATE exception to the
+       muted policy (12-UI-SPEC §D), locked by the user 2026-05-09: "it's a serious matter
+       so red is appropriate" — this control gates wire-bound auto-typed bytes, so the cue
+       is security-relevant. Defense-in-depth ONLY — the wire-safety gate remains the
+       use-time check in slide.js readAutoSendCommandBytes (the cue does NOT block savePrefs).
        Future authors: do NOT "fix" this back to muted — it is intentional. */
-    [data-theme] #settings-slide #slide-auto-send-input[data-invalid="true"] {
+    #slide-config-modal #slide-auto-send-input[data-invalid="true"] {
       border-color: var(--chrome-invalid-strong);
     }
     #slide-auto-send-row .validation-hint {
@@ -964,11 +926,16 @@
       font-weight: 500;                    /* DESIGN.md type role — labels/headings 500 */
     }
     /* Scrollable body — content flex-grows and scrolls rather than overflowing the
-       dialog when the viewport is short. */
+       dialog when the viewport is short. Also the aligned-row flex column (E3.4 hoist
+       from #serial-config-modal — shared by the Serial Config + SLIDE modals; a body-
+       copy modal like #reserved-ctrl-modal has a single child so the gap is inert). */
     .chrome-modal .modal-body {
       overflow-y: auto;
       flex: 1 1 auto;
       min-height: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
     }
     .chrome-modal .hint {
       color: var(--chrome-muted);
@@ -983,8 +950,12 @@
       justify-content: flex-end;
       gap: 8px;
     }
-    /* Footer buttons are secondary/bordered (DESIGN.md:194), rounded/md (6px). */
-    .chrome-modal footer button {
+    /* Footer buttons are secondary/bordered (DESIGN.md:194), rounded/md (6px).
+       E3.4 — the in-body Choose-folder button (#slide-config-modal .field-action
+       button) is the same secondary control, so it shares this base rule and only
+       overrides the size + :disabled state below. */
+    .chrome-modal footer button,
+    #slide-config-modal .field-action button {
       font-family: inherit;
       font-size: 14px;
       padding: 4px 8px;
@@ -995,7 +966,9 @@
       cursor: pointer;
     }
     .chrome-modal footer button:hover,
-    .chrome-modal footer button:focus-visible {
+    .chrome-modal footer button:focus-visible,
+    #slide-config-modal .field-action button:hover,
+    #slide-config-modal .field-action button:focus-visible {
       border-color: var(--chrome-accent);
       outline: none;
     }
@@ -1010,32 +983,25 @@
       margin: 0;
     }
 
-    /* ==== Epic E2 Story E2.3 (FR-15) — #serial-config-modal specifics ==== */
-    /* Wider than a body-copy modal (form + error log), plus the form-control styling
-       the shared .chrome-modal rules don't carry. */
+    /* ==== Shared aligned-row form controls — .chrome-modal .field ==== */
     /* Clean aligned rows (v1.1 polish — matches the key-screen-chrome.html mock):
        muted label on the LEFT, control on the RIGHT (DESIGN.md:165 "labels sit …
-       beside their controls"), one setting per row, no fieldset box. The modal body
-       is a flex column on the 12px grid. */
-    #serial-config-modal[open] {
-      max-width: 60ch;                     /* body of aligned rows — narrower than the old form */
-    }
-    #serial-config-modal .modal-body {
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-    }
-    #serial-config-modal .field {
+       beside their controls"), one setting per row, no fieldset box. Hoisted from
+       #serial-config-modal (E3.4 review-fix-#2 single-source) so the Serial Config +
+       SLIDE File Transfer modals share ONE definition; author-class specificity keeps
+       them scoped to .chrome-modal dialogs only. */
+    .chrome-modal .field {
       display: flex;
       align-items: center;
       justify-content: space-between;      /* label left, control right */
       gap: 12px;
     }
-    #serial-config-modal .field > label {
+    .chrome-modal .field > label {
       color: var(--chrome-muted);
       font-size: 13px;
     }
-    #serial-config-modal .field select {
+    .chrome-modal .field select,
+    .chrome-modal .field input[type="text"] {
       min-width: 160px;
       font-family: inherit; font-size: 13px;
       background: var(--field-bg);         /* inputs sit on field-bg (DESIGN.md) */
@@ -1044,29 +1010,31 @@
       border-radius: 4px;                  /* rounded/sm */
       padding: 5px 8px;
     }
-    #serial-config-modal .field select:focus-visible {
+    .chrome-modal .field select:focus-visible,
+    .chrome-modal .field input[type="text"]:focus-visible {
       border-color: var(--chrome-accent);
       outline: none;
     }
     /* Checkbox rows pack left: [box] [label] [ⓘ]. The label is chrome-fg (an active
        choice, not muted help text). */
-    #serial-config-modal .field.check {
+    .chrome-modal .field.check {
       justify-content: flex-start;
       gap: 8px;
     }
-    #serial-config-modal .field.check input {
+    .chrome-modal .field.check input {
       accent-color: var(--chrome-accent);
     }
-    #serial-config-modal .field.check > label {
+    .chrome-modal .field.check > label {
       color: var(--chrome-fg);
       font-size: 13px;
       cursor: pointer;
     }
-    /* ⓘ info affordance — the FULL hardware explanation (EXPERIENCE.md:112 "don't dumb
-       down the hardware explanation") stays verbatim in the DOM inside .field-tip,
+    /* ⓘ info affordance — the FULL explanation stays verbatim in the DOM inside
+       .field-tip (EXPERIENCE.md:112 "don't dumb down the hardware explanation" — the
+       SLIDE modal reuses the affordance for its folder-help + confirm-transfers help),
        revealed on hover/focus so the modal body stays uncluttered. tabindex makes it
        keyboard-reachable; the tip is not display:none-hidden from AT (it is in the note). */
-    #serial-config-modal .field-info {
+    .chrome-modal .field-info {
       position: relative;
       display: inline-flex;
       cursor: help;
@@ -1074,12 +1042,12 @@
       font-size: 13px;
       margin-left: auto;                   /* push the ⓘ to the row's right edge */
     }
-    #serial-config-modal .field-info:hover,
-    #serial-config-modal .field-info:focus-visible {
+    .chrome-modal .field-info:hover,
+    .chrome-modal .field-info:focus-visible {
       color: var(--chrome-accent);
       outline: none;
     }
-    #serial-config-modal .field-tip {
+    .chrome-modal .field-tip {
       position: absolute;
       right: 0;
       bottom: calc(100% + 6px);            /* open UPWARD — the ⓘ rows sit near the modal
@@ -1097,10 +1065,26 @@
       pointer-events: none;                /* never intercept the rows it overlays */
       display: none;
     }
-    #serial-config-modal .field-info:hover .field-tip,
-    #serial-config-modal .field-info:focus .field-tip,
-    #serial-config-modal .field-info:focus-within .field-tip {
+    .chrome-modal .field-info:hover .field-tip,
+    .chrome-modal .field-info:focus .field-tip,
+    .chrome-modal .field-info:focus-within .field-tip {
       display: block;
+    }
+    /* E3.4 — the recv-folder ⓘ is the FIRST row of #slide-config-modal, so the
+       shared upward tip (bottom: 100%) opens into the scrollable .modal-body's
+       clipped top edge and the default-state guidance is cut off. Open THIS tip
+       downward instead — there are rows below it, so no overflow/scrollbar flicker
+       (the downward-overflow concern only applies to ⓘ rows near the modal bottom). */
+    #slide-recv-folder-row .field-tip {
+      bottom: auto;
+      top: calc(100% + 6px);
+    }
+
+    /* ==== Epic E2 Story E2.3 (FR-15) — #serial-config-modal specifics ==== */
+    /* Wider than a body-copy modal (form + error log). The aligned-row + ⓘ chrome is
+       now shared above; only the width + the recent-errors box remain serial-specific. */
+    #serial-config-modal[open] {
+      max-width: 60ch;                     /* body of aligned rows — narrower than the old form */
     }
     /* Recent-errors box — compact bordered panel (mock .errbox), replacing the stark
        <pre> block. #error-log keeps its id (serial.js writes it) but drops pre chrome. */
@@ -1139,6 +1123,46 @@
        is a narrower max-width. */
     #reserved-ctrl-modal[open] {
       max-width: 70ch;                     /* body-copy modal — narrower than the config form */
+    }
+
+    /* ==== Epic E3 Story E3.4 (FR-20) — #slide-config-modal specifics ==== */
+    /* Same aligned-row family as the Serial Config modal (shared .chrome-modal .field
+       chrome above). Only the width + two compound-row layouts (the auto-send control
+       column and the recv-folder action sub-row) are modal-specific. */
+    #slide-config-modal[open] {
+      max-width: 60ch;                     /* aligned rows — matches #serial-config-modal */
+    }
+    /* Auto-send row: the control side stacks the input + its static hint + the (hidden)
+       validation hint in a right-aligned column, so top-align the label against it. */
+    #slide-config-modal #slide-auto-send-row {
+      align-items: flex-start;
+    }
+    #slide-config-modal .field-control {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 2px;
+    }
+    /* Recv-folder action sub-row: [Choose folder…] button + live status string, indented
+       under the checkbox line (replaces the retired .settings-row-action rule). */
+    #slide-config-modal .field-action {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 4px 0 0 24px;
+    }
+    #slide-config-modal .field-action .hint {
+      margin: 0;
+    }
+    /* Choose-folder button — reuses the shared secondary-button chrome (folded into
+       `.chrome-modal footer button` above); only the size + disabled state differ.
+       This override comes later at equal specificity, so font-size: 13px wins. */
+    #slide-config-modal .field-action button {
+      font-size: 13px;
+    }
+    #slide-config-modal .field-action button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;                 /* disabled (toggle off) dims like the legacy pane */
     }
   </style>
 </head>
@@ -1372,6 +1396,17 @@
             </button>
           </div>
         </div>
+        <!-- Epic E3 Story E3.4 (FR-20, AD-8/AD-3) — SLIDE File Transfer… opens the
+             #slide-config-modal (SLIDE transfer controls relocated from the legacy
+             <details id="settings-slide"> pane). An action row: closeMenu() then the
+             injected openSlideConfig opener (mirrors Serial Configuration… / Browser-
+             reserved Ctrl combinations…). Grouped with the other settings (after Enter
+             key sends); info + reset stay last. Trailing … = "opens further UI". No ▸
+             caret — that is reserved for radio submenus. -->
+        <button id="menu-slide-config-item" class="menu-item" type="button" role="menuitem"
+                data-variant="action" data-action="slide-config">
+          <span class="check"></span><span class="lbl">SLIDE File Transfer…</span>
+        </button>
         <div class="menu-sep"></div>
         <!-- Epic E3 Story E3.3 (FR-21, AD-8/AD-3) — Browser-reserved Ctrl combinations…
              opens the #reserved-ctrl-modal (verbatim copy relocated from the legacy
@@ -1588,79 +1623,12 @@
       <p class="hint">Clears your saved preferences. Port permission and connection state are not affected.</p>
     </div>
 
-    <!-- Phase 11 Plan 11-03 — SLIDE file-transfer sub-block (D-05).
-         Wraps the Phase 10 Save-to-folder row (carry-forward, MOVED into this
-         block from its top-level position; child IDs preserved verbatim so
-         wireSlideRecv element refs still resolve via document.getElementById)
-         + 3 new rows (auto-send command / show-summary / Compatibility mode).
-         Verbatim DOM + copy from 11-UI-SPEC §Layout Contract §Settings SLIDE
-         sub-block + §Copywriting Contract. <hr class="settings-divider" /> marks
-         the transition from the Phase 6 prefs block. Default-collapsed (no
-         `open` attribute) — daily-driver users never see SLIDE config rows. -->
-    <hr class="settings-divider" />
-    <details class="reserved" id="settings-slide">
-      <summary>SLIDE file transfer</summary>
-
-      <!-- Row 1 — Save-to-folder (Phase 10 carry-forward, MOVED into this block). -->
-      <div class="settings-row" id="slide-recv-folder-row">
-        <label for="slide-recv-to-folder-checkbox"
-               title="When enabled, files received via SLIDE land in a folder you pick. Otherwise they download to your browser's Downloads folder.">
-          <input type="checkbox" id="slide-recv-to-folder-checkbox">
-          Save received files to a folder
-        </label>
-        <div class="settings-row-action">
-          <button id="slide-recv-folder-button" type="button"
-                  title="Toggle the checkbox first">Choose folder…</button>
-          <span id="slide-recv-folder-status" class="hint">No folder selected</span>
-        </div>
-        <p class="hint" id="slide-recv-folder-help">
-          Received files land in your Downloads folder. Toggle this to pick a fixed destination.
-        </p>
-      </div>
-
-      <!-- Row 2 — Auto-send command (NEW Phase 11 — D-06; Phase 12 SLIDE-38
-           validation hint sub-row appended). -->
-      <div class="settings-row" id="slide-auto-send-row">
-        <label for="slide-auto-send-input">Auto-send command:</label>
-        <input type="text" id="slide-auto-send-input" value="B:SLIDE R"
-               autocomplete="off" spellcheck="false">
-        <div class="hint">\r appended automatically</div>
-        <!-- Phase 12 SLIDE-38 — validation hint, hidden by default. The use-time
-             gate in slide.js readAutoSendCommandBytes unhides this row when
-             SAFE_AUTO_SEND_RE.test(cmd) === false; the Settings input change
-             handler in main.js hides it again once the user fixes the value. -->
-        <div class="hint validation-hint" id="slide-auto-send-validation-hint" hidden>Auto-send command unsafe — disabled.</div>
-      </div>
-
-      <!-- Row 3 — Show summary checkbox (NEW Phase 11 — D-08 default ON). -->
-      <div class="settings-row" id="slide-show-summary-row">
-        <label>
-          <input type="checkbox" id="slide-show-summary" checked>
-          Show transfer summary chip
-        </label>
-      </div>
-
-      <!-- Row — Confirm file transfers (v1.1 polish 260513-grs Task 2; default ON).
-           When OFF, drops + picker selections start transferring immediately;
-           collisions auto-rename via the SLIDE-36 scheme. -->
-      <div class="settings-row" id="slide-confirm-transfers-row">
-        <label>
-          <input type="checkbox" id="slide-confirm-transfers-checkbox" checked>
-          Confirm file transfers
-        </label>
-        <p class="hint">When off, drops and picker selections begin transferring immediately. Filename collisions are auto-renamed.</p>
-      </div>
-
-      <!-- Row 4 — Compatibility mode (NEW Phase 11 — D-07). -->
-      <div class="settings-row" id="slide-compat-row">
-        <label for="slide-compat-select">Compatibility mode:</label>
-        <select id="slide-compat-select">
-          <option value="auto">Auto</option>
-          <option value="wakeup-required">Wakeup-required</option>
-          <option value="force-start">Force-start (legacy slide.com)</option>
-        </select>
-      </div>
-    </details>
+    <!-- Epic E3 Story E3.4 (FR-20) — the SLIDE file-transfer sub-block (formerly the
+         nested <details id="settings-slide"> + its preceding <hr class="settings-divider">)
+         RELOCATED wholesale into #slide-config-modal, opened from Settings ▸ SLIDE File
+         Transfer…. All five rows moved (nothing stays behind), so the now-empty sub-block
+         + divider are removed (Q5). The parent <details id="settings"> stays a thin vestige
+         (local echo, CR/LF radios) until it retires with #top-bar in E7. -->
   </details>
 
   <!-- Debug harness (D-15) — retained Phase 2 SC-4 demonstration path. -->
@@ -1872,6 +1840,99 @@
            nothing to apply). Esc closes the same way. -->
       <form method="dialog">
         <button id="reserved-ctrl-close" value="close">Close</button>
+      </form>
+    </footer>
+  </dialog>
+
+  <!-- Epic E3 Story E3.4 (FR-20, AD-8/AD-9) — SLIDE File Transfer modal. The SLIDE
+       transfer controls relocated VERBATIM (same ids / copy / option-sets) from the
+       legacy nested <details id="settings-slide"> pane into an openModal-driven
+       <dialog>, re-styled onto neutral --chrome-* tokens with the clean aligned-row
+       look (matches #serial-config-modal). Opened from Settings ▸ SLIDE File Transfer…
+       (main.js openSlideConfig, injected into wireMenuBar). Edits PREFERENCES only —
+       the SLIDE state machine (slide.js) / chip lifecycle (slide-chip.js) / recv module
+       (slide-recv.js) are untouched (AD-5); every control's boot-hydration + change
+       handler in main.js and wireSlideRecv's injected refs resolve unchanged after the
+       move (ids preserved). Non-destructive: Close/Esc only, NO Reset button. Reuses the
+       shared .chrome-modal chrome; NO box-shadow (::backdrop scrim is the sole elevation
+       — UX-DR5). The dynamic folder-help + the confirm-transfers help move into upward-
+       opening ⓘ .field-tip tooltips (Q4 default); the "\r appended automatically" static
+       hint AND the SLIDE-38 validation hint stay inline (the latter is JS live-toggled). -->
+  <dialog id="slide-config-modal" class="chrome-modal" aria-labelledby="slide-config-modal-title">
+    <header>
+      <h2 id="slide-config-modal-title">SLIDE File Transfer</h2>
+    </header>
+    <div class="modal-body">
+      <!-- Row 1 — Save received files to a folder (Phase 10 carry-forward). Child ids
+           preserved so wireSlideRecv's injected refs (rowEl/toggleEl/folderButtonEl/
+           statusEl/helpEl) resolve unchanged. The folder-help is DYNAMIC (wireSlideRecv
+           rewrites #slide-recv-folder-help.textContent between hintToggleOff/On) — it
+           lives in the ⓘ .field-tip; the always-visible #slide-recv-folder-status line
+           carries the live state and doubles as the modal's aria-live region (AC-7). -->
+      <div id="slide-recv-folder-row">
+        <div class="field check">
+          <input type="checkbox" id="slide-recv-to-folder-checkbox">
+          <label for="slide-recv-to-folder-checkbox"
+                 title="When enabled, files received via SLIDE land in a folder you pick. Otherwise they download to your browser's Downloads folder.">Save received files to a folder</label>
+          <span class="field-info" tabindex="0" role="note" aria-label="Where received files are saved">
+            <span aria-hidden="true">ⓘ</span>
+            <span class="field-tip" id="slide-recv-folder-help">Received files land in your Downloads folder. Toggle this to pick a fixed destination.</span>
+          </span>
+        </div>
+        <div class="field-action">
+          <button id="slide-recv-folder-button" type="button"
+                  title="Toggle the checkbox first">Choose folder…</button>
+          <span id="slide-recv-folder-status" class="hint" aria-live="polite">No folder selected</span>
+        </div>
+      </div>
+
+      <!-- Row 2 — Auto-send command (D-06). The static "\r appended automatically" hint
+           and the Phase 12 SLIDE-38 validation hint stay INLINE (the latter is unhidden
+           by slide.js readAutoSendCommandBytes / the main.js change handler — NOT a
+           tooltip). data-invalid / aria-invalid machinery preserved (load-bearing). -->
+      <div class="field" id="slide-auto-send-row">
+        <label for="slide-auto-send-input">Auto-send command:</label>
+        <div class="field-control">
+          <input type="text" id="slide-auto-send-input" value="B:SLIDE R"
+                 autocomplete="off" spellcheck="false">
+          <div class="hint">\r appended automatically</div>
+          <div class="hint validation-hint" id="slide-auto-send-validation-hint" hidden>Auto-send command unsafe — disabled.</div>
+        </div>
+      </div>
+
+      <!-- Row 3 — Show transfer summary chip (D-08 default ON). -->
+      <div class="field check" id="slide-show-summary-row">
+        <input type="checkbox" id="slide-show-summary" checked>
+        <label for="slide-show-summary">Show transfer summary chip</label>
+      </div>
+
+      <!-- Row 4 — Confirm file transfers (default ON). Verbose help → ⓘ .field-tip. -->
+      <div class="field check" id="slide-confirm-transfers-row">
+        <input type="checkbox" id="slide-confirm-transfers-checkbox" checked>
+        <label for="slide-confirm-transfers-checkbox">Confirm file transfers</label>
+        <span class="field-info" tabindex="0" role="note" aria-label="About confirming file transfers">
+          <span aria-hidden="true">ⓘ</span>
+          <span class="field-tip">When off, drops and picker selections begin transferring immediately. Filename collisions are auto-renamed.</span>
+        </span>
+      </div>
+
+      <!-- Row 5 — Compatibility mode (D-07). Verbatim <option value>s. -->
+      <div class="field" id="slide-compat-row">
+        <label for="slide-compat-select">Compatibility mode:</label>
+        <select id="slide-compat-select">
+          <option value="auto">Auto</option>
+          <option value="wakeup-required">Wakeup-required</option>
+          <option value="force-start">Force-start (legacy slide.com)</option>
+        </select>
+      </div>
+    </div>
+    <footer>
+      <!-- Close via native <form method="dialog"> submit → returnValue 'close'.
+           openModal resolves it; openSlideConfig ignores the value (prefs persist
+           immediately via each control's change handler). Esc closes the same way.
+           NO Reset button (Q2 default — SLIDE has no preset-reset analog). -->
+      <form method="dialog">
+        <button id="slide-config-close" value="close">Close</button>
       </form>
     </footer>
   </dialog>

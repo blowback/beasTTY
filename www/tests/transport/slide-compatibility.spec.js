@@ -31,8 +31,10 @@ async function setup(page) {
     await page.locator('#terminal-wrapper').focus();
     await page.waitForFunction(() => document.getElementById('terminal').width > 0);
     await page.locator('#connection').evaluate((el) => { el.open = true; });
-    await page.locator('#settings').evaluate((el) => { el.open = true; });
-    await page.locator('#settings-slide').evaluate((el) => { el.open = true; });
+    // E3.4 — these tests drive SLIDE via window.__slide / prefs programmatically and
+    // never touch the SLIDE settings controls, so the old <details id="settings-slide">
+    // pane expand is dropped (the pane no longer exists; the controls live in
+    // #slide-config-modal). Opening that modal here would make #connect-button inert.
 }
 
 async function commonReset(page) {

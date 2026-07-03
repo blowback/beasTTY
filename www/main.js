@@ -249,6 +249,26 @@ function openReservedCtrl() {
         restoreTo: terminalWrapper,
     });
 }
+// Epic E3 Story E3.4 (FR-20, AD-8, AD-3) — SLIDE File Transfer modal opener, injected
+// into wireMenuBar (menu-bar.js must not import modal.js/slide*.js). The controls inside
+// #slide-config-modal are the SAME id-keyed elements the boot-time SLIDE settings wiring
+// (auto-send / show-summary / confirm-transfers / compat) and wireSlideRecv already wire;
+// this opener only surfaces the <dialog>. A non-destructive prefs modal: every change
+// persists immediately (existing change→savePrefs listeners) and gates the UNCHANGED SLIDE
+// chip lifecycle, so there is no affirmative "apply" — Close/Esc resolve 'close'/'' and the
+// caller ignores the returnValue. initialFocus = the Save-to-folder checkbox (first form
+// control — compliant with the modal.js returnValue policy for non-destructive modals);
+// restoreTo = terminalWrapper (focus round-trips on close, NFR-1/AD-10). Zero-arg opener
+// returning the openModal promise — mirrors openSerialConfig (E2.3) / openReservedCtrl (E3.3).
+const slideConfigModalEl = document.getElementById('slide-config-modal');
+function openSlideConfig() {
+    if (!slideConfigModalEl) return Promise.resolve('');   // no markup — harness; don't throw
+    const recvToggle = document.getElementById('slide-recv-to-folder-checkbox');
+    return openModal(slideConfigModalEl, {
+        initialFocus: recvToggle,
+        restoreTo: terminalWrapper,
+    });
+}
 // Phase 4 Plan 03 — Settings pane + Debug TX strip refs.
 const localEchoCheckbox = document.getElementById('local-echo');
 const crlfRadios        = document.querySelectorAll('input[name="crlf"]');
@@ -420,6 +440,10 @@ const menuBar = wireMenuBar({
     // prefs.resetPrefs nor modal.js — AD-3).
     resetPrefs,
     openReservedCtrl,
+    // Epic E3 Story E3.4 (FR-20, AD-3/AD-8) — Settings ▸ SLIDE File Transfer… opens the
+    // #slide-config-modal via openModal. Injected like openSerialConfig / openReservedCtrl
+    // (menu-bar imports neither modal.js nor slide*.js — AD-3).
+    openSlideConfig,
 });
 window.__menuBar = menuBar;   // Playwright hook (mirrors window.__scrollState / window.__modal)
 
@@ -886,8 +910,12 @@ if (slideCompatSelect) {
     }
     slideCompatSelect.addEventListener('change', (e) => {
         savePrefs({ slideCompatibilityMode: e.target.value });
-        // Phase 4 D-16 — restore canvas focus after dropdown closes.
-        if (terminalWrapper) terminalWrapper.focus();
+        // E3.4 (Q3) — the compat select now lives inside the focus-trapped
+        // #slide-config-modal. The Phase 4 D-16 terminal-restore-on-change was
+        // dropped here: restoring focus to #terminal-wrapper mid-modal fights the
+        // native <dialog> focus trap (E2.3 removed an analogous in-modal restore for
+        // the same reason). Focus returns to the terminal only on close, via the
+        // openModal restoreTo. The change→savePrefs write is unchanged.
     });
 }
 

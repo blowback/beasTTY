@@ -23,51 +23,61 @@
 import { test, expect } from '@playwright/test';
 import { SERIAL_MOCK } from './mock-serial.js';
 
+// E3.4 — the SLIDE controls moved from the removed <details id="settings-slide"> pane
+// into #slide-config-modal (Settings ▸ SLIDE File Transfer…). Open it via the menu.
+async function openSlideModal(page) {
+    await page.waitForFunction(() => window.__menuBar
+        && typeof window.__menuBar.open === 'function'
+        && typeof window.__modal === 'object' && window.__modal !== null);
+    await page.evaluate(() => window.__menuBar.open('settings'));
+    await page.click('#dropdown-settings .menu-item[data-action="slide-config"]');
+    await page.locator('#slide-config-modal').waitFor({ state: 'visible' });
+}
+
 async function setup(page) {
     await page.addInitScript(SERIAL_MOCK);
     await page.goto('/');
     await page.locator('#terminal-wrapper').focus();
     await page.waitForFunction(() => document.getElementById('terminal').width > 0);
-    await page.locator('#settings').evaluate((el) => { el.open = true; });
-    await page.locator('#settings-slide').evaluate((el) => { el.open = true; });
+    await openSlideModal(page);
 }
 
 test.describe('slide-prefs — Settings layout', () => {
 
-    test('renders nested <details class="reserved" id="settings-slide"> with summary "SLIDE file transfer"', async ({ page }) => {
+    test('renders #slide-config-modal with title "SLIDE File Transfer" (E3.4 relocation)', async ({ page }) => {
         await setup(page);
-        // D-05 — settings-slide details element exists with reserved class.
-        await expect(page.locator('#settings-slide')).toHaveCount(1);
-        await expect(page.locator('#settings-slide')).toHaveClass(/reserved/);
-        // Verify summary text verbatim per D-05.
-        await expect(page.locator('#settings-slide > summary')).toHaveText('SLIDE file transfer');
+        // E3.4 — the legacy <details id="settings-slide"> pane was retired; the SLIDE
+        // controls now live in an openModal-driven <dialog>. The old pane must be gone.
+        await expect(page.locator('#settings-slide')).toHaveCount(0);
+        await expect(page.locator('#slide-config-modal')).toHaveCount(1);
+        await expect(page.locator('#slide-config-modal')).toBeVisible();
+        await expect(page.locator('#slide-config-modal-title')).toHaveText('SLIDE File Transfer');
     });
 
     test('contains 4 rows in order: Save-to-folder, Auto-send, Show-summary, Compatibility', async ({ page }) => {
         await setup(page);
-        // Each of the 4 rows from D-05.
+        // Each of the 4 rows from D-05 (verbatim ids preserved through the move).
         await expect(page.locator('#slide-recv-folder-row')).toHaveCount(1);
         await expect(page.locator('#slide-auto-send-row')).toHaveCount(1);
         await expect(page.locator('#slide-show-summary-row')).toHaveCount(1);
         await expect(page.locator('#slide-compat-row')).toHaveCount(1);
-        // Rows must be inside #settings-slide (sub-block containment).
+        // Rows must be inside #slide-config-modal (single-surface containment — NFR-4).
         for (const id of [
             '#slide-recv-folder-row',
             '#slide-auto-send-row',
             '#slide-show-summary-row',
             '#slide-compat-row',
         ]) {
-            const inSubBlock = await page.locator(`#settings-slide ${id}`).count();
-            expect(inSubBlock).toBe(1);
+            const inModal = await page.locator(`#slide-config-modal ${id}`).count();
+            expect(inModal).toBe(1);
         }
-        // Visual order: D-05 mandates the 4 rows appear in the listed
-        // sequence. Assert by reading children offsets.
+        // Visual order: the 4 rows appear in the listed sequence.
         const orderIds = await page.evaluate(() => {
             const rows = Array.from(document.querySelectorAll(
-                '#settings-slide #slide-recv-folder-row, ' +
-                '#settings-slide #slide-auto-send-row, ' +
-                '#settings-slide #slide-show-summary-row, ' +
-                '#settings-slide #slide-compat-row'));
+                '#slide-config-modal #slide-recv-folder-row, ' +
+                '#slide-config-modal #slide-auto-send-row, ' +
+                '#slide-config-modal #slide-show-summary-row, ' +
+                '#slide-config-modal #slide-compat-row'));
             return rows.map((r) => r.id);
         });
         expect(orderIds).toEqual([

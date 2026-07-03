@@ -91,14 +91,20 @@ async function setup(page) {
     await page.locator('#terminal-wrapper').focus();
     await page.waitForFunction(() => document.getElementById('terminal').width > 0);
     await page.locator('#connection').evaluate((el) => { el.open = true; });
-    await page.locator('#settings').evaluate((el) => { el.open = true; });
-    // Plan 11-03 moved the recv-to-folder row inside a nested
-    // <details id="settings-slide"> block; expand it so the toggle + button
-    // are visible/clickable.
-    await page.locator('#settings-slide').evaluate((el) => { el.open = true; });
+    // E3.4 — the recv-to-folder row moved into #slide-config-modal. It is opened in
+    // pickFolderAndToggle (AFTER the beforeEach connect click, so #connect-button — which
+    // lives outside the dialog — is not made inert by an open modal).
 }
 
 async function pickFolderAndToggle(page) {
+    // E3.4 — open the SLIDE File Transfer modal (Settings ▸ SLIDE File Transfer…) so the
+    // recv-to-folder controls are in the top layer and clickable.
+    await page.waitForFunction(() => window.__menuBar
+        && typeof window.__menuBar.open === 'function'
+        && typeof window.__modal === 'object' && window.__modal !== null);
+    await page.evaluate(() => window.__menuBar.open('settings'));
+    await page.click('#dropdown-settings .menu-item[data-action="slide-config"]');
+    await page.locator('#slide-config-modal').waitFor({ state: 'visible' });
     // Toggle "Save received files to a folder" on, then pick the folder via
     // the stubbed showDirectoryPicker. After this, cachedHandle is populated
     // and downloadToFolder will route to the fake handle.

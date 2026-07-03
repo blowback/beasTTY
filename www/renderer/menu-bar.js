@@ -168,6 +168,10 @@ let crlfPanelEl = null;            // [data-submenu-panel="crlf"] — active rad
 // second click inert; one that omits openReservedCtrl leaves that row's click inert.
 let resetPrefsRef = null;
 let openReservedCtrlRef = null;
+// E3.4 (FR-20, AD-3) — Settings ▸ SLIDE File Transfer… opener for the injected
+// #slide-config-modal (main.js owns openModal — menu-bar must not import modal.js/
+// slide*.js). Optional: a harness that omits it leaves that row's click inert.
+let openSlideConfigRef = null;
 let resetPrefsItemEl = null;       // #menu-reset-prefs-item — cached at wire time like the sibling projected rows
 // The Reset row's inline 2-click confirm — labels single-sourced from prefs.js (the
 // reset SSOT — E3.3 review fix; chrome.js's legacy button shares them). Replicates the
@@ -310,6 +314,7 @@ export function wireMenuBar(opts = {}) {
     // via opts (menu-bar imports neither prefs.resetPrefs nor modal.js). Both optional.
     resetPrefsRef = opts.resetPrefs || null;
     openReservedCtrlRef = opts.openReservedCtrl || null;
+    openSlideConfigRef = opts.openSlideConfig || null;     // E3.4 (FR-20, AD-3)
     menuBarEl = document.getElementById('menu-bar');
     liveRegionEl = document.getElementById('menu-bar-live');
     openMenu = null;
@@ -922,6 +927,15 @@ function onItemClick(item, ev) {
     if (action === 'reserved-ctrl') {
         closeMenu();
         openReservedCtrlRef?.();
+        return;
+    }
+    // E3.4 (FR-20, AD-3/AD-8) — SLIDE File Transfer… closes the dropdown, then opens the
+    // injected #slide-config-modal (main.js openSlideConfig → openModal). Exact mirror of
+    // the E2.3 serial-config / E3.3 reserved-ctrl branches. Placed BEFORE the generic
+    // runViewAction fallthrough so it never routes through a View action.
+    if (action === 'slide-config') {
+        closeMenu();
+        openSlideConfigRef?.();
         return;
     }
     // E3.3 (FR-22, AD-4/AD-14) — Reset all preferences: a THIRD menu-item behaviour

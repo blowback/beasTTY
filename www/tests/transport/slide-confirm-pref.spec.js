@@ -82,9 +82,15 @@ test('slideConfirmTransfers OFF skips modal + fires enterSendMode silently', asy
 // ===== Test 3 — Settings checkbox round-trip =====
 
 test('#slide-confirm-transfers-checkbox round-trips through savePrefs', async ({ page }) => {
-    // Open the Settings → SLIDE disclosure so the checkbox is rendered + clickable.
-    await page.locator('#settings').evaluate((el) => { el.open = true; });
-    await page.locator('#settings-slide').evaluate((el) => { el.open = true; });
+    // E3.4 — the confirm-transfers checkbox moved into #slide-config-modal (Settings ▸
+    // SLIDE File Transfer…). Open it via the menu so the checkbox is rendered + clickable.
+    // (Runs after the beforeEach connect, so the top-bar #connect-button is already done.)
+    await page.waitForFunction(() => window.__menuBar
+        && typeof window.__menuBar.open === 'function'
+        && typeof window.__modal === 'object' && window.__modal !== null);
+    await page.evaluate(() => window.__menuBar.open('settings'));
+    await page.click('#dropdown-settings .menu-item[data-action="slide-config"]');
+    await page.locator('#slide-config-modal').waitFor({ state: 'visible' });
 
     const cb = page.locator('#slide-confirm-transfers-checkbox');
 
