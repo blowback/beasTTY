@@ -4,7 +4,7 @@ baseline_commit: 06ee9fa8e1c9d6f2c2703734df49ec53ffe5b712
 
 # Story E2.2: Auto-connect toggle & Choose MicroBeast
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 

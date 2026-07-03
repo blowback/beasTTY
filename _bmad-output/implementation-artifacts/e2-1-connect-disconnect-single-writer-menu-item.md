@@ -4,7 +4,7 @@ baseline_commit: 275d8f906b49dbd2827239602e2ef3081375f992
 
 # Story E2.1: Connect / Disconnect single-writer menu item
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 

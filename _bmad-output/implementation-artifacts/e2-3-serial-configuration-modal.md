@@ -4,7 +4,7 @@ baseline_commit: 63f5b245a8e09c261eb41ef1fb818476b224a234
 
 # Story E2.3: Serial Configuration modal
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
