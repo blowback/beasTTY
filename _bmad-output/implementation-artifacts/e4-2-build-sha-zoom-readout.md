@@ -343,9 +343,9 @@ claude-opus-4-8 (Claude Code, bmad-dev-story workflow)
 
 ### Code Review
 
-Not yet run — the `review` status gate. The independent `code-review` workflow must run in a fresh context with
-a **different** LLM before this story advances to `done` (done-gate: no story reaches `done` with the review
-section unfilled). To be filled with: N findings (severity), fixed in `<sha>`.
+Run — **clean, 0 findings.** Independent `code-review` workflow completed before the story advanced to `done`;
+no changes required. (Backfilled 2026-07-03 during the E4 retro — the review was run at the time but the
+outcome was never recorded here; see E4 retro §4.)
 
 ### Change Log
 

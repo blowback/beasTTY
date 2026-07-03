@@ -218,8 +218,9 @@ None — no HALT conditions hit. Full suite green on the first run after wiring.
 
 ### Code Review
 
-<!-- E2 retro action #2: record review outcome here — e.g. "N findings, fixed in <sha>". -->
-Pending — run `code-review` (recommended: a different LLM than the implementer).
+Run — **findings fixed in `6b61ba9`.** Independent `code-review` completed; the resulting fixes
+were folded into the story commit `6b61ba9` ("E3.1 … + code-review fixes"). (Backfilled 2026-07-03
+during the E4 retro — review was run and fixed at the time but the outcome was never recorded here.)
 
 ### Change Log
 

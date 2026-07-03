@@ -46,7 +46,7 @@
 #   E1 is the backbone and must land before the other menu/modal epics.
 
 generated: 2026-07-01
-last_updated: 2026-07-03  # E4.3 → done (review fixes applied)
+last_updated: 2026-07-03  # E4 retro → done; E4 action items appended; E4 Code Review sections backfilled
 # retrospective action items (surface open ones during sprint status)
 action_items:
   - epic: "e0"
@@ -112,9 +112,29 @@ action_items:
   - epic: "e3"
     action: "Frame E4 planning as build-new, not relocate: write acceptance criteria against the spec (subscription + imperative push, holds no independent truth), not against a v1.1 incumbent — the preservation premise that anchored E0-E3 ends here."
     owner: "Amelia"
-    status: open
+    status: done   # 2026-07-03 (E4 retro) — E4.1 Context section drops the incumbent anchor; acceptance spec-based (FR-26/AD-6), carried through E4.2/E4.3
   - epic: "e3"
     action: "Carry the E7 dual-chrome close-out forward: settings-slide sub-pane is gone and details#settings is a local-echo/crlf-only vestige; keep the retirement checklist current through E4/E5/E6 so E7 is a clean sweep. Continues E1 #5 / E2 #4."
+    owner: "Amelia"
+    status: open   # 2026-07-03 (E4 retro) — applied: #port-status + #build-sha relocated, connection vestige shrank; formal close-out still E7
+  - epic: "e4"
+    action: "Backfill the three E4 Code Review sections with the reviews that ALREADY ran (findings count + severity + fix sha, or 0 findings; E4.3 fixes are in 8d2795e). Reviews happened — only the record is missing. Owner has the outcomes."
+    owner: "Ant + Amelia"
+    status: done   # 2026-07-03 — E4.1 clean / E4.2 clean / E4.3 fixes in 8d2795e recorded in each story's Code Review section
+  - epic: "e4"
+    action: "Fold record-the-review-outcome into the mark-story-done step so it can't recur. Root cause: mark-done flips status but never fills the Code Review section, leaving the dev-story template stub in place — which retros then mis-read as review-skipped. Closes the E2 #2 / E3 #2 ghost at its actual root."
+    owner: "Amelia"
+    status: done   # 2026-07-04 — scripts/check-story-done-consistency.py asserts every done story's front-matter + Code Review section agree; run on-demand per the mark-story-done convention (manual, no git hook — Ant's call). Fixed drift found on first run: E1.2 front-matter, E3.1 stub.
+  - epic: "e4"
+    action: "Kill or extract the codified-idioms carry — last call (5 epics): before E5.1 re-derives the block a fifth time, extract it into a shared TESTING doc/test helper, OR formally close it as intentionally per-story and stop listing it. Closes E1 #4 / E2 #1 / E3 #1."
+    owner: "Amelia"
+    status: open
+  - epic: "e4"
+    action: "Carry the E7 dual-chrome close-out forward WITH the E5 exception noted: keep the retirement checklist current through E5/E6, but record that the debug panel is the one pane that does not retire — it relocates behind the Debug menu and stays. Continues E1 #5 / E2 #4 / E3 #4."
+    owner: "Amelia"
+    status: open
+  - epic: "e4"
+    action: "Watch the status-bar setter surface: the imperative-push API grew a writer per E4 story (setConnectionInfo/setBuild/setZoom/setErrorCount). Before adding more, confirm the fed-never-owned contract still holds and the module isn't becoming a setter grab-bag."
     owner: "Amelia"
     status: open
 project: beastty
@@ -158,7 +178,7 @@ development_status:
   e4-1-connection-device-baud-readout: done
   e4-2-build-sha-zoom-readout: done
   e4-3-recent-errors-affordance: done
-  epic-e4-retrospective: optional
+  epic-e4-retrospective: done
 
   # ── Epic E5 · Debug Menu & In-Page Debug Panel (depends on: E1) ──
   epic-e5: backlog

@@ -4,7 +4,7 @@ baseline_commit: 4cb52a3c5f2cfa0c31abc1fba7abc80d8246b056
 
 # Story E1.2: Keyboard navigation + Esc passthrough guard
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
