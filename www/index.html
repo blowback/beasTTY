@@ -1082,7 +1082,10 @@
     #serial-config-modal .field-tip {
       position: absolute;
       right: 0;
-      top: calc(100% + 6px);
+      bottom: calc(100% + 6px);            /* open UPWARD — the ⓘ rows sit near the modal
+                                              bottom, so a downward tip would overflow the
+                                              scrollable .modal-body and spawn a flickering
+                                              scrollbar; upward it sits over the rows above. */
       z-index: 1;
       width: 340px; max-width: 70vw;
       background: var(--field-bg);
@@ -1091,6 +1094,7 @@
       border-radius: 4px;
       padding: 8px 10px;
       font-size: 12px; line-height: 1.4;
+      pointer-events: none;                /* never intercept the rows it overlays */
       display: none;
     }
     #serial-config-modal .field-info:hover .field-tip,
