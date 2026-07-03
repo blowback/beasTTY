@@ -233,6 +233,22 @@ function openSerialConfig() {
         restoreTo: terminalWrapper,
     });
 }
+// Epic E3 Story E3.3 (FR-21, AD-8, AD-3) — Browser-reserved Ctrl combinations info
+// modal opener, injected into wireMenuBar (menu-bar.js must not import modal.js). A
+// non-destructive info modal (body copy + Close): initialFocus = the Close button
+// (modal.js returnValue policy #4 — no destructive default to guard, so Close is a
+// compliant safe default); restoreTo = terminalWrapper (focus round-trips on close,
+// NFR-1/AD-10). Close/Esc resolve 'close'/'' and the caller ignores the returnValue.
+// Zero-arg opener returning the openModal promise — mirrors openSerialConfig (E2.3).
+const reservedCtrlModalEl = document.getElementById('reserved-ctrl-modal');
+function openReservedCtrl() {
+    if (!reservedCtrlModalEl) return Promise.resolve('');   // no markup — harness; don't throw
+    const closeBtn = document.getElementById('reserved-ctrl-close');
+    return openModal(reservedCtrlModalEl, {
+        initialFocus: closeBtn,
+        restoreTo: terminalWrapper,
+    });
+}
 // Phase 4 Plan 03 — Settings pane + Debug TX strip refs.
 const localEchoCheckbox = document.getElementById('local-echo');
 const crlfRadios        = document.querySelectorAll('input[name="crlf"]');
@@ -397,6 +413,13 @@ const menuBar = wireMenuBar({
     // menu handler calls the setter AND savePrefs, exactly as the legacy handlers do.
     setLocalEcho,
     setCrlfMode,
+    // Epic E3 Story E3.3 (FR-21/FR-22, AD-3) — Settings ▸ Reset all preferences drives
+    // the SAME resetPrefs() the legacy #reset-prefs-button calls (already imported :31,
+    // already injected into wireChrome :321); Browser-reserved Ctrl combinations… opens
+    // the #reserved-ctrl-modal via openModal. Both injected (menu-bar imports neither
+    // prefs.resetPrefs nor modal.js — AD-3).
+    resetPrefs,
+    openReservedCtrl,
 });
 window.__menuBar = menuBar;   // Playwright hook (mirrors window.__scrollState / window.__modal)
 

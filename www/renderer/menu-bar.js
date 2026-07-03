@@ -44,7 +44,7 @@ import { retainFocus } from './focus.js';
 // E1.4 (AD-3 / AD-4) — savePrefs joins getPrefs as a direct prefs import: the
 // View ▸ Theme / Phosphor selects persist via savePrefs (the graph edge
 // `menu -->|direct import OK| prefs` is authoritative over the AD-3 prose).
-import { getPrefs, savePrefs } from '../state/prefs.js';
+import { getPrefs, savePrefs, RESET_PREFS_IDLE_LABEL, RESET_PREFS_CONFIRM_LABEL } from '../state/prefs.js';
 // E1.4 (AD-3 / AD-7) — the theme/phosphor menu actions relocate the SAME canvas
 // setters the retired #theme-toggle / #phosphor-group handlers called, verbatim.
 // canvas.js setters are the only other allowed direct import (AD-3 allowlist).
@@ -158,6 +158,22 @@ let setLocalEchoRef = null;
 let setCrlfModeRef = null;
 let localEchoItemEl = null;        // #menu-local-echo-item — checkable, derived from prefs.localEcho
 let crlfPanelEl = null;            // [data-submenu-panel="crlf"] — active radio derived from prefs.crlfMode
+
+// E3.3 (FR-21/FR-22, AD-3) — Settings-menu injected seams. resetPrefsRef is the
+// prefs.js reset action, injected (NOT imported) per AD-3's opts-injected set —
+// contrast the direct getPrefs/savePrefs import. openReservedCtrlRef opens the
+// injected #reserved-ctrl-modal (main.js owns openModal — menu-bar must not import
+// modal.js). Both optional: a harness that omits resetPrefs leaves the confirm's
+// second click inert; one that omits openReservedCtrl leaves that row's click inert.
+let resetPrefsRef = null;
+let openReservedCtrlRef = null;
+let resetPrefsItemEl = null;       // #menu-reset-prefs-item — cached at wire time like the sibling projected rows
+// The Reset row's inline 2-click confirm — labels single-sourced from prefs.js (the
+// reset SSOT — E3.3 review fix; chrome.js's legacy button shares them). Replicates the
+// chrome.js:274-284 machine against the menu row's .lbl. resetPrefsConfirmTimer is the
+// module-scope disarm timer: null = idle, non-null = armed. The two confirm machines
+// (menu + legacy button) are INDEPENDENT — neither mirrors the other's transient state.
+let resetPrefsConfirmTimer = null;
 
 // E2.1 (AD-15) — connection projection state. serial.js arrives via opts (never a
 // direct import — AD-3): toggleConnectionRef is the exported click action;
@@ -289,6 +305,10 @@ export function wireMenuBar(opts = {}) {
     // glyph working but leaves the live keyboard.js state change inert until reload.
     setLocalEchoRef = opts.setLocalEcho || null;
     setCrlfModeRef = opts.setCrlfMode || null;
+    // E3.3 (FR-21/FR-22, AD-3) — reset action + reserved-Ctrl modal opener, injected
+    // via opts (menu-bar imports neither prefs.resetPrefs nor modal.js). Both optional.
+    resetPrefsRef = opts.resetPrefs || null;
+    openReservedCtrlRef = opts.openReservedCtrl || null;
     menuBarEl = document.getElementById('menu-bar');
     liveRegionEl = document.getElementById('menu-bar-live');
     openMenu = null;
@@ -296,6 +316,11 @@ export function wireMenuBar(opts = {}) {
     openSubmenuPanel = null;
     submenuFocusIndex = -1;
     lastAnnounced = '';
+    // E3.3 review fix — the armed reset-confirm is transient state like the rows above,
+    // so clear it on (re-)wire too: an idempotent re-wire while armed would otherwise
+    // inherit a live timer + stale label, and the next single Reset click would commit
+    // resetPrefs() without the 2-click confirm. disarmResetConfirm() is a no-op when idle.
+    disarmResetConfirm();
 
     // E1.5 — the incumbent #clear-button / #clear-scrollback-button are retired;
     // Clear Screen / Clear Scrollback… are now View-menu items wired through the
@@ -393,6 +418,10 @@ export function wireMenuBar(opts = {}) {
     localEchoItemEl = document.getElementById('menu-local-echo-item');
     crlfPanelEl = document.querySelector('.submenu[data-submenu-panel="crlf"]');
     projectLocalEcho();
+
+    // E3.3 review fix — cache the Reset row like the sibling projected rows above, so
+    // disarmResetConfirm() reads a cached ref instead of re-doing getElementById.
+    resetPrefsItemEl = document.getElementById('menu-reset-prefs-item');
 
     render();
     return buildApi();
@@ -880,6 +909,37 @@ function onItemClick(item, ev) {
         downloadLogRef?.();
         return;
     }
+    // E3.3 (FR-21, AD-3/AD-8) — Browser-reserved Ctrl combinations… closes the
+    // dropdown, then opens the injected #reserved-ctrl-modal (main.js openReservedCtrl
+    // → openModal). Exact mirror of the E2.3 serial-config branch above.
+    if (action === 'reserved-ctrl') {
+        closeMenu();
+        openReservedCtrlRef?.();
+        return;
+    }
+    // E3.3 (FR-22, AD-4/AD-14) — Reset all preferences: a THIRD menu-item behaviour
+    // alongside "action closes" / "checkable+radio keep open". Replicates the D-35
+    // 2-click confirm (chrome.js:278-291) against THIS row's .lbl. First activation
+    // arms + shows the confirm prompt and KEEPS THE MENU OPEN (unlike a normal action
+    // row); the second activation within the 3s window commits the injected
+    // resetPrefs() and closes (action semantics now apply). Placed BEFORE the generic
+    // runViewAction fallthrough so it never leaks into runViewAction (which has no
+    // reset-prefs case and would closeMenu() — killing the confirm). Disarm on every
+    // Settings-dropdown-hide path is wired via disarmResetConfirm() (closeMenu /
+    // openMenuNamed / toggleMenu).
+    if (action === 'reset-prefs') {
+        if (resetPrefsConfirmTimer === null) {
+            const lbl = (resetPrefsItemEl || item).querySelector('.lbl');
+            if (lbl) lbl.textContent = RESET_PREFS_CONFIRM_LABEL;
+            resetPrefsConfirmTimer = setTimeout(disarmResetConfirm, 3000);
+            // NO closeMenu() — the confirm prompt must stay visible.
+        } else {
+            disarmResetConfirm();            // clear the timer + revert the .lbl
+            resetPrefsRef?.();               // AD-3 — reached via opts, not imported
+            closeMenu();                     // destructive action committed → close
+        }
+        return;
+    }
     // E1.5 — an action row carrying data-action drives a View action (zoom / clear);
     // a bare action row just closes the menu.
     if (action) { runViewAction(action, ev); return; }
@@ -944,6 +1004,7 @@ function syncCheckGlyph(item) {
 // establishes focus explicitly. This keeps [data-focused] a pure projection of
 // focusedIndex and avoids a stale index bleeding across menus.
 function toggleMenu(key) {
+    disarmResetConfirm();                 // E3.3 (AC-3) — clicking any title (switch/close) disarms the Reset confirm
     closeSubmenu();                       // E1.4 — a top-level change collapses any open submenu
     openMenu = (openMenu === key) ? null : key;
     focusedIndex = -1;
@@ -959,6 +1020,7 @@ function toggleMenu(key) {
 // [data-focused] — no second pass.
 function openMenuNamed(key, focusFirstRow = false) {
     if (!MENUS.includes(key)) return;
+    disarmResetConfirm();                 // E3.3 (AC-3) — keyboard ←/→ menu switch bypasses closeMenu; disarm here
     closeSubmenu();                       // E1.4 — collapse any submenu from the previous menu
     openMenu = key;
     projectMenuOnOpen();                  // re-derive prefs-driven rows at open (View: theme/phosphor; Connection: auto-connect + adapter count)
@@ -1081,7 +1143,24 @@ function setChooseMicroBeastPresent(present) {
     reanchorFocus(focused);
 }
 
+// E3.3 (FR-22, AC-3) — disarm the Reset row's 2-click confirm. Idempotent + no-throw
+// (safe to call when idle): clears the pending disarm timer and reverts the row's .lbl
+// to the idle label. Called from EVERY path that hides the Settings dropdown mid-confirm
+// — closeMenu() (Esc / click-away / post-action close), openMenuNamed() (keyboard ←/→
+// menu switch, which sets openMenu directly and bypasses closeMenu), and toggleMenu()
+// (clicking another menu title, which likewise bypasses closeMenu) — so re-opening
+// Settings never shows a stale "Click again to confirm (3 s)" prompt and no leaked
+// setTimeout re-labels a closed row. Also called from the commit branch + the timeout.
+function disarmResetConfirm() {
+    if (resetPrefsConfirmTimer === null) return;   // idle — nothing to disarm
+    clearTimeout(resetPrefsConfirmTimer);
+    resetPrefsConfirmTimer = null;
+    const lbl = resetPrefsItemEl && resetPrefsItemEl.querySelector('.lbl');
+    if (lbl) lbl.textContent = RESET_PREFS_IDLE_LABEL;
+}
+
 function closeMenu() {
+    disarmResetConfirm();                 // E3.3 (AC-3) — Esc / click-away / post-action
     if (openMenu === null) return;
     closeSubmenu();                       // E1.4 — collapse any open submenu with the menu
     openMenu = null;
@@ -1305,6 +1384,7 @@ export function dispose() {
     // Close any open dropdown FIRST so a disposed bar is left visually shut
     // (render() clears [hidden]/data-open/data-active-menu + [data-focused]).
     closeSubmenu();                       // E1.4 — collapse any open submenu too
+    disarmResetConfirm();                 // E3.3 review fix — kill any live reset-confirm timer so a disposed bar is truly inert
     openMenu = null;
     focusedIndex = -1;
     render();
@@ -1342,6 +1422,7 @@ export function __getStateForTests() {
 
 export function __resetForTests() {
     closeSubmenu();                       // E1.4 — collapse any open submenu
+    disarmResetConfirm();                 // E3.3 review fix — clear armed reset-confirm so it never leaks across tests
     openMenu = null;
     focusedIndex = -1;
     lastAnnounced = '';

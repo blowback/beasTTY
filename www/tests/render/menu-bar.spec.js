@@ -155,8 +155,12 @@ test.describe('E1.1 AC-2 — dropdown open / move / click-away', () => {
     expect(await page.evaluate(() => window.__prefs.getPrefs().localEcho)).toBe(true);
     expect(await page.evaluate(() => window.__keyboardState.getLocalEcho())).toBe(true);
 
-    // An action item (Reset all preferences) closes the menu.
-    await page.locator('#dropdown-settings .menu-item[data-variant="action"]').click();
+    // An action item closes the menu. E3.3 gave Settings two action rows: Reset all
+    // preferences is now a 2-click confirm that STAYS open on the first activation
+    // (its own dedicated behaviour — see menu-bar-settings-reset.spec.js), so the plain
+    // action-closes contract is asserted here against Browser-reserved Ctrl combinations…
+    // (closeMenu() then opens its modal).
+    await page.locator('#dropdown-settings .menu-item[data-action="reserved-ctrl"]').click();
     await expect(page.locator('#dropdown-settings')).toBeHidden();
   });
 

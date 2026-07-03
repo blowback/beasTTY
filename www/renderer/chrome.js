@@ -22,6 +22,9 @@ import {
 // branch (mousedown-preventDefault for buttons, change-restore for <select>)
 // so callers stop hand-writing either one.
 import { retainFocus } from './focus.js';
+// E3.3 review fix — the reset 2-click confirm labels are single-sourced in prefs.js
+// (the reset SSOT) so this legacy button and the Settings menu row share one copy.
+import { RESET_PREFS_IDLE_LABEL, RESET_PREFS_CONFIRM_LABEL } from '../state/prefs.js';
 
 // Phase 11 Plan 11-04 D-13 / SLIDE-31 — module-scope refs for the
 // visibilitychange + pagehide CTRL_CAN best-effort branches. Set inside
@@ -271,8 +274,8 @@ export function wireChrome(opts) {
     // subscribers fire (applyPrefs in main.js re-applies defaults to chrome /
     // canvas state in-place — NO page reload per D-35).
     const resetPrefsButton = document.getElementById('reset-prefs-button');
-    const RESET_PREFS_IDLE_LABEL = 'Reset all preferences';
-    const RESET_PREFS_CONFIRM_LABEL = 'Click again to confirm (3 s)';
+    // Labels single-sourced from prefs.js (the reset SSOT) so this legacy button and
+    // the Settings ▸ Reset menu row never drift on the confirm copy (E3.3 review fix).
     let resetPrefsConfirmTimer = null;
     if (resetPrefsButton) {
         resetPrefsButton.addEventListener('click', () => {

@@ -922,24 +922,25 @@
       margin-right: 4px;
     }
 
-    /* ==== Epic E2 Story E2.3 (FR-15) — Serial Configuration modal ==== */
-    /* Neutral --chrome-* tokens (AD-9), NOT the legacy #connection pane chrome.
-       Mirrors the #send-modal conventions (header/body/footer, ::backdrop, the
-       :not([open]) display:none guard) but with rounded/lg (8px) corners, NO
-       box-shadow (the native ::backdrop scrim is the only elevation — UX-DR5), and
-       a scrollable .modal-body so a long form + error log never overflow the dialog.
-       Author-#id specificity beats the UA `dialog:not([open]) { display:none }` rule,
-       so — as with #send-modal — restore the hidden state explicitly. */
-    #serial-config-modal:not([open]) {
+    /* ==== Neutral --chrome-* modal chrome — .chrome-modal (E3.3 review fix) ==== */
+    /* Shared by #serial-config-modal (E2.3) + #reserved-ctrl-modal (E3.3); was
+       duplicated per-#id. Neutral --chrome-* tokens (AD-9), NOT the legacy #connection
+       pane chrome. Mirrors the #send-modal conventions (header/body/footer, ::backdrop,
+       the :not([open]) display:none guard) but with rounded/lg (8px) corners and NO
+       box-shadow (the native ::backdrop scrim is the only elevation — UX-DR5), and a
+       scrollable .modal-body so long content never overflows the dialog. Author-class
+       specificity beats the UA `dialog:not([open]) { display:none }` rule, so — as with
+       #send-modal — restore the hidden state explicitly. Per-modal differences (max-width;
+       serial-config's form controls) stay under the #id blocks below. */
+    .chrome-modal:not([open]) {
       display: none;
     }
-    #serial-config-modal[open] {
+    .chrome-modal[open] {
       background: var(--chrome-bg);
       color: var(--chrome-fg);
       border: 1px solid var(--chrome-border);
       border-radius: 8px;                  /* rounded/lg — DESIGN.md dialog corner */
       padding: 16px 24px;
-      max-width: 90ch;                     /* DESIGN.md max-width */
       width: calc(100% - 32px);
       max-height: 80vh;
       display: flex;
@@ -949,25 +950,71 @@
       line-height: 1.4;
       /* No box-shadow — the ::backdrop scrim is the sole elevation (UX-DR5). */
     }
-    #serial-config-modal::backdrop {
+    .chrome-modal::backdrop {
       background: rgba(0, 0, 0, 0.65);
     }
-    #serial-config-modal header {
+    .chrome-modal header {
       margin: 0 0 16px 0;
       padding-bottom: 8px;
       border-bottom: 1px solid var(--chrome-border);
     }
-    #serial-config-modal h2 {
+    .chrome-modal h2 {
       margin: 0;
       font-size: 14px;
       font-weight: 500;                    /* DESIGN.md type role — labels/headings 500 */
     }
-    /* Scrollable body — the form + hints + error log flex-grow and scroll rather
-       than overflowing the dialog when the viewport is short. */
-    #serial-config-modal .modal-body {
+    /* Scrollable body — content flex-grows and scrolls rather than overflowing the
+       dialog when the viewport is short. */
+    .chrome-modal .modal-body {
       overflow-y: auto;
       flex: 1 1 auto;
       min-height: 0;
+    }
+    .chrome-modal .hint {
+      color: var(--chrome-muted);
+      font-size: 12px;
+      margin: 4px 0;
+    }
+    .chrome-modal footer {
+      margin: 16px 0 0 0;
+      padding-top: 8px;
+      border-top: 1px solid var(--chrome-border);
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+    /* Footer buttons are secondary/bordered (DESIGN.md:194), rounded/md (6px). */
+    .chrome-modal footer button {
+      font-family: inherit;
+      font-size: 14px;
+      padding: 4px 8px;
+      background: transparent;
+      color: var(--chrome-fg);
+      border: 1px solid var(--chrome-border);
+      border-radius: 6px;                  /* rounded/md */
+      cursor: pointer;
+    }
+    .chrome-modal footer button:hover,
+    .chrome-modal footer button:focus-visible {
+      border-color: var(--chrome-accent);
+      outline: none;
+    }
+    /* Attribute-driven default-focus border (same rationale as #send-modal footer —
+       Chromium suppresses :focus-visible after a programmatic .focus() following a
+       pointer path; openModal sets [data-focused="true"] before .focus()). */
+    .chrome-modal [data-focused="true"] {
+      border-color: var(--chrome-accent);
+      outline: none;
+    }
+    .chrome-modal footer form {
+      margin: 0;
+    }
+
+    /* ==== Epic E2 Story E2.3 (FR-15) — #serial-config-modal specifics ==== */
+    /* Wider than a body-copy modal (form + error log), plus the form-control styling
+       the shared .chrome-modal rules don't carry. */
+    #serial-config-modal[open] {
+      max-width: 90ch;                     /* DESIGN.md max-width */
     }
     #serial-config-modal fieldset {
       margin: 0 0 8px 0;
@@ -1006,54 +1053,20 @@
       margin: 8px 0 0 0;
       cursor: pointer;
     }
-    #serial-config-modal .hint {
-      color: var(--chrome-muted);
-      font-size: 12px;
-      margin: 4px 0;
-    }
-    /* The reconnect-required hint is amber ("action required", NOT muted help
-       text — see the #serial-reconnect-hint rule above). It carries class="hint",
-       so the relocation into #serial-config-modal let the generic `.hint` rule
-       (specificity 1,1,0) shadow the amber `#serial-reconnect-hint` color (1,0,0).
-       Restore amber with a colour-only override at 2,0,0 — no display prop, so the
-       [hidden] toggle still hides it. */
+    /* The reconnect-required hint is amber ("action required", NOT muted help text).
+       It carries class="hint", so the shared `.chrome-modal .hint` rule (0,2,0) would
+       shadow the amber `#serial-reconnect-hint` colour (1,0,0). Restore amber with a
+       colour-only override at (2,0,0) — no display prop, so the [hidden] toggle still
+       hides it. */
     #serial-config-modal #serial-reconnect-hint {
       color: #e0b030;
     }
-    #serial-config-modal footer {
-      margin: 16px 0 0 0;
-      padding-top: 8px;
-      border-top: 1px solid var(--chrome-border);
-      display: flex;
-      justify-content: flex-end;
-      gap: 8px;
-    }
-    /* Both footer buttons are secondary/bordered (Reset per DESIGN.md:194; Close is a
-       plain dismiss — no primary Connect in this modal). rounded/md (6px). */
-    #serial-config-modal footer button {
-      font-family: inherit;
-      font-size: 14px;
-      padding: 4px 8px;
-      background: transparent;
-      color: var(--chrome-fg);
-      border: 1px solid var(--chrome-border);
-      border-radius: 6px;                  /* rounded/md */
-      cursor: pointer;
-    }
-    #serial-config-modal footer button:hover,
-    #serial-config-modal footer button:focus-visible {
-      border-color: var(--chrome-accent);
-      outline: none;
-    }
-    /* Attribute-driven default-focus border (same rationale as #send-modal footer —
-       Chromium suppresses :focus-visible after a programmatic .focus() following a
-       pointer path; openModal sets [data-focused="true"] before .focus()). */
-    #serial-config-modal [data-focused="true"] {
-      border-color: var(--chrome-accent);
-      outline: none;
-    }
-    #serial-config-modal footer form {
-      margin: 0;
+
+    /* ==== Epic E3 Story E3.3 (FR-21) — #reserved-ctrl-modal specifics ==== */
+    /* An info modal is body copy + Close — the only difference from the shared chrome
+       is a narrower max-width. */
+    #reserved-ctrl-modal[open] {
+      max-width: 70ch;                     /* body-copy modal — narrower than the config form */
     }
   </style>
 </head>
@@ -1288,7 +1301,26 @@
           </div>
         </div>
         <div class="menu-sep"></div>
-        <button class="menu-item" type="button" role="menuitem" data-variant="action">
+        <!-- Epic E3 Story E3.3 (FR-21, AD-8/AD-3) — Browser-reserved Ctrl combinations…
+             opens the #reserved-ctrl-modal (verbatim copy relocated from the legacy
+             <details class="reserved"> pane). An action row: closeMenu() then the
+             injected openReservedCtrl opener (mirrors Connection ▸ Serial Configuration…).
+             Placed BEFORE Reset (EXPERIENCE.md order: info first, most-consequential
+             destructive action last). Trailing … = "opens further UI". -->
+        <button class="menu-item" type="button" role="menuitem"
+                data-variant="action" data-action="reserved-ctrl">
+          <span class="check"></span><span class="lbl">Browser-reserved Ctrl combinations…</span>
+        </button>
+        <div class="menu-sep"></div>
+        <!-- Epic E3 Story E3.3 (FR-22, AD-4/AD-14) — Reset all preferences. A THIRD
+             menu-item behaviour: an inline 2-click confirm run AGAINST THIS ROW's .lbl
+             (verbatim labels + 3s window from chrome.js:274-284), committing the injected
+             resetPrefs() on the second activation. Unlike a normal action row it stays
+             open on the first activation so the confirm prompt shows; it disarms on every
+             Settings-dropdown-hide path. data-action="reset-prefs" routes to its dedicated
+             onItemClick branch (NOT the runViewAction fallthrough). -->
+        <button id="menu-reset-prefs-item" class="menu-item" type="button" role="menuitem"
+                data-variant="action" data-action="reset-prefs">
           <span class="check"></span><span class="lbl">Reset all preferences</span>
         </button>
       </div>
@@ -1446,6 +1478,11 @@
     </fieldset>
     <p class="hint">CR (0x0D) matches every MicroBeast workload we've observed. Switch to CRLF if every line prints twice; LF if lines stack on top of each other.</p>
 
+    <!-- E7-RETIREMENT (E3.3, FR-21) — this <details class="reserved"> is the LEGACY
+         source of the reserved-Ctrl copy. E3.3 relocated it verbatim into
+         #reserved-ctrl-modal (opened from Settings ▸ Browser-reserved Ctrl combinations…).
+         Kept functional during the E7 #top-bar/<details> coexistence window; retires
+         wholesale with <details id="settings"> in E7 (E1 retro action #5 / E2 retro #4). -->
     <details class="reserved">
       <summary>Browser-reserved Ctrl combinations</summary>
       <p class="hint">Ctrl+W, Ctrl+N, Ctrl+T are claimed by Chromium (close tab, new window, reopen closed tab) and cannot be intercepted by a web page. Use Ctrl+F4, Ctrl+Shift+N, or a different keybinding on the MicroBeast side if you need those control codes. Everything from Ctrl+A through Ctrl+Z (except W, N, T) is forwarded normally, as are Ctrl+@, Ctrl+[, Ctrl+\, Ctrl+], Ctrl+^, Ctrl+_.</p>
@@ -1465,6 +1502,12 @@
       </label>
       <p class="hint">When enabled, Beastty silently opens the previously-granted MicroBeast port on each page load. Off by default. On open failure, falls back to the standard "click Connect" flow with the failure logged.</p>
     </div>
+    <!-- E7-RETIREMENT (E3.3, FR-22) — #reset-prefs-button + its chrome.js:267-293
+         2-click confirm are the LEGACY reset surface. E3.3 relocated the trigger to
+         Settings ▸ Reset all preferences (a SEPARATE, independent 2-click machine — no
+         armed-state lockstep; only the shared resetPrefs() outcome re-projects both
+         surfaces). Kept functional through the E7 #top-bar/<details> coexistence window;
+         retires with <details id="settings"> in E7 (E1 retro action #5 / E2 retro #4). -->
     <div class="settings-row">
       <button id="reset-prefs-button" type="button" title="Restore default theme, phosphor, font zoom, serial config, and toggles">Reset all preferences</button>
       <p class="hint">Clears your saved preferences. Port permission and connection state are not affected.</p>
@@ -1634,7 +1677,7 @@
        #serial-reconnect-hint carries aria-live="polite" so it doubles as the modal's
        status region (UX-DR11 a11y floor) — the "Config changed…" hint is exactly the
        dynamic status a screen-reader user needs announced. -->
-  <dialog id="serial-config-modal" aria-labelledby="serial-config-modal-title">
+  <dialog id="serial-config-modal" class="chrome-modal" aria-labelledby="serial-config-modal-title">
     <header>
       <h2 id="serial-config-modal-title">Serial Configuration</h2>
     </header>
@@ -1706,6 +1749,32 @@
            apply — config applies on the next Connect). Esc closes the same way. -->
       <form method="dialog">
         <button id="serial-config-close" value="close">Close</button>
+      </form>
+    </footer>
+  </dialog>
+
+  <!-- Epic E3 Story E3.3 (FR-21, AD-8/AD-9) — Browser-reserved Ctrl combinations
+       info modal. The verbatim paragraph relocated from the legacy
+       <details class="reserved"> pane into an openModal-driven <dialog>, re-styled
+       onto neutral --chrome-* tokens (no phosphor branch). A non-destructive info
+       modal: body copy + Close only, so initialFocus is the Close button (modal.js
+       returnValue policy #4 — no destructive default to guard). Opened from Settings ▸
+       Browser-reserved Ctrl combinations… (main.js openReservedCtrl, injected into
+       wireMenuBar). Reuses the #serial-config-modal conventions (the :not([open])
+       display guard, ::backdrop scrim, rounded/lg, NO box-shadow — UX-DR5). -->
+  <dialog id="reserved-ctrl-modal" class="chrome-modal" aria-labelledby="reserved-ctrl-modal-title">
+    <header>
+      <h2 id="reserved-ctrl-modal-title">Browser-reserved Ctrl combinations</h2>
+    </header>
+    <div class="modal-body">
+      <p class="hint">Ctrl+W, Ctrl+N, Ctrl+T are claimed by Chromium (close tab, new window, reopen closed tab) and cannot be intercepted by a web page. Use Ctrl+F4, Ctrl+Shift+N, or a different keybinding on the MicroBeast side if you need those control codes. Everything from Ctrl+A through Ctrl+Z (except W, N, T) is forwarded normally, as are Ctrl+@, Ctrl+[, Ctrl+\, Ctrl+], Ctrl+^, Ctrl+_.</p>
+    </div>
+    <footer>
+      <!-- Close via native <form method="dialog"> submit → returnValue 'close'.
+           openModal resolves it; openReservedCtrl ignores the value (info modal —
+           nothing to apply). Esc closes the same way. -->
+      <form method="dialog">
+        <button id="reserved-ctrl-close" value="close">Close</button>
       </form>
     </footer>
   </dialog>
