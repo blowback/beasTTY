@@ -146,6 +146,7 @@ let downloadLogRef = null;
 let getSessionLogBytesRef = null;
 let sessionLogTooltipsRef = null;
 let downloadLogItemEl = null;      // #menu-download-log-item — disabled↔enabled per byte count
+let sendFileItemEl = null;         // #menu-send-file-item — disabled↔enabled mirroring #send-file-button's gate
 
 // E3.2 (FR-18/FR-19, AD-3) — Settings-menu injected seams. setLocalEchoRef /
 // setCrlfModeRef are keyboard.js's live setters, injected because menu-bar.js may
@@ -409,6 +410,12 @@ export function wireMenuBar(opts = {}) {
     // happens mid-session with bytes already accumulated.
     downloadLogItemEl = document.getElementById('menu-download-log-item');
     projectSessionLog();
+
+    // E3.1 follow-up — discover the Send File… row and take its initial gate paint.
+    // At boot no writer is ready, so the row starts disabled ("Connect first"), matching
+    // the legacy #send-file-button; re-derived on every File-menu open (projectMenuOnOpen).
+    sendFileItemEl = document.getElementById('menu-send-file-item');
+    projectSendFile();
 
     // E3.2 (AC-3) — discover the Local echo row + the Enter-key-sends radio panel
     // (same by-id / by-data convention), then take the Local echo initial paint from
@@ -1045,7 +1052,7 @@ function projectMenuOnOpen() {
     }
     // E3.1 (AC-5) — File: re-derive the Download Session Log row from the live RX
     // byte count each open (open-time projection).
-    if (openMenu === 'file') projectSessionLog();
+    if (openMenu === 'file') { projectSessionLog(); projectSendFile(); }
     // E3.2 (AC-3) — Settings: re-derive the Local echo glyph + the Enter-key-sends
     // active radio from prefs at USE-TIME (pane→menu: a legacy-control change is
     // reflected on the next Settings open). No setter is called (read-only).
@@ -1109,6 +1116,33 @@ function projectSessionLog() {
     // cursor while File is open. Gated on openMenu so an onStateChange fire while a
     // DIFFERENT menu is open never disturbs that menu's focus; no-op on the
     // mouse/click path (focused is null → focusedIndex -1).
+    if (openMenu === 'file') reanchorFocus(focused);
+}
+
+// E3.1 follow-up — project the Send File… row's disabled state to MIRROR the legacy
+// #send-file-button's gate (openSendPicker already short-circuits on the same gate, so
+// the click was inert while disabled — but the MENU row gave no feedback, unlike the
+// top-bar button's grey/tooltip and unlike the Download Session Log row). Reading the
+// button's live .disabled/.title by id is the same coexistence-mirror pattern as the
+// #auto-connect / #local-echo / #connect-button mirrors and retires with #send-file-button
+// in E7. Read-at-use, no-throw, idempotent; never re-drives file-source (projector-never-
+// writes-machine — the E1.4 double-apply lesson). Re-anchors focus exactly like
+// projectSessionLog since enabling/disabling changes focusableItems() membership.
+function projectSendFile() {
+    if (!sendFileItemEl) return;                     // row absent (harness) — no-op
+    const btn = document.getElementById('send-file-button');
+    const focused = (openMenu === 'file') ? currentFocusedItem() : null;
+    // Fail OPEN when the legacy button is absent (post-E7 / harness): leave the row
+    // enabled — openSendPicker still no-ops safely when it genuinely can't send.
+    if (btn && btn.disabled) {
+        sendFileItemEl.setAttribute('data-disabled', 'true');
+        sendFileItemEl.setAttribute('aria-disabled', 'true');
+        if (btn.title) sendFileItemEl.setAttribute('title', btn.title);
+    } else {
+        sendFileItemEl.removeAttribute('data-disabled');
+        sendFileItemEl.removeAttribute('aria-disabled');
+        sendFileItemEl.removeAttribute('title');
+    }
     if (openMenu === 'file') reanchorFocus(focused);
 }
 
@@ -1374,6 +1408,9 @@ function buildApi() {
         // and the reset-to-disabled. Also exposed so tests can drive the projection
         // directly after stubbing the byte count.
         projectSessionLog,
+        // E3.1 follow-up — exposed so main.js can re-project the Send File… row live as
+        // the send gate changes (connection / transfer state) and tests can drive it.
+        projectSendFile,
         dispose,
         __getStateForTests,
         __resetForTests,

@@ -1457,7 +1457,10 @@
          E3.1 (AC-8, E7 coexistence) — File ▸ Send File… now opens this SAME picker
          via file-source's openSendPicker; this button + #send-file-input RETIRE with
          #top-bar in E7 (E1 retro action #5 / E2 retro action #4). file-source.js
-         stays the sole owner of the picker gate; menu-bar mirrors nothing here. -->
+         stays the sole owner of the picker gate; the File ▸ Send File… menu row MIRRORS
+         this button's live .disabled/.title onto its own data-disabled state (menu-bar
+         projectSendFile, on File-menu open) so the row visibly reflects the gate — that
+         mirror retires with this button in E7, like the other coexistence mirrors. -->
     <button id="send-file-button" type="button"
             title="Send file(s) to MicroBeast via SLIDE">↑ Send file</button>
     <input id="send-file-input" type="file" multiple hidden>

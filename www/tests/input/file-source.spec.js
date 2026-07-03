@@ -189,6 +189,37 @@ test('File ▸ Send File… opens the picker → #send-modal (menu path) + retai
     await expect(page.locator('#send-modal-list li').first()).toContainText('menu.txt');
 });
 
+test('File ▸ Send File… row mirrors the send gate: disabled + reason when not connected, enabled after connect @fast', async ({ page }) => {
+    await page.waitForFunction(
+        () => window.__menuBar && typeof window.__menuBar.open === 'function',
+    );
+    const row = page.locator('#menu-send-file-item');
+
+    // Not connected → the picker gate is closed; the top-bar button disables (polled
+    // ~200ms) and the menu row MIRRORS it (greyed + reason) on File-menu open — the fix
+    // for "Send File… does nothing with no feedback".
+    await expect(page.locator('#send-file-button')).toBeDisabled({ timeout: 3000 });
+    await page.evaluate(() => window.__menuBar.open('file'));
+    await expect(row).toHaveAttribute('data-disabled', 'true');
+    await expect(row).toHaveAttribute('aria-disabled', 'true');
+    await expect(row).toHaveAttribute('title', 'Connect to a serial port first');
+
+    // Activating a disabled row is inert: no picker/#send-modal, and the menu stays open
+    // (onItemClick early-returns before closeMenu for a data-disabled row). force:true —
+    // Playwright refuses to click an aria-disabled element (codified menu-test idiom).
+    await page.click('#menu-send-file-item', { force: true });
+    await page.waitForTimeout(120);
+    expect(await page.evaluate(() => window.__menuBar.getOpenMenu())).toBe('file');
+    await expect(page.locator('#send-modal')).toBeHidden();
+    await page.evaluate(() => window.__menuBar.close());
+
+    // Connect → the gate opens; reopening File shows the row enabled (no data-disabled).
+    await page.locator('#connect-button').click();
+    await expect(page.locator('#send-file-button')).toBeEnabled({ timeout: 5000 });
+    await page.evaluate(() => window.__menuBar.open('file'));
+    await expect(row).not.toHaveAttribute('data-disabled', 'true');
+});
+
 // ===== Pure-function unit tests via page.evaluate =====
 
 test('validateCpmFilename pure function unit tests @fast', async ({ page }) => {

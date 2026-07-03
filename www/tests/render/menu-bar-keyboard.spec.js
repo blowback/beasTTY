@@ -224,14 +224,22 @@ test.describe('E1.2 AC-1 — Enter / → activation per variant', () => {
 
 test.describe('E1.2 AC-2 — disabled reason announced via aria-live', () => {
   test('live region text equals the disabled row title when nav lands beside it @fast', async ({ page }) => {
-    await ready(page);
-    // E2.2 — Connection's disabled "Choose MicroBeast…" placeholder is now a live
-    // row; use File ▸ Download Session Log (disabled, title "No bytes received
-    // yet") as the disabled-neighbour fixture instead.
+    // Fixture: File ▸ Send File… (ENABLED) adjacent to the disabled File ▸ Download
+    // Session Log (title "No bytes received yet"). Send File… now mirrors the send gate
+    // (E3.1 follow-up), so CONNECT first — otherwise the writer-not-ready gate disables
+    // it too and the File menu has no focusable row to land the announcement on.
+    await page.addInitScript(SERIAL_MOCK);
+    await page.goto('/');
+    await page.waitForFunction(
+      () => window.__menuBar && typeof window.__menuBar.__getStateForTests === 'function',
+    );
+    await page.locator('#terminal-wrapper').focus();
+    await page.locator('#connect-button').click();
+    await expect(page.locator('#send-file-button')).toBeEnabled({ timeout: 5000 });   // gate open → row enabled
+
     await page.evaluate(() => window.__menuBar.open('file'));
-    // Nav down to Send File… — adjacent to the disabled "Download Session Log"
-    // row below it.
-    await page.keyboard.press('ArrowDown');   // Send File… (adjacent to disabled below)
+    // Nav down to Send File… — adjacent to the disabled "Download Session Log" below it.
+    await page.keyboard.press('ArrowDown');
     const live = page.locator('#menu-bar-live');
     await expect(live).toHaveText('No bytes received yet');
   });

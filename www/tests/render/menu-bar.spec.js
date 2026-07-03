@@ -334,17 +334,24 @@ const SESSION_LOG_ENABLED_TIP = 'Download all bytes received this connection (.b
 const SESSION_LOG_DISABLED_TIP = 'No bytes received yet';
 
 test.describe('E3.1 — File menu Send File… + Download Session Log', () => {
-  test('Send File… closes the menu (action semantics) + retains terminal focus @fast', async ({ page }) => {
+  test('Send File… mirrors the send gate — disabled + inert pre-Connect, retains focus @fast', async ({ page }) => {
     await ready(page);
     await page.locator('#terminal-wrapper').focus();
-    // Pre-Connect the picker gate is closed (no writer), so activating the row is a
-    // clean action: it closes the menu and openSendPicker no-ops (no native picker),
-    // isolating the AC-1/AC-3 contract — retainFocus leaves focus on the wrapper.
+    // E3.1 follow-up — Send File… now mirrors #send-file-button's gate: pre-Connect the
+    // writer isn't ready, so the row is disabled + inert (like Download Session Log
+    // below it), not a menu-closing action. Its enabled action-semantics + picker-open
+    // are covered by the connected path in file-source.spec.js.
     await expect(page.locator('#send-file-button')).toBeDisabled();
     await page.evaluate(() => window.__menuBar.open('file'));
+    const row = page.locator('#dropdown-file .menu-item[data-action="send-file"]');
+    await expect(row).toHaveAttribute('data-disabled', 'true');
+    await expect(row).toHaveAttribute('aria-disabled', 'true');
+    await expect(row).toHaveAttribute('title', 'Connect to a serial port first');
+    // force:true bypasses the aria-disabled actionability guard, simulating the physical
+    // click a user can still land; the onItemClick data-disabled guard keeps it inert —
+    // the menu stays open, nothing throws, and retainFocus leaves focus on the wrapper.
+    await row.click({ force: true });
     await expect(page.locator('#dropdown-file')).toBeVisible();
-    await page.click('#dropdown-file .menu-item[data-action="send-file"]');
-    await expect(page.locator('#dropdown-file')).toBeHidden();
     expect(await page.evaluate(() => document.activeElement.id)).toBe('terminal-wrapper');
   });
 
