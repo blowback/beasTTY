@@ -1013,45 +1013,113 @@
     /* ==== Epic E2 Story E2.3 (FR-15) — #serial-config-modal specifics ==== */
     /* Wider than a body-copy modal (form + error log), plus the form-control styling
        the shared .chrome-modal rules don't carry. */
+    /* Clean aligned rows (v1.1 polish — matches the key-screen-chrome.html mock):
+       muted label on the LEFT, control on the RIGHT (DESIGN.md:165 "labels sit …
+       beside their controls"), one setting per row, no fieldset box. The modal body
+       is a flex column on the 12px grid. */
     #serial-config-modal[open] {
-      max-width: 90ch;                     /* DESIGN.md max-width */
+      max-width: 60ch;                     /* body of aligned rows — narrower than the old form */
     }
-    #serial-config-modal fieldset {
-      margin: 0 0 8px 0;
-      padding: 8px;
-      border: 1px solid var(--chrome-border);
-      border-radius: 4px;                  /* rounded/sm */
-      display: flex; flex-wrap: wrap; gap: 16px;
+    #serial-config-modal .modal-body {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
     }
-    #serial-config-modal legend {
+    #serial-config-modal .field {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;      /* label left, control right */
+      gap: 12px;
+    }
+    #serial-config-modal .field > label {
+      color: var(--chrome-muted);
       font-size: 13px;
-      padding: 0 4px;
     }
-    /* Direct-child labels are the select rows (column layout); the checkbox labels
-       below are targeted separately so their box + text sit inline. */
-    #serial-config-modal fieldset label {
-      display: inline-flex; flex-direction: column; gap: 4px;
-      font-size: 13px; font-weight: 500;
-      cursor: pointer;
-    }
-    #serial-config-modal select {
+    #serial-config-modal .field select {
+      min-width: 160px;
       font-family: inherit; font-size: 13px;
       background: var(--field-bg);         /* inputs sit on field-bg (DESIGN.md) */
       color: var(--chrome-fg);
       border: 1px solid var(--chrome-border);
-      border-radius: 4px;                  /* rounded/sm — NOT the legacy 2px 4px pad */
-      padding: 4px 6px;
+      border-radius: 4px;                  /* rounded/sm */
+      padding: 5px 8px;
     }
-    #serial-config-modal select:focus-visible {
+    #serial-config-modal .field select:focus-visible {
       border-color: var(--chrome-accent);
       outline: none;
     }
-    /* Checkbox rows (show-all / assert-RTS) — inline box + label text. */
-    #serial-config-modal > .modal-body > label {
-      display: block;
+    /* Checkbox rows pack left: [box] [label] [ⓘ]. The label is chrome-fg (an active
+       choice, not muted help text). */
+    #serial-config-modal .field.check {
+      justify-content: flex-start;
+      gap: 8px;
+    }
+    #serial-config-modal .field.check input {
+      accent-color: var(--chrome-accent);
+    }
+    #serial-config-modal .field.check > label {
+      color: var(--chrome-fg);
       font-size: 13px;
-      margin: 8px 0 0 0;
       cursor: pointer;
+    }
+    /* ⓘ info affordance — the FULL hardware explanation (EXPERIENCE.md:112 "don't dumb
+       down the hardware explanation") stays verbatim in the DOM inside .field-tip,
+       revealed on hover/focus so the modal body stays uncluttered. tabindex makes it
+       keyboard-reachable; the tip is not display:none-hidden from AT (it is in the note). */
+    #serial-config-modal .field-info {
+      position: relative;
+      display: inline-flex;
+      cursor: help;
+      color: var(--chrome-muted);
+      font-size: 13px;
+      margin-left: auto;                   /* push the ⓘ to the row's right edge */
+    }
+    #serial-config-modal .field-info:hover,
+    #serial-config-modal .field-info:focus-visible {
+      color: var(--chrome-accent);
+      outline: none;
+    }
+    #serial-config-modal .field-tip {
+      position: absolute;
+      right: 0;
+      top: calc(100% + 6px);
+      z-index: 1;
+      width: 340px; max-width: 70vw;
+      background: var(--field-bg);
+      color: var(--chrome-fg);
+      border: 1px solid var(--chrome-border);
+      border-radius: 4px;
+      padding: 8px 10px;
+      font-size: 12px; line-height: 1.4;
+      display: none;
+    }
+    #serial-config-modal .field-info:hover .field-tip,
+    #serial-config-modal .field-info:focus .field-tip,
+    #serial-config-modal .field-info:focus-within .field-tip {
+      display: block;
+    }
+    /* Recent-errors box — compact bordered panel (mock .errbox), replacing the stark
+       <pre> block. #error-log keeps its id (serial.js writes it) but drops pre chrome. */
+    #serial-config-modal .errbox {
+      background: var(--field-bg);
+      border: 1px solid var(--chrome-border);
+      border-radius: 4px;
+      padding: 8px 10px;
+      color: var(--chrome-muted);
+      font-size: 12px;
+    }
+    #serial-config-modal .errbox .lead {
+      color: var(--chrome-fg);
+      display: block;
+      margin-bottom: 4px;
+    }
+    #serial-config-modal #error-log {
+      margin: 0;
+      font-family: inherit;
+      font-size: 12px;
+      color: var(--chrome-muted);
+      white-space: pre-wrap;
+      word-break: break-word;
     }
     /* The reconnect-required hint is amber ("action required", NOT muted help text).
        It carries class="hint", so the shared `.chrome-modal .hint` rule (0,2,0) would
@@ -1671,8 +1739,12 @@
        (ids, <option> sets, verbatim copy) moved verbatim out of the legacy
        <details id="connection"> pane, so serial.js's injected serialConfigEls /
        errorLogEl refs (read by element id) keep resolving unchanged. Styled on the
-       neutral --chrome-* tokens (AD-9). Footer = Reset (secondary, in-place) + Close
-       (<form method="dialog"> → returnValue 'close', ignored by the caller). NO
+       neutral --chrome-* tokens (AD-9). v1.1 polish (2026-07-03) — re-laid-out to the
+       clean aligned-row look from mockups/key-screen-chrome.html: label-left/control-right
+       .field rows (no fieldset box), and the two verbose hardware hints moved into ⓘ
+       hover/focus tooltips (.field-tip) so the FULL text stays verbatim in the DOM
+       (EXPERIENCE.md:112) without cluttering the body. Footer = Reset (secondary, in-place)
+       + Close (<form method="dialog"> → returnValue 'close', ignored by the caller). NO
        in-modal Connect button (epic AC names only Reset + close; PRD Open Question 4).
        #serial-reconnect-hint carries aria-live="polite" so it doubles as the modal's
        status region (UX-DR11 a11y floor) — the "Config changed…" hint is exactly the
@@ -1682,62 +1754,80 @@
       <h2 id="serial-config-modal-title">Serial Configuration</h2>
     </header>
     <div class="modal-body">
-      <fieldset>
-        <legend>Serial configuration</legend>
-        <label for="serial-baud">Baud rate
-          <select id="serial-baud">
-            <option value="300">300</option>
-            <option value="1200">1200</option>
-            <option value="2400">2400</option>
-            <option value="4800">4800</option>
-            <option value="9600">9600</option>
-            <option value="19200" selected>19200</option>
-            <option value="38400">38400</option>
-            <option value="57600">57600</option>
-            <option value="115200">115200</option>
-          </select>
-        </label>
-        <label for="serial-databits">Data bits
-          <select id="serial-databits">
-            <option value="7">7</option>
-            <option value="8" selected>8</option>
-          </select>
-        </label>
-        <label for="serial-stopbits">Stop bits
-          <select id="serial-stopbits">
-            <option value="1" selected>1</option>
-            <option value="2">2</option>
-          </select>
-        </label>
-        <label for="serial-parity">Parity
-          <select id="serial-parity">
-            <option value="none" selected>None</option>
-            <option value="even">Even</option>
-            <option value="odd">Odd</option>
-          </select>
-        </label>
-        <label for="serial-flowctl">Flow control
-          <select id="serial-flowctl">
-            <option value="none" selected>None</option>
-            <option value="hardware">Hardware (RTS/CTS)</option>
-          </select>
-        </label>
-      </fieldset>
+      <!-- Aligned rows (v1.1 polish) — label left, control right; ids/option sets are
+           unchanged so serial.js's id-keyed refs keep resolving. -->
+      <div class="field">
+        <label for="serial-baud">Baud rate</label>
+        <select id="serial-baud">
+          <option value="300">300</option>
+          <option value="1200">1200</option>
+          <option value="2400">2400</option>
+          <option value="4800">4800</option>
+          <option value="9600">9600</option>
+          <option value="19200" selected>19200</option>
+          <option value="38400">38400</option>
+          <option value="57600">57600</option>
+          <option value="115200">115200</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="serial-databits">Data bits</label>
+        <select id="serial-databits">
+          <option value="7">7</option>
+          <option value="8" selected>8</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="serial-stopbits">Stop bits</label>
+        <select id="serial-stopbits">
+          <option value="1" selected>1</option>
+          <option value="2">2</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="serial-parity">Parity</label>
+        <select id="serial-parity">
+          <option value="none" selected>None</option>
+          <option value="even">Even</option>
+          <option value="odd">Odd</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="serial-flowctl">Flow control</label>
+        <select id="serial-flowctl">
+          <option value="none" selected>None</option>
+          <option value="hardware">Hardware (RTS/CTS)</option>
+        </select>
+      </div>
+
       <span id="serial-reconnect-hint" class="hint" aria-live="polite" hidden></span>
-      <label for="show-all-serial-devices">
-        <input type="checkbox" id="show-all-serial-devices">
-        Show all serial devices in picker
-      </label>
-      <p class="hint">Off by default — the picker only lists the Silicon Labs CP2102N (the chip on stock MicroBeast hardware). Turn this on if your MicroBeast uses a different USB-serial bridge (FTDI, CH340, CP2104) or you're connecting via a virtual COM port (USB-IP, Bluetooth-SPP, ser2net). Takes effect on the next Connect click.</p>
-      <label for="serial-assert-rts-on-connect-checkbox">
+
+      <!-- Toggles: [box] [label] … [ⓘ]. The FULL hardware explanation lives verbatim
+           in .field-tip (EXPERIENCE.md:112 — never dumbed down), revealed on hover/focus
+           so the modal body stays uncluttered. -->
+      <div class="field check">
         <input type="checkbox" id="serial-assert-rts-on-connect-checkbox" checked>
-        Assert RTS on connect
-      </label>
-      <p class="hint">On by default. The MicroBeast's Z80 UART uses host-side RTS as its CTS input for hardware auto-flow-control — without this, Z80→PC transmits (wakeup byte, ACKs, file data) are blocked at the Z80 UART. Turn this off if your hardware has RTS wired to a reset line instead. DTR is always de-asserted on connect (Pitfall #12 reset-pulse concern). Takes effect on the next Connect click.</p>
+        <label for="serial-assert-rts-on-connect-checkbox">Assert RTS on connect</label>
+        <span class="field-info" tabindex="0" role="note" aria-label="Why Beastty asserts RTS on connect">
+          <span aria-hidden="true">ⓘ</span>
+          <span class="field-tip">On by default. The MicroBeast's Z80 UART uses host-side RTS as its CTS input for hardware auto-flow-control — without this, Z80→PC transmits (wakeup byte, ACKs, file data) are blocked at the Z80 UART. Turn this off if your hardware has RTS wired to a reset line instead. DTR is always de-asserted on connect (Pitfall #12 reset-pulse concern). Takes effect on the next Connect click.</span>
+        </span>
+      </div>
+      <div class="field check">
+        <input type="checkbox" id="show-all-serial-devices">
+        <label for="show-all-serial-devices">Show all serial devices in picker</label>
+        <span class="field-info" tabindex="0" role="note" aria-label="About showing all serial devices">
+          <span aria-hidden="true">ⓘ</span>
+          <span class="field-tip">Off by default — the picker only lists the Silicon Labs CP2102N (the chip on stock MicroBeast hardware). Turn this on if your MicroBeast uses a different USB-serial bridge (FTDI, CH340, CP2104) or you're connecting via a virtual COM port (USB-IP, Bluetooth-SPP, ser2net). Takes effect on the next Connect click.</span>
+        </span>
+      </div>
+
       <p class="hint">MicroBeast default is 19200 8N1, no flow control. Single-tab ownership is enforced by Chromium — close any other Beastty tab that holds this port first.</p>
 
-      <p class="hint">Recent errors</p>
-      <pre id="error-log">(no recent errors)</pre>
+      <div class="errbox">
+        <span class="lead">Recent errors</span>
+        <pre id="error-log">(no recent errors)</pre>
+      </div>
     </div>
     <footer>
       <!-- Reset is type="button" (NOT a method="dialog" submit) so it snaps the

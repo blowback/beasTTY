@@ -210,3 +210,40 @@ test.describe('E2.3 AC-9 — legacy pane retired; exactly one serial-config surf
         expect(await page.locator('#connection fieldset').count()).toBe(0);
     });
 });
+
+test.describe('E2.3 v1.1 polish — clean aligned-row layout (key-screen-chrome mock)', () => {
+    test('settings render as aligned .field rows, not a fieldset form @fast', async ({ page }) => {
+        await ready(page);
+        await openModal(page);
+        const d = dialog(page);
+        // The old <fieldset><legend> column form is gone; each control sits on its own
+        // label-left/control-right .field row.
+        expect(await d.locator('fieldset').count()).toBe(0);
+        expect(await d.locator('.field:not(.check)').count()).toBe(5);   // 5 select rows
+        expect(await d.locator('.field.check').count()).toBe(2);         // 2 toggle rows
+        for (const id of ['serial-baud', 'serial-databits', 'serial-stopbits', 'serial-parity', 'serial-flowctl']) {
+            expect(await d.locator(`.field > select#${id}`).count()).toBe(1);
+        }
+        // Recent errors is the compact .errbox, and #error-log kept its id.
+        expect(await d.locator('.errbox #error-log').count()).toBe(1);
+    });
+
+    test('hardware hints live in ⓘ tooltips — hidden by default, verbatim + revealed on focus @fast', async ({ page }) => {
+        await ready(page);
+        await openModal(page);
+        const d = dialog(page);
+        const tips = d.locator('.field-tip');
+        expect(await tips.count()).toBe(2);
+        // Uncluttered body: the tips are collapsed by default...
+        await expect(tips.first()).toBeHidden();
+        // ...yet the FULL hardware text stays verbatim in the DOM (EXPERIENCE.md:112 —
+        // never dumbed down), so the AC-3/AC-4 verbatim-copy assertions above still hold.
+        await expect(d).toContainText(HINT_ASSERT_RTS);
+        await expect(d).toContainText(HINT_SHOW_ALL);
+        // Focusing the ⓘ affordance reveals its tip with the verbatim text.
+        const rtsInfo = d.locator('.field.check').first().locator('.field-info');
+        await rtsInfo.focus();
+        await expect(rtsInfo.locator('.field-tip')).toBeVisible();
+        await expect(rtsInfo.locator('.field-tip')).toHaveText(HINT_ASSERT_RTS);
+    });
+});
