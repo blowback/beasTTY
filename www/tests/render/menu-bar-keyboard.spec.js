@@ -198,6 +198,10 @@ test.describe('E1.2 AC-1 — Enter / → activation per variant', () => {
     await page.keyboard.press('Enter');
     await expect(localEcho).toHaveAttribute('data-checked', 'true');
     await expect(page.locator('#dropdown-settings')).toBeVisible();   // stays open
+    // E3.2 (AC-1) — keyboard activation persists prefs.localEcho AND applies it to the
+    // live keyboard.js echo path (setLocalEcho ran), same as a mouse click.
+    expect(await page.evaluate(() => window.__prefs.getPrefs().localEcho)).toBe(true);
+    expect(await page.evaluate(() => window.__keyboardState.getLocalEcho())).toBe(true);
   });
 
   test('Enter and → on a radio-submenu row keep the menu open (no-op hook, no throw) @fast', async ({ page }) => {

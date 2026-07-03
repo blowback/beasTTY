@@ -142,12 +142,18 @@ test.describe('E1.1 AC-2 — dropdown open / move / click-away', () => {
     await ready(page);
 
     // Settings ▸ Local echo is checkable — clicking keeps the menu open + toggles.
+    // E3.2 — the row is now pref-backed (data-pref="localEcho"): clicking must ALSO
+    // persist prefs.localEcho AND apply it to live keyboard.js state (persist ≠ apply).
     await page.click('#menu-settings');
     const localEcho = page.locator('#dropdown-settings .menu-item[data-variant="checkable"]');
     await expect(localEcho).toHaveAttribute('data-checked', 'false');
     await localEcho.click();
     await expect(localEcho).toHaveAttribute('data-checked', 'true');
     await expect(page.locator('#dropdown-settings')).toBeVisible();   // stays open
+    // E3.2 (AC-1) — persisted (savePrefs) AND applied live (setLocalEcho ran, not just
+    // the glyph flip). The two together are the "persist ≠ apply" correctness point.
+    expect(await page.evaluate(() => window.__prefs.getPrefs().localEcho)).toBe(true);
+    expect(await page.evaluate(() => window.__keyboardState.getLocalEcho())).toBe(true);
 
     // An action item (Reset all preferences) closes the menu.
     await page.locator('#dropdown-settings .menu-item[data-variant="action"]').click();

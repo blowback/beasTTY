@@ -147,6 +147,18 @@ let getSessionLogBytesRef = null;
 let sessionLogTooltipsRef = null;
 let downloadLogItemEl = null;      // #menu-download-log-item — disabled↔enabled per byte count
 
+// E3.2 (FR-18/FR-19, AD-3) — Settings-menu injected seams. setLocalEchoRef /
+// setCrlfModeRef are keyboard.js's live setters, injected because menu-bar.js may
+// NOT import keyboard.js (AD-3). The single correctness point (persist ≠ apply):
+// savePrefs does not fan out (AD-4), so the menu MUST call the setter too or the
+// glyph flips but the live echo/CR-LF path only changes on the next reload. Both
+// optional: a harness that omits them leaves the persist working but the live
+// apply inert. localEchoItemEl / crlfPanelEl are the two rows this module projects.
+let setLocalEchoRef = null;
+let setCrlfModeRef = null;
+let localEchoItemEl = null;        // #menu-local-echo-item — checkable, derived from prefs.localEcho
+let crlfPanelEl = null;            // [data-submenu-panel="crlf"] — active radio derived from prefs.crlfMode
+
 // E2.1 (AD-15) — connection projection state. serial.js arrives via opts (never a
 // direct import — AD-3): toggleConnectionRef is the exported click action;
 // getConnectionStateRef reads the current state for the initial paint;
@@ -272,6 +284,11 @@ export function wireMenuBar(opts = {}) {
     // permanently absent; one that omits chooseMicroBeast leaves its click inert.
     getAdapterCountRef = opts.getAdapterCount || null;
     chooseMicroBeastRef = opts.chooseMicroBeast || null;
+    // E3.2 (FR-18/FR-19, AD-3) — keyboard.js live setters injected via opts (never
+    // a direct import). Both optional: a harness that omits them keeps persist +
+    // glyph working but leaves the live keyboard.js state change inert until reload.
+    setLocalEchoRef = opts.setLocalEcho || null;
+    setCrlfModeRef = opts.setCrlfMode || null;
     menuBarEl = document.getElementById('menu-bar');
     liveRegionEl = document.getElementById('menu-bar-live');
     openMenu = null;
@@ -367,6 +384,15 @@ export function wireMenuBar(opts = {}) {
     // happens mid-session with bytes already accumulated.
     downloadLogItemEl = document.getElementById('menu-download-log-item');
     projectSessionLog();
+
+    // E3.2 (AC-3) — discover the Local echo row + the Enter-key-sends radio panel
+    // (same by-id / by-data convention), then take the Local echo initial paint from
+    // prefs so the glyph is correct BEFORE the first Settings-menu open (never trust
+    // the HTML data-checked literal). The crlf submenu default check (CR) is already
+    // correct in markup and re-derived from prefs on open / reset.
+    localEchoItemEl = document.getElementById('menu-local-echo-item');
+    crlfPanelEl = document.querySelector('.submenu[data-submenu-panel="crlf"]');
+    projectLocalEcho();
 
     render();
     return buildApi();
@@ -671,6 +697,19 @@ function onRadioSelect(panel, item) {
         setFont(value);                          // AD-7 verbatim (same-value/unknown-id guards live in setFont)
         savePrefs({ font: value });              // AD-4 — persist
         setRadioChecked(panel, value);
+    } else if (group === 'crlf') {
+        // E3.2 (AC-2/AC-4) — Enter-key-sends. Like localEcho, crlfMode has LIVE
+        // effect, so call the injected setter (apply now) AND savePrefs (persist);
+        // the setter's validator (keyboard.js:94) accepts only cr/lf/crlf, which the
+        // radio data-values are. NOT a D-19 trigger (no clearSelection) and NO CRT
+        // gate (always live — contrast Font). Mirror the three coexisting legacy
+        // #crlf-* radios (menu→pane lockstep); the mirror retires with #top-bar in E7.
+        setCrlfModeRef?.(value);
+        savePrefs({ crlfMode: value });          // AD-4 — persist
+        setRadioChecked(panel, value);
+        document.querySelectorAll('input[name="crlf"]').forEach((r) => {   // E7-retirement mirror
+            r.checked = (r.value === value);
+        });
     }
 }
 
@@ -777,6 +816,17 @@ function onItemClick(item, ev) {
             // the #connect-button mirror in projectConnection.
             if (prefKey === 'autoConnect') {
                 const legacy = document.getElementById('auto-connect-checkbox');
+                if (legacy) legacy.checked = next;
+            }
+            // E3.2 (AC-1/AC-4) — unlike autoConnect (boot-time only), localEcho has
+            // LIVE effect: savePrefs alone flips the glyph + persists but the running
+            // keyboard.js echo path is unchanged until reload (AD-4 — savePrefs does
+            // not fan out). So ALSO call the injected setter (apply now), and mirror
+            // the coexisting legacy #local-echo checkbox (menu→pane lockstep). The
+            // mirror line retires with #top-bar in E7 (E1 retro open action #5).
+            if (prefKey === 'localEcho') {
+                setLocalEchoRef?.(next);
+                const legacy = document.getElementById('local-echo');   // E7-retirement mirror
                 if (legacy) legacy.checked = next;
             }
         }
@@ -934,6 +984,14 @@ function projectMenuOnOpen() {
     // E3.1 (AC-5) — File: re-derive the Download Session Log row from the live RX
     // byte count each open (open-time projection).
     if (openMenu === 'file') projectSessionLog();
+    // E3.2 (AC-3) — Settings: re-derive the Local echo glyph + the Enter-key-sends
+    // active radio from prefs at USE-TIME (pane→menu: a legacy-control change is
+    // reflected on the next Settings open). No setter is called (read-only).
+    if (openMenu === 'settings') {
+        projectLocalEcho();
+        const p = getPrefs();
+        if (crlfPanelEl && p && p.crlfMode) setRadioChecked(crlfPanelEl, p.crlfMode);
+    }
 }
 
 // E2.2 (AC-1/AC-3) — project the Auto-connect checkable row from prefs.autoConnect
@@ -946,6 +1004,19 @@ function projectAutoConnect(prefs) {
     if (!p) return;
     autoConnectItemEl.setAttribute('data-checked', p.autoConnect ? 'true' : 'false');
     syncCheckGlyph(autoConnectItemEl);               // projects glyph + aria-checked
+}
+
+// E3.2 (AC-1/AC-3) — project the Local echo checkable row from prefs.localEcho at
+// USE-TIME (the passed blob on reset, else getPrefs()). A clone of projectAutoConnect:
+// read-at-use, no-throw, idempotent; NEVER calls setLocalEcho (that stays applyPrefs's
+// single-writer job on reset — AC-6). Shared by the wire-time initial paint, the
+// Settings-menu open re-derive, and the reset re-projection (projectPrefs).
+function projectLocalEcho(prefs) {
+    if (!localEchoItemEl) return;                    // row absent (harness) — no-op
+    const p = prefs || getPrefs();
+    if (!p) return;
+    localEchoItemEl.setAttribute('data-checked', p.localEcho ? 'true' : 'false');
+    syncCheckGlyph(localEchoItemEl);                 // projects glyph + aria-checked
 }
 
 // E3.1 (FR-17, AC-4/AC-5) — project the Download Session Log row from the live RX
@@ -1118,6 +1189,14 @@ export function projectPrefs(prefs) {
     // Resolved BEFORE (and independently of) the View-dropdown guard below: a
     // View-less harness must still get the auto-connect reset re-projection.
     projectAutoConnect(p);
+    // E3.2 (AC-3) — re-project the Settings ▸ Local echo glyph + Enter-key-sends
+    // active radio from prefs so resetPrefs() (AD-14) restores the defaults (Local
+    // echo unchecked, CR radio) in the menu DOM. Placed BEFORE the View-dropdown
+    // guard (E2.2's auto-connect placement precedent) so a View-less harness still
+    // gets the reset re-projection. Never calls a keyboard setter (applyPrefs owns
+    // that single-writer job on reset — AC-6).
+    projectLocalEcho(p);
+    if (crlfPanelEl && p.crlfMode) setRadioChecked(crlfPanelEl, p.crlfMode);
     const viewDropdown = dropdownEls.view || document.getElementById('dropdown-view');
     if (!viewDropdown) return;                       // View menu absent — no-op
     // E1.4 — project p.theme + p.phosphor onto the submenu radio check glyphs and

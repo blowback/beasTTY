@@ -1250,13 +1250,43 @@
     <div class="menu-group">
       <button id="menu-settings" class="menu-title" type="button" aria-haspopup="true" aria-expanded="false">Settings</button>
       <div id="dropdown-settings" class="dropdown" role="menu" hidden>
-        <button class="menu-item" type="button" role="menuitemcheckbox"
-                data-variant="checkable" data-checked="false" aria-checked="false">
+        <!-- Epic E3 Story E3.2 (FR-18, AD-4) — Local echo checkable. data-pref="localEcho"
+             drives the generic persist seam (savePrefs); the localEcho side-effect branch in
+             menu-bar.js also calls the injected setLocalEcho so the live keyboard.js echo path
+             takes effect immediately (persist ≠ apply). data-checked starts "false" (the
+             prefs.localEcho default) and is re-derived from prefs at wire-time / on open / on
+             reset — never trusted as a literal. -->
+        <button id="menu-local-echo-item" class="menu-item" type="button" role="menuitemcheckbox"
+                data-variant="checkable" data-pref="localEcho" data-checked="false" aria-checked="false">
           <span class="check"></span><span class="lbl">Local echo</span>
         </button>
-        <button class="menu-item" type="button" role="menuitem" data-variant="radio-submenu">
-          <span class="check"></span><span class="lbl">Enter key sends</span><span class="caret">▸</span>
-        </button>
+        <!-- Epic E3 Story E3.2 (FR-19, AD-4) — Enter key sends radio submenu
+             (CR / LF / CRLF). Filled from the bare parent using the E1.4/E1.5
+             radio-submenu-group template (Theme/Font). data-value = the exact
+             CRLF_MODES id (cr/lf/crlf) setCrlfMode's validator accepts. Byte-
+             annotated labels match the coexisting legacy #crlf-* radios verbatim.
+             Default checked = CR (the prefs.crlfMode default); re-derived from
+             prefs on open / reset. No CRT gate (contrast Font) — always live. -->
+        <div class="submenu-group">
+          <button class="menu-item" type="button" role="menuitem" data-variant="radio-submenu"
+                  data-submenu="crlf" aria-haspopup="true" aria-expanded="false">
+            <span class="check"></span><span class="lbl">Enter key sends</span><span class="caret">▸</span>
+          </button>
+          <div class="submenu" role="menu" data-submenu-panel="crlf" aria-label="Enter key sends" hidden>
+            <button class="menu-item" type="button" role="menuitemradio" data-value="cr"
+                    data-checked="true" aria-checked="true">
+              <span class="check">✓</span><span class="lbl">CR (0x0D)</span>
+            </button>
+            <button class="menu-item" type="button" role="menuitemradio" data-value="lf"
+                    data-checked="false" aria-checked="false">
+              <span class="check"></span><span class="lbl">LF (0x0A)</span>
+            </button>
+            <button class="menu-item" type="button" role="menuitemradio" data-value="crlf"
+                    data-checked="false" aria-checked="false">
+              <span class="check"></span><span class="lbl">CRLF (0x0D 0x0A)</span>
+            </button>
+          </div>
+        </div>
         <div class="menu-sep"></div>
         <button class="menu-item" type="button" role="menuitem" data-variant="action">
           <span class="check"></span><span class="lbl">Reset all preferences</span>

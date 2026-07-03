@@ -69,7 +69,7 @@ import { wireChrome } from './renderer/chrome.js';
 import { wireMenuBar } from './renderer/menu-bar.js';
 import { wireScrollState } from './renderer/scroll-state.js';
 import { wireSelection } from './input/selection.js';
-import { wireKeyboard, setLocalEcho, setCrlfMode } from './input/keyboard.js';
+import { wireKeyboard, setLocalEcho, setCrlfMode, getLocalEcho, getCrlfMode } from './input/keyboard.js';
 import {
     registerTxObserver,
     formatHexStrip,
@@ -391,6 +391,12 @@ const menuBar = wireMenuBar({
         if (getState() === 'connected') disconnect().catch(() => {});
         connectMicroBeast();
     },
+    // Epic E3 Story E3.2 (FR-18/FR-19, AD-3) — Settings ▸ Local echo / Enter-key-sends
+    // drive the SAME keyboard.js live setters the legacy #local-echo / #crlf-* controls
+    // call. Injected (menu-bar cannot import keyboard.js — AD-3); persist ≠ apply, so the
+    // menu handler calls the setter AND savePrefs, exactly as the legacy handlers do.
+    setLocalEcho,
+    setCrlfMode,
 });
 window.__menuBar = menuBar;   // Playwright hook (mirrors window.__scrollState / window.__modal)
 
@@ -447,6 +453,11 @@ window.__getActiveCellSize = getActiveCellSize;
 // Epic E1 Story E1.5 — read-only canvas state for the View ▸ Font / Zoom oracles
 // (mirrors the window.__prefs read pattern; never a live DOM ref).
 window.__canvasState = { getActiveFont, getActiveZoom, getActiveTheme, getActivePhosphor };
+// Epic E3 Story E3.2 — read-only keyboard state for the Settings ▸ Local echo /
+// Enter-key-sends oracles (mirrors window.__canvasState). Lets a test assert the
+// LIVE keyboard.js module state actually changed (persist ≠ apply — the setter, not
+// just savePrefs, ran); never a setter surface.
+window.__keyboardState = { getLocalEcho, getCrlfMode };
 
 // D-19 — selection clears on theme/phosphor/zoom change. Epic E1 Story E1.4 —
 // the theme/phosphor D-19 capture listeners on #theme-toggle / #phosphor-group
