@@ -116,7 +116,7 @@ test.describe('E2.3 AC-3/AC-4 — toggles, Reset, hints + error log preserved ve
         await ready(page);
         await openModal(page);
         const d = dialog(page);
-        await expect(d.locator('#serial-reset-preset')).toHaveText('Reset to MicroBeast preset');
+        await expect(d.locator('#serial-reset-preset')).toHaveText('Reset to MicroBeast defaults');
         await expect(d).toContainText(HINT_DEFAULT);
         await expect(d.locator('#error-log')).toHaveText('(no recent errors)');
     });

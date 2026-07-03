@@ -49,7 +49,7 @@ test.describe('XPORT-05 + D-08 — Serial config form', () => {
         await expect(page.locator('#serial-flowctl')).toHaveValue('none');
     });
 
-    test('Reset to MicroBeast preset button snaps all five selects to defaults', async ({ page }) => {
+    test('Reset to MicroBeast defaults button snaps all five selects to defaults', async ({ page }) => {
         await setup(page);
         await openForm(page);
         // Move all 5 away from preset.
