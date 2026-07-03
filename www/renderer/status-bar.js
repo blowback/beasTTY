@@ -12,10 +12,13 @@
 // (AD-2): module-scope state + injected …Ref vars + wireStatusBar(opts) → API +
 // private projectConnection(state) + dispose() + __getStateForTests/__resetForTests.
 //
-// Direct-import allowlist (AD-3): this module imports ONLY state/prefs.js. Every
-// other dependency (onConnectionStateChange, getConnectionState) arrives through
-// wireStatusBar opts, injected by main.js at the composition root (AD-1) — it must
-// NOT import serial.js, menu-bar.js, or slide-chip.js.
+// Direct-import allowlist (AD-3): this module imports state/prefs.js AND the shared
+// AD-10 focus helper (renderer/focus.js — retainFocus, mandatory on every new
+// interactive chrome control, the same import chrome.js uses; E4.3 adds the bar's
+// first focusable control). Every other dependency (onConnectionStateChange,
+// getConnectionState, and — E4.3 — openSerialConfig/getRecentErrorCount) arrives
+// through wireStatusBar opts, injected by main.js at the composition root (AD-1) —
+// it must NOT import serial.js, modal.js, menu-bar.js, or slide-chip.js.
 //
 // Sources:
 //   - ARCHITECTURE-SPINE.md #AD-6 (fed/never-owned), #AD-5 (subscribe to federated
@@ -28,6 +31,7 @@
 //     :1369-1377 (projectConnection), :63-82 (frozen CONN_STATUS_LABELS).
 
 import { getPrefs, CONN_STATUS_LABELS } from '../state/prefs.js';
+import { retainFocus } from './focus.js';   // E4.3 (AD-10) — the bar's first interactive control
 
 // ====== Frozen label maps ======
 
@@ -56,6 +60,14 @@ let textElRef = null;             // #port-status
 // setBuild (one-shot async build stamp) / setZoom (the pushZoom sink).
 let buildElRef = null;            // #status-build
 let zoomElRef = null;             // #status-zoom
+// E4.3 — the recent-errors affordance (FR-28). status-bar.js is its single writer
+// (AD-6, holds no independent truth): the count arrives via imperative push
+// (setErrorCount, fed from serial.js's observer-less errorLog through main.js) and
+// the click reuses the injected E2.3 opener. Both deps arrive via wireStatusBar
+// opts — status-bar.js imports neither serial.js nor modal.js (AD-3).
+let errorsElRef = null;           // #status-errors (the clickable affordance)
+let openSerialConfigFn = null;    // = main.js openSerialConfig (the E2.3 opener, AD-8)
+let getRecentErrorCountFn = null; // = serial.getRecentErrorCount (initial-paint read)
 let onConnectionStateChangeFn = null;   // = serial.onStateChange
 let getConnectionStateFn = null;        // = serial.getState
 let getConnectionFramingFn = null;      // = serial.getActiveFraming (fix #2 — live open-config framing)
@@ -65,6 +77,12 @@ let getConnectionDeviceFn = null;       // = serial.getConnectionDevice (fix #7 
 // Subscription closure returned by onConnectionStateChange — dropped in dispose()
 // and before an idempotent re-wire (mirror menu-bar.js:394).
 let connUnsub = null;
+
+// E4.3 — the #status-errors click listener, kept so an idempotent re-wire can drop
+// it before re-adding (mirrors the connUnsub drop-before-resubscribe discipline) —
+// a re-wire must never stack duplicate openers. retainFocus is separately idempotent
+// (its own WeakSet), so its mousedown handler needs no such bookkeeping.
+let errorsClickHandler = null;
 
 // Last state projected — kept for setConnectionInfo() re-projection + test
 // introspection.
@@ -84,7 +102,13 @@ let bootDeviceReady = false;
 // NB the prefs blob uses `baud` (SerialPort.open() uses `baudRate` — a different
 // schema; read `baud` here, serial.js:41-43).
 function formatFraming() {
-    const { baud, dataBits, parity, stopBits } = getPrefs().serial;
+    // Guard getPrefs() → null (prefs not yet loaded, e.g. a harness driving
+    // projectConnection('connected') before loadPrefs()). projectConnection is
+    // documented no-throw, so degrade to '' rather than dereferencing null.serial —
+    // every other getPrefs() read in this module (setZoom) is likewise `?.`-guarded.
+    const serial = getPrefs()?.serial;
+    if (!serial) return '';
+    const { baud, dataBits, parity, stopBits } = serial;
     const p = String(parity || 'none')[0].toUpperCase();   // 'none' → 'N'
     return `${baud} ${dataBits}${p}${stopBits}`;
 }
@@ -126,7 +150,9 @@ function composeText(state) {
         // that seam is absent (harness) — never let a mid-session prefs change that
         // hasn't been applied to the port misreport the wire framing.
         const framing = (getConnectionFramingFn && getConnectionFramingFn()) || formatFraming();
-        return `${deviceLabel()} — ${framing}`;   // em-dash U+2014
+        // Omit the dash when framing is unavailable (prefs not loaded) so the readout
+        // never shows a dangling "MicroBeast — ". em-dash U+2014.
+        return framing ? `${deviceLabel()} — ${framing}` : deviceLabel();
     }
     if (state === 'disconnected') {
         const err = getConnectionErrorFn ? getConnectionErrorFn() : null;
@@ -162,6 +188,24 @@ function setZoom(level) {
     zoomElRef.textContent = `zoom ${level}×`;
 }
 
+// ====== Recent-errors affordance (E4.3, FR-28 — the sole writer of #status-errors;
+// fed by imperative push off serial.js's observer-less errorLog, AD-6) ======
+
+// setErrorCount(n) — the AD-6 imperative-push hook. serial.js's appendErrorLog fires
+// main.js's closure, which calls this with errorLog.length; the initial paint reads
+// the injected getRecentErrorCount (0 at boot). Renders `▲ <n> recent error(s)`
+// (▲ = U+25B2), pluralising 1 vs N, and tints amber ONLY while count > 0 via the
+// data-has-errors attribute (never an inline style — DESIGN.md: amber = "action
+// required, not error", spent only when there is something to see). Null-guarded so
+// the no-markup harness path never throws; the count is coerced (`n | 0`) so a stray
+// null/undefined/string push lands as 0, not NaN.
+function setErrorCount(n) {
+    if (!errorsElRef) return;
+    const c = n | 0;
+    errorsElRef.textContent = `▲ ${c} recent ${c === 1 ? 'error' : 'errors'}`;
+    errorsElRef.dataset.hasErrors = c > 0 ? 'true' : 'false';
+}
+
 // ====== wireStatusBar initializer (composition-root DI — AD-1/AD-2) ======
 
 export function wireStatusBar(opts) {
@@ -171,6 +215,8 @@ export function wireStatusBar(opts) {
         getConnectionFraming,      // = serial.getActiveFraming (fix #2)
         getConnectionError,        // = serial.getLastConnectError (fix #4)
         getConnectionDevice,       // = serial.getConnectionDevice (fix #7)
+        openSerialConfig,          // E4.3 — the E2.3 modal opener (AD-8); reused verbatim on click
+        getRecentErrorCount,       // E4.3 — serial.getRecentErrorCount for the initial paint
     } = opts || {};
 
     // Grab the owned fields by id (mirror how menu-bar.js grabs #menu-conn-dot).
@@ -178,11 +224,14 @@ export function wireStatusBar(opts) {
     textElRef = document.getElementById('port-status');
     buildElRef = document.getElementById('status-build');   // E4.2 right group
     zoomElRef = document.getElementById('status-zoom');      // E4.2 right group
+    errorsElRef = document.getElementById('status-errors');  // E4.3 recent-errors affordance
     onConnectionStateChangeFn = onConnectionStateChange || null;
     getConnectionStateFn = getConnectionState || null;
     getConnectionDeviceFn = getConnectionDevice || null;
     getConnectionFramingFn = getConnectionFraming || null;
     getConnectionErrorFn = getConnectionError || null;
+    openSerialConfigFn = openSerialConfig || null;           // E4.3
+    getRecentErrorCountFn = getRecentErrorCount || null;     // E4.3
 
     // Drop any prior subscription BEFORE re-subscribing so an idempotent re-wire
     // never double-registers projectConnection (mirror menu-bar.js:394). connUnsub
@@ -205,6 +254,23 @@ export function wireStatusBar(opts) {
     // (loadPrefs not yet run) — it must not abort the wire. Build has no synchronous
     // source, so its placeholder holds until main.js pushes setBuild on import.
     setZoom(getPrefs()?.fontZoom ?? 1);
+
+    // E4.3 — the recent-errors affordance. Drop the prior click listener before
+    // re-adding (mirror the connUnsub drop-before-resubscribe idiom) so an idempotent
+    // re-wire never stacks duplicate openers; then retainFocus so a MOUSE click never
+    // transfers keyboard focus off the terminal (AD-10/NFR-1 — the button branch:
+    // mousedown → preventDefault, the click handler still fires and opens the modal).
+    // retainFocus is idempotent via its own WeakSet, so a re-wire is a safe no-op there.
+    if (errorsElRef) {
+        if (errorsClickHandler) errorsElRef.removeEventListener('click', errorsClickHandler);
+        errorsClickHandler = () => { if (openSerialConfigFn) openSerialConfigFn(); };
+        errorsElRef.addEventListener('click', errorsClickHandler);
+        retainFocus(errorsElRef);   // button branch — no restoreTarget needed
+    }
+    // Initial paint (AD-1) — read the injected count getter (0 at boot; serial.js has
+    // run no connect attempt yet), so the field is correct at first paint without
+    // waiting for a push. Falls back to 0 when the getter seam is absent (harness).
+    setErrorCount(getRecentErrorCountFn ? getRecentErrorCountFn() : 0);
 
     return {
         // AD-6 imperative-push hook: observer-less sources (a baud/serial-config
@@ -231,6 +297,9 @@ export function wireStatusBar(opts) {
         // pushZoom sink (both View items + the Ctrl chord). main.js is the caller.
         setBuild,
         setZoom,
+        // E4.3 (AD-6) imperative-push hook for the observer-less errorLog: main.js's
+        // closure calls this with errorLog.length on every appendErrorLog.
+        setErrorCount,
         dispose,
         __getStateForTests,
         __resetForTests,
@@ -254,6 +323,9 @@ export function __getStateForTests() {
         // E4.2 right group
         build: buildElRef ? buildElRef.textContent : null,
         zoom: zoomElRef ? zoomElRef.textContent : null,
+        // E4.3 recent-errors affordance
+        errors: errorsElRef ? errorsElRef.textContent : null,
+        hasErrors: errorsElRef ? errorsElRef.dataset.hasErrors : null,
     };
 }
 
@@ -267,4 +339,6 @@ export function __resetForTests() {
     // re-paints from prefs (mirrors the crash-safe initial wire-time paint).
     if (buildElRef) buildElRef.textContent = 'build …';
     setZoom(getPrefs()?.fontZoom ?? 1);
+    // E4.3 — revert the errors field to its 0/false placeholder.
+    setErrorCount(0);
 }

@@ -1073,30 +1073,23 @@ function projectMenuOnOpen() {
     }
 }
 
-// E2.2 (AC-1/AC-3) — project the Auto-connect checkable row from prefs.autoConnect
-// at USE-TIME (the passed blob on reset, else getPrefs()). Read-at-use, no-throw,
-// idempotent; NEVER calls a serial setter. Shared by the wire-time initial paint,
-// the Connection-menu open re-derive, and the reset re-projection (projectPrefs).
-function projectAutoConnect(prefs) {
-    if (!autoConnectItemEl) return;                  // row absent (harness) — no-op
+// E2.2 / E3.2 (AC-1/AC-3) — project a checkable menu row from a boolean pref at
+// USE-TIME (the passed blob on reset, else getPrefs()). Read-at-use, no-throw,
+// idempotent; NEVER calls a serial/keyboard setter (applyPrefs stays the single
+// writer on reset — AC-6). Shared by the wire-time initial paint, the menu-open
+// re-derive, and the reset re-projection (projectPrefs).
+function projectCheckable(el, prefKey, prefs) {
+    if (!el) return;                                 // row absent (harness) — no-op
     const p = prefs || getPrefs();
     if (!p) return;
-    autoConnectItemEl.setAttribute('data-checked', p.autoConnect ? 'true' : 'false');
-    syncCheckGlyph(autoConnectItemEl);               // projects glyph + aria-checked
+    el.setAttribute('data-checked', p[prefKey] ? 'true' : 'false');
+    syncCheckGlyph(el);                              // projects glyph + aria-checked
 }
 
-// E3.2 (AC-1/AC-3) — project the Local echo checkable row from prefs.localEcho at
-// USE-TIME (the passed blob on reset, else getPrefs()). A clone of projectAutoConnect:
-// read-at-use, no-throw, idempotent; NEVER calls setLocalEcho (that stays applyPrefs's
-// single-writer job on reset — AC-6). Shared by the wire-time initial paint, the
-// Settings-menu open re-derive, and the reset re-projection (projectPrefs).
-function projectLocalEcho(prefs) {
-    if (!localEchoItemEl) return;                    // row absent (harness) — no-op
-    const p = prefs || getPrefs();
-    if (!p) return;
-    localEchoItemEl.setAttribute('data-checked', p.localEcho ? 'true' : 'false');
-    syncCheckGlyph(localEchoItemEl);                 // projects glyph + aria-checked
-}
+// The two checkable rows — Auto-connect (Connection menu) and Local echo (Settings
+// menu) — as thin wrappers over the shared projector so both stay one implementation.
+function projectAutoConnect(prefs) { projectCheckable(autoConnectItemEl, 'autoConnect', prefs); }
+function projectLocalEcho(prefs)   { projectCheckable(localEchoItemEl, 'localEcho', prefs); }
 
 // E3.1 (FR-17, AC-4/AC-5) — project the Download Session Log row from the live RX
 // byte count at USE-TIME. Modeled on syncSubmenuDisabled but INVERSE polarity:

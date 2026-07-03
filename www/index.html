@@ -176,6 +176,19 @@
        edge (margin-left:auto). Both spans inherit the bar's muted default: no new
        tokens, no accent, no [data-theme] branch (AD-9 neutral shell). */
     #status-bar .sb-right { margin-left: auto; display: flex; gap: 18px; }
+    /* E4.3 recent-errors affordance (FR-28, UX-DR14) — a native <button> reset to
+       read as inline bar text (the bar's muted default), so it sits between the
+       connection group and the right group visually as a plain hint. Amber ONLY
+       while errors exist (data-has-errors="true") — amber = "action required"
+       (DESIGN.md), spent here just when there is something to see. No new tokens,
+       no [data-theme] branch (AD-9 neutral shell). The #status-bar gap:16px already
+       spaces it from its neighbours. */
+    #status-bar #status-errors {
+      appearance: none; -webkit-appearance: none;
+      background: none; border: 0; padding: 0; margin: 0;
+      font: inherit; color: var(--chrome-muted); cursor: pointer;
+    }
+    #status-bar #status-errors[data-has-errors="true"] { color: var(--status-amber); }
     /* Discrete connection-dot colours (UX-DR3) — mirrors the #menu-conn-dot rule
        set exactly; red reserved for port-lost. NO box-shadow (DESIGN.md no-glow
        overrides the mockup), NO transition — the dot snaps. */
@@ -1997,12 +2010,22 @@
       <span id="status-conn-dot" aria-hidden="true"></span>
       <span id="port-status" class="hint" aria-live="polite">Not connected</span>
     </span>
+    <!-- E4.3 recent-errors affordance (FR-28) — live error count + ▲ glyph, tinted
+         amber ONLY when count > 0, click opens the Serial Configuration modal (which
+         hosts #error-log) via the E2.3 openSerialConfig opener. status-bar.js is the
+         single writer (AD-6, fed never owned): fed the observer-less serial.js
+         errorLog via imperative push (setErrorCount, main.js closure) + a getter for
+         initial paint. A <button> for native keyboard activation + focusability;
+         retainFocus (AD-10) keeps a mouse click from stealing terminal focus (NFR-1).
+         Placeholder text avoids a layout flash before the initial paint. Positioned
+         BETWEEN .sb-conn and .sb-right so the row reads connection · errors · build/zoom. -->
+    <button type="button" id="status-errors">▲ 0 recent errors</button>
     <!-- E4.2 right group (FR-27) — build SHA + live zoom, right-pinned, muted.
          status-bar.js is the single writer of both (AD-6, fed never owned): build
          via setBuild (main.js pushes on the build-info import resolve), zoom via
          setZoom (main.js's pushZoom sink, both View items and the Ctrl chord).
          Placeholder text avoids a layout flash before the first push / initial
-         paint. E4.3's recent-errors affordance slots in here later. -->
+         paint. -->
     <span class="sb-right">
       <span id="status-build">build …</span>
       <span id="status-zoom">zoom 1×</span>

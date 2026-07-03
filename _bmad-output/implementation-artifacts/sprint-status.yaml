@@ -46,7 +46,7 @@
 #   E1 is the backbone and must land before the other menu/modal epics.
 
 generated: 2026-07-01
-last_updated: 2026-07-03  # E4.2 → done (dev-story + code review; 10 findings fixed, suite green)
+last_updated: 2026-07-03  # E4.3 → done (review fixes applied)
 # retrospective action items (surface open ones during sprint status)
 action_items:
   - epic: "e0"
@@ -157,7 +157,7 @@ development_status:
   epic-e4: in-progress
   e4-1-connection-device-baud-readout: done
   e4-2-build-sha-zoom-readout: done
-  e4-3-recent-errors-affordance: backlog
+  e4-3-recent-errors-affordance: done
   epic-e4-retrospective: optional
 
   # ── Epic E5 · Debug Menu & In-Page Debug Panel (depends on: E1) ──

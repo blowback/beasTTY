@@ -84,7 +84,7 @@ import {
 // E2.1 (AD-15, AD-3) — serial reaches menu-bar ONLY via wireMenuBar opts (like
 // term/getScrollState), never a direct menu-bar import. main.js is the composition
 // root that hands onStateChange/getState/toggleConnection across the seam.
-import { wireSerial, onStateChange, getState, toggleConnection, connectMicroBeast, disconnect, countMicroBeastAdapters, getActiveFraming, getLastConnectError, getConnectionDevice } from './transport/serial.js';
+import { wireSerial, onStateChange, getState, toggleConnection, connectMicroBeast, requestMicroBeastPort, disconnect, countMicroBeastAdapters, getActiveFraming, getLastConnectError, getConnectionDevice, getRecentErrorCount } from './transport/serial.js';
 import {
     wireSlideDispatcher,
     dispatchInbound,
@@ -411,33 +411,31 @@ const menuBar = wireMenuBar({
     // Epic E2 Story E2.2 (AD-3, FR-13/FR-14) — the adapter-count gate for
     // "Choose MicroBeast…" and the filtered picker it opens, injected across the
     // same seam (menu-bar cannot import serial). getAdapterCount is async +
-    // no-throw; chooseMicroBeast reuses the existing connectMicroBeast picker.
+    // no-throw; chooseMicroBeast reuses the same filtered picker (requestMicroBeastPort).
     getAdapterCount: countMicroBeastAdapters,
     // Disconnect-first when already connected (§"Choose MicroBeast… click
     // behavior" open Q#2): a bare connectMicroBeast() while connected would open a
     // second port and leak the old writer/read loop when a different board is
-    // picked. Tearing the existing connection down first makes "choose which
-    // board" a clean switch. Await the teardown so disconnect()'s trailing
-    // setState('disconnected') lands BEFORE connectMicroBeast()'s
-    // setState('connecting') — the un-awaited version raced the two, so the
-    // deferred 'disconnected' stomped the 'connecting' paint (dots flipped back to
-    // gray "Not connected" while the picker was open, or worse stuck disconnected
-    // over a live port). BUT a bare `await disconnect()` re-introduces the hazard
-    // the un-awaited version avoided: requestPort() needs transient user activation
-    // (Chromium ~5s), and a hung/unresponsive adapter whose port.close() stalls past
-    // that window would strand the picker (never shown) AFTER board A was already
-    // torn down. So race the teardown against a short cap: a healthy port resolves in
-    // ms (paints ordered correctly), a stuck one still reaches the picker with
-    // activation intact — the paint order only slips on that pathological slow path.
-    // `.catch` on the teardown swallows a late rejection so it can't surface as an
-    // unhandled rejection after the race has already moved on.
+    // picked. Tearing the existing connection down first makes "choose which board"
+    // a clean switch.
+    //
+    // Ordering matters: requestPort() needs transient user activation (Chromium
+    // ~5 s) but open() does not, so run the PICKER FIRST — while the click's
+    // activation is still fresh — then fully await the teardown, then open the
+    // already-chosen port. This keeps a single linear sequence (no teardown racing
+    // the connect over shared module state), so a stalled port.close() can never
+    // leave a gray "Not connected" over a live port, and a cancelled picker leaves
+    // the existing connection untouched (nothing is torn down until the user has
+    // actually chosen a new board).
     chooseMicroBeast: async () => {
-        if (getState() === 'connected') {
-            const teardown = disconnect().catch(() => {});   // best-effort — still switch
-            const cap = new Promise((resolve) => setTimeout(resolve, 1500));
-            await Promise.race([teardown, cap]);
+        let selectedPort;
+        try {
+            selectedPort = await requestMicroBeastPort();
+        } catch (err) {
+            return;   // picker cancelled / no match — keep the current connection
         }
-        connectMicroBeast();
+        if (getState() === 'connected') await disconnect();
+        connectMicroBeast(undefined, selectedPort);
     },
     // Epic E3 Story E3.2 (FR-18/FR-19, AD-3) — Settings ▸ Local echo / Enter-key-sends
     // drive the SAME keyboard.js live setters the legacy #local-echo / #crlf-* controls
@@ -479,6 +477,13 @@ const statusBar = wireStatusBar({
     // E4.1 fix (#7) — the device label reflects the ACTUAL connected/granted adapter
     // (canonical only on a real CP2102N match), not a hardcoded MicroBeast string.
     getConnectionDevice,
+    // E4.3 (FR-28, AD-8/AD-3) — the recent-errors affordance opens the EXISTING Serial
+    // Configuration modal (which hosts #error-log) by reusing openSerialConfig verbatim
+    // (defined above, focus → #serial-baud, restoreTo → terminalWrapper), and reads
+    // getRecentErrorCount for its initial paint. status-bar.js imports neither
+    // modal.js nor serial.js (AD-3) — both arrive here as injected opts.
+    openSerialConfig,
+    getRecentErrorCount,
 });
 window.__statusBar = statusBar;   // Playwright hook (mirrors window.__menuBar)
 
@@ -1164,6 +1169,11 @@ await wireSerial({
     // MicroBeast, show the "…— click Connect" cue in the status bar (statusBar is
     // wired above, so the ref exists by the time this async boot scan runs).
     onBootDeviceRecognized: () => statusBar.showBootReady(),
+    // E4.3 (FR-28, AD-6) — imperative push to the status-bar recent-errors affordance
+    // on every appendErrorLog. Mirrors onBootDeviceRecognized: serial.js owns the
+    // errorLog mutation and fires this; the closure calls statusBar.setErrorCount
+    // (statusBar is wired above, so the ref exists by the time an error can fire).
+    onErrorLogChange: (count) => statusBar.setErrorCount(count),
 });
 
 // ---- Phase 4 Plan 03 — Settings controls ----

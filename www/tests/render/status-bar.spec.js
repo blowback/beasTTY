@@ -25,6 +25,10 @@ const TEXT  = '#port-status';
 // E4.2 right group
 const BUILD = '#status-build';
 const ZOOM  = '#status-zoom';
+// E4.3 recent-errors affordance
+const ERRORS = '#status-errors';
+const AMBER  = 'rgb(224, 176, 48)';         // --status-amber (#e0b030), errors present
+const MUTED  = 'rgba(255, 255, 255, 0.6)';  // --chrome-muted, the bar's default (0 errors)
 
 // Boot the full app with the Web Serial mock installed BEFORE any module loads,
 // then wait for the status-bar API + size the canvas.
@@ -291,5 +295,113 @@ test.describe('E4.1 AC-1 — fed by the subscription end-to-end (mock-serial cyc
     await page.waitForTimeout(200);
     // Unsubscribed projector leaves the dot at its last painted state.
     await expect(page.locator(DOT)).toHaveAttribute('data-state', 'connected');
+  });
+});
+
+// ===== E4.3 — the recent-errors affordance (FR-28) =====
+
+// Drive a REAL error through the serial path (not a faked DOM write): reuse the E2.3
+// seam verbatim (serial-config-modal.spec.js:145-160) — override requestPort so the
+// returned port's open() throws, then click Connect. appendErrorLog('open-failed', …)
+// fires → errorLog.length becomes 1 → the injected onErrorLogChange push updates
+// #status-errors. This exercises the whole AD-6 feed, not just the setter.
+async function driveOneError(page) {
+  await page.evaluate(() => {
+    const orig = navigator.serial.requestPort.bind(navigator.serial);
+    navigator.serial.requestPort = () => orig().then((p) => {
+      p.open = async () => { throw new Error('boom'); };
+      return p;
+    });
+  });
+  await page.locator('#connect-button').click();
+}
+
+test.describe('E4.3 AC-1/AC-2 — initial state: 0 errors, muted, singleton, in-bar not sb-right', () => {
+  test('initial #status-errors reads "▲ 0 recent errors", not amber, data-has-errors falsey @fast', async ({ page }) => {
+    await ready(page);
+    await expect(page.locator(ERRORS)).toHaveText('▲ 0 recent errors');
+    // data-has-errors is falsey at 0 (the CSS amber branch keys on ="true").
+    expect(await page.locator(ERRORS).getAttribute('data-has-errors')).not.toBe('true');
+    // Computed colour is the muted default, NOT amber — amber is spent only on errors.
+    expect(await page.$eval(ERRORS, (el) => getComputedStyle(el).color)).toBe(MUTED);
+  });
+
+  test('exactly one #status-errors, inside #status-bar and NOT inside .sb-right @fast', async ({ page }) => {
+    await ready(page);
+    expect(await page.locator(ERRORS).count()).toBe(1);
+    expect(await page.locator(`${BAR} ${ERRORS}`).count()).toBe(1);
+    // It sits BETWEEN .sb-conn and .sb-right — it must NOT be nested in the right group.
+    expect(await page.locator(`${BAR} .sb-right ${ERRORS}`).count()).toBe(0);
+  });
+
+  test('the affordance renders identically across a data-theme flip (neutral shell, AD-9) @fast', async ({ page }) => {
+    await ready(page);
+    const read = () => page.$eval(ERRORS, (el) => {
+      const cs = getComputedStyle(el);
+      return { color: cs.color, font: cs.font, cursor: cs.cursor };
+    });
+    const crt = await read();
+    const text = await page.locator(ERRORS).textContent();
+    // Flip to the clean/Console theme — the neutral shell must not restyle the field.
+    await page.evaluate(() => document.body.setAttribute('data-theme', 'clean'));
+    expect(await read()).toEqual(crt);
+    expect(await page.locator(ERRORS).textContent()).toBe(text);
+  });
+});
+
+test.describe('E4.3 AC-2 — a real error flips the field to amber, live', () => {
+  test('driving one open-failure reads "▲ 1 recent error", data-has-errors=true, amber colour', async ({ page }) => {
+    await ready(page);
+    await expect(page.locator(ERRORS)).toHaveText('▲ 0 recent errors');
+    await driveOneError(page);
+    // Pluralisation: exactly one error → singular "error".
+    await expect(page.locator(ERRORS)).toHaveText('▲ 1 recent error');
+    await expect(page.locator(ERRORS)).toHaveAttribute('data-has-errors', 'true');
+    expect(await page.$eval(ERRORS, (el) => getComputedStyle(el).color)).toBe(AMBER);
+  });
+});
+
+test.describe('E4.3 AC-3 — click opens the Serial Configuration modal, reusing the E2.3 opener', () => {
+  test('clicking #status-errors opens #serial-config-modal focused on #serial-baud, showing #error-log', async ({ page }) => {
+    await ready(page);
+    // Populate the log first so the modal the user came to read actually shows an entry.
+    await driveOneError(page);
+    await expect(page.locator(ERRORS)).toHaveText('▲ 1 recent error');
+    // Activate the affordance → reuses openSerialConfig verbatim (baud focus, AD-8).
+    await page.locator(ERRORS).click();
+    await expect(page.locator('#serial-config-modal')).toBeVisible();
+    // The E2.3 opener sets initialFocus = #serial-baud — proving reuse, not a bespoke target.
+    expect(await page.evaluate(() => document.activeElement && document.activeElement.id))
+      .toBe('serial-baud');
+    // The #error-log the user came to read lives inside that modal and shows the entry.
+    await expect(page.locator('#serial-config-modal #error-log')).not.toHaveText('(no recent errors)');
+  });
+});
+
+test.describe('E4.3 AC-4 — focus retention on the bar\'s first interactive control (NFR-1, AD-10)', () => {
+  test('open+close the modal via the affordance → focus round-trips to #terminal-wrapper', async ({ page }) => {
+    await ready(page);
+    await driveOneError(page);
+    // Open via the affordance, then close via the modal Close button.
+    await page.locator(ERRORS).click();
+    await expect(page.locator('#serial-config-modal')).toBeVisible();
+    await page.click('#serial-config-modal form[method="dialog"] button');
+    await expect(page.locator('#serial-config-modal')).toBeHidden();
+    // restoreTo = terminalWrapper (E2.3, unchanged) round-trips focus back to the terminal.
+    expect(await page.evaluate(() => document.activeElement && document.activeElement.id))
+      .toBe('terminal-wrapper');
+  });
+
+  test('the affordance is registered with retainFocus on its button (mousedown) branch @fast', async ({ page }) => {
+    await ready(page);
+    // #status-errors is a <button> → the mousedown-preventDefault branch (AD-10), so a
+    // mouse click never transfers keyboard focus off the terminal. Proven by the round-trip
+    // above; here we prove the helper was actually wired (a BUTTON/mousedown registry entry).
+    const registered = await page.evaluate(() =>
+      window.__focus.__getStateForTests().elements.some(
+        (e) => e.tag === 'BUTTON' && e.branch === 'mousedown',
+      ),
+    );
+    expect(registered).toBe(true);
   });
 });

@@ -1,7 +1,7 @@
 // Beastty Phase 5 — Web Serial transport (JS-only; no Rust bindings).
 //
-// Public API: renderPoliteFail, wireSerial, connectMicroBeast, disconnect,
-// getState, onStateChange, getWriter, toggleConnection, countMicroBeastAdapters.
+// Public API: renderPoliteFail, wireSerial, connectMicroBeast, requestMicroBeastPort,
+// disconnect, getState, onStateChange, getWriter, toggleConnection, countMicroBeastAdapters.
 //
 // Epic E2 Story E2.1 (AD-15) — the connect-button DOM *projection* moved OUT of
 // this module. serial.js still owns the connection STATE MACHINE (state,
@@ -38,6 +38,12 @@ import { getPrefs } from '../state/prefs.js';
 // Constants -----------------------------------------------------------------
 const VID_MICROBEAST = 0x10c4;   // D-02 — Silicon Labs (CP2102N)
 const PID_MICROBEAST = 0xea60;   // D-02 — CP2102N
+// D-02 — the single MicroBeast identity predicate over a SerialPort.getInfo() result.
+// getConnectionDevice() (device labelling) and countMicroBeastAdapters() (the "Choose
+// MicroBeast…" gate) both call it, so a second PID / loosened match is changed in ONE
+// place and can never drift between how a board is labelled and whether it counts.
+const isMicroBeast = (info) =>
+    !!info && info.usbVendorId === VID_MICROBEAST && info.usbProductId === PID_MICROBEAST;
 const PRESET_CONFIG = Object.freeze({
     baudRate: 19200, dataBits: 8, stopBits: 1, parity: 'none', flowControl: 'none',
 });
@@ -90,6 +96,12 @@ let savePrefsFn = null;
 // affordance the relocated #port-status used to show (serial.js no longer owns
 // that DOM node — status-bar.js does).
 let onBootDeviceRecognizedFn = null;
+// E4.3 fix (FR-28) — fired at the end of appendErrorLog (after renderErrorLog) with
+// the current errorLog.length, so the status-bar recent-errors affordance updates
+// live on every error. Same imperative-push shape as onBootDeviceRecognizedFn:
+// serial.js owns the mutation, main.js's closure calls statusBar.setErrorCount.
+// Null-guarded — a harness that omits it is inert.
+let onErrorLogChangeFn = null;
 // E4.1 fix (#4) — the most-recent connect-TIME failure (open-failed / port-in-use /
 // auto-connect-failed). These land in state 'disconnected', whose dot is gray by
 // design (red is reserved for port-lost), so nothing visibly distinguished a failed
@@ -128,6 +140,7 @@ export async function wireSerial(opts) {
         prefs,                               // Phase 6 Plan 06 (D-34) — auto-connect gate + form persist
         savePrefs,                           // Phase 6 Plan 06 — debounced persist on form change
         onBootDeviceRecognized,              // E4.1 fix — fired when the boot getPorts() scan finds a granted MicroBeast
+        onErrorLogChange,                    // E4.3 (FR-28) — fired on every appendErrorLog with errorLog.length
     } = opts;
     term = termArg;
     sampleBellFn = sampleBell;
@@ -141,6 +154,7 @@ export async function wireSerial(opts) {
     prefsRef = prefs || null;
     savePrefsFn = savePrefs || null;
     onBootDeviceRecognizedFn = onBootDeviceRecognized || null;   // E4.1 fix (#3)
+    onErrorLogChangeFn = onErrorLogChange || null;               // E4.3 (FR-28)
 
     // D-26 — connect/disconnect listeners on navigator.serial (NOT port instances).
     // Registered ONCE at wireSerial boot time. Pitfall #11 — listening on a port
@@ -392,25 +406,38 @@ function hideReconnectHint() {
     serialEls.reconnectHintEl.textContent = '';
 }
 
-export async function connectMicroBeast(configOverride) {
+// D-02 — the filtered native picker. Narrows to the CP2102N MicroBeast bridge by
+// default; when the user opts in via Connection → "Show all serial devices" (e.g. a
+// MicroBeast clone on FTDI/CH340/CP2104, or a virtual COM port) it drops the filter
+// and shows every port. Read the pref live (getPrefs()) — a boot-time snapshot would
+// miss toggles. Throws on cancel / no-match (the caller maps that to a no-op).
+// Exported (E4 review fix) so chooseMicroBeast can pick the NEW port while user
+// activation is still fresh, BEFORE tearing the old one down — requestPort() needs
+// transient activation, open() does not, so the picker must never sit behind a
+// disconnect() that can stall on a wedged adapter.
+export async function requestMicroBeastPort() {
+    const livePrefs = getPrefs() || {};
+    const requestOpts = livePrefs.showAllSerialDevices
+        ? {}
+        : { filters: [{ usbVendorId: VID_MICROBEAST, usbProductId: PID_MICROBEAST }] };
+    return navigator.serial.requestPort(requestOpts);
+}
+
+// `preselectedPort` (E4 review fix) — when the caller has already run the picker
+// (chooseMicroBeast, to keep user activation fresh across a teardown), pass the port
+// here to skip requestPort() and go straight to open().
+export async function connectMicroBeast(configOverride, preselectedPort) {
     lastConnectError = null;   // E4.1 fix (#4) — fresh attempt clears any prior failure cue
     setState('connecting');
-    let selectedPort;
-    try {
-        // D-02 — narrow the native picker to the CP2102N MicroBeast bridge by
-        // default. When the user opts in via Connection → "Show all serial
-        // devices" (e.g. MicroBeast clone using FTDI/CH340/CP2104, or virtual
-        // COM port), drop the filter and show every available port. Read the
-        // pref live (getPrefs()) — a boot-time snapshot would miss toggles.
-        const livePrefs = getPrefs() || {};
-        const requestOpts = livePrefs.showAllSerialDevices
-            ? {}
-            : { filters: [{ usbVendorId: VID_MICROBEAST, usbProductId: PID_MICROBEAST }] };
-        selectedPort = await navigator.serial.requestPort(requestOpts);
-    } catch (err) {
-        // User cancelled picker OR no-match rejection.
-        setState('disconnected');
-        return;
+    let selectedPort = preselectedPort;
+    if (!selectedPort) {
+        try {
+            selectedPort = await requestMicroBeastPort();
+        } catch (err) {
+            // User cancelled picker OR no-match rejection.
+            setState('disconnected');
+            return;
+        }
     }
 
     const config = configOverride || readFormConfig();
@@ -509,6 +536,13 @@ export function getActiveFraming() {
 // pane auto-expand was removed and the disconnected dot is gray by design).
 export function getLastConnectError() { return lastConnectError; }
 
+// E4.3 (FR-28) — the current recent-error count (0..ERROR_LOG_CAP), for the status
+// bar's recent-errors affordance. errorLog is observer-less, so the status bar reads
+// this getter for its initial paint (0 at boot — no connect attempt has run yet) and
+// is fed live updates via the injected onErrorLogChange push (see appendErrorLog).
+// status-bar.js cannot import serial.js (AD-3); main.js injects this as an opt.
+export function getRecentErrorCount() { return errorLog.length; }
+
 // E4.1 fix (#7) — the ACTUAL device label for the status-bar readout: the live open
 // port when connected, else the boot-scan match (lastPortRef) for the "click Connect"
 // cue. Returns the canonical MicroBeast string ONLY when the port's VID/PID actually
@@ -521,25 +555,22 @@ export function getConnectionDevice() {
     if (!p) return null;
     let info;
     try { info = p.getInfo(); } catch { return null; }
-    if (info.usbVendorId === VID_MICROBEAST && info.usbProductId === PID_MICROBEAST) {
+    if (isMicroBeast(info)) {
         return 'MicroBeast (CP2102N 10c4:ea60)';
     }
     const hex = (n) => (n == null ? '????' : n.toString(16).padStart(4, '0'));
     return `Serial device (${hex(info.usbVendorId)}:${hex(info.usbProductId)})`;
 }
 
-// E2.2 (FR-13) — count the currently-granted CP2102N MicroBeast adapters. Reuses
-// the same VID/PID predicate as the onNavSerialConnect multi-adapter guard
-// (:673). menu-bar.js gates "Choose MicroBeast…" on count > 1 but cannot import
-// serial (AD-3), so main.js injects this as opts.getAdapterCount. No-throw:
-// resolves to 0 if getPorts() rejects (never blocks / breaks the menu open).
+// E2.2 (FR-13) — count the currently-granted CP2102N MicroBeast adapters via the
+// shared isMicroBeast() predicate (single source with getConnectionDevice's label).
+// menu-bar.js gates "Choose MicroBeast…" on count > 1 but cannot import serial
+// (AD-3), so main.js injects this as opts.getAdapterCount. No-throw: resolves to 0
+// if getPorts() rejects (never blocks / breaks the menu open).
 export async function countMicroBeastAdapters() {
     let ports;
     try { ports = await navigator.serial.getPorts(); } catch { return 0; }
-    return ports.filter((p) => {
-        const i = p.getInfo();
-        return i.usbVendorId === VID_MICROBEAST && i.usbProductId === PID_MICROBEAST;
-    }).length;
+    return ports.filter((p) => isMicroBeast(p.getInfo())).length;
 }
 
 // --- Internals ------------------------------------------------------------
@@ -664,6 +695,11 @@ function appendErrorLog(code, message) {
     if (errorLog.length > ERROR_LOG_CAP) errorLog.length = ERROR_LOG_CAP;
     renderErrorLog();
     console.error('[serial]', `${ts} ${code}: ${message}`);
+    // E4.3 (FR-28, AD-6) — imperative push to the status-bar recent-errors affordance.
+    // Fired AFTER renderErrorLog so the #error-log and the count never disagree; the
+    // status bar holds no independent truth (this is its only feed besides the boot
+    // getRecentErrorCount read). Null-guarded — inert on a harness that omits the opt.
+    if (onErrorLogChangeFn) onErrorLogChangeFn(errorLog.length);
     // E2.3 (FR-15, AD-6) — the D-27 auto-expand (`connectionPane.open = true`) is
     // REMOVED. The #error-log now lives inside #serial-config-modal, and a modal must
     // never showModal() itself on every error (an error while the user is elsewhere
