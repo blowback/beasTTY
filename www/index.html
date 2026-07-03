@@ -172,6 +172,10 @@
        the bar's muted default (mockup .sb-device). */
     #status-bar .sb-conn { display: flex; align-items: center; gap: 8px; }
     #status-bar #port-status { color: var(--chrome-fg); }
+    /* E4.2 right group (mockup .sb-right) — build SHA + zoom, pinned to the right
+       edge (margin-left:auto). Both spans inherit the bar's muted default: no new
+       tokens, no accent, no [data-theme] branch (AD-9 neutral shell). */
+    #status-bar .sb-right { margin-left: auto; display: flex; gap: 18px; }
     /* Discrete connection-dot colours (UX-DR3) — mirrors the #menu-conn-dot rule
        set exactly; red reserved for port-lost. NO box-shadow (DESIGN.md no-glow
        overrides the mockup), NO transition — the dot snaps. */
@@ -1114,12 +1118,14 @@
     .chrome-modal .field-info:focus-within .field-tip {
       display: block;
     }
-    /* E3.4 — the recv-folder ⓘ is the FIRST row of #slide-config-modal, so the
-       shared upward tip (bottom: 100%) opens into the scrollable .modal-body's
-       clipped top edge and the default-state guidance is cut off. Open THIS tip
-       downward instead — there are rows below it, so no overflow/scrollbar flicker
-       (the downward-overflow concern only applies to ⓘ rows near the modal bottom). */
-    #slide-recv-folder-row .field-tip {
+    /* E3.4 — a ⓘ in the FIRST row of a modal body has the shared upward tip
+       (bottom: 100%) open into the scrollable .modal-body's clipped top edge, cutting
+       off the default-state guidance. Open the first row's tip downward instead —
+       there are rows below it, so no overflow/scrollbar flicker (the downward-overflow
+       concern only applies to ⓘ rows near the modal bottom). Position-derived (the
+       modal-body's first row), NOT pinned to a specific row id, so reordering the rows
+       or adding a new top row keeps whichever row is first correct. */
+    #slide-config-modal .modal-body > :first-child .field-tip {
       bottom: auto;
       top: calc(100% + 6px);
     }
@@ -1678,10 +1684,9 @@
   <!-- Debug harness (D-15) — retained Phase 2 SC-4 demonstration path. -->
   <details id="debug">
     <summary>Debug</summary>
-    <!-- Defect 00001 — build identifier. Populated by www/main.js from the
-         SHA scripts/build.sh stamps into pkg/build-info.js. Lets a user report
-         the exact build they are running regardless of version-number bumps. -->
-    <p class="hint">Build: <code id="build-sha">loading…</code></p>
+    <!-- E4.2 — the build identifier (formerly <code id="build-sha">) relocated to
+         the status bar's #status-build (its permanent home, + Help ▸ About/E6.2).
+         Build info does NOT live in the Debug menu (EXPERIENCE.md / E5.1 scope). -->
     <p class="hint">
       Paste raw bytes, or use <code>\xNN</code> escapes for control bytes
       (e.g., <code>\x1B</code> = ESC, <code>\x07</code> = BEL). Click <b>Feed</b>
@@ -1991,6 +1996,16 @@
     <span class="sb-conn">
       <span id="status-conn-dot" aria-hidden="true"></span>
       <span id="port-status" class="hint" aria-live="polite">Not connected</span>
+    </span>
+    <!-- E4.2 right group (FR-27) — build SHA + live zoom, right-pinned, muted.
+         status-bar.js is the single writer of both (AD-6, fed never owned): build
+         via setBuild (main.js pushes on the build-info import resolve), zoom via
+         setZoom (main.js's pushZoom sink, both View items and the Ctrl chord).
+         Placeholder text avoids a layout flash before the first push / initial
+         paint. E4.3's recent-errors affordance slots in here later. -->
+    <span class="sb-right">
+      <span id="status-build">build …</span>
+      <span id="status-zoom">zoom 1×</span>
     </span>
   </footer>
 

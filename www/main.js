@@ -190,14 +190,18 @@ const bellOverlay     = document.getElementById('bell-overlay');
 function onThemeChange() {
     menuBar.projectPrefs();
 }
-// Epic E1 Story E1.5 (FR-10 / AD-6) — imperative zoom→status-bar push hook. The
-// status bar is E4; until then this is a no-op stub that records the last pushed
-// level (+ a call count) on window.__zoomPush so the Playwright suite can prove
-// the hook fires from BOTH the View ▸ Zoom items and the Ctrl+{=,-,0} chord.
+// Epic E1 Story E1.5 (FR-10 / AD-6) — imperative zoom→status-bar push hook. E4.2
+// gave it a live destination: it pushes the level to status-bar.js's #status-zoom
+// readout. It also records the last pushed level (+ a call count) on
+// window.__zoomPush so the Playwright suite can prove the hook fires from BOTH the
+// View ▸ Zoom items and the Ctrl+{=,-,0} chord (view-font-zoom-clear.spec.js) —
+// those bookkeeping lines MUST stay (E1.5 specs assert them). The window.__statusBar
+// guard keeps a pushZoom fired before the bar is wired (a boot applyPrefs) harmless.
 window.__zoomPush = { last: null, count: 0 };
 function pushZoom(level) {
     window.__zoomPush.last = level;
     window.__zoomPush.count += 1;
+    if (window.__statusBar) window.__statusBar.setZoom(level);   // E4.2 (AD-6) — live #status-zoom
 }
 // Epic E1 Story E1.5 (FR-11) — Clear Scrollback… deliberate-friction confirm.
 // menu-bar.js owns the wipe (clearScrollback); main.js owns the modal so modal.js
@@ -264,6 +268,11 @@ function openReservedCtrl() {
 const slideConfigModalEl = document.getElementById('slide-config-modal');
 function openSlideConfig() {
     if (!slideConfigModalEl) return Promise.resolve('');   // no markup — harness; don't throw
+    // E4.2 review — re-project the auto-send validity cue on every open (reads the
+    // LIVE stored command, not the boot snapshot) so a user inspecting/fixing the
+    // command always sees its current unsafe state; the hint lives in this modal and
+    // the use-time gate fires while it is closed.
+    syncAutoSendValidity(getPrefs()?.slideAutoSendCommand || '');
     const recvToggle = document.getElementById('slide-recv-to-folder-checkbox');
     return openModal(slideConfigModalEl, {
         initialFocus: recvToggle,
@@ -276,24 +285,10 @@ const crlfRadios        = document.querySelectorAll('input[name="crlf"]');
 const txStripEl         = document.getElementById('tx-strip');
 const txResetButton     = document.getElementById('tx-reset');
 const TX_STRIP_PLACEHOLDER = '(none yet — press any key on the terminal to see TX bytes)';
-// Defect 00001 — surface the build SHA in the Debug pane (and on window for the
-// console) so defect reports self-identify the exact running build. build-info.js
-// is emitted by scripts/build.sh into pkg/ (gitignored, regenerated per build).
-// Loaded dynamically with a fallback so a build that skipped build.sh (raw
-// wasm-pack per www/README.md) still boots — the stamp just reads "unbuilt".
-const buildShaEl = document.getElementById('build-sha');
-import('./pkg/build-info.js')
-    .then(({ BUILD_INFO }) => {
-        window.__buildInfo = BUILD_INFO;
-        if (buildShaEl) {
-            buildShaEl.textContent = BUILD_INFO.sha;
-            buildShaEl.title = `built ${BUILD_INFO.builtAt}`;
-        }
-    })
-    .catch(() => {
-        window.__buildInfo = { sha: 'unknown (unbuilt)', builtAt: null };
-        if (buildShaEl) buildShaEl.textContent = 'unknown (unbuilt)';
-    });
+// E4.2 — the build-info import/projection block relocated below the status-bar
+// wire (it now feeds #status-build via statusBar.setBuild); see after
+// `window.__statusBar = statusBar`. window.__buildInfo is still set there for the
+// console reader + Help ▸ About (E6.2).
 // Phase 5 — Connection pane DOM refs (see www/index.html Plan 02 Wave 1).
 // E2.1 (AD-15) — the #connect-button ref moved to menu-bar.js (the sole writer +
 // click owner via its own getElementById); main.js no longer holds it.
@@ -422,18 +417,25 @@ const menuBar = wireMenuBar({
     // behavior" open Q#2): a bare connectMicroBeast() while connected would open a
     // second port and leak the old writer/read loop when a different board is
     // picked. Tearing the existing connection down first makes "choose which
-    // board" a clean switch. AWAIT the teardown so disconnect()'s trailing
+    // board" a clean switch. Await the teardown so disconnect()'s trailing
     // setState('disconnected') lands BEFORE connectMicroBeast()'s
     // setState('connecting') — the un-awaited version raced the two, so the
     // deferred 'disconnected' stomped the 'connecting' paint (dots flipped back to
     // gray "Not connected" while the picker was open, or worse stuck disconnected
-    // over a live port). teardown finishes in ms — well inside Web Serial's ~5s
-    // transient-activation window — so connectMicroBeast()'s requestPort() still
-    // has valid user activation. try/catch keeps a teardown failure from aborting
-    // the switch (and from surfacing as an unhandled rejection).
+    // over a live port). BUT a bare `await disconnect()` re-introduces the hazard
+    // the un-awaited version avoided: requestPort() needs transient user activation
+    // (Chromium ~5s), and a hung/unresponsive adapter whose port.close() stalls past
+    // that window would strand the picker (never shown) AFTER board A was already
+    // torn down. So race the teardown against a short cap: a healthy port resolves in
+    // ms (paints ordered correctly), a stuck one still reaches the picker with
+    // activation intact — the paint order only slips on that pathological slow path.
+    // `.catch` on the teardown swallows a late rejection so it can't surface as an
+    // unhandled rejection after the race has already moved on.
     chooseMicroBeast: async () => {
         if (getState() === 'connected') {
-            try { await disconnect(); } catch { /* teardown best-effort — still switch */ }
+            const teardown = disconnect().catch(() => {});   // best-effort — still switch
+            const cap = new Promise((resolve) => setTimeout(resolve, 1500));
+            await Promise.race([teardown, cap]);
         }
         connectMicroBeast();
     },
@@ -479,6 +481,29 @@ const statusBar = wireStatusBar({
     getConnectionDevice,
 });
 window.__statusBar = statusBar;   // Playwright hook (mirrors window.__menuBar)
+
+// E4.2 (FR-27, AD-6) — route the build stamp into the status bar's #status-build
+// (its permanent home, alongside Help ▸ About/E6.2 — no longer the Debug pane).
+// build-info.js is emitted by scripts/build.sh into pkg/ (gitignored, regenerated
+// per build); loaded dynamically with a fallback so a build that skipped build.sh
+// (raw wasm-pack per www/README.md) still boots — the stamp just reads "unbuilt".
+// Relocated below the statusBar wire so `statusBar` is initialized when the import
+// resolves (a later microtask); status-bar.js must NOT import build-info (AD-3) —
+// the SHA arrives via this imperative setBuild push. window.__buildInfo is retained
+// for the console reader + Help ▸ About (E6.2), which read the SAME stamp.
+import('./pkg/build-info.js')
+    .then(({ BUILD_INFO }) => {
+        window.__buildInfo = BUILD_INFO;
+        statusBar.setBuild(BUILD_INFO);
+    })
+    .catch(() => {
+        // One fallback object, fed to both readers (console + Help ▸ About via
+        // __buildInfo, and the bar via setBuild) so the "unbuilt" wording can never
+        // drift between them.
+        const fallback = { sha: 'unknown (unbuilt)', builtAt: null };
+        window.__buildInfo = fallback;
+        statusBar.setBuild(fallback);
+    });
 
 // ---- Phase 6 Plan 03 (Wave 2) — wire scrollback state machine ----
 // wireScrollState owns the wheel listener (attached to #terminal-wrapper),
@@ -854,26 +879,45 @@ const slideShowSummaryCheckbox = document.getElementById('slide-show-summary');
 const slideConfirmTransfersCheckbox = document.getElementById('slide-confirm-transfers-checkbox');
 const slideCompatSelect = document.getElementById('slide-compat-select');
 
+// Phase 12 SLIDE-38 / E4.2 review — project an auto-send command's safety onto its
+// input cue (#slide-auto-send-input [data-invalid]/[aria-invalid]) and the inline
+// validation hint. Single source for all four sync sites (boot hydration, the input
+// change handler, applyPrefs on reset, AND openSlideConfig) so the three formerly
+// hand-copied toggles can't drift. Re-projecting on modal OPEN is what makes the
+// diagnostic reachable when it matters: the hint lives inside #slide-config-modal, so
+// the use-time gate that fires during a receive (slide.js, modal closed) is never seen
+// live — but any user who opens Settings ▸ SLIDE File Transfer to inspect/fix the
+// command now always sees its current unsafe state. `cmdWithCr` is the stored form
+// (trailing \r included); isAutoSendSafe is no-throw-wrapped so a validator error
+// never blocks the paint. Visual ONLY — never blocks savePrefs (save-time validation
+// is forbidden; slide.js readAutoSendCommandBytes is the wire-safety boundary).
+function syncAutoSendValidity(cmdWithCr) {
+    const inputEl = document.getElementById('slide-auto-send-input');
+    const hintEl = document.getElementById('slide-auto-send-validation-hint');
+    let safe = true;
+    try { safe = isAutoSendSafe(cmdWithCr); } catch { safe = true; }
+    if (inputEl) {
+        if (safe) {
+            inputEl.removeAttribute('data-invalid');
+            inputEl.removeAttribute('aria-invalid');
+        } else {
+            inputEl.setAttribute('data-invalid', 'true');
+            inputEl.setAttribute('aria-invalid', 'true');
+        }
+    }
+    if (hintEl) hintEl.hidden = safe;
+}
+
 if (slideAutoSendInput) {
     // Display value WITHOUT trailing \r — D-06: \r is appended at save time, not displayed.
     const stored = prefs.slideAutoSendCommand || '';
     slideAutoSendInput.value = stored.endsWith('\r') ? stored.slice(0, -1) : stored;
 
-    const slideAutoSendValidationHint = document.getElementById('slide-auto-send-validation-hint');
-
     // Phase 12 SLIDE-38 — boot-time data-invalid sync. If the persisted value
     // is unsafe (e.g. user reloaded after typing a bad command in a previous
-    // session), set the visual cue immediately on first paint so the user
-    // sees the rejection state without waiting for a Send-file click. Phase
-    // 12 UAT Gap A — also surface the validation hint at boot (symmetric
-    // with the change handler's blur path).
-    try {
-        if (!isAutoSendSafe(stored)) {
-            slideAutoSendInput.setAttribute('data-invalid', 'true');
-            slideAutoSendInput.setAttribute('aria-invalid', 'true');
-            if (slideAutoSendValidationHint) slideAutoSendValidationHint.hidden = false;
-        }
-    } catch {}
+    // session), set the visual cue immediately on first paint so the user sees the
+    // rejection state without waiting for a Send-file click (UAT Gap A — hint too).
+    syncAutoSendValidity(stored);
 
     slideAutoSendInput.addEventListener('change', (e) => {
         const v = e.target.value;
@@ -882,30 +926,11 @@ if (slideAutoSendInput) {
         // the source from a hardcoded constant to prefs.slideAutoSendCommand).
         const cmdWithCr = v.length === 0 ? '' : v + '\r';
 
-        // Phase 12 SLIDE-38 — Settings input visual cue (12-UI-SPEC §E).
-        // Visual ONLY — does NOT block savePrefs (Anti-Patterns: save-time
-        // validation is forbidden; the use-time hard gate inside
-        // slide.js readAutoSendCommandBytes is the wire-safety boundary).
-        const safe = isAutoSendSafe(cmdWithCr);
-        if (safe) {
-            slideAutoSendInput.removeAttribute('data-invalid');
-            slideAutoSendInput.removeAttribute('aria-invalid');
-            if (slideAutoSendValidationHint) slideAutoSendValidationHint.hidden = true;
-        } else {
-            slideAutoSendInput.setAttribute('data-invalid', 'true');
-            slideAutoSendInput.setAttribute('aria-invalid', 'true');
-            // Phase 12 UAT Gap A — surface the validation hint on blur too
-            // (symmetric with the red [data-invalid] border). Original
-            // UI-SPEC §D restricted the hint to use-time only; the test 7
-            // user expectation explicitly wanted the hint on blur as well
-            // ("a sub-row hint appears reading 'Auto-send command unsafe —
-            // using disabled.'"). Save-time visual feedback ≠ save-time
-            // validation; savePrefs still persists the unsafe value below
-            // (Anti-Patterns: save BLOCKING is forbidden; visual feedback
-            // is welcomed). The use-time gate inside slide.js
-            // readAutoSendCommandBytes is still the wire-safety boundary.
-            if (slideAutoSendValidationHint) slideAutoSendValidationHint.hidden = false;
-        }
+        // Phase 12 SLIDE-38 — Settings input visual cue (12-UI-SPEC §E). Visual
+        // ONLY — savePrefs below still persists an unsafe value (save-time
+        // validation is forbidden; slide.js readAutoSendCommandBytes is the wire
+        // boundary). UAT Gap A wants the hint on blur too, not just at use-time.
+        syncAutoSendValidity(cmdWithCr);
 
         // Persist + re-arm first-use confirmation (any change to the auto-send
         // command resets slideAutoSendCommandConfirmed to '' so the next
@@ -1323,7 +1348,13 @@ function applyPrefs(p) {
     // NOT here (projectPrefs must never call a canvas setter).
     if (p.font) setFont(p.font);
     setZoom(p.fontZoom);
-    pushZoom(p.fontZoom);   // E1.5 (AD-6) — feed the (future) status bar at the reset setter site
+    // E1.5/E4.2 (AD-6) — feed the status bar the CLAMPED applied level, not the raw
+    // stored pref: canvas.setZoom clamps to [1,4] but loadPrefs does not, so a
+    // corrupt/hand-edited/future-schema fontZoom (e.g. 6 or 0) would render the
+    // terminal at the clamped level while the readout showed the raw one. Read it
+    // back from getActiveZoom() so the readout and the render can never disagree
+    // (matches the chord path, which already pushes getActiveZoom()).
+    pushZoom(getActiveZoom());
     setLocalEcho(p.localEcho);
     if (localEchoCheckbox.checked !== p.localEcho) localEchoCheckbox.checked = p.localEcho;
     setCrlfMode(p.crlfMode);
@@ -1376,18 +1407,7 @@ function applyPrefs(p) {
         slideAutoSendRef.value = cmd.endsWith('\r') ? cmd.slice(0, -1) : cmd;
         // Re-sync the SLIDE-38 validity cue so a reset to the (safe) default clears any
         // stale [data-invalid] border + hint left by a previously-typed unsafe command.
-        let safe = true;
-        try { safe = isAutoSendSafe(cmd); } catch { safe = true; }
-        const slideAutoSendHint = document.getElementById('slide-auto-send-validation-hint');
-        if (safe) {
-            slideAutoSendRef.removeAttribute('data-invalid');
-            slideAutoSendRef.removeAttribute('aria-invalid');
-            if (slideAutoSendHint) slideAutoSendHint.hidden = true;
-        } else {
-            slideAutoSendRef.setAttribute('data-invalid', 'true');
-            slideAutoSendRef.setAttribute('aria-invalid', 'true');
-            if (slideAutoSendHint) slideAutoSendHint.hidden = false;
-        }
+        syncAutoSendValidity(cmd);
     }
     // Serial-config form: mirror stored values so a fresh load shows the
     // persisted config in the Connection-pane form. The Phase 5 D-08

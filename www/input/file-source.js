@@ -238,15 +238,20 @@ function updateButtonState() {
         notifySendGate();   // E3.1 review fix (#6) — disabled → enabled
     } else if (shouldDisable && topBarSendBtnRef.disabled) {
         // Already-disabled — keep the title in sync if the reason changed
-        // (e.g. writer registered while a session was already active).
+        // (e.g. writer registered while a session was already active). notifySendGate
+        // on an actual change so the mirrored File ▸ Send File… row tooltip/aria
+        // re-projects too (projectSendFile reads btn.title); the other two branches
+        // already notify, this one used to silently skip it (E4.2 review fix).
         if (!writerReady && !isPending && !isSending && !isReceiving) {
             if (topBarSendBtnRef.title !== 'Connect to a serial port first') {
                 topBarSendBtnRef.title = 'Connect to a serial port first';
                 topBarSendBtnRef.textContent = '↑ Send file';
+                notifySendGate();
             }
         } else if (topBarSendBtnRef.title !== 'Transfer in progress — wait for completion') {
             topBarSendBtnRef.title = 'Transfer in progress — wait for completion';
             topBarSendBtnRef.textContent = '↑ Send file (sending…)';
+            notifySendGate();
         }
     }
 }

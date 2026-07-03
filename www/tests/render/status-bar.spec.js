@@ -19,9 +19,12 @@
 import { test, expect } from '@playwright/test';
 import { SERIAL_MOCK } from '../transport/mock-serial.js';
 
-const BAR  = '#status-bar';
-const DOT  = '#status-conn-dot';
-const TEXT = '#port-status';
+const BAR   = '#status-bar';
+const DOT   = '#status-conn-dot';
+const TEXT  = '#port-status';
+// E4.2 right group
+const BUILD = '#status-build';
+const ZOOM  = '#status-zoom';
 
 // Boot the full app with the Web Serial mock installed BEFORE any module loads,
 // then wait for the status-bar API + size the canvas.
@@ -177,6 +180,88 @@ test.describe('E4.1 AC-4 — #port-status relocated: exactly one, in the bar', (
     expect(await page.locator(`#connection ${TEXT}`).count()).toBe(0);
     // The decorative dot is hidden from the a11y tree.
     await expect(page.locator(DOT)).toHaveAttribute('aria-hidden', 'true');
+  });
+});
+
+// ===== E4.2 — the right group: build SHA + zoom readout =====
+
+// The build push is async (main.js's pkg/build-info.js dynamic import) — wait for
+// window.__buildInfo before asserting #status-build. The stamp is gitignored /
+// regenerated per build, so read __buildInfo.sha IN-PAGE and never hard-code it.
+async function buildReady(page) {
+  await page.waitForFunction(() => window.__buildInfo && typeof window.__buildInfo.sha === 'string');
+}
+
+// Open View + click a zoom item — mirrors view-font-zoom-clear.spec.js's driving
+// (window.__menuBar.open('view') then [data-action=…]). Waits __menuBar first.
+async function clickZoom(page, action) {
+  await page.waitForFunction(() => window.__menuBar && typeof window.__menuBar.open === 'function');
+  await page.evaluate(() => window.__menuBar.open('view'));
+  await page.click(`#dropdown-view .menu-item[data-action="${action}"]`);
+}
+
+test.describe('E4.2 AC-2 — build SHA readout, single-sourced with Help ▸ About', () => {
+  test('#status-build reads `build <sha>` from the resolved build-info push @fast', async ({ page }) => {
+    await ready(page);
+    await buildReady(page);
+    // Single source: the bar must render EXACTLY window.__buildInfo.sha (the same
+    // value Help ▸ About/E6.2 reads), so the two can never drift. Full SHA (the
+    // "matching Help ▸ About" AC wins over the mockup's short form).
+    const sha = await page.evaluate(() => window.__buildInfo.sha);
+    await expect(page.locator(BUILD)).toHaveText(`build ${sha}`);
+  });
+});
+
+test.describe('E4.2 AC-3 — zoom readout, live, single writer, both input paths', () => {
+  test('initial #status-zoom is `zoom 1×` (default fontZoom), U+00D7 glyph @fast', async ({ page }) => {
+    await ready(page);
+    await expect(page.locator(ZOOM)).toHaveText('zoom 1×');
+  });
+
+  test('a View ▸ Zoom In menu item drives the readout live @fast', async ({ page }) => {
+    await ready(page);
+    await expect(page.locator(ZOOM)).toHaveText('zoom 1×');
+    await clickZoom(page, 'zoom-in');
+    await expect(page.locator(ZOOM)).toHaveText('zoom 2×');
+    // The E1.5 bookkeeping is preserved (view-font-zoom-clear.spec.js depends on it).
+    expect(await page.evaluate(() => window.__zoomPush.last)).toBe(2);
+    await clickZoom(page, 'zoom-actual');
+    await expect(page.locator(ZOOM)).toHaveText('zoom 1×');
+  });
+
+  test('the Ctrl+= chord ALSO drives the readout (both paths funnel one sink) @fast', async ({ page }) => {
+    await ready(page);
+    await expect(page.locator(ZOOM)).toHaveText('zoom 1×');
+    await page.keyboard.press('Control+Equal');
+    await expect(page.locator(ZOOM)).toHaveText('zoom 2×');
+    expect(await page.evaluate(() => window.__zoomPush.last)).toBe(2);
+  });
+});
+
+test.describe('E4.2 AC-1/AC-4 — right group: singletons, containment, neutral shell', () => {
+  test('exactly one #status-build + one #status-zoom, both inside #status-bar .sb-right @fast', async ({ page }) => {
+    await ready(page);
+    expect(await page.locator(BUILD).count()).toBe(1);
+    expect(await page.locator(ZOOM).count()).toBe(1);
+    expect(await page.locator(`${BAR} .sb-right ${BUILD}`).count()).toBe(1);
+    expect(await page.locator(`${BAR} .sb-right ${ZOOM}`).count()).toBe(1);
+  });
+
+  test('the right group renders identically across a data-theme flip (AD-9) @fast', async ({ page }) => {
+    await ready(page);
+    await buildReady(page);
+    const read = () => page.$eval('#status-bar .sb-right', (el) => {
+      const cs = getComputedStyle(el);
+      return { color: cs.color, marginLeft: cs.marginLeft, display: cs.display };
+    });
+    const crt = await read();
+    const buildText = await page.locator(BUILD).textContent();
+    const zoomText  = await page.locator(ZOOM).textContent();
+    // Flip to the clean/Console theme — the neutral shell must not restyle the group.
+    await page.evaluate(() => document.body.setAttribute('data-theme', 'clean'));
+    expect(await read()).toEqual(crt);
+    expect(await page.locator(BUILD).textContent()).toBe(buildText);
+    expect(await page.locator(ZOOM).textContent()).toBe(zoomText);
   });
 });
 

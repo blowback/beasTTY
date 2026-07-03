@@ -51,6 +51,11 @@ const DEVICE_LABEL = 'MicroBeast (CP2102N 10c4:ea60)';
 // Injected deps (set by wireStatusBar).
 let dotElRef = null;              // #status-conn-dot
 let textElRef = null;             // #port-status
+// E4.2 — the right-group fields (FR-27). status-bar.js is their single writer
+// (AD-6); both hold no independent truth and arrive via imperative push:
+// setBuild (one-shot async build stamp) / setZoom (the pushZoom sink).
+let buildElRef = null;            // #status-build
+let zoomElRef = null;             // #status-zoom
 let onConnectionStateChangeFn = null;   // = serial.onStateChange
 let getConnectionStateFn = null;        // = serial.getState
 let getConnectionFramingFn = null;      // = serial.getActiveFraming (fix #2 — live open-config framing)
@@ -132,6 +137,31 @@ function composeText(state) {
     return CONN_STATUS_LABELS[state] || CONN_STATUS_LABELS.disconnected;
 }
 
+// ====== Right group: build SHA + zoom (E4.2, FR-27 — the sole writer of
+// #status-build + #status-zoom; both fed by imperative push, AD-6) ======
+
+// Build SHA readout — fed the one-shot async build stamp (main.js pushes on the
+// pkg/build-info.js import resolve; status-bar.js must NOT import it — AD-3). Text
+// is the FULL BUILD_INFO.sha so the bar and Help ▸ About render one source and
+// never disagree; the builtAt timestamp goes on the title (mirrors the old debug
+// pane). Null-guarded so the no-markup harness path never throws.
+function setBuild(info) {
+    if (!buildElRef) return;
+    buildElRef.textContent = `build ${info?.sha ?? 'unknown (unbuilt)'}`;
+    if (info?.builtAt) buildElRef.title = `built ${info.builtAt}`;
+}
+
+// Zoom readout — fed by main.js's pushZoom sink (View ▸ Zoom items AND the
+// Ctrl+{=,-,0} chord both funnel here). `level` is the integer 1..4 (main.js
+// pushes the CLAMPED getActiveZoom(), so this never renders an out-of-range
+// stored value); `×` is the multiplication sign U+00D7 (never the letter x).
+// Null-guarded. The DOM text is the single store of the level — tests read it
+// via __getStateForTests().zoom (no separate mirror to drift).
+function setZoom(level) {
+    if (!zoomElRef) return;
+    zoomElRef.textContent = `zoom ${level}×`;
+}
+
 // ====== wireStatusBar initializer (composition-root DI — AD-1/AD-2) ======
 
 export function wireStatusBar(opts) {
@@ -143,9 +173,11 @@ export function wireStatusBar(opts) {
         getConnectionDevice,       // = serial.getConnectionDevice (fix #7)
     } = opts || {};
 
-    // Grab the two owned fields by id (mirror how menu-bar.js grabs #menu-conn-dot).
+    // Grab the owned fields by id (mirror how menu-bar.js grabs #menu-conn-dot).
     dotElRef = document.getElementById('status-conn-dot');
     textElRef = document.getElementById('port-status');
+    buildElRef = document.getElementById('status-build');   // E4.2 right group
+    zoomElRef = document.getElementById('status-zoom');      // E4.2 right group
     onConnectionStateChangeFn = onConnectionStateChange || null;
     getConnectionStateFn = getConnectionState || null;
     getConnectionDeviceFn = getConnectionDevice || null;
@@ -162,6 +194,17 @@ export function wireStatusBar(opts) {
     // Initial paint (AD-1). status-bar wires after wireSerial's boot scan but the
     // machine starts 'disconnected', so the first paint is Not connected / gray.
     projectConnection(getConnectionStateFn ? (getConnectionStateFn() || 'disconnected') : 'disconnected');
+
+    // E4.2 — best-effort initial zoom paint from prefs (AD-3 allowlist — getPrefs
+    // is imported), so the bar shows the stored level before the authoritative push
+    // rather than flashing the placeholder across the `await wireSerial` that sits
+    // between this wire and main.js's boot applyPrefs. This is a PRE-paint only:
+    // main.js's pushZoom(getActiveZoom()) at boot AND every resetPrefs() feeds the
+    // CLAMPED, applied level and is the source of truth (canvas clamps to [1,4],
+    // this raw read does not). `?? 1` keeps it crash-safe if getPrefs() is null
+    // (loadPrefs not yet run) — it must not abort the wire. Build has no synchronous
+    // source, so its placeholder holds until main.js pushes setBuild on import.
+    setZoom(getPrefs()?.fontZoom ?? 1);
 
     return {
         // AD-6 imperative-push hook: observer-less sources (a baud/serial-config
@@ -183,6 +226,11 @@ export function wireStatusBar(opts) {
         // (incl. the transient connecting/reconnecting labels) without racing a live
         // serial handshake — mirrors menu-bar.js's projectConnection test seam.
         projectConnection,
+        // E4.2 (AD-6) imperative-push hooks for the two observer-less right-group
+        // sources: setBuild for the one-shot async build stamp, setZoom for the
+        // pushZoom sink (both View items + the Ctrl chord). main.js is the caller.
+        setBuild,
+        setZoom,
         dispose,
         __getStateForTests,
         __resetForTests,
@@ -203,6 +251,9 @@ export function __getStateForTests() {
         dotState: dotElRef ? dotElRef.dataset.state : null,
         text: textElRef ? textElRef.textContent : null,
         hasSubscription: connUnsub !== null,
+        // E4.2 right group
+        build: buildElRef ? buildElRef.textContent : null,
+        zoom: zoomElRef ? zoomElRef.textContent : null,
     };
 }
 
@@ -212,4 +263,8 @@ export function __resetForTests() {
     bootDeviceReady = false;
     if (dotElRef) dotElRef.dataset.state = 'disconnected';
     if (textElRef) textElRef.textContent = CONN_STATUS_LABELS.disconnected;
+    // E4.2 — build reverts to its placeholder (no synchronous source); zoom
+    // re-paints from prefs (mirrors the crash-safe initial wire-time paint).
+    if (buildElRef) buildElRef.textContent = 'build …';
+    setZoom(getPrefs()?.fontZoom ?? 1);
 }

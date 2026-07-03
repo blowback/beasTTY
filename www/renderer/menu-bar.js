@@ -827,6 +827,17 @@ function onItemClick(item, ev) {
     const disabled = item.getAttribute('data-disabled') === 'true';
     if (disabled) return;                // inert (incl. Phosphor / Font parent off-CRT)
 
+    // E3.3 (D-35) — Reset all preferences is a CONSECUTIVE 2-click confirm: any other
+    // menu activation between the two clicks disarms it, so a checkable toggle or radio
+    // select can no longer sit between the clicks and let the second one commit a reset
+    // across an unrelated interaction (the legacy standalone button couldn't be
+    // interleaved either). Placed before every branch so no activation path slips past;
+    // the second reset-prefs click is data-action reset-prefs, so it is exempt here and
+    // reaches its commit branch below.
+    if (resetPrefsConfirmTimer !== null && item.getAttribute('data-action') !== 'reset-prefs') {
+        disarmResetConfirm();
+    }
+
     // E1.4 — a click inside a .submenu panel is a radio SELECT (Theme/Phosphor/Font).
     // Routed before the variant switch; radio select keeps the menu open (AD-7).
     const panel = item.closest('.submenu');
@@ -890,13 +901,20 @@ function onItemClick(item, ev) {
         closeMenu();
         return;
     }
-    // E2.3 (FR-15, AD-3/AD-8) — Serial Configuration… closes the dropdown, then opens
-    // the injected #serial-config-modal (main.js openSerialConfig → openModal). Mirrors
-    // the E1.5 clear-scrollback modal-open shape (closeMenu() then ref?.()), but here in
-    // onItemClick — this is a Connection-menu action, NOT a View action (runViewAction).
-    if (action === 'serial-config') {
+    // E2.3/E3.3/E3.4 (FR-15/FR-21/FR-20, AD-3/AD-8) — menu items that just open an
+    // injected modal all share ONE shape: close the dropdown (action semantics), then
+    // open the modal (each opener → main.js openXxx → openModal; menu-bar cannot import
+    // modal.js). Table-driven so a new modal (e.g. Help ▸ About/E6.2) is one entry, not
+    // another copy-pasted branch that can drift on closeMenu ordering. A present-but-null
+    // ref (harness) still closes the menu then no-ops, matching the old `ref?.()`.
+    const modalOpener = {
+        'serial-config': openSerialConfigRef,   // Connection ▸ Serial Configuration…
+        'reserved-ctrl': openReservedCtrlRef,   // Settings ▸ Browser-reserved Ctrl combos…
+        'slide-config': openSlideConfigRef,     // Settings ▸ SLIDE File Transfer…
+    }[action];
+    if (modalOpener !== undefined) {
         closeMenu();
-        openSerialConfigRef?.();
+        modalOpener?.();
         return;
     }
     // E3.1 (FR-16, AC-1) — File ▸ Send File… opens the existing picker→#send-modal
@@ -914,23 +932,6 @@ function onItemClick(item, ev) {
     if (action === 'download-log') {
         closeMenu();
         downloadLogRef?.();
-        return;
-    }
-    // E3.3 (FR-21, AD-3/AD-8) — Browser-reserved Ctrl combinations… closes the
-    // dropdown, then opens the injected #reserved-ctrl-modal (main.js openReservedCtrl
-    // → openModal). Exact mirror of the E2.3 serial-config branch above.
-    if (action === 'reserved-ctrl') {
-        closeMenu();
-        openReservedCtrlRef?.();
-        return;
-    }
-    // E3.4 (FR-20, AD-3/AD-8) — SLIDE File Transfer… closes the dropdown, then opens the
-    // injected #slide-config-modal (main.js openSlideConfig → openModal). Exact mirror of
-    // the E2.3 serial-config / E3.3 reserved-ctrl branches. Placed BEFORE the generic
-    // runViewAction fallthrough so it never routes through a View action.
-    if (action === 'slide-config') {
-        closeMenu();
-        openSlideConfigRef?.();
         return;
     }
     // E3.3 (FR-22, AD-4/AD-14) — Reset all preferences: a THIRD menu-item behaviour
