@@ -305,9 +305,74 @@ test.describe('E1.1 ARIA state — roles carry their required state attributes',
   test('disabled items expose aria-disabled to assistive tech @fast', async ({ page }) => {
     await ready(page);
     // E2.2 — Connection's disabled placeholder is gone; File ▸ Download Session Log
-    // remains the permanently-disabled row (until E3.1).
+    // is the disabled-by-default row (dynamic since E3.1 — enables on first RX byte).
     await page.click('#menu-file');
     const disabled = page.locator('#dropdown-file .menu-item[data-disabled="true"]');
     await expect(disabled).toHaveAttribute('aria-disabled', 'true');
+  });
+});
+
+// Epic E3 Story E3.1 — File ▸ Send File… + Download Session Log wiring.
+// The two inert File rows are now live action items driving the existing
+// picker→#send-modal path and session-log download() via injected opts (AD-3).
+// Covers AC-1 (Send File… action semantics + retainFocus), AC-4 (disabled-until-
+// bytes + inert), AC-5/AC-7 (enable transition via the session-log onStateChange
+// hook + the projectSessionLog projector). The menu-triggered picker→modal and
+// the menu-triggered download live in file-source.spec.js / log-download.spec.js
+// (transport-adjacent), leaving the pure render/projection assertions here.
+const SESSION_LOG_ENABLED_TIP = 'Download all bytes received this connection (.bin)';
+const SESSION_LOG_DISABLED_TIP = 'No bytes received yet';
+
+test.describe('E3.1 — File menu Send File… + Download Session Log', () => {
+  test('Send File… closes the menu (action semantics) + retains terminal focus @fast', async ({ page }) => {
+    await ready(page);
+    await page.locator('#terminal-wrapper').focus();
+    // Pre-Connect the picker gate is closed (no writer), so activating the row is a
+    // clean action: it closes the menu and openSendPicker no-ops (no native picker),
+    // isolating the AC-1/AC-3 contract — retainFocus leaves focus on the wrapper.
+    await expect(page.locator('#send-file-button')).toBeDisabled();
+    await page.evaluate(() => window.__menuBar.open('file'));
+    await expect(page.locator('#dropdown-file')).toBeVisible();
+    await page.click('#dropdown-file .menu-item[data-action="send-file"]');
+    await expect(page.locator('#dropdown-file')).toBeHidden();
+    expect(await page.evaluate(() => document.activeElement.id)).toBe('terminal-wrapper');
+  });
+
+  test('Download Session Log is disabled + inert with no bytes (AC-4) @fast', async ({ page }) => {
+    await ready(page);
+    await page.evaluate(() => window.__menuBar.open('file'));
+    const row = page.locator('#menu-download-log-item');
+    await expect(row).toHaveAttribute('data-disabled', 'true');
+    await expect(row).toHaveAttribute('aria-disabled', 'true');
+    await expect(row).toHaveAttribute('title', SESSION_LOG_DISABLED_TIP);
+    // force:true bypasses Playwright's aria-disabled actionability guard, simulating
+    // the physical click a user can still land; the onItemClick data-disabled guard
+    // must keep it inert — the menu stays open and nothing throws.
+    await row.click({ force: true });
+    await expect(page.locator('#dropdown-file')).toBeVisible();
+  });
+
+  test('Download Session Log enables on first RX byte via the onStateChange hook (AC-5/AC-7) @fast', async ({ page }) => {
+    await ready(page);
+    // Push a byte through the real session-log accumulator; its onStateChange hook
+    // re-projects the menu row to enabled without the menu being reopened.
+    await page.evaluate(() => window.__sessionLog.append(new Uint8Array([0x41])));
+    const row = page.locator('#menu-download-log-item');
+    await expect(row).not.toHaveAttribute('data-disabled', 'true');
+    await expect(row).not.toHaveAttribute('aria-disabled', 'true');
+    await expect(row).toHaveAttribute('title', SESSION_LOG_ENABLED_TIP);
+    // The now-enabled row is a live action (open-time projection agrees).
+    await page.evaluate(() => window.__menuBar.open('file'));
+    await expect(row).not.toHaveAttribute('data-disabled', 'true');
+  });
+
+  test('projectSessionLog drives the row from the live byte count directly @fast', async ({ page }) => {
+    await ready(page);
+    await page.evaluate(() => window.__sessionLog.append(new Uint8Array([1, 2, 3])));
+    // Drive the projector directly (mirrors projectConnection in the E2 specs).
+    await page.evaluate(() => window.__menuBar.projectSessionLog());
+    const row = page.locator('#menu-download-log-item');
+    await expect(row).not.toHaveAttribute('data-disabled', 'true');
+    await expect(row).toHaveAttribute('title', SESSION_LOG_ENABLED_TIP);
   });
 });

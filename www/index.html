@@ -1075,10 +1075,25 @@
     <div class="menu-group">
       <button id="menu-file" class="menu-title" type="button" aria-haspopup="true" aria-expanded="false">File</button>
       <div id="dropdown-file" class="dropdown" role="menu" hidden>
-        <button class="menu-item" type="button" role="menuitem" data-variant="action">
-          <span class="check"></span><span class="lbl">Send File…</span><span class="caret">▸ modal</span>
+        <!-- E3.1 (FR-16, AC-1) — Send File… drives the SAME picker→#send-modal path
+             as the legacy #send-file-button, via the injected openSendPicker opt
+             (AD-3: menu-bar reaches file-source only through opts). data-action
+             routes the click through onItemClick's send-file branch → closeMenu()
+             + sendFileRef(). No ▸ caret (reserved for radio submenus, DESIGN
+             §Components); the trailing … signals "opens further UI". -->
+        <button id="menu-send-file-item" class="menu-item" type="button" role="menuitem"
+                data-variant="action" data-action="send-file">
+          <span class="check"></span><span class="lbl">Send File…</span>
         </button>
-        <button class="menu-item" type="button" role="menuitem" data-variant="disabled"
+        <!-- E3.1 (FR-17, AC-4/AC-5) — Download Session Log. data-variant="action"
+             (the disabled state is now DYNAMIC, driven by data-disabled — mirroring
+             the phosphor submenu's live enable/disable). Starts disabled ("No bytes
+             received yet"); menu-bar's projectSessionLog flips it enabled once RX
+             bytes exist (open-time projection + the session-log onStateChange hook).
+             menu-bar drives the click through the download-log branch → closeMenu()
+             + downloadLogRef(). -->
+        <button id="menu-download-log-item" class="menu-item" type="button" role="menuitem"
+                data-variant="action" data-action="download-log"
                 data-disabled="true" aria-disabled="true" title="No bytes received yet">
           <span class="check"></span><span class="lbl">Download Session Log</span>
         </button>
@@ -1304,7 +1319,11 @@
          multi-file <input> picker. Frequency-gradient ordering: connection-state
          → visible-screen-action → file-action → display-toggle → display-config.
          The ↑ is U+2191 UPWARDS ARROW (single char, chrome font fallback chain).
-         Slotted between #clear-button and #theme-toggle per UI-SPEC §Layout. -->
+         Slotted between #clear-button and #theme-toggle per UI-SPEC §Layout.
+         E3.1 (AC-8, E7 coexistence) — File ▸ Send File… now opens this SAME picker
+         via file-source's openSendPicker; this button + #send-file-input RETIRE with
+         #top-bar in E7 (E1 retro action #5 / E2 retro action #4). file-source.js
+         stays the sole owner of the picker gate; menu-bar mirrors nothing here. -->
     <button id="send-file-button" type="button"
             title="Send file(s) to MicroBeast via SLIDE">↑ Send file</button>
     <input id="send-file-input" type="file" multiple hidden>
@@ -1332,7 +1351,12 @@
     <p id="port-status" class="hint" aria-live="polite">Not connected</p>
     <!-- Phase 6 D-31 (Plan 06-05) — per-connection RX log download. Disabled
          until the first byte arrives; tooltip cycles per session-log.js.
-         E3 (File menu / SLIDE modal) relocates this. -->
+         E3.1 (AC-6/AC-8, E7 coexistence) — File ▸ Download Session Log now drives
+         the SAME session-log download() via the injected downloadSessionLog opt;
+         session-log.js stays the SOLE writer of THIS button (menu-bar owns only its
+         own row, learning the enable/disable via the onStateChange hook). This
+         button + the vestigial <details id="connection"> RETIRE with #top-bar in E7
+         (E1 retro action #5 / E2 retro action #4). -->
     <button id="download-log-button" type="button" disabled
             title="No bytes received yet">Download log</button>
     <p class="hint">Connection details persist across reload for the same USB device. Serial config persists per the Settings → preferences blob.</p>

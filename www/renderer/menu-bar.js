@@ -133,6 +133,20 @@ let confirmClearScrollbackRef = null;
 // promise, ignored here). Optional: a harness that omits it leaves the click inert.
 let openSerialConfigRef = null;
 
+// E3.1 (FR-16/FR-17, AD-3) — File-menu injected seams. sendFileRef opens the
+// existing picker→#send-modal path (file-source.openSendPicker); downloadLogRef
+// invokes the existing session-log download(); getSessionLogBytesRef reads the
+// live RX byte count that gates the row (projectSessionLog); sessionLogTooltipsRef
+// carries the two verbatim tooltip strings (single-sourced from session-log.js so
+// menu-bar never re-hardcodes them — AC-4). All arrive via opts (menu-bar imports
+// neither file-source nor session-log — AD-3). downloadLogItemEl is the row this
+// module is the SOLE writer of; it never touches the legacy #download-log-button.
+let sendFileRef = null;
+let downloadLogRef = null;
+let getSessionLogBytesRef = null;
+let sessionLogTooltipsRef = null;
+let downloadLogItemEl = null;      // #menu-download-log-item — disabled↔enabled per byte count
+
 // E2.1 (AD-15) — connection projection state. serial.js arrives via opts (never a
 // direct import — AD-3): toggleConnectionRef is the exported click action;
 // getConnectionStateRef reads the current state for the initial paint;
@@ -240,6 +254,15 @@ export function wireMenuBar(opts = {}) {
     pushZoomRef = opts.pushZoom || null;
     confirmClearScrollbackRef = opts.confirmClearScrollback || null;
     openSerialConfigRef = opts.openSerialConfig || null;   // E2.3 (FR-15, AD-3)
+    // E3.1 (FR-16/FR-17, AD-3) — File-menu seams. All optional: a harness that
+    // omits sendFile / downloadSessionLog leaves the row's click inert; one that
+    // omits getSessionLogBytes leaves the row permanently disabled; one that omits
+    // sessionLogTooltips leaves projectSessionLog's title write a no-op (the HTML
+    // initial title stands).
+    sendFileRef = opts.sendFile || null;
+    downloadLogRef = opts.downloadSessionLog || null;
+    getSessionLogBytesRef = opts.getSessionLogBytes || null;
+    sessionLogTooltipsRef = opts.sessionLogTooltips || null;
     // E2.1 (AD-15) — serial injected via opts (AD-3: not a direct import). All
     // optional: a harness that omits them leaves the Connect projection inert.
     toggleConnectionRef = opts.toggleConnection || null;
@@ -337,6 +360,13 @@ export function wireMenuBar(opts = {}) {
     autoConnectItemEl = document.getElementById('menu-autoconnect-item');
     chooseMicroBeastItemEl = document.getElementById('menu-choose-microbeast-item');
     projectAutoConnect();
+
+    // E3.1 (FR-17) — discover the Download Session Log row (same by-id convention)
+    // and take its initial paint from the live byte count. At boot the count is 0,
+    // so this matches the HTML disabled state; it also self-corrects if a re-wire
+    // happens mid-session with bytes already accumulated.
+    downloadLogItemEl = document.getElementById('menu-download-log-item');
+    projectSessionLog();
 
     render();
     return buildApi();
@@ -783,6 +813,23 @@ function onItemClick(item, ev) {
         openSerialConfigRef?.();
         return;
     }
+    // E3.1 (FR-16, AC-1) — File ▸ Send File… opens the existing picker→#send-modal
+    // path (file-source.openSendPicker, injected). Close the menu first (action
+    // semantics), then open the picker; openSendPicker honors its own disabled gate.
+    if (action === 'send-file') {
+        closeMenu();
+        sendFileRef?.();
+        return;
+    }
+    // E3.1 (FR-17, AC-5) — File ▸ Download Session Log invokes the existing
+    // session-log download() (injected). The data-disabled guard at the top of
+    // onItemClick already blocks activation while the row is disabled (no bytes),
+    // so no extra guard is needed here. Close the menu (action semantics).
+    if (action === 'download-log') {
+        closeMenu();
+        downloadLogRef?.();
+        return;
+    }
     // E1.5 — an action row carrying data-action drives a View action (zoom / clear);
     // a bare action row just closes the menu.
     if (action) { runViewAction(action, ev); return; }
@@ -884,6 +931,9 @@ function projectMenuOnOpen() {
         projectAutoConnect();
         refreshChooseMicroBeast();
     }
+    // E3.1 (AC-5) — File: re-derive the Download Session Log row from the live RX
+    // byte count each open (open-time projection).
+    if (openMenu === 'file') projectSessionLog();
 }
 
 // E2.2 (AC-1/AC-3) — project the Auto-connect checkable row from prefs.autoConnect
@@ -896,6 +946,37 @@ function projectAutoConnect(prefs) {
     if (!p) return;
     autoConnectItemEl.setAttribute('data-checked', p.autoConnect ? 'true' : 'false');
     syncCheckGlyph(autoConnectItemEl);               // projects glyph + aria-checked
+}
+
+// E3.1 (FR-17, AC-4/AC-5) — project the Download Session Log row from the live RX
+// byte count at USE-TIME. Modeled on syncSubmenuDisabled but INVERSE polarity:
+// bytes>0 → enabled; else disabled. Read-at-use, no-throw, idempotent; NEVER
+// re-drives session-log (a projector that reads a machine must never write it —
+// the E1.4 double-apply lesson). Called at wire time, on every File-menu open
+// (projectMenuOnOpen), and by the session-log onStateChange hook (live + reset).
+//
+// Enabling the row while the File menu is held open changes focusableItems()
+// membership (disabled rows are excluded), which would strand a keyboard-focused
+// highlight — so re-anchor exactly like setChooseMicroBeastPresent: capture the
+// focused row BEFORE the flip, restore its new index after (clamp if it's gone).
+function projectSessionLog() {
+    if (!downloadLogItemEl) return;                  // row absent (harness) — no-op
+    const focused = (openMenu === 'file') ? currentFocusedItem() : null;
+    const hasBytes = (getSessionLogBytesRef ? getSessionLogBytesRef() : 0) > 0;
+    if (hasBytes) {
+        downloadLogItemEl.removeAttribute('data-disabled');
+        downloadLogItemEl.removeAttribute('aria-disabled');
+        if (sessionLogTooltipsRef) downloadLogItemEl.setAttribute('title', sessionLogTooltipsRef.enabled);
+    } else {
+        downloadLogItemEl.setAttribute('data-disabled', 'true');
+        downloadLogItemEl.setAttribute('aria-disabled', 'true');
+        if (sessionLogTooltipsRef) downloadLogItemEl.setAttribute('title', sessionLogTooltipsRef.disabled);
+    }
+    // Re-anchor keyboard focus if the row's focusable membership changed under the
+    // cursor while File is open. Gated on openMenu so an onStateChange fire while a
+    // DIFFERENT menu is open never disturbs that menu's focus; no-op on the
+    // mouse/click path (focused is null → focusedIndex -1).
+    if (openMenu === 'file') reanchorFocus(focused);
 }
 
 // E2.2 (AC-2, FR-13) — async-count the granted CP2102N adapters and show Choose
@@ -926,11 +1007,7 @@ function setChooseMicroBeastPresent(present) {
     const focused = currentFocusedItem();
     if (present) chooseMicroBeastItemEl.removeAttribute('hidden');
     else chooseMicroBeastItemEl.setAttribute('hidden', '');
-    if (focused) {
-        const idx = focusableItems().indexOf(focused);
-        if (idx >= 0) { focusedIndex = idx; renderFocus(); refreshLiveRegion(); return; }
-    }
-    reconcileFocusedRow();
+    reanchorFocus(focused);
 }
 
 function closeMenu() {
@@ -996,6 +1073,21 @@ function reconcileFocusedRow() {
     if (focusedIndex >= items.length) focusedIndex = items.length ? items.length - 1 : -1;
     renderFocus();
     refreshLiveRegion();
+}
+
+// Re-anchor the keyboard highlight after a row's focusable membership changed
+// (a row shown/hidden or enabled/disabled) while a menu is open. Pass the row
+// that WAS keyboard-focused, captured BEFORE the membership change (null on the
+// mouse/click path, focusedIndex -1). Adding/removing a row above the focused
+// one shifts every focusableItems() index, so re-find the same row's NEW index
+// rather than clamping blindly; if it's gone (it was the row that just left the
+// set), fall back to reconcileFocusedRow()'s clamp. Single source of truth for
+// the setChooseMicroBeastPresent / projectSessionLog re-anchor step.
+function reanchorFocus(focused) {
+    if (!focused) { reconcileFocusedRow(); return; }
+    const idx = focusableItems().indexOf(focused);
+    if (idx >= 0) { focusedIndex = idx; renderFocus(); refreshLiveRegion(); return; }
+    reconcileFocusedRow();
 }
 
 // ====== E1.3 (AD-14) — reset re-projection seam ======
@@ -1119,6 +1211,11 @@ function buildApi() {
         // deterministically (incl. the transient connecting/reconnecting labels)
         // without racing a live serial handshake.
         projectConnection,
+        // E3.1 (AC-5/AC-7) — main.js wires session-log's onStateChange to this so
+        // the File ▸ Download Session Log row re-projects on the first-byte enable
+        // and the reset-to-disabled. Also exposed so tests can drive the projection
+        // directly after stubbing the byte count.
+        projectSessionLog,
         dispose,
         __getStateForTests,
         __resetForTests,

@@ -180,6 +180,20 @@ export function wireFileSource(opts) {
     buttonStateInterval = setInterval(updateButtonState, 200);
 }
 
+// ===== Epic E3 Story E3.1 (FR-16, AC-1) — menu-path picker entry =====
+// File ▸ Send File… routes here (injected into wireMenuBar as opts.sendFile) so
+// menu-bar drives the SAME picker→#send-modal path as the legacy #send-file-button
+// WITHOUT importing file-source (AD-3 / relocation-strategy: inject-the-action).
+// Honors the identical disabled gate the top-bar button click short-circuits on
+// (updateButtonState disables it while a SLIDE session is pending/active or no
+// writer is ready) — so it is inert in exactly the same states. Deliberately does
+// NOT call sendInput.click() raw: routing through the gate is the whole point.
+export function openSendPicker() {
+    if (!topBarSendBtnRef || !topBarSendInputRef) return;   // unwired harness — no-op
+    if (topBarSendBtnRef.disabled) return;                  // same gate as the button click
+    topBarSendInputRef.click();
+}
+
 function updateButtonState() {
     if (!getSlideStateFn || !topBarSendBtnRef) return;
     let st;

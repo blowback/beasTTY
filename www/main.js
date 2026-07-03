@@ -103,6 +103,7 @@ import {
 } from './input/paste-pump.js';
 import {
     wireFileSource,
+    openSendPicker,                                          // E3.1 (FR-16) — File ▸ Send File… picker entry (injected into wireMenuBar)
     computeRenameScheme as fileSourceComputeRenameScheme,   // Phase 12 SLIDE-36 — pure helper for Playwright tests
     __resetForTests as __fileSourceResetForTests,
     __getStateForTests as __fileSourceGetStateForTests,
@@ -155,6 +156,7 @@ import {
     append as sessionLogAppend,
     download as sessionLogDownload,
     getCurrentBytes as sessionLogBytes,
+    SESSION_LOG_TOOLTIPS,                       // E3.1 (AC-4) — single-sourced tooltip copy injected into wireMenuBar
 } from './transport/session-log.js';
 
 // ---- init + construction (Phase 2 — unchanged) ----
@@ -355,6 +357,15 @@ const menuBar = wireMenuBar({
     // opens the #serial-config-modal. main.js owns openModal (modal.js stays out of
     // menu-bar's import set), so the opener is injected like confirmClearScrollback.
     openSerialConfig,
+    // Epic E3 Story E3.1 (FR-16/FR-17, AD-3) — File ▸ Send File… and Download
+    // Session Log. sendFile opens the existing picker→#send-modal path;
+    // downloadSessionLog / getSessionLogBytes are session-log's existing exports;
+    // sessionLogTooltips single-sources the row's tooltip copy (AC-4). menu-bar
+    // reaches file-source + session-log ONLY across this seam (it imports neither).
+    sendFile: openSendPicker,
+    downloadSessionLog: sessionLogDownload,
+    getSessionLogBytes: sessionLogBytes,
+    sessionLogTooltips: SESSION_LOG_TOOLTIPS,
     // Epic E2 Story E2.1 (AD-15) — the Connect item is now menu-bar-owned. Inject
     // the serial machine's subscribe/read/toggle so menu-bar can be the sole
     // writer of every Connect surface without importing serial.js (AD-3).
@@ -616,7 +627,15 @@ window.__pastePump = {
 // is bound by the time the first chunk arrives. The Connection-pane
 // #download-log-button is registered here; sessionLog.reset() runs inside
 // wireSerial's connectMicroBeast / finishReconnect paths.
-wireSessionLog({ downloadButton: downloadLogBtn });
+// E3.1 (AC-5/AC-7) — onStateChange re-projects the File ▸ Download Session Log
+// menu row on the first-byte enable and the reset-to-disabled. menuBar is defined
+// above (:338), so the ref exists; projectSessionLog reads the live byte count
+// itself (the enabled arg is unused here). Keeps session-log the sole writer of
+// its button and menu-bar the sole writer of its row.
+wireSessionLog({
+    downloadButton: downloadLogBtn,
+    onStateChange: () => menuBar.projectSessionLog?.(),
+});
 // Test introspection — Playwright drives append/reset/download via the spec
 // to assert per-connection lifecycle without touching real Web Serial.
 window.__sessionLog = {

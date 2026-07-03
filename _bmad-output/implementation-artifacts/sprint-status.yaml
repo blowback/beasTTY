@@ -46,7 +46,7 @@
 #   E1 is the backbone and must land before the other menu/modal epics.
 
 generated: 2026-07-01
-last_updated: 2026-07-03  # E2 retrospective done; E2 action items appended
+last_updated: 2026-07-03  # E3.1 → done (code-review + cleanup fixes applied, 151 @fast green)
 # retrospective action items (surface open ones during sprint status)
 action_items:
   - epic: "e0"
@@ -130,8 +130,8 @@ development_status:
   epic-e2-retrospective: done
 
   # ── Epic E3 · File, Settings & Transfer Configuration (depends on: E0, E1) ──
-  epic-e3: backlog
-  e3-1-file-menu-send-file-download-session-log: backlog
+  epic-e3: in-progress
+  e3-1-file-menu-send-file-download-session-log: done
   e3-2-settings-menu-local-echo-enter-key-sends: backlog
   e3-3-settings-menu-reset-all-preferences-reserved-ctrl-info: backlog
   e3-4-slide-file-transfer-modal: backlog

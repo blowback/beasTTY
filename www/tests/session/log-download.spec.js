@@ -117,4 +117,34 @@ test.describe('SESS-04/SESS-05 — Session log download', () => {
         await page.waitForSelector('#connect-button[data-state="connected"]');
         expect(await page.evaluate(() => window.__sessionLog.getCurrentBytes())).toBe(0);
     });
+
+    // E3.1 (AC-5) — File ▸ Download Session Log drives the SAME download() as the
+    // legacy #download-log-button. The legacy-button cases above stay green
+    // (session-log is the sole writer of that button); this adds the menu path.
+    test('File ▸ Download Session Log downloads the .bin via the menu path @fast', async ({ page }) => {
+        await setup(page);
+        await page.locator('#connect-button').click();
+        await page.waitForSelector('#connect-button[data-state="connected"]');
+        await page.evaluate(() => window.__mockReaderPush(new TextEncoder().encode('menu log')));
+        await page.waitForFunction(() => window.__sessionLog.getCurrentBytes() === 8);
+        // Boot-race guard, then open File; the row must have enabled off the first
+        // byte (onStateChange hook → projectSessionLog) and re-confirm at open time.
+        await page.waitForFunction(
+            () => window.__menuBar && typeof window.__menuBar.__getStateForTests === 'function');
+        await page.evaluate(() => window.__menuBar.open('file'));
+        const row = page.locator('#menu-download-log-item');
+        await expect(row).not.toHaveAttribute('data-disabled', 'true');
+        await expect(row).toHaveAttribute('title', 'Download all bytes received this connection (.bin)');
+        const dl = page.waitForEvent('download');
+        await row.click();
+        const download = await dl;
+        expect(download.suggestedFilename()).toMatch(/^beastty-\d{8}-\d{6}\.bin$/);
+        // Bytes match the RX buffer.
+        const stream = await download.createReadStream();
+        const chunks = [];
+        for await (const chunk of stream) chunks.push(chunk);
+        expect(Buffer.concat(chunks).toString()).toBe('menu log');
+        // Menu closed on activation (action semantics).
+        await expect(page.locator('#dropdown-file')).toBeHidden();
+    });
 });

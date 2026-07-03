@@ -19,6 +19,14 @@
 let chunks = [];
 let totalBytes = 0;
 let downloadBtnRef = null;
+// Epic E3 Story E3.1 (AC-7) — subscriber fired from setButtonState whenever the
+// download-enabled state is (re)applied, so the File ▸ Download Session Log menu
+// row can re-project. Set via wireSessionLog({ onStateChange }). The subscriber
+// (menu-bar's projectSessionLog) reads the live byte count itself and is
+// idempotent + no-throw, so setButtonState fires unconditionally — no
+// transition-dedup state is needed. session-log stays the SOLE writer of its own
+// button; the callback lets menu-bar stay the sole writer of its own row.
+let onStateChangeRef = null;
 
 // Verbatim tooltip strings — UI-SPEC §Connection-pane Download log button.
 // Quoted ONCE here as the authoritative source; do NOT duplicate in comments
@@ -26,11 +34,23 @@ let downloadBtnRef = null;
 const TOOLTIP_DISABLED = 'No bytes received yet';
 const TOOLTIP_ENABLED = 'Download all bytes received this connection (.bin)';
 
+// Epic E3 Story E3.1 (AC-4/AC-5) — the SAME two strings surfaced for injection so
+// the File-menu row can show them WITHOUT re-hardcoding (AC-4 "do NOT re-hardcode
+// elsewhere") and WITHOUT menu-bar importing session-log (AD-3). main.js passes
+// this into wireMenuBar; session-log.js remains the single source of truth.
+export const SESSION_LOG_TOOLTIPS = Object.freeze({
+    enabled: TOOLTIP_ENABLED,
+    disabled: TOOLTIP_DISABLED,
+});
+
 // wireSessionLog({ downloadButton }) — registers the click handler + sets the
 // initial disabled state. Idempotent: calling reset() afterwards returns to
 // the disabled state without dropping the listener.
 export function wireSessionLog(opts) {
     downloadBtnRef = opts.downloadButton;
+    // E3.1 (AC-7) — optional notify hook. A harness that omits it leaves the
+    // menu-row projection inert (the button still updates via setButtonState).
+    onStateChangeRef = opts.onStateChange || null;
     if (downloadBtnRef) {
         downloadBtnRef.addEventListener('click', download);
         // Phase 4 D-16 sacred — mousedown preventDefault retains #terminal-wrapper focus.
@@ -100,12 +120,24 @@ function filenameForNow() {
 }
 
 function setButtonState(enabled) {
-    if (!downloadBtnRef) return;
-    if (enabled) {
-        downloadBtnRef.removeAttribute('disabled');
-        downloadBtnRef.setAttribute('title', TOOLTIP_ENABLED);
-    } else {
-        downloadBtnRef.setAttribute('disabled', '');
-        downloadBtnRef.setAttribute('title', TOOLTIP_DISABLED);
+    // Sole writer of THIS button (E3.1 AC-6). Guard keeps a button-less harness
+    // working; the onStateChange notify below still fires so a menu-only surface
+    // learns the transition.
+    if (downloadBtnRef) {
+        if (enabled) {
+            downloadBtnRef.removeAttribute('disabled');
+            downloadBtnRef.setAttribute('title', TOOLTIP_ENABLED);
+        } else {
+            downloadBtnRef.setAttribute('disabled', '');
+            downloadBtnRef.setAttribute('title', TOOLTIP_DISABLED);
+        }
+    }
+    // E3.1 (AC-7) — notify the menu-row projector whenever the enabled state is
+    // (re)applied: first-byte enable (append's wasEmpty), reset()'s disable, and
+    // the wire-time init. The subscriber reads the live byte count and is
+    // idempotent, so a redundant disabled→disabled notify is a harmless no-op.
+    // No-throw so a failing subscriber can never break the log accumulator.
+    if (onStateChangeRef) {
+        try { onStateChangeRef(enabled); } catch { /* subscriber must not break the log */ }
     }
 }

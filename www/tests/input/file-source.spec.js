@@ -154,6 +154,41 @@ test('all-files-rejected disables Send button @fast', async ({ page }) => {
         .toContainText('All files rejected');
 });
 
+// ===== E3.1: File ▸ Send File… drives the SAME picker→modal path =====
+
+test('File ▸ Send File… opens the picker → #send-modal (menu path) + retains focus @fast', async ({ page }) => {
+    // Connect so the picker gate (writer-ready) is open — mirrors the drop test.
+    await page.locator('#connect-button').click();
+    await expect.poll(
+        () => page.evaluate(() => Boolean(navigator.serial._grantedPorts[0]?._reader)),
+        { timeout: 5000 },
+    ).toBe(true);
+    // The gate is polled every 200ms; wait for the top-bar button to reflect it so
+    // openSendPicker actually opens the picker instead of no-op'ing on the gate.
+    await expect(page.locator('#send-file-button')).toBeEnabled({ timeout: 3000 });
+    await page.waitForFunction(
+        () => window.__menuBar && typeof window.__menuBar.__getStateForTests === 'function',
+    );
+    await page.locator('#terminal-wrapper').focus();
+
+    // Activating File ▸ Send File… routes menu-bar → openSendPicker → the hidden
+    // multi-file <input>, surfacing the native chooser. Capture it, then feed a file.
+    const fcPromise = page.waitForEvent('filechooser');
+    await page.evaluate(() => window.__menuBar.open('file'));
+    await page.click('#dropdown-file .menu-item[data-action="send-file"]');
+    const fc = await fcPromise;
+
+    // AC-3: activation left DOM focus on #terminal-wrapper (retainFocus); the modal's
+    // own focus trap engages only after files are chosen (below).
+    expect(await page.evaluate(() => document.activeElement.id)).toBe('terminal-wrapper');
+    // Menu closed on activation (action semantics).
+    await expect(page.locator('#dropdown-file')).toBeHidden();
+
+    await fc.setFiles({ name: 'menu.txt', mimeType: 'text/plain', buffer: Buffer.from('m') });
+    await expect(page.locator('#send-modal')).toBeVisible({ timeout: 2000 });
+    await expect(page.locator('#send-modal-list li').first()).toContainText('menu.txt');
+});
+
 // ===== Pure-function unit tests via page.evaluate =====
 
 test('validateCpmFilename pure function unit tests @fast', async ({ page }) => {
