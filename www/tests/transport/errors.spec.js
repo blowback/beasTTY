@@ -1,6 +1,12 @@
 // Phase 5 Plan 01 (Wave 0) — D-27, D-28, D-29, D-37, D-40 stub spec.
 // Source: 05-RESEARCH.md §Validation Architecture; 05-CONTEXT.md D-27, D-28, D-29, D-37; 05-UI-SPEC.md §Copywriting Contract.
 // Stubs are test.fixme until later waves land production code.
+//
+// E2.3 (FR-15, AD-6) — #error-log MOVED from the <details id="connection"> pane into
+// #serial-config-modal, and the D-27 auto-expand (connectionPane.open = true) was
+// REMOVED (a modal must not showModal() itself on every error). Log CONTENT asserts
+// (.innerHTML / .toContainText) read textContent and work while the dialog is closed;
+// the one VISIBILITY assert opens the modal via openLog() (the deliberate view path).
 import { test, expect } from '@playwright/test';
 import { SERIAL_MOCK } from './mock-serial.js';
 
@@ -9,7 +15,13 @@ async function setup(page) {
     await page.goto('/');
     await page.locator('#terminal-wrapper').focus();
     await page.waitForFunction(() => document.getElementById('terminal').width > 0);
-    await page.locator('#connection').evaluate((el) => { el.open = true; });
+}
+
+// Open #serial-config-modal so the #error-log inside it is visible (the deliberate
+// path a user takes to read accumulated errors — E2.3 AC-6).
+async function openLog(page) {
+    await page.evaluate(() => document.getElementById('serial-config-modal').showModal());
+    await expect(page.locator('#serial-config-modal')).toBeVisible();
 }
 
 test.describe('D-27..D-29 + D-37 — Error log & lifecycle', () => {
@@ -125,6 +137,9 @@ test.describe('D-27..D-29 + D-37 — Error log & lifecycle', () => {
             });
         });
         await page.locator('#connect-button').click();
+        // Open the modal to VIEW the log (E2.3 — no more auto-expand; opening the
+        // Serial Configuration modal is the deliberate path to read errors).
+        await openLog(page);
         await expect(page.locator('#error-log .log-ts').first()).toBeVisible();
         const ts = await page.locator('#error-log .log-ts').first().textContent();
         expect(ts).toMatch(/^\d{2}:\d{2}:\d{2}$/);

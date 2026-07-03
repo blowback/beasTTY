@@ -210,6 +210,27 @@ function confirmClearScrollback() {
         restoreTo: terminalWrapper,
     }).then((rv) => rv === 'confirm');
 }
+// Epic E2 Story E2.3 (FR-15, AD-8, AD-3) — Serial Configuration modal opener,
+// injected into wireMenuBar (menu-bar.js must not import modal.js/serial.js). The
+// controls inside #serial-config-modal are the SAME id-keyed elements serial.js
+// already wires via serialConfigEls — this opener only surfaces the <dialog>. It is
+// a non-destructive live-settings modal: changes persist immediately (existing
+// change→savePrefs listeners) and apply on the next Connect, so there is no
+// affirmative "apply" — Close/Esc resolve 'close'/'' and the caller ignores the
+// returnValue (nothing to act on). initialFocus = the Baud select (first form
+// control — compliant with the modal.js returnValue policy for non-destructive
+// modals); restoreTo = terminalWrapper (focus round-trips on close, NFR-1/AD-10).
+// Shaped as a zero-arg opener returning the openModal promise so E4's status-bar
+// recent-errors affordance can reuse it verbatim.
+const serialConfigModalEl = document.getElementById('serial-config-modal');
+function openSerialConfig() {
+    if (!serialConfigModalEl) return Promise.resolve('');   // no markup — harness; don't throw
+    const baudSelect = document.getElementById('serial-baud');
+    return openModal(serialConfigModalEl, {
+        initialFocus: baudSelect,
+        restoreTo: terminalWrapper,
+    });
+}
 // Phase 4 Plan 03 — Settings pane + Debug TX strip refs.
 const localEchoCheckbox = document.getElementById('local-echo');
 const crlfRadios        = document.querySelectorAll('input[name="crlf"]');
@@ -330,6 +351,10 @@ const menuBar = wireMenuBar({
     // deliberate-friction confirm before the wipe (main.js owns the modal, AD-3).
     pushZoom,
     confirmClearScrollback,
+    // Epic E2 Story E2.3 (FR-15, AD-3/AD-8) — Connection ▸ Serial Configuration…
+    // opens the #serial-config-modal. main.js owns openModal (modal.js stays out of
+    // menu-bar's import set), so the opener is injected like confirmClearScrollback.
+    openSerialConfig,
     // Epic E2 Story E2.1 (AD-15) — the Connect item is now menu-bar-owned. Inject
     // the serial machine's subscribe/read/toggle so menu-bar can be the sole
     // writer of every Connect surface without importing serial.js (AD-3).

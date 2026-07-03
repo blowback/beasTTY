@@ -4,6 +4,16 @@
 //
 // 5 tests — baud default, preset-default quartet, reset button snap, connected-
 // mutation hint, connect-honors-form-values (via mock port _config capture).
+//
+// E2.3 (FR-15) — the serial-config form MOVED from the <details id="connection">
+// pane into #serial-config-modal. The five selects / Reset / reconnect-hint keep
+// their ids, so serial.js's injected serialConfigEls refs (and these assertions by
+// id) still resolve. Value-read assertions (.toHaveValue) work while the dialog is
+// closed (display:none doesn't hide .value); interactions (.selectOption / .click)
+// need it OPEN — openForm() shows it directly (native showModal — this spec tests
+// serial behavior, not the menu wiring; the menu path is covered by
+// render/serial-config-modal.spec.js). connect() clicks the legacy top-bar
+// #connect-button, which lives OUTSIDE the modal, so the modal is closed first.
 import { test, expect } from '@playwright/test';
 import { SERIAL_MOCK } from './mock-serial.js';
 
@@ -12,7 +22,17 @@ async function setup(page) {
     await page.goto('/');
     await page.locator('#terminal-wrapper').focus();
     await page.waitForFunction(() => document.getElementById('terminal').width > 0);
-    await page.locator('#connection').evaluate((el) => { el.open = true; });
+}
+
+// Open the serial-config form (the <dialog>) so its selects are actionable.
+async function openForm(page) {
+    await page.evaluate(() => document.getElementById('serial-config-modal').showModal());
+    await expect(page.locator('#serial-config-modal')).toBeVisible();
+}
+
+async function closeForm(page) {
+    await page.evaluate(() => document.getElementById('serial-config-modal').close());
+    await expect(page.locator('#serial-config-modal')).toBeHidden();
 }
 
 test.describe('XPORT-05 + D-08 — Serial config form', () => {
@@ -31,13 +51,14 @@ test.describe('XPORT-05 + D-08 — Serial config form', () => {
 
     test('Reset to MicroBeast preset button snaps all five selects to defaults', async ({ page }) => {
         await setup(page);
+        await openForm(page);
         // Move all 5 away from preset.
         await page.locator('#serial-baud').selectOption('9600');
         await page.locator('#serial-databits').selectOption('7');
         await page.locator('#serial-stopbits').selectOption('2');
         await page.locator('#serial-parity').selectOption('even');
         await page.locator('#serial-flowctl').selectOption('hardware');
-        // Click the reset button.
+        // Click the reset button (in the modal footer).
         await page.locator('#serial-reset-preset').click();
         // All 5 must snap back to the MicroBeast preset (19200 / 8 / 1 / none / none).
         await expect(page.locator('#serial-baud')).toHaveValue('19200');
@@ -45,13 +66,18 @@ test.describe('XPORT-05 + D-08 — Serial config form', () => {
         await expect(page.locator('#serial-stopbits')).toHaveValue('1');
         await expect(page.locator('#serial-parity')).toHaveValue('none');
         await expect(page.locator('#serial-flowctl')).toHaveValue('none');
+        // Reset does NOT close the modal (AC-8 — type="button").
+        await expect(page.locator('#serial-config-modal')).toBeVisible();
     });
 
     test('changing baud while connected shows Config changed hint', async ({ page }) => {
         await setup(page);
-        // Connect so state === 'connected' before we mutate the form.
+        // Connect so state === 'connected' before we mutate the form. #connect-button
+        // is the legacy top-bar mirror (outside the modal) — click it with the modal
+        // closed, then open the form to mutate baud.
         await page.locator('#connect-button').click();
         await expect(page.locator('#connect-button')).toHaveAttribute('data-state', 'connected');
+        await openForm(page);
         // Hint must start hidden.
         await expect(page.locator('#serial-reconnect-hint')).toBeHidden();
         // Mutate baud — readFormConfig differs from lastConfig → showReconnectHint fires.
@@ -63,9 +89,12 @@ test.describe('XPORT-05 + D-08 — Serial config form', () => {
 
     test('connect honors non-default config values', async ({ page }) => {
         await setup(page);
-        // Change baud + parity BEFORE clicking Connect.
+        // Change baud + parity BEFORE clicking Connect. Set them in the form, then
+        // close it so the top-bar #connect-button (outside the modal) is clickable.
+        await openForm(page);
         await page.locator('#serial-baud').selectOption('9600');
         await page.locator('#serial-parity').selectOption('even');
+        await closeForm(page);
         await page.locator('#connect-button').click();
         await expect(page.locator('#connect-button')).toHaveAttribute('data-state', 'connected');
         // Spec introspection — the mock port records the config passed to open().

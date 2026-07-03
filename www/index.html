@@ -561,32 +561,11 @@
       cursor: pointer; font-size: 14px;
       padding: 4px 0;
     }
-    #connection fieldset {
-      margin: 8px 0;
-      padding: 8px;
-      border: 1px solid var(--chrome-border);
-      display: flex; flex-wrap: wrap; gap: 16px;
-    }
-    #connection legend {
-      font-size: 13px;
-      padding: 0 4px;
-    }
-    #connection label {
-      display: inline-flex; flex-direction: column; gap: 4px;
-      font-size: 13px;
-      cursor: pointer;
-    }
-    #connection select {
-      font-family: inherit; font-size: 13px;
-      background: var(--chrome-bg);
-      color: var(--chrome-fg);
-      border: 1px solid var(--chrome-border);
-      padding: 2px 4px;
-    }
-    #connection select:focus-visible {
-      border-color: var(--chrome-accent);
-      outline: none;
-    }
+    /* E2.3 (FR-15) — the #connection fieldset / legend / label / select rules were
+       removed here: those elements moved into #serial-config-modal (styled on the
+       neutral --chrome-* tokens below, NOT the legacy 2px 4px select padding). The
+       #connection button / .hint / #port-status / summary rules stay — the vestige
+       still holds #download-log-button + #port-status. */
     #connection button {
       font-family: inherit; font-size: 13px;
       padding: 4px 8px;
@@ -942,6 +921,140 @@
     #send-modal ul li.collision > .rename-list > span[aria-hidden="true"] {
       margin-right: 4px;
     }
+
+    /* ==== Epic E2 Story E2.3 (FR-15) — Serial Configuration modal ==== */
+    /* Neutral --chrome-* tokens (AD-9), NOT the legacy #connection pane chrome.
+       Mirrors the #send-modal conventions (header/body/footer, ::backdrop, the
+       :not([open]) display:none guard) but with rounded/lg (8px) corners, NO
+       box-shadow (the native ::backdrop scrim is the only elevation — UX-DR5), and
+       a scrollable .modal-body so a long form + error log never overflow the dialog.
+       Author-#id specificity beats the UA `dialog:not([open]) { display:none }` rule,
+       so — as with #send-modal — restore the hidden state explicitly. */
+    #serial-config-modal:not([open]) {
+      display: none;
+    }
+    #serial-config-modal[open] {
+      background: var(--chrome-bg);
+      color: var(--chrome-fg);
+      border: 1px solid var(--chrome-border);
+      border-radius: 8px;                  /* rounded/lg — DESIGN.md dialog corner */
+      padding: 16px 24px;
+      max-width: 90ch;                     /* DESIGN.md max-width */
+      width: calc(100% - 32px);
+      max-height: 80vh;
+      display: flex;
+      flex-direction: column;
+      font-family: inherit;
+      font-size: 14px;
+      line-height: 1.4;
+      /* No box-shadow — the ::backdrop scrim is the sole elevation (UX-DR5). */
+    }
+    #serial-config-modal::backdrop {
+      background: rgba(0, 0, 0, 0.65);
+    }
+    #serial-config-modal header {
+      margin: 0 0 16px 0;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--chrome-border);
+    }
+    #serial-config-modal h2 {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 500;                    /* DESIGN.md type role — labels/headings 500 */
+    }
+    /* Scrollable body — the form + hints + error log flex-grow and scroll rather
+       than overflowing the dialog when the viewport is short. */
+    #serial-config-modal .modal-body {
+      overflow-y: auto;
+      flex: 1 1 auto;
+      min-height: 0;
+    }
+    #serial-config-modal fieldset {
+      margin: 0 0 8px 0;
+      padding: 8px;
+      border: 1px solid var(--chrome-border);
+      border-radius: 4px;                  /* rounded/sm */
+      display: flex; flex-wrap: wrap; gap: 16px;
+    }
+    #serial-config-modal legend {
+      font-size: 13px;
+      padding: 0 4px;
+    }
+    /* Direct-child labels are the select rows (column layout); the checkbox labels
+       below are targeted separately so their box + text sit inline. */
+    #serial-config-modal fieldset label {
+      display: inline-flex; flex-direction: column; gap: 4px;
+      font-size: 13px; font-weight: 500;
+      cursor: pointer;
+    }
+    #serial-config-modal select {
+      font-family: inherit; font-size: 13px;
+      background: var(--field-bg);         /* inputs sit on field-bg (DESIGN.md) */
+      color: var(--chrome-fg);
+      border: 1px solid var(--chrome-border);
+      border-radius: 4px;                  /* rounded/sm — NOT the legacy 2px 4px pad */
+      padding: 4px 6px;
+    }
+    #serial-config-modal select:focus-visible {
+      border-color: var(--chrome-accent);
+      outline: none;
+    }
+    /* Checkbox rows (show-all / assert-RTS) — inline box + label text. */
+    #serial-config-modal > .modal-body > label {
+      display: block;
+      font-size: 13px;
+      margin: 8px 0 0 0;
+      cursor: pointer;
+    }
+    #serial-config-modal .hint {
+      color: var(--chrome-muted);
+      font-size: 12px;
+      margin: 4px 0;
+    }
+    /* The reconnect-required hint is amber ("action required", NOT muted help
+       text — see the #serial-reconnect-hint rule above). It carries class="hint",
+       so the relocation into #serial-config-modal let the generic `.hint` rule
+       (specificity 1,1,0) shadow the amber `#serial-reconnect-hint` color (1,0,0).
+       Restore amber with a colour-only override at 2,0,0 — no display prop, so the
+       [hidden] toggle still hides it. */
+    #serial-config-modal #serial-reconnect-hint {
+      color: #e0b030;
+    }
+    #serial-config-modal footer {
+      margin: 16px 0 0 0;
+      padding-top: 8px;
+      border-top: 1px solid var(--chrome-border);
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+    /* Both footer buttons are secondary/bordered (Reset per DESIGN.md:194; Close is a
+       plain dismiss — no primary Connect in this modal). rounded/md (6px). */
+    #serial-config-modal footer button {
+      font-family: inherit;
+      font-size: 14px;
+      padding: 4px 8px;
+      background: transparent;
+      color: var(--chrome-fg);
+      border: 1px solid var(--chrome-border);
+      border-radius: 6px;                  /* rounded/md */
+      cursor: pointer;
+    }
+    #serial-config-modal footer button:hover,
+    #serial-config-modal footer button:focus-visible {
+      border-color: var(--chrome-accent);
+      outline: none;
+    }
+    /* Attribute-driven default-focus border (same rationale as #send-modal footer —
+       Chromium suppresses :focus-visible after a programmatic .focus() following a
+       pointer path; openModal sets [data-focused="true"] before .focus()). */
+    #serial-config-modal [data-focused="true"] {
+      border-color: var(--chrome-accent);
+      outline: none;
+    }
+    #serial-config-modal footer form {
+      margin: 0;
+    }
   </style>
 </head>
 <body data-theme="crt">
@@ -990,8 +1103,14 @@
           <span class="check"></span><span class="lbl">Choose MicroBeast…</span>
         </button>
         <div class="menu-sep"></div>
-        <button class="menu-item" type="button" role="menuitem" data-variant="action">
-          <span class="check"></span><span class="lbl">Serial Configuration…</span><span class="caret">▸ modal</span>
+        <!-- E2.3 (FR-15) — Serial Configuration… opens the #serial-config-modal via
+             the injected openSerialConfig opt (AD-3: menu-bar reaches the modal only
+             through opts). data-action routes the click through onItemClick's
+             serial-config branch → closeMenu() + openSerialConfigRef(). No caret —
+             matches the Clear Scrollback… modal-opener convention. -->
+        <button id="menu-serial-config-item" class="menu-item" type="button" role="menuitem"
+                data-variant="action" data-action="serial-config">
+          <span class="check"></span><span class="lbl">Serial Configuration…</span>
         </button>
         <div class="menu-sep"></div>
         <!-- E2.2 (FR-14, AD-4) — Auto-connect toggle. data-pref="autoConnect"
@@ -1201,73 +1320,21 @@
     </div>
   </div>
 
-  <!-- Connection pane (Phase 5 D-06, D-07) — placement between top-bar and terminal. -->
+  <!-- Connection pane (Phase 5 D-06, D-07) — placement between top-bar and terminal.
+       E2.3 (FR-15) retired the serial-config surface (the 5 selects, Reset, both
+       checkboxes + hints, the default/single-tab hint, and #error-log) into
+       #serial-config-modal (opened from Connection ▸ Serial Configuration…). This
+       pane is now a thin VESTIGE holding only #port-status (E4 status bar reads it)
+       and #download-log-button (E3 Download Session Log). Full retirement of the
+       <details> shell is E7 (#top-bar coexistence, E1 retro action #5). -->
   <details id="connection">
     <summary>Connection</summary>
     <p id="port-status" class="hint" aria-live="polite">Not connected</p>
-
-    <fieldset>
-      <legend>Serial configuration</legend>
-      <label for="serial-baud">Baud rate
-        <select id="serial-baud">
-          <option value="300">300</option>
-          <option value="1200">1200</option>
-          <option value="2400">2400</option>
-          <option value="4800">4800</option>
-          <option value="9600">9600</option>
-          <option value="19200" selected>19200</option>
-          <option value="38400">38400</option>
-          <option value="57600">57600</option>
-          <option value="115200">115200</option>
-        </select>
-      </label>
-      <label for="serial-databits">Data bits
-        <select id="serial-databits">
-          <option value="7">7</option>
-          <option value="8" selected>8</option>
-        </select>
-      </label>
-      <label for="serial-stopbits">Stop bits
-        <select id="serial-stopbits">
-          <option value="1" selected>1</option>
-          <option value="2">2</option>
-        </select>
-      </label>
-      <label for="serial-parity">Parity
-        <select id="serial-parity">
-          <option value="none" selected>None</option>
-          <option value="even">Even</option>
-          <option value="odd">Odd</option>
-        </select>
-      </label>
-      <label for="serial-flowctl">Flow control
-        <select id="serial-flowctl">
-          <option value="none" selected>None</option>
-          <option value="hardware">Hardware (RTS/CTS)</option>
-        </select>
-      </label>
-    </fieldset>
-    <span id="serial-reconnect-hint" class="hint" hidden></span>
-    <button id="serial-reset-preset" type="button">Reset to MicroBeast preset</button>
-    <label for="show-all-serial-devices">
-      <input type="checkbox" id="show-all-serial-devices">
-      Show all serial devices in picker
-    </label>
-    <p class="hint">Off by default — the picker only lists the Silicon Labs CP2102N (the chip on stock MicroBeast hardware). Turn this on if your MicroBeast uses a different USB-serial bridge (FTDI, CH340, CP2104) or you're connecting via a virtual COM port (USB-IP, Bluetooth-SPP, ser2net). Takes effect on the next Connect click.</p>
-    <label for="serial-assert-rts-on-connect-checkbox">
-      <input type="checkbox" id="serial-assert-rts-on-connect-checkbox" checked>
-      Assert RTS on connect
-    </label>
-    <p class="hint">On by default. The MicroBeast's Z80 UART uses host-side RTS as its CTS input for hardware auto-flow-control — without this, Z80→PC transmits (wakeup byte, ACKs, file data) are blocked at the Z80 UART. Turn this off if your hardware has RTS wired to a reset line instead. DTR is always de-asserted on connect (Pitfall #12 reset-pulse concern). Takes effect on the next Connect click.</p>
     <!-- Phase 6 D-31 (Plan 06-05) — per-connection RX log download. Disabled
-         until the first byte arrives; tooltip cycles per session-log.js. -->
+         until the first byte arrives; tooltip cycles per session-log.js.
+         E3 (File menu / SLIDE modal) relocates this. -->
     <button id="download-log-button" type="button" disabled
             title="No bytes received yet">Download log</button>
-    <p class="hint">MicroBeast default is 19200 8N1, no flow control. Single-tab ownership is enforced by Chromium — close any other Beastty tab that holds this port first.</p>
-
-    <p class="hint">Recent errors</p>
-    <pre id="error-log">(no recent errors)</pre>
-
     <p class="hint">Connection details persist across reload for the same USB device. Serial config persists per the Settings → preferences blob.</p>
   </details>
 
@@ -1499,6 +1566,94 @@
       <button id="clear-scrollback-confirm-ok" type="submit" value="confirm">Clear scrollback</button>
       <button id="clear-scrollback-confirm-cancel" type="submit" value="cancel">Cancel</button>
     </form>
+  </dialog>
+
+  <!-- Epic E2 Story E2.3 (FR-15) — Serial Configuration modal. Native <dialog>
+       opened via the shared openModal helper (main.js openSerialConfig) from
+       Connection ▸ Serial Configuration…. RELOCATION story: every control below
+       (ids, <option> sets, verbatim copy) moved verbatim out of the legacy
+       <details id="connection"> pane, so serial.js's injected serialConfigEls /
+       errorLogEl refs (read by element id) keep resolving unchanged. Styled on the
+       neutral --chrome-* tokens (AD-9). Footer = Reset (secondary, in-place) + Close
+       (<form method="dialog"> → returnValue 'close', ignored by the caller). NO
+       in-modal Connect button (epic AC names only Reset + close; PRD Open Question 4).
+       #serial-reconnect-hint carries aria-live="polite" so it doubles as the modal's
+       status region (UX-DR11 a11y floor) — the "Config changed…" hint is exactly the
+       dynamic status a screen-reader user needs announced. -->
+  <dialog id="serial-config-modal" aria-labelledby="serial-config-modal-title">
+    <header>
+      <h2 id="serial-config-modal-title">Serial Configuration</h2>
+    </header>
+    <div class="modal-body">
+      <fieldset>
+        <legend>Serial configuration</legend>
+        <label for="serial-baud">Baud rate
+          <select id="serial-baud">
+            <option value="300">300</option>
+            <option value="1200">1200</option>
+            <option value="2400">2400</option>
+            <option value="4800">4800</option>
+            <option value="9600">9600</option>
+            <option value="19200" selected>19200</option>
+            <option value="38400">38400</option>
+            <option value="57600">57600</option>
+            <option value="115200">115200</option>
+          </select>
+        </label>
+        <label for="serial-databits">Data bits
+          <select id="serial-databits">
+            <option value="7">7</option>
+            <option value="8" selected>8</option>
+          </select>
+        </label>
+        <label for="serial-stopbits">Stop bits
+          <select id="serial-stopbits">
+            <option value="1" selected>1</option>
+            <option value="2">2</option>
+          </select>
+        </label>
+        <label for="serial-parity">Parity
+          <select id="serial-parity">
+            <option value="none" selected>None</option>
+            <option value="even">Even</option>
+            <option value="odd">Odd</option>
+          </select>
+        </label>
+        <label for="serial-flowctl">Flow control
+          <select id="serial-flowctl">
+            <option value="none" selected>None</option>
+            <option value="hardware">Hardware (RTS/CTS)</option>
+          </select>
+        </label>
+      </fieldset>
+      <span id="serial-reconnect-hint" class="hint" aria-live="polite" hidden></span>
+      <label for="show-all-serial-devices">
+        <input type="checkbox" id="show-all-serial-devices">
+        Show all serial devices in picker
+      </label>
+      <p class="hint">Off by default — the picker only lists the Silicon Labs CP2102N (the chip on stock MicroBeast hardware). Turn this on if your MicroBeast uses a different USB-serial bridge (FTDI, CH340, CP2104) or you're connecting via a virtual COM port (USB-IP, Bluetooth-SPP, ser2net). Takes effect on the next Connect click.</p>
+      <label for="serial-assert-rts-on-connect-checkbox">
+        <input type="checkbox" id="serial-assert-rts-on-connect-checkbox" checked>
+        Assert RTS on connect
+      </label>
+      <p class="hint">On by default. The MicroBeast's Z80 UART uses host-side RTS as its CTS input for hardware auto-flow-control — without this, Z80→PC transmits (wakeup byte, ACKs, file data) are blocked at the Z80 UART. Turn this off if your hardware has RTS wired to a reset line instead. DTR is always de-asserted on connect (Pitfall #12 reset-pulse concern). Takes effect on the next Connect click.</p>
+      <p class="hint">MicroBeast default is 19200 8N1, no flow control. Single-tab ownership is enforced by Chromium — close any other Beastty tab that holds this port first.</p>
+
+      <p class="hint">Recent errors</p>
+      <pre id="error-log">(no recent errors)</pre>
+    </div>
+    <footer>
+      <!-- Reset is type="button" (NOT a method="dialog" submit) so it snaps the
+           selects to the MicroBeast preset in-place WITHOUT closing (AC-8). Secondary
+           bordered per DESIGN.md:194. Wired by serial.js (serialEls.resetBtn). -->
+      <button id="serial-reset-preset" type="button">Reset to MicroBeast preset</button>
+      <!-- Close via native <form method="dialog"> submit → returnValue 'close'.
+           openModal resolves it; openSerialConfig ignores the value (nothing to
+           apply — config applies on the next Connect). Esc closes the same way. -->
+      <form method="dialog">
+        <button id="serial-config-close" value="close">Close</button>
+      </form>
+    </footer>
   </dialog>
 
   <script type="module" src="./main.js"></script>

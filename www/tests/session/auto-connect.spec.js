@@ -76,8 +76,10 @@ test.describe('PLAT-05/D-34 — Auto-connect on load', () => {
         // stays null and the auto-connect path takes the "no granted port" branch.
         await setupWithMock(page, { prefs: PREFS_AUTOCONNECT_ON });
         await expect(page.locator('#connect-button')).toHaveAttribute('data-state', 'disconnected');
-        // appendErrorLog auto-expands the Connection pane (D-27); the error
-        // text must include the auto-connect-failed code.
+        // E2.3 (FR-15, AD-6) — #error-log lives in #serial-config-modal now and no
+        // longer auto-expands anything (the D-27 pane auto-open was removed). The log
+        // still populates the ring silently; toContainText reads its textContent even
+        // while the modal is closed, so this asserts the auto-connect-failed code lands.
         await expect(page.locator('#error-log')).toContainText('auto-connect-failed');
     });
 

@@ -249,13 +249,19 @@ export function wireChrome(opts) {
     // ports can see their device. serial.js reads the live pref via getPrefs()
     // at requestPort time, so the checkbox takes effect on the next Connect
     // click without needing a reload.
+    // E2.3 (FR-15, Task 5) — this checkbox MOVED into #serial-config-modal. Inside a
+    // focus-trapped <dialog> the terminal is inert behind the scrim, so the AD-10
+    // retainFocus terminal-restore is both meaningless (keystrokes can't reach the Z80
+    // while the modal is open) and wrong (it fought the trap). Dropped — focus stays in
+    // the modal on the control until Close, where openModal's restoreTo returns it to
+    // #terminal-wrapper (NFR-1). The change→savePrefs wiring is unchanged (resolves by
+    // id regardless of the checkbox's new DOM home).
     const showAllSerialCheckbox = document.getElementById('show-all-serial-devices');
     if (showAllSerialCheckbox) {
         showAllSerialCheckbox.checked = !!(prefs && prefs.showAllSerialDevices);
         showAllSerialCheckbox.addEventListener('change', (e) => {
             if (savePrefs) savePrefs({ showAllSerialDevices: e.target.checked });
         });
-        retainFocus(showAllSerialCheckbox);   // Phase 4 D-16 — focus retention (AD-10).
     }
 
     // ==== Phase 6 Plan 06 (Wave 5) — Reset prefs 2-click confirm (D-35) ====

@@ -286,6 +286,10 @@ export async function wireSerial(opts) {
             serialEls.resetBtn.addEventListener('click', () => snapPreset());
             // UI-SPEC §Focus retention line 576 — mousedown preventDefault keeps
             // #terminal-wrapper focused after clicking Reset.
+            // E2.3 (FR-15, Task 5) — Reset now lives in #serial-config-modal's footer.
+            // This preventDefault is harmless in a modal: it only suppresses mouse-focus
+            // on the button (keyboard Tab still reaches it, and the native focus trap
+            // keeps focus inside the dialog). Left as-is — no behavior change on click.
             serialEls.resetBtn.addEventListener('mousedown', (e) => e.preventDefault());
         }
     }
@@ -360,8 +364,14 @@ function snapPreset() {
 // via serialConfigEls.reconnectHintEl; hidden attribute flips visibility.
 function showReconnectHint() {
     if (!serialEls || !serialEls.reconnectHintEl) return;
-    serialEls.reconnectHintEl.textContent = 'Config changed — Disconnect and Connect to apply';
+    // E2.3 (FR-15, UX-DR11) — #serial-reconnect-hint carries aria-live="polite" and
+    // doubles as the modal's status region. Un-hide FIRST so the live region is in
+    // the a11y tree, THEN mutate its text — a content change observed while the
+    // region is present is what a polite live region announces. Populating it while
+    // still [hidden] (out of the tree) and only then revealing it lands the text as
+    // initial state, which screen readers do not announce.
     serialEls.reconnectHintEl.hidden = false;
+    serialEls.reconnectHintEl.textContent = 'Config changed — Disconnect and Connect to apply';
 }
 function hideReconnectHint() {
     if (!serialEls || !serialEls.reconnectHintEl) return;
@@ -609,13 +619,15 @@ function appendErrorLog(code, message) {
     if (errorLog.length > ERROR_LOG_CAP) errorLog.length = ERROR_LOG_CAP;
     renderErrorLog();
     console.error('[serial]', `${ts} ${code}: ${message}`);
-    // D-27 auto-expand on error (KEPT, intentionally asymmetric with D-17).
-    // Plan 09 (Gap 2 fix) amended D-17 so paste progress does NOT auto-expand
-    // the Connection pane (progress rides the sticky #top-bar instead). D-27
-    // stays as-is because errors are rare + sticky + demand attention — the
-    // red border on Connect button is the primary signal; the pane-expand is
-    // a secondary pull-focus that is acceptable once per error.
-    if (connectionPane) connectionPane.open = true;
+    // E2.3 (FR-15, AD-6) — the D-27 auto-expand (`connectionPane.open = true`) is
+    // REMOVED. The #error-log now lives inside #serial-config-modal, and a modal must
+    // never showModal() itself on every error (an error while the user is elsewhere
+    // must not steal the top layer). Errors still populate #error-log (ring-of-5) and
+    // trip the red-border Connect signal (menu-bar.js, unchanged) — that stays the
+    // primary "something's wrong" cue. The DELIBERATE path to read the log is opening
+    // Connection ▸ Serial Configuration… (and, later, the E4 status-bar recent-errors
+    // affordance opens this same modal). connectionPane is now a vestigial ref (the
+    // <details> pane no longer hosts the log) — left injected but no longer written.
 }
 
 function renderErrorLog() {

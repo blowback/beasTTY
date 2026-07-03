@@ -128,6 +128,10 @@ let clearSelectionRef = null;
 // owns the modal (openModal) so modal.js stays out of menu-bar's import set (AD-3).
 let pushZoomRef = null;
 let confirmClearScrollbackRef = null;
+// E2.3 (FR-15, AD-3) — Connection ▸ Serial Configuration… opener. main.js owns the
+// modal (openModal); this is the injected zero-arg opener (returns the openModal
+// promise, ignored here). Optional: a harness that omits it leaves the click inert.
+let openSerialConfigRef = null;
 
 // E2.1 (AD-15) — connection projection state. serial.js arrives via opts (never a
 // direct import — AD-3): toggleConnectionRef is the exported click action;
@@ -235,6 +239,7 @@ export function wireMenuBar(opts = {}) {
     // unconfirmed (guarded at each call site).
     pushZoomRef = opts.pushZoom || null;
     confirmClearScrollbackRef = opts.confirmClearScrollback || null;
+    openSerialConfigRef = opts.openSerialConfig || null;   // E2.3 (FR-15, AD-3)
     // E2.1 (AD-15) — serial injected via opts (AD-3: not a direct import). All
     // optional: a harness that omits them leaves the Connect projection inert.
     toggleConnectionRef = opts.toggleConnection || null;
@@ -767,6 +772,15 @@ function onItemClick(item, ev) {
     if (action === 'choose-microbeast') {
         if (chooseMicroBeastRef) chooseMicroBeastRef();
         closeMenu();
+        return;
+    }
+    // E2.3 (FR-15, AD-3/AD-8) — Serial Configuration… closes the dropdown, then opens
+    // the injected #serial-config-modal (main.js openSerialConfig → openModal). Mirrors
+    // the E1.5 clear-scrollback modal-open shape (closeMenu() then ref?.()), but here in
+    // onItemClick — this is a Connection-menu action, NOT a View action (runViewAction).
+    if (action === 'serial-config') {
+        closeMenu();
+        openSerialConfigRef?.();
         return;
     }
     // E1.5 — an action row carrying data-action drives a View action (zoom / clear);
