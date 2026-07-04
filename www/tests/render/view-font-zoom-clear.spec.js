@@ -14,7 +14,7 @@ import { SERIAL_MOCK } from '../transport/mock-serial.js';
 
 const FONT = '#dropdown-view .submenu[data-submenu-panel="font"]';
 const FONT_PARENT = '#dropdown-view .menu-item[data-submenu="font"]';
-const FONT_IDS = ['modern', 'vt52', 'insigbyte', 'you-squared', 'cushion',
+const FONT_IDS = ['modern', 'vt52', 'insigbyte', 'insigbyte-bold', 'you-squared', 'cushion',
                   'chit', 'orbiter', 'patrol', 'striker', 'zx-palm'];
 
 async function ready(page) {
@@ -56,7 +56,7 @@ test.describe('E1.5 AC-1 — Font radio submenu applies + persists', () => {
   test('selecting each font applies it, persists it, and moves the check @fast', async ({ page }) => {
     await ready(page);
     await selectTheme(page, 'crt');            // Font is CRT-gated (AC-2) — ensure enabled
-    for (const font of ['vt52', 'insigbyte', 'you-squared', 'cushion',
+    for (const font of ['vt52', 'insigbyte', 'insigbyte-bold', 'you-squared', 'cushion',
                         'chit', 'orbiter', 'patrol', 'striker', 'zx-palm', 'modern']) {
       await selectFont(page, font);
       // Canvas applied (downstream effect, not just DOM state).

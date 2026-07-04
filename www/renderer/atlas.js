@@ -24,6 +24,7 @@
 import { BITMAP_FONT } from './bitmap-font.js';
 import { VT52_ROM_FONT } from './vt52-rom-font.js';
 import { INSIGBYTE_FONT } from './insigbyte-font.js';
+import { INSIGBYTE_BOLD_FONT } from './insigbyte-bold-font.js';
 import { YOU_SQUARED_FONT } from './you-squared-font.js';
 import { CUSHION_FONT } from './cushion-font.js';
 import { CHIT_FONT } from './chit-font.js';
@@ -39,6 +40,7 @@ const FONTS = Object.freeze({
     'modern':      BITMAP_FONT,       // hand-drawn 8×16, project default (Phase 3 D-01)
     'vt52':        VT52_ROM_FONT,     // original DEC VT52 character ROM, expanded to 16-row footprint
     'insigbyte':   INSIGBYTE_FONT,    // Insigbyte 8×8, MicroBeast-adjacent
+    'insigbyte-bold': INSIGBYTE_BOLD_FONT, // Insigbyte Bold 8×8, MicroBeast-adjacent
     'you-squared': YOU_SQUARED_FONT,  // You Squared 8×8, MicroBeast-adjacent
     'cushion':     CUSHION_FONT,      // Cushion 8×8, MicroBeast-adjacent
     'chit':        CHIT_FONT,         // Chit 8×8, MicroBeast-adjacent
