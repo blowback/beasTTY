@@ -24,6 +24,11 @@ const DEFAULTS = Object.freeze({
     serial: { baud: 19200, dataBits: 8, stopBits: 1, parity: 'none', flowControl: 'none' },
     localEcho: false,
     crlfMode: 'cr',
+    wrapLongLines: false,        // Settings ▸ Wrap long lines — optional deferred autowrap at
+                                 //   col 80 in the wasm core (term.set_wrap). Default OFF preserves
+                                 //   the VT52 last-column overstrike. First pref that reaches the
+                                 //   core; applied by main.js applyPrefs. CURRENT_VERSION NOT bumped
+                                 //   (defensive spread-merge, same precedent as showDebugPanel below).
     autoConnect: false,
     showDebugPanel: false,       // E5.1 (FR-23, AD-11) — Debug ▸ Show Debug Panel checkable, default OFF.
                                  //   New boolean rides the defensive spread-merge; CURRENT_VERSION NOT bumped

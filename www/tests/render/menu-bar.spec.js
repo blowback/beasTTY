@@ -146,7 +146,9 @@ test.describe('E1.1 AC-2 — dropdown open / move / click-away', () => {
     // E3.2 — the row is now pref-backed (data-pref="localEcho"): clicking must ALSO
     // persist prefs.localEcho AND apply it to live keyboard.js state (persist ≠ apply).
     await page.click('#menu-settings');
-    const localEcho = page.locator('#dropdown-settings .menu-item[data-variant="checkable"]');
+    // Target Local echo specifically — Settings now has a second checkable (Wrap long
+    // lines), so the bare [data-variant="checkable"] selector is no longer unique.
+    const localEcho = page.locator('#menu-local-echo-item');
     await expect(localEcho).toHaveAttribute('data-checked', 'false');
     await localEcho.click();
     await expect(localEcho).toHaveAttribute('data-checked', 'true');

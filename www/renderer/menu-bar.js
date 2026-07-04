@@ -162,6 +162,14 @@ let setCrlfModeRef = null;
 let localEchoItemEl = null;        // #menu-local-echo-item — checkable, derived from prefs.localEcho
 let crlfPanelEl = null;            // [data-submenu-panel="crlf"] — active radio derived from prefs.crlfMode
 
+// Settings ▸ Wrap long lines injected seam. setWrapRef is the wasm core's
+// term.set_wrap (injected as a closure by main.js — menu-bar may NOT import the
+// core, AD-3). Same persist ≠ apply contract as localEcho: savePrefs does not fan
+// out (AD-4), so the menu MUST call the setter too. wrapLinesItemEl is the row
+// this module projects from prefs.wrapLongLines.
+let setWrapRef = null;
+let wrapLinesItemEl = null;        // #menu-wrap-lines-item — checkable, derived from prefs.wrapLongLines
+
 // E5.1 (FR-23, AD-3/AD-11) — Debug ▸ Show Debug Panel injected seam. Like localEcho,
 // showDebugPanel has a LIVE effect (show/hide the in-page #debug panel), so the menu
 // handler must call setDebugPanelVisibleRef too — savePrefs alone does not fan out
@@ -185,6 +193,7 @@ let debugPanelItemEl = null;       // #menu-debug-panel-item — checkable, deri
 const CHECKABLE_PREF_EFFECTS = {
     autoConnect:    {},                                                       // boot-time only — no live setter, no pane mirror
     localEcho:      { apply: (next) => setLocalEchoRef?.(next) },
+    wrapLongLines:  { apply: (next) => setWrapRef?.(next) },                  // core term.set_wrap (persist ≠ apply)
     showDebugPanel: { apply: (next) => setDebugPanelVisibleRef?.(next) },
 };
 
@@ -353,6 +362,7 @@ export function wireMenuBar(opts = {}) {
     // glyph working but leaves the live keyboard.js state change inert until reload.
     setLocalEchoRef = opts.setLocalEcho || null;
     setCrlfModeRef = opts.setCrlfMode || null;
+    setWrapRef = opts.setWrap || null;   // Settings ▸ Wrap long lines — core term.set_wrap (AD-3)
     setDebugPanelVisibleRef = opts.setDebugPanelVisible || null;   // E5.1 (FR-23, AD-3)
     // E3.3 (FR-21/FR-22, AD-3) — reset action + reserved-Ctrl modal opener, injected
     // via opts (menu-bar imports neither prefs.resetPrefs nor modal.js). Both optional.
@@ -468,6 +478,10 @@ export function wireMenuBar(opts = {}) {
     localEchoItemEl = document.getElementById('menu-local-echo-item');
     crlfPanelEl = document.querySelector('.submenu[data-submenu-panel="crlf"]');
     projectLocalEcho();
+    // Settings ▸ Wrap long lines — same by-id discovery + initial paint from prefs
+    // so the glyph is correct BEFORE the first Settings-menu open.
+    wrapLinesItemEl = document.getElementById('menu-wrap-lines-item');
+    projectWrapLines();
 
     // E5.1 (AC-3) — discover the Debug ▸ Show Debug Panel row and take its initial
     // paint from prefs so the glyph is correct BEFORE the first Debug-menu open (never
@@ -1115,6 +1129,7 @@ function projectMenuOnOpen() {
     // the persisted prefs on the next Settings open). No setter is called (read-only).
     if (openMenu === 'settings') {
         projectLocalEcho();
+        projectWrapLines();
         const p = getPrefs();
         if (crlfPanelEl && p && p.crlfMode) setRadioChecked(crlfPanelEl, p.crlfMode);
     }
@@ -1139,6 +1154,10 @@ function projectCheckable(el, prefKey, prefs) {
 // menu) — as thin wrappers over the shared projector so both stay one implementation.
 function projectAutoConnect(prefs) { projectCheckable(autoConnectItemEl, 'autoConnect', prefs); }
 function projectLocalEcho(prefs)   { projectCheckable(localEchoItemEl, 'localEcho', prefs); }
+// Settings ▸ Wrap long lines row projector — same contract as the siblings:
+// derives only the row glyph/aria from prefs.wrapLongLines, never the core setter
+// (applyPrefs is the core's single writer on reset/boot).
+function projectWrapLines(prefs)   { projectCheckable(wrapLinesItemEl, 'wrapLongLines', prefs); }
 // E5.1 (AC-3/AC-6) — Debug ▸ Show Debug Panel row projector. Same contract as the
 // siblings: derives only the ROW glyph/aria from prefs.showDebugPanel, never the panel
 // node (applyPrefs is the panel's single writer on reset/boot — AC-6).
@@ -1353,6 +1372,7 @@ export function projectPrefs(prefs) {
     // gets the reset re-projection. Never calls a keyboard setter (applyPrefs owns
     // that single-writer job on reset — AC-6).
     projectLocalEcho(p);
+    projectWrapLines(p); // Settings ▸ Wrap long lines — resetPrefs() restores the unchecked default row
     if (crlfPanelEl && p.crlfMode) setRadioChecked(crlfPanelEl, p.crlfMode);
     // E5.1 (AC-3/AC-6) — re-project the Debug ▸ Show Debug Panel row from p.showDebugPanel
     // so resetPrefs() (AD-14) restores the unchecked default in the menu DOM. Placed

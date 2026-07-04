@@ -191,9 +191,10 @@ test.describe('E1.2 AC-1 — Enter / → activation per variant', () => {
   test('Enter on a checkable item toggles it and KEEPS the menu open @fast', async ({ page }) => {
     await ready(page);
     await page.evaluate(() => window.__menuBar.open('settings'));
-    // First enabled item is the "Local echo" checkable (starts unchecked).
+    // First enabled item is the "Local echo" checkable (starts unchecked). Wrap long
+    // lines is a second checkable below it, so target Local echo by its specific id.
     await page.keyboard.press('ArrowDown');
-    const localEcho = page.locator('#dropdown-settings .menu-item[data-variant="checkable"]');
+    const localEcho = page.locator('#menu-local-echo-item');
     await expect(localEcho).toHaveAttribute('data-checked', 'false');
     await page.keyboard.press('Enter');
     await expect(localEcho).toHaveAttribute('data-checked', 'true');

@@ -1346,6 +1346,16 @@
                 data-variant="checkable" data-pref="localEcho" data-checked="false" aria-checked="false">
           <span class="check"></span><span class="lbl">Local echo</span>
         </button>
+        <!-- Wrap long lines checkable. data-pref="wrapLongLines" drives the generic
+             persist seam (savePrefs); the wrapLongLines side-effect in menu-bar.js also
+             calls the injected setWrap (wasm core term.set_wrap) so deferred autowrap at
+             col 80 takes effect immediately (persist ≠ apply). data-checked starts "false"
+             (prefs default = last-column overstrike) and is re-derived from prefs at
+             wire-time / on open / on reset — never trusted as a literal. -->
+        <button id="menu-wrap-lines-item" class="menu-item" type="button" role="menuitemcheckbox"
+                data-variant="checkable" data-pref="wrapLongLines" data-checked="false" aria-checked="false">
+          <span class="check"></span><span class="lbl">Wrap long lines</span>
+        </button>
         <!-- Epic E3 Story E3.2 (FR-19, AD-4) — Enter key sends radio submenu
              (CR / LF / CRLF). Filled from the bare parent using the E1.4/E1.5
              radio-submenu-group template (Theme/Font). data-value = the exact

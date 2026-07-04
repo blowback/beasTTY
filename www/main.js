@@ -514,6 +514,11 @@ const menuBar = wireMenuBar({
     // menu handler calls the setter AND savePrefs, exactly as the legacy handlers do.
     setLocalEcho,
     setCrlfMode,
+    // Settings ▸ Wrap long lines — drives the wasm core's deferred autowrap. Injected
+    // as a closure over the module-scope `term` (menu-bar may import ONLY canvas.js +
+    // prefs.js — AD-3, and must never import the core). persist ≠ apply: the menu
+    // handler calls this setter AND savePrefs, exactly like the setters above.
+    setWrap: (v) => term.set_wrap(!!v),
     // Epic E5 Story E5.1 (FR-23, AD-3/AD-11) — Debug ▸ Show Debug Panel drives the
     // panel's live visibility. Injected (menu-bar owns no panel node and may not import
     // one — AD-3); persist ≠ apply, so the menu handler calls this setter AND savePrefs.
@@ -1423,6 +1428,11 @@ function applyPrefs(p) {
     // resetPrefs() fan-out it restores OFF. menuBar.projectPrefs re-derives only the row.
     setDebugPanelVisible(p.showDebugPanel);
     setCrlfMode(p.crlfMode);
+    // Settings ▸ Wrap long lines — applyPrefs is the SINGLE writer of the core's
+    // wrap mode on the boot + resetPrefs() fan-out (mirrors setLocalEcho/setCrlfMode
+    // above). The menu toggle owns it on click (persist ≠ apply); this restores the
+    // stored/default value on reset. menuBar.projectPrefs re-derives only the row.
+    term.set_wrap(!!p.wrapLongLines);
     // E7.1 — the legacy #crlf-* radio mirror loop retired with <details id="settings">;
     // the Enter-key-sends submenu's active-radio is re-projected by menuBar.projectPrefs
     // (the crlfPanel) on the boot + resetPrefs() fan-out, so no DOM mirror is written here.

@@ -164,6 +164,13 @@ mod wasm_boundary {
             self.inner.resize_scrollback(new_cap);
         }
 
+        /// Settings ▸ "Wrap long lines" — enable/disable deferred autowrap at
+        /// the right margin. Injected from JS (main.js `applyPrefs` +
+        /// menu-bar toggle). Off by default; VT52 overstrikes the last column.
+        pub fn set_wrap(&mut self, on: bool) {
+            self.inner.set_wrap(on);
+        }
+
         /// Phase 6 D-26 — direct grid mutation, NOT feeding ESC J. Parser
         /// state untouched. Wipes visible cells, marks rows dirty, homes
         /// cursor. JS top-bar Clear button calls this instead of feeding

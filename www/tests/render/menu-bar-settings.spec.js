@@ -175,3 +175,87 @@ test.describe('E3.2 AC-3 — reset re-projection', () => {
     expect(await page.evaluate(() => window.__keyboardState.getLocalEcho())).toBe(false);
   });
 });
+
+// Settings ▸ Wrap long lines — the first pref that reaches the wasm core. The
+// checkable row drives term.set_wrap (injected via wireMenuBar — AD-3). "Applied"
+// is proven behaviorally: feed 81 chars through the real core and read the cursor.
+// With wrap ON the 81st char wraps to row 1 (packed (1<<16)|1); with wrap OFF it
+// overstrikes the last column (cursor parks at (0,79) = 79).
+const WRAP = '#dropdown-settings .menu-item[data-pref="wrapLongLines"]';
+const packedCursor = (row, col) => (row << 16) | col;
+
+// clear_visible() homes the cursor + wipes the grid (and drops any deferred-wrap
+// latch) so each feed starts deterministically at (0,0), independent of wrap mode.
+async function fillLineAndReadCursor(page, count) {
+  return page.evaluate((n) => {
+    window.__term.clear_visible();
+    window.__term.feed(new Uint8Array(n).fill(0x41)); // 'A' * n
+    return window.__term.cursor_packed();
+  }, count);
+}
+
+test.describe('Settings ▸ Wrap long lines', () => {
+  test('toggle persists, applies live (core wraps), keeps menu open, retains focus @fast', async ({ page }) => {
+    await ready(page);
+    await page.locator('#terminal-wrapper').focus();
+
+    await page.evaluate(() => window.__menuBar.open('settings'));
+    const row = page.locator(WRAP);
+    await expect(row).toHaveAttribute('data-checked', 'false');
+    await expect(row.locator('.check')).toHaveText('');
+
+    await row.click();
+
+    // Glyph / aria / data-checked flip in lockstep; the menu STAYS OPEN.
+    await expect(row).toHaveAttribute('data-checked', 'true');
+    await expect(row).toHaveAttribute('aria-checked', 'true');
+    await expect(row.locator('.check')).toHaveText('✓');
+    expect(await page.evaluate(() => window.__menuBar.getOpenMenu())).toBe('settings');
+
+    // Persist ≠ apply: BOTH the pref persisted AND the live core wrap took effect.
+    expect(await page.evaluate(() => window.__prefs.getPrefs().wrapLongLines)).toBe(true);
+    expect(await fillLineAndReadCursor(page, 81)).toBe(packedCursor(1, 1));
+
+    // retainFocus — the click never stole keyboard focus.
+    expect(await page.evaluate(() => document.activeElement && document.activeElement.id)).toBe('terminal-wrapper');
+  });
+
+  test('default OFF overstrikes the last column (no wrap) @fast', async ({ page }) => {
+    await ready(page);
+    // Fresh page: wrapLongLines defaults to false — the 81st char clamps at col 79.
+    expect(await page.evaluate(() => window.__prefs.getPrefs().wrapLongLines)).toBe(false);
+    expect(await fillLineAndReadCursor(page, 81)).toBe(packedCursor(0, 79));
+  });
+
+  test('toggle OFF again re-applies (core stops wrapping) @fast', async ({ page }) => {
+    await ready(page);
+    // ON.
+    await page.evaluate(() => window.__menuBar.open('settings'));
+    await page.locator(WRAP).click();
+    expect(await fillLineAndReadCursor(page, 81)).toBe(packedCursor(1, 1));
+    // OFF.
+    await page.locator(WRAP).click();
+    await expect(page.locator(WRAP)).toHaveAttribute('data-checked', 'false');
+    expect(await page.evaluate(() => window.__prefs.getPrefs().wrapLongLines)).toBe(false);
+    expect(await fillLineAndReadCursor(page, 81)).toBe(packedCursor(0, 79));
+  });
+
+  test('reset re-projects the row + applyPrefs restores wrap OFF in the core @fast', async ({ page }) => {
+    await ready(page);
+    // projectPrefs re-derives the row from a passed blob (no View menu needed).
+    await page.evaluate(() => window.__menuBar.projectPrefs({ wrapLongLines: true }));
+    await expect(page.locator(WRAP)).toHaveAttribute('data-checked', 'true');
+    await page.evaluate(() => window.__menuBar.projectPrefs({ wrapLongLines: false }));
+    await expect(page.locator(WRAP)).toHaveAttribute('data-checked', 'false');
+
+    // Turn it on via the menu, then resetPrefs() — the subscriber re-derives the row
+    // AND applyPrefs (the reset single-writer) restores the core to no-wrap.
+    await page.evaluate(() => window.__menuBar.open('settings'));
+    await page.locator(WRAP).click();
+    await expect(page.locator(WRAP)).toHaveAttribute('data-checked', 'true');
+    await page.evaluate(() => window.__prefs.resetPrefs());
+    await expect(page.locator(WRAP)).toHaveAttribute('data-checked', 'false');
+    expect(await page.evaluate(() => window.__prefs.getPrefs().wrapLongLines)).toBe(false);
+    expect(await fillLineAndReadCursor(page, 81)).toBe(packedCursor(0, 79));
+  });
+});
