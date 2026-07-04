@@ -4,7 +4,7 @@ baseline_commit: df6bc9504f2ff1595fc4f9d4fbce327c6b1616c7
 
 # Story E5.1: Debug menu & panel toggle
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -210,7 +210,7 @@ None — no HALT conditions triggered. Regression flakes (2 in `chromium`, 2 in 
 
 ### Code Review
 
-Pending — run `code-review` (recommended: a different LLM than the implementing one) on the E5.1 diff before marking done.
+`code-review` (high effort — 8 finder angles + adversarial verify, 2 independent finder agents + manual pass) run 2026-07-04 on the E5.1 working-tree diff: **0 findings / clean.** Verified: the core mechanism (`#debug` is a `<details>`, `setDebugPanelVisible` drives `.open` → reflects to `[open]`, `#debug:not([open])` hides it fully); boot ordering (`debugEl` defined before `wireMenuBar`/boot `applyPrefs`; `wireMenuBar` before `wireKeyboard`); single-writer split (panel = injected setter only; `projectDebugPanel` = row glyph only); reset fan-out to both subscribers; all four `--field-bg`/`--chrome-fg`/`--chrome-muted`/`--chrome-border` vars resolve readably in slate + crt; and the ~15 preserved `el.open = true` fixtures still reveal the widgets. One non-blocking note (not a defect): `revealDebugPanel` in `tx-debug-strip.spec.js` toggles rather than sets — safe under Playwright's fresh per-test context; would only be fragile if `storageState`/context reuse were introduced.
 
 ### File List
 
