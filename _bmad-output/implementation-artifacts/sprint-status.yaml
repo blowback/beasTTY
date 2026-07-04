@@ -46,7 +46,7 @@
 #   E1 is the backbone and must land before the other menu/modal epics.
 
 generated: 2026-07-01
-last_updated: 2026-07-04  # E6.2 About Beastty modal → done (whole-branch code-review: 8 findings fixed incl. #7 shortcut registry, 2 refuted, #10 deferred; 355 passed / 1 skipped)
+last_updated: 2026-07-04  # E6 retrospective → done (2/2 stories, 0 findings on either modal; 12 adjacent E3/E4 findings swept via whole-branch review; E5 #1 retries-ratification confirmed landed → closed)
 # retrospective action items (surface open ones during sprint status)
 action_items:
   - epic: "e0"
@@ -140,13 +140,29 @@ action_items:
   - epic: "e5"
     action: "Ratify retries:1 as the permanent flake policy at the source: add a one-line comment in playwright.config.js recording the decision (accept chromium-transport + retries:1; no per-story --workers=1 re-diagnosis) so it is never re-litigated. Closes E2 #3."
     owner: "Amelia"
-    status: open
+    status: done   # 2026-07-04 (E6 retro) — verified landed at playwright.config.js:20-27 (policy comment + retries:1); no per-story --workers=1 re-diagnosis in E6. Closes E2 #3.
   - epic: "e5"
     action: "Carry the E7 dual-chrome close-out forward WITH the debug-panel exception recorded: the debug pane is relocated behind the Debug menu and STAYS (the one pane that does not retire). Keep the E7 retirement checklist current through E6; formal sweep is E7. Continues E1 #5 / E2 #4 / E3 #4 / E4 #4."
     owner: "Amelia"
     status: open
   - epic: "e5"
     action: "E6 prep: confirm the About modal's build source (window.__buildInfo, kept alive by E4.2, single-sourced with #status-build) and apply the clean-modal aesthetic (aligned rows + info tooltips per key-screen-chrome.html, not verbose panels); verify the source-link TBD placeholder and the verbatim privacy string."
+    owner: "Amelia"
+    status: done   # 2026-07-04 (E6 retro) — E6.2 read window.__buildInfo (single-sourced with #status-build), aligned-row aesthetic, verbatim privacy string, literal TBD source, Chromium note — all as specified.
+  - epic: "e6"
+    action: "E7 = the dual-chrome formal sweep. Plan E7 to close the retirement checklist to zero alongside the paste-toast feature: #top-bar removal is the sweep's last act, so verify no dual-chrome ships, retire the neutral-shell pin, and confirm the debug panel is the one recorded pane that stays. Closes the five-epic carry (e1 #5 / e2 #4 / e3 #4 / e4 #4 / e5 #2)."
+    owner: "Amelia"
+    status: open
+  - epic: "e6"
+    action: "Run the whole-branch review on E7 as the milestone's final sweep. E6 proved trivial stories retire adjacent debt when the review scope is the branch not the diff (12 findings off two clone stories); E7 is the last story, so treat its whole-branch review as the last natural pass over the entire ui-rethink tree before milestone close."
+    owner: "Amelia + reviewer"
+    status: open
+  - epic: "e6"
+    action: "Guard the must-agree surface before it drifts. Five modals + three build-stamp readers + the conn-dot/BUILD_UNKNOWN_SHA single-sources now hold cross-surface truth. Before E7 adds a toast that reads any shared state, confirm it consumes an existing single-source (do not add a sixth duplicated constant). Continues the setter watch (e4 #5) into its likely close."
+    owner: "Amelia"
+    status: open
+  - epic: "e6"
+    action: "Follow slide-chip.js for the toast, input/shortcuts.js for any derived content. E7's toast should clone the transient-chip precedent (no new mechanic); if it surfaces any handler-derived text, derive it from a registry like E6.2's shortcuts registry rather than static strings."
     owner: "Amelia"
     status: open
 project: beastty
@@ -201,7 +217,7 @@ development_status:
   epic-e6: in-progress
   e6-1-keyboard-shortcuts-modal: done
   e6-2-about-beastty-modal: done
-  epic-e6-retrospective: optional
+  epic-e6-retrospective: done
 
   # ── Epic E7 · Paste Toast (depends on: E0) ──
   epic-e7: backlog
