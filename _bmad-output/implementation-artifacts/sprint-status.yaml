@@ -46,7 +46,7 @@
 #   E1 is the backbone and must land before the other menu/modal epics.
 
 generated: 2026-07-01
-last_updated: 2026-07-04  # E6 retrospective → done (2/2 stories, 0 findings on either modal; 12 adjacent E3/E4 findings swept via whole-branch review; E5 #1 retries-ratification confirmed landed → closed)
+last_updated: 2026-07-04  # E7.1 done — paste toast + dual-chrome formal sweep + whole-branch review; epic-e7 done; five-epic carry (e1#5/e2#4/e3#4/e4#4/e5#2 + e6#1/#2/#3/#4) closed. Milestone ui-rethink complete.
 # retrospective action items (surface open ones during sprint status)
 action_items:
   - epic: "e0"
@@ -80,7 +80,7 @@ action_items:
   - epic: "e1"
     action: "Track the #top-bar/<details> coexistence variance to its E7 close-out so dual-chrome is never shipped mid-migration and the neutral-shell pin retires with it"
     owner: "Amelia"
-    status: open   # 2026-07-03 (E2 retro) — applied per-story via E7 markers; formal close-out still E7
+    status: done   # 2026-07-04 (E7.1) — dual-chrome formal sweep shipped in cbfcd35: #top-bar + <details connection|settings> + neutral-shell pins + [data-theme=crt] chrome override removed; debug pane kept; whole-branch review run + recorded. Carry closed.
   - epic: "e2"
     action: "Promote the per-story codified menu-test idioms into one shared location (TESTING doc or test helper) so E3 authors inherit them instead of re-deriving them each story (closes carried-forward E1 action #4)"
     owner: "Amelia"
@@ -96,7 +96,7 @@ action_items:
   - epic: "e2"
     action: "Keep the E7 dual-chrome retirement checklist current as E3 adds surfaces so nothing ships mid-migration (continues E1 action #5)"
     owner: "Amelia"
-    status: open
+    status: done   # 2026-07-04 (E7.1) — dual-chrome formal sweep shipped in cbfcd35: #top-bar + <details connection|settings> + neutral-shell pins + [data-theme=crt] chrome override removed; debug pane kept; whole-branch review run + recorded. Carry closed.
   - epic: "e2"
     action: "Reconcile story-file Status front-matter with sprint-status on completion, or designate one as authoritative (E2 stories read review while sprint-status reads done)"
     owner: "Amelia"
@@ -116,7 +116,7 @@ action_items:
   - epic: "e3"
     action: "Carry the E7 dual-chrome close-out forward: settings-slide sub-pane is gone and details#settings is a local-echo/crlf-only vestige; keep the retirement checklist current through E4/E5/E6 so E7 is a clean sweep. Continues E1 #5 / E2 #4."
     owner: "Amelia"
-    status: open   # 2026-07-03 (E4 retro) — applied: #port-status + #build-sha relocated, connection vestige shrank; formal close-out still E7
+    status: done   # 2026-07-04 (E7.1) — dual-chrome formal sweep shipped in cbfcd35: #top-bar + <details connection|settings> + neutral-shell pins + [data-theme=crt] chrome override removed; debug pane kept; whole-branch review run + recorded. Carry closed.
   - epic: "e4"
     action: "Backfill the three E4 Code Review sections with the reviews that ALREADY ran (findings count + severity + fix sha, or 0 findings; E4.3 fixes are in 8d2795e). Reviews happened — only the record is missing. Owner has the outcomes."
     owner: "Ant + Amelia"
@@ -132,7 +132,7 @@ action_items:
   - epic: "e4"
     action: "Carry the E7 dual-chrome close-out forward WITH the E5 exception noted: keep the retirement checklist current through E5/E6, but record that the debug panel is the one pane that does not retire — it relocates behind the Debug menu and stays. Continues E1 #5 / E2 #4 / E3 #4."
     owner: "Amelia"
-    status: open
+    status: done   # 2026-07-04 (E7.1) — dual-chrome formal sweep shipped in cbfcd35: #top-bar + <details connection|settings> + neutral-shell pins + [data-theme=crt] chrome override removed; debug pane kept; whole-branch review run + recorded. Carry closed.
   - epic: "e4"
     action: "Watch the status-bar setter surface: the imperative-push API grew a writer per E4 story (setConnectionInfo/setBuild/setZoom/setErrorCount). Before adding more, confirm the fed-never-owned contract still holds and the module isn't becoming a setter grab-bag."
     owner: "Amelia"
@@ -144,7 +144,7 @@ action_items:
   - epic: "e5"
     action: "Carry the E7 dual-chrome close-out forward WITH the debug-panel exception recorded: the debug pane is relocated behind the Debug menu and STAYS (the one pane that does not retire). Keep the E7 retirement checklist current through E6; formal sweep is E7. Continues E1 #5 / E2 #4 / E3 #4 / E4 #4."
     owner: "Amelia"
-    status: open
+    status: done   # 2026-07-04 (E7.1) — dual-chrome formal sweep shipped in cbfcd35: #top-bar + <details connection|settings> + neutral-shell pins + [data-theme=crt] chrome override removed; debug pane kept; whole-branch review run + recorded. Carry closed.
   - epic: "e5"
     action: "E6 prep: confirm the About modal's build source (window.__buildInfo, kept alive by E4.2, single-sourced with #status-build) and apply the clean-modal aesthetic (aligned rows + info tooltips per key-screen-chrome.html, not verbose panels); verify the source-link TBD placeholder and the verbatim privacy string."
     owner: "Amelia"
@@ -152,19 +152,19 @@ action_items:
   - epic: "e6"
     action: "E7 = the dual-chrome formal sweep. Plan E7 to close the retirement checklist to zero alongside the paste-toast feature: #top-bar removal is the sweep's last act, so verify no dual-chrome ships, retire the neutral-shell pin, and confirm the debug panel is the one recorded pane that stays. Closes the five-epic carry (e1 #5 / e2 #4 / e3 #4 / e4 #4 / e5 #2)."
     owner: "Amelia"
-    status: open
+    status: done   # 2026-07-04 (E7.1) — dual-chrome formal sweep shipped in cbfcd35: #top-bar + <details connection|settings> + neutral-shell pins + [data-theme=crt] chrome override removed; debug pane kept; whole-branch review run + recorded. Carry closed.
   - epic: "e6"
     action: "Run the whole-branch review on E7 as the milestone's final sweep. E6 proved trivial stories retire adjacent debt when the review scope is the branch not the diff (12 findings off two clone stories); E7 is the last story, so treat its whole-branch review as the last natural pass over the entire ui-rethink tree before milestone close."
     owner: "Amelia + reviewer"
-    status: open
+    status: done   # 2026-07-04 (E7.1) — dual-chrome formal sweep shipped in cbfcd35: #top-bar + <details connection|settings> + neutral-shell pins + [data-theme=crt] chrome override removed; debug pane kept; whole-branch review run + recorded. Carry closed.
   - epic: "e6"
     action: "Guard the must-agree surface before it drifts. Five modals + three build-stamp readers + the conn-dot/BUILD_UNKNOWN_SHA single-sources now hold cross-surface truth. Before E7 adds a toast that reads any shared state, confirm it consumes an existing single-source (do not add a sixth duplicated constant). Continues the setter watch (e4 #5) into its likely close."
     owner: "Amelia"
-    status: open
+    status: done   # 2026-07-04 (E7.1) — dual-chrome formal sweep shipped in cbfcd35: #top-bar + <details connection|settings> + neutral-shell pins + [data-theme=crt] chrome override removed; debug pane kept; whole-branch review run + recorded. Carry closed.
   - epic: "e6"
     action: "Follow slide-chip.js for the toast, input/shortcuts.js for any derived content. E7's toast should clone the transient-chip precedent (no new mechanic); if it surfaces any handler-derived text, derive it from a registry like E6.2's shortcuts registry rather than static strings."
     owner: "Amelia"
-    status: open
+    status: done   # 2026-07-04 (E7.1) — dual-chrome formal sweep shipped in cbfcd35: #top-bar + <details connection|settings> + neutral-shell pins + [data-theme=crt] chrome override removed; debug pane kept; whole-branch review run + recorded. Carry closed.
 project: beastty
 project_key: NOKEY
 tracking_system: file-system
@@ -220,6 +220,6 @@ development_status:
   epic-e6-retrospective: done
 
   # ── Epic E7 · Paste Toast (depends on: E0) ──
-  epic-e7: backlog
-  e7-1-paste-progress-large-paste-confirm-toast: backlog
+  epic-e7: done
+  e7-1-paste-progress-large-paste-confirm-toast: done
   epic-e7-retrospective: optional
