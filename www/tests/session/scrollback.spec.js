@@ -124,12 +124,13 @@ test.describe('SESS-01 — Scrollback navigation', () => {
 
     test('wheel listener attached to #terminal-wrapper, not document (D-12)', async ({ page }) => {
         await setup(page);
-        // A wheel event dispatched on #settings (a child of <body>, OUTSIDE
+        // A wheel event dispatched on #status-bar (a child of <body>, OUTSIDE
         // #terminal-wrapper) MUST NOT change scroll-state offset. The listener
         // is on the wrapper, so events from chrome panes never reach it.
-        await page.locator('#settings').evaluate((el) => { el.open = true; });
+        // E7.1 — was #settings, which retired with <details id="settings">; the
+        // status bar is an equivalent always-present out-of-wrapper element.
         const offsetBefore = await page.evaluate(() => window.__scrollState.getOffset());
-        await page.locator('#settings').dispatchEvent('wheel', {
+        await page.locator('#status-bar').dispatchEvent('wheel', {
             deltaY: -100,
             deltaMode: 1,
         });

@@ -38,8 +38,9 @@ test.describe('D-27..D-29 + D-37 — Error log & lifecycle', () => {
             });
         });
         for (let i = 0; i < 6; i++) {
-            await page.locator('#connect-button').click();
-            await expect(page.locator('#connect-button')).toHaveAttribute('data-state', 'disconnected');
+            await page.evaluate(() => window.__menuBar.open('connection'));
+            await page.click('#menu-connect-item');
+            await expect(page.locator('#menu-connect-item')).toHaveAttribute('data-state', 'disconnected');
         }
         const logHtml = await page.locator('#error-log').innerHTML();
         const entries = (logHtml.match(/log-entry/g) || []).length;
@@ -48,8 +49,9 @@ test.describe('D-27..D-29 + D-37 — Error log & lifecycle', () => {
 
     test('permission revoked mid-read shows permission-revoked code', async ({ page }) => {
         await setup(page);
-        await page.locator('#connect-button').click();
-        await expect(page.locator('#connect-button')).toHaveAttribute('data-state', 'connected');
+        await page.evaluate(() => window.__menuBar.open('connection'));
+        await page.click('#menu-connect-item');
+        await expect(page.locator('#menu-connect-item')).toHaveAttribute('data-state', 'connected');
         // Simulate a NetworkError out of the read loop by resolving the pending
         // read() with a throw. Our mock's reader stores the resolver at
         // `_reader.waiter` when read() is awaiting; we reject it instead.
@@ -91,15 +93,17 @@ test.describe('D-27..D-29 + D-37 — Error log & lifecycle', () => {
                 return p;
             });
         });
-        await page.locator('#connect-button').click();
+        await page.evaluate(() => window.__menuBar.open('connection'));
+        await page.click('#menu-connect-item');
         await expect(page.locator('#error-log')).toContainText('port-in-use');
         await expect(page.locator('#error-log')).toContainText('another Beastty tab');
     });
 
     test('multiple CP2102N adapters on reconnect shows multiple-adapters code', async ({ page }) => {
         await setup(page);
-        await page.locator('#connect-button').click();
-        await expect(page.locator('#connect-button')).toHaveAttribute('data-state', 'connected');
+        await page.evaluate(() => window.__menuBar.open('connection'));
+        await page.click('#menu-connect-item');
+        await expect(page.locator('#menu-connect-item')).toHaveAttribute('data-state', 'connected');
         // Inject a second CP2102N port + replace the first so identity match fails.
         await page.evaluate(() => {
             const Mock = navigator.serial._grantedPorts[0].constructor;
@@ -114,7 +118,7 @@ test.describe('D-27..D-29 + D-37 — Error log & lifecycle', () => {
                 new Mock({ usbVendorId: 0x10c4, usbProductId: 0xea60 }),
             ];
         });
-        await expect(page.locator('#connect-button')).toHaveAttribute('data-state', 'port-lost');
+        await expect(page.locator('#menu-connect-item')).toHaveAttribute('data-state', 'port-lost');
         // Dispatch a connect event on navigator.serial; onNavSerialConnect reads
         // getPorts() (now ambiguous) and lands in Choose MicroBeast... + log.
         await page.evaluate(() => {
@@ -123,7 +127,7 @@ test.describe('D-27..D-29 + D-37 — Error log & lifecycle', () => {
             navigator.serial.dispatchEvent(ev);
         });
         await expect(page.locator('#error-log')).toContainText('multiple-adapters', { timeout: 2000 });
-        await expect(page.locator('#connect-button')).toHaveText('Choose MicroBeast…');
+        await expect(page.locator('#menu-connect-item .lbl')).toHaveText('Choose MicroBeast…');
     });
 
     test('error log timestamp uses HH:MM:SS 24-hour format', async ({ page }) => {
@@ -136,7 +140,8 @@ test.describe('D-27..D-29 + D-37 — Error log & lifecycle', () => {
                 return p;
             });
         });
-        await page.locator('#connect-button').click();
+        await page.evaluate(() => window.__menuBar.open('connection'));
+        await page.click('#menu-connect-item');
         // Open the modal to VIEW the log (E2.3 — no more auto-expand; opening the
         // Serial Configuration modal is the deliberate path to read errors).
         await openLog(page);

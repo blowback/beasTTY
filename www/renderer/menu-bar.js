@@ -57,9 +57,9 @@ import { setTheme, setPhosphor, setFont, zoomStep, resetZoom, getActiveZoom } fr
 // Left-to-right menu order. Keys map to the #menu-<key> / #dropdown-<key> IDs.
 const MENUS = ['file', 'connection', 'view', 'settings', 'debug', 'help'];
 
-// E2.1 (AD-15) — the Connect item / legacy #connect-button ACTION label per
-// connection state. Moved VERBATIM (incl. the literal U+2026 ellipsis) from the
-// retired serial.js BUTTON_LABELS: menu-bar.js is now the sole writer of every
+// E2.1 (AD-15) — the Connect item ACTION label per connection state. Moved
+// VERBATIM (incl. the literal U+2026 ellipsis) from the retired serial.js
+// BUTTON_LABELS: menu-bar.js is now the sole writer of every
 // Connect surface, projecting state → label + data-state via this frozen map.
 const CONNECT_LABELS = Object.freeze({
     disconnected:  'Connect',
@@ -138,11 +138,17 @@ let openSerialConfigRef = null;
 // neither file-source nor session-log — AD-3). downloadLogItemEl is the row this
 // module is the SOLE writer of; it never touches the legacy #download-log-button.
 let sendFileRef = null;
+// E7.1 — the Send File… row's disabled/tooltip state derives from file-source's
+// send gate (getSendGate()), injected here. Before #top-bar's removal this read
+// the live #send-file-button .disabled/.title; the button retired, so file-source
+// now exposes the gate as data. Optional + no-throw: a harness that omits it
+// leaves the row enabled (openSendPicker still no-ops safely when it can't send).
+let getSendGateRef = null;
 let downloadLogRef = null;
 let getSessionLogBytesRef = null;
 let sessionLogTooltipsRef = null;
 let downloadLogItemEl = null;      // #menu-download-log-item — disabled↔enabled per byte count
-let sendFileItemEl = null;         // #menu-send-file-item — disabled↔enabled mirroring #send-file-button's gate
+let sendFileItemEl = null;         // #menu-send-file-item — disabled↔enabled per file-source's send gate
 
 // E3.2 (FR-18/FR-19, AD-3) — Settings-menu injected seams. setLocalEchoRef /
 // setCrlfModeRef are keyboard.js's live setters, injected because menu-bar.js may
@@ -167,18 +173,19 @@ let setDebugPanelVisibleRef = null;
 let debugPanelItemEl = null;       // #menu-debug-panel-item — checkable, derived from prefs.showDebugPanel
 
 // Per-pref side effects for pref-backed checkable rows (data-pref). savePrefs persists
-// + flips the glyph but does NOT fan out (AD-4), so this table carries the two extra
-// obligations a checkable can have: `apply` — the injected live-effect setter to run
-// NOW (persist ≠ apply; boot-time-only prefs like autoConnect have none); and
-// `legacyMirrorId` — the coexisting <details>-pane checkbox to keep in lockstep during
-// the E7 window (menu→pane; every mirror line retires with #top-bar). Setters are read
-// LIVE via closures (the *Ref lets are re-assigned on an idempotent re-wire). One entry
-// per pref instead of an if-chain, so a new live checkable is a single edit here (paired
-// with its main.js injection + applyControlMirrors table entry).
+// + flips the glyph but does NOT fan out (AD-4), so this table carries the extra
+// obligation a checkable can have: `apply` — the injected live-effect setter to run
+// NOW (persist ≠ apply; boot-time-only prefs like autoConnect have none). Setters are
+// read LIVE via closures (the *Ref lets are re-assigned on an idempotent re-wire). One
+// entry per pref instead of an if-chain, so a new live checkable is a single edit here
+// (paired with its main.js injection).
+// E7.1 — the E7-window `legacyMirrorId` menu→pane lockstep is GONE: the coexisting
+// <details id="settings"> pane (with #local-echo / #auto-connect-checkbox) retired with
+// #top-bar, so the menu rows are now the sole surface for these prefs (AD-7).
 const CHECKABLE_PREF_EFFECTS = {
-    autoConnect:    { legacyMirrorId: 'auto-connect-checkbox' },              // boot-time only — no live setter
-    localEcho:      { apply: (next) => setLocalEchoRef?.(next), legacyMirrorId: 'local-echo' },
-    showDebugPanel: { apply: (next) => setDebugPanelVisibleRef?.(next) },     // no coexisting pane checkbox (AC-4)
+    autoConnect:    {},                                                       // boot-time only — no live setter, no pane mirror
+    localEcho:      { apply: (next) => setLocalEchoRef?.(next) },
+    showDebugPanel: { apply: (next) => setDebugPanelVisibleRef?.(next) },
 };
 
 // E3.3 (FR-21/FR-22, AD-3) — Settings-menu injected seams. resetPrefsRef is the
@@ -228,7 +235,6 @@ let connUnsub = null;
 let connectItemEl = null;     // #menu-connect-item (the Connect/Disconnect menu row)
 let connDotEl = null;         // #menu-conn-dot
 let connLabelEl = null;       // #menu-conn-label
-let legacyConnectBtnEl = null; // #connect-button — coexistence mirror, retires with #top-bar in E7
 
 // E2.2 (FR-13/FR-14, AD-3) — Auto-connect + Choose MicroBeast injected seams.
 // getAdapterCountRef is serial's async CP2102N count (present-when->1 gate);
@@ -329,6 +335,7 @@ export function wireMenuBar(opts = {}) {
     // sessionLogTooltips leaves projectSessionLog's title write a no-op (the HTML
     // initial title stands).
     sendFileRef = opts.sendFile || null;
+    getSendGateRef = opts.getSendGate || null;   // E7.1 — file-source send-gate reader
     downloadLogRef = opts.downloadSessionLog || null;
     getSessionLogBytesRef = opts.getSessionLogBytes || null;
     sessionLogTooltipsRef = opts.sessionLogTooltips || null;
@@ -412,17 +419,9 @@ export function wireMenuBar(opts = {}) {
     connectItemEl = document.getElementById('menu-connect-item');
     connDotEl = document.getElementById('menu-conn-dot');
     connLabelEl = document.getElementById('menu-conn-label');
-    // Coexistence mirror (Task 3) — the legacy #connect-button stays a valid
-    // serial-state oracle for the transport/session suite until #top-bar is
-    // removed in E7 (E1 retro open action #5). menu-bar.js now OWNS its click +
-    // mousedown too (moved out of serial.js), so it is not a second writer.
-    legacyConnectBtnEl = document.getElementById('connect-button');
-    if (legacyConnectBtnEl) {
-        retainFocus(legacyConnectBtnEl);   // AD-10 — mousedown→preventDefault (AC-5)
-        trackListener(legacyConnectBtnEl, 'click', () => {
-            if (toggleConnectionRef) toggleConnectionRef();
-        });
-    }
+    // E7.1 (AD-7) — the legacy #connect-button retired with #top-bar; the
+    // Connection ▸ Connect/Disconnect row (below) is now the sole Connect trigger,
+    // and menu-bar.js the sole writer of the Connect surfaces (row + status dot).
     // Drop any prior onStateChange subscription BEFORE re-subscribing so an
     // idempotent re-wire never double-registers projectConnection (AC-6).
     // (connUnsub is a serial closure, not a tracked DOM listener, so
@@ -457,7 +456,7 @@ export function wireMenuBar(opts = {}) {
 
     // E3.1 follow-up — discover the Send File… row and take its initial gate paint.
     // At boot no writer is ready, so the row starts disabled ("Connect first"), matching
-    // the legacy #send-file-button; re-derived on every File-menu open (projectMenuOnOpen).
+    // file-source's send gate; re-derived on every File-menu open (projectMenuOnOpen).
     sendFileItemEl = document.getElementById('menu-send-file-item');
     projectSendFile();
 
@@ -789,14 +788,12 @@ function onRadioSelect(panel, item) {
         // effect, so call the injected setter (apply now) AND savePrefs (persist);
         // the setter's validator (keyboard.js:94) accepts only cr/lf/crlf, which the
         // radio data-values are. NOT a D-19 trigger (no clearSelection) and NO CRT
-        // gate (always live — contrast Font). Mirror the three coexisting legacy
-        // #crlf-* radios (menu→pane lockstep); the mirror retires with #top-bar in E7.
+        // gate (always live — contrast Font). E7.1 — the coexisting legacy #crlf-*
+        // radios retired with <details id="settings">, so the crlf submenu is now the
+        // sole Enter-key-sends surface (no menu→pane mirror to keep in lockstep).
         setCrlfModeRef?.(value);
         savePrefs({ crlfMode: value });          // AD-4 — persist
         setRadioChecked(panel, value);
-        document.querySelectorAll('input[name="crlf"]').forEach((r) => {   // E7-retirement mirror
-            r.checked = (r.value === value);
-        });
     }
 }
 
@@ -925,18 +922,11 @@ function onItemClick(item, ev) {
         const prefKey = item.getAttribute('data-pref');
         if (prefKey) {
             savePrefs({ [prefKey]: next });   // AD-4 — persist only; no fan-out
-            // Table-driven side effects (CHECKABLE_PREF_EFFECTS): the LIVE-effect setter
-            // (E3.2 localEcho / E5.1 showDebugPanel — persist ≠ apply) and the E7-window
-            // menu→pane mirror (E2.2 AC-4 — the coexisting legacy pane checkbox that would
-            // otherwise go stale in-session; every mirror retires with #top-bar).
+            // Table-driven side effect (CHECKABLE_PREF_EFFECTS): the LIVE-effect setter
+            // (E3.2 localEcho / E5.1 showDebugPanel — persist ≠ apply). E7.1 — the
+            // former E7-window menu→pane mirror is gone with the <details> pane.
             const effect = CHECKABLE_PREF_EFFECTS[prefKey];
-            if (effect) {
-                effect.apply?.(next);
-                if (effect.legacyMirrorId) {
-                    const legacy = document.getElementById(effect.legacyMirrorId);
-                    if (legacy) legacy.checked = next;
-                }
-            }
+            if (effect) effect.apply?.(next);
         }
         return;                          // checkable keeps the menu open (AC-1)
     }
@@ -999,7 +989,7 @@ function onItemClick(item, ev) {
     }
     // E3.3 (FR-22, AD-4/AD-14) — Reset all preferences: a THIRD menu-item behaviour
     // alongside "action closes" / "checkable+radio keep open". The D-35 2-click confirm
-    // machine is shared with chrome.js's legacy button (confirm-toggle.js); here the
+    // machine (confirm-toggle.js) runs the arm/commit/disarm semantics; here the
     // caller owns only the surface behaviour: first activation ARMS and KEEPS THE MENU
     // OPEN (unlike a normal action row); the second COMMITS (the machine runs the
     // injected resetPrefs() via onCommit) and closes (action semantics now apply).
@@ -1108,9 +1098,9 @@ function openMenuNamed(key, focusFirstRow = false) {
 // (keeps the menu correct after a Ctrl+Alt+T chord fired while it was closed —
 // savePrefs updates `cached` synchronously (AD-4), so getPrefs() already reflects
 // it; no chrome→menu notify edge (AD-3)). E2.2 — Connection: re-derive the
-// Auto-connect row from prefs (AC-3 pane→menu; a legacy-checkbox toggle is
-// reflected on the next open) and kick off the async adapter count that gates
-// Choose MicroBeast… (AC-2). All reads are at USE-TIME; none call a setter.
+// Auto-connect row from prefs at USE-TIME (AC-3 open re-derive — the row always
+// reflects the persisted pref on the next open) and kick off the async adapter
+// count that gates Choose MicroBeast… (AC-2). No read calls a setter.
 function projectMenuOnOpen() {
     if (openMenu === 'view') projectPrefs();
     if (openMenu === 'connection') {
@@ -1121,8 +1111,8 @@ function projectMenuOnOpen() {
     // byte count each open (open-time projection).
     if (openMenu === 'file') { projectSessionLog(); projectSendFile(); }
     // E3.2 (AC-3) — Settings: re-derive the Local echo glyph + the Enter-key-sends
-    // active radio from prefs at USE-TIME (pane→menu: a legacy-control change is
-    // reflected on the next Settings open). No setter is called (read-only).
+    // active radio from prefs at USE-TIME (open re-derive: the rows always reflect
+    // the persisted prefs on the next Settings open). No setter is called (read-only).
     if (openMenu === 'settings') {
         projectLocalEcho();
         const p = getPrefs();
@@ -1181,23 +1171,24 @@ function projectSessionLog() {
     if (openMenu === 'file') reanchorFocus(focused);
 }
 
-// E3.1 follow-up — project the Send File… row's disabled state to MIRROR the legacy
-// #send-file-button's gate (openSendPicker already short-circuits on the same gate, so
-// the click was inert while disabled — but the MENU row gave no feedback, unlike the
-// top-bar button's grey/tooltip and unlike the Download Session Log row). Reading the
-// button's live .disabled/.title by id is the same coexistence-mirror pattern as the
-// #auto-connect / #local-echo / #connect-button mirrors and retires with #send-file-button
-// in E7. Read-at-use, no-throw, idempotent; never re-drives file-source (projector-never-
-// writes-machine — the E1.4 double-apply lesson). Re-anchors focus exactly like
-// projectSessionLog since enabling/disabling changes focusableItems() membership.
+// E3.1 follow-up — project the Send File… row's disabled state from file-source's
+// send gate so the MENU row gives the same grey/tooltip feedback the retired
+// #send-file-button did (openSendPicker already short-circuits on the same gate,
+// so the click is inert while disabled — but the row must SHOW it, like the
+// Download Session Log row). E7.1 — reads the injected getSendGate() (data, no DOM
+// coupling) in place of the retired button's live .disabled/.title. Read-at-use,
+// no-throw, idempotent; never re-drives file-source (projector-never-writes-machine
+// — the E1.4 double-apply lesson). Re-anchors focus exactly like projectSessionLog
+// since enabling/disabling changes focusableItems() membership.
 function projectSendFile() {
     if (!sendFileItemEl) return;                     // row absent (harness) — no-op
-    const btn = document.getElementById('send-file-button');
     const focused = (openMenu === 'file') ? currentFocusedItem() : null;
-    // Fail OPEN when the legacy button is absent (post-E7 / harness): leave the row
-    // enabled — openSendPicker still no-ops safely when it genuinely can't send. Shared
-    // triple (setRowDisabled); mirror the button's title only when disabled.
-    setRowDisabled(sendFileItemEl, !!(btn && btn.disabled), btn && btn.title ? btn.title : null);
+    // Fail OPEN when the gate reader is absent (harness): leave the row enabled —
+    // openSendPicker still no-ops safely when it genuinely can't send. Shared triple
+    // (setRowDisabled); mirror the gate's title only when disabled.
+    let gate = null;
+    try { gate = getSendGateRef ? getSendGateRef() : null; } catch { gate = null; }
+    setRowDisabled(sendFileItemEl, !!(gate && gate.disabled), (gate && gate.title) ? gate.title : null);
     if (openMenu === 'file') reanchorFocus(focused);
 }
 
@@ -1403,27 +1394,24 @@ export function projectPrefs(prefs) {
 // ====== E2.1 (AD-15) — connection projection (the sole Connect-surface writer) ======
 
 // The SOLE writer of every Connect surface: the Connect menu item (label +
-// data-state), the right-aligned status dot (data-state → discrete colour) and
-// its label, and — during coexistence — the legacy #connect-button (label +
-// data-state) so the transport/session oracles stay green (Task 3). Fed by the
-// serial onStateChange subscription + the boot initial paint; NEVER calls a
-// serial setter / connect / disconnect (reading state must not re-drive the
-// machine — the E1.4 double-apply lesson). Mirrors projectPrefs's contract:
+// data-state) and the right-aligned status dot (data-state → discrete colour) +
+// its label. (E7.1 — the legacy #connect-button mirror retired with #top-bar.)
+// Fed by the serial onStateChange subscription + the boot initial paint; NEVER
+// calls a serial setter / connect / disconnect (reading state must not re-drive
+// the machine — the E1.4 double-apply lesson). Mirrors projectPrefs's contract:
 // read-at-use, no-throw (every ref null-guarded), idempotent. Does NOT touch
 // menu open/close state — render() stays that sole writer.
 function projectConnection(state) {
     const label = CONNECT_LABELS[state] || CONNECT_LABELS.disconnected;
-    writeConnectLabel(label);                      // action label (item + legacy button)
+    writeConnectLabel(label);                      // action label (menu item .lbl)
     if (connectItemEl) connectItemEl.dataset.state = state;
     if (connDotEl) connDotEl.dataset.state = state;
     if (connLabelEl) connLabelEl.textContent = CONN_STATUS_LABELS[state] || CONN_STATUS_LABELS.disconnected;
-    // Coexistence mirror — retires with #top-bar in E7 (E1 retro action #5).
-    if (legacyConnectBtnEl) legacyConnectBtnEl.dataset.state = state;
 }
 
 // The single source of truth for WHICH surfaces carry the Connect ACTION label:
-// the #menu-connect-item .lbl and — during coexistence — the legacy
-// #connect-button. Shared by projectConnection (the state path) and
+// the #menu-connect-item .lbl (E7.1 — the legacy #connect-button surface is
+// gone). Shared by projectConnection (the state path) and
 // signalConnectLabel (the out-of-band override) so the surface list can never
 // drift between them. Null-guarded — a missing surface is a no-op.
 function writeConnectLabel(label) {
@@ -1431,7 +1419,6 @@ function writeConnectLabel(label) {
         const lbl = connectItemEl.querySelector('.lbl');
         if (lbl) lbl.textContent = label;
     }
-    if (legacyConnectBtnEl) legacyConnectBtnEl.textContent = label;
 }
 
 // AC-4 — the out-of-band "Choose MicroBeast…" prompt (multi-adapter guard). Not
@@ -1485,8 +1472,8 @@ export function dispose() {
     focusedIndex = -1;
     render();
     // Detach every listener we attached (title clicks + item clicks + the
-    // document click-away + the legacy #connect-button click) so the disposed bar
-    // is fully inert — clicking a title no longer toggles a dropdown.
+    // document click-away) so the disposed bar is fully inert — clicking a title
+    // no longer toggles a dropdown.
     removeTrackedListeners();
     // E2.1 (AC-6) — unsubscribe the serial onStateChange subscriber so a disposed
     // bar stops projecting connection state (and a re-wire never double-subscribes).

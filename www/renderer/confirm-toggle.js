@@ -4,10 +4,10 @@
 // 2-click confirm: the first activation swaps the control's label to a countdown
 // prompt and arms a revert timer; a second activation within the window commits.
 //
-// TWO surfaces drive the SAME reset: the legacy #reset-prefs-button (chrome.js) and
-// the Settings ▸ Reset all preferences menu row (menu-bar.js). This module is the
-// ONE implementation of the arm / commit / disarm semantics + the confirm window,
-// so the two surfaces can never drift (previously the whole machine was hand-copied
+// Settings ▸ Reset all preferences (menu-bar.js) drives the reset. This module is
+// the ONE implementation of the arm / commit / disarm semantics + the confirm
+// window (E7.1 retired the legacy #reset-prefs-button/chrome.js surface, leaving
+// this the sole shared machine — previously the whole machine was hand-copied
 // into both, and the menu copy silently depended on every dropdown-close path
 // remembering to disarm an armed timer — a leaked timer could commit a destructive
 // reset on an unrelated later click).

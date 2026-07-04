@@ -149,8 +149,10 @@ test.describe('PREF-01/PREF-02/PLAT-05 — Preferences persistence', () => {
 
     test('localEcho persists across reload', async ({ page }) => {
         await setup(page);
-        await page.locator('#settings').evaluate((el) => el.open = true);
-        await page.locator('#local-echo').check();
+        // E7.1 — toggle via the Settings menu row (the #local-echo checkbox retired).
+        await page.evaluate(() => window.__menuBar.open('settings'));
+        await page.click('#dropdown-settings .menu-item[data-pref="localEcho"]');
+        await page.evaluate(() => window.__menuBar.close());
         await page.waitForTimeout(300);
         await page.reload();
         await setup(page);
@@ -159,10 +161,11 @@ test.describe('PREF-01/PREF-02/PLAT-05 — Preferences persistence', () => {
 
     test('crlfMode persists across reload', async ({ page }) => {
         await setup(page);
-        await page.locator('#settings').evaluate((el) => el.open = true);
-        // Drive the change handler; click is shadowed by the mousedown
-        // preventDefault sequence (Phase 4 D-16) so we use .check() directly.
-        await page.locator('#crlf-lf').check();
+        // E7.1 — set via the Settings ▸ Enter key sends submenu (the #crlf-* radios retired).
+        await page.evaluate(() => window.__menuBar.open('settings'));
+        await page.click('#dropdown-settings .menu-item[data-submenu="crlf"]');
+        await page.click('#dropdown-settings .submenu[data-submenu-panel="crlf"] .menu-item[data-value="lf"]');
+        await page.evaluate(() => window.__menuBar.close());
         await page.waitForTimeout(300);
         await page.reload();
         await setup(page);
@@ -180,39 +183,45 @@ test.describe('PREF-01/PREF-02/PLAT-05 — Preferences persistence', () => {
         expect(await page.evaluate(() => window.__prefs.getPrefs().fontZoom)).toBe(2);
     });
 
-    test('Reset prefs button: first click changes label to "Click again to confirm (3 s)"', async ({ page }) => {
+    // E7.1 — the reset 2-click confirm moved wholly to the Settings ▸ Reset all
+    // preferences menu row (the legacy #reset-prefs-button retired); same labels +
+    // 3 s window (shared confirm-toggle.js). Menu-driven idioms below.
+    const RESET_ROW = '#dropdown-settings .menu-item[data-action="reset-prefs"]';
+    const RESET_LBL = `${RESET_ROW} .lbl`;
+
+    test('Reset prefs row: first click changes label to "Click again to confirm (3 s)"', async ({ page }) => {
         await page.addInitScript(() => localStorage.removeItem('beastty.prefs'));
         await setup(page);
-        await page.locator('#settings').evaluate((el) => el.open = true);
-        await page.locator('#reset-prefs-button').click();
-        await expect(page.locator('#reset-prefs-button')).toHaveText('Click again to confirm (3 s)');
+        await page.evaluate(() => window.__menuBar.open('settings'));
+        await page.click(RESET_ROW);
+        await expect(page.locator(RESET_LBL)).toHaveText('Click again to confirm (3 s)');
     });
 
-    test('Reset prefs button: second click within 3s clears beastty.prefs and reloads defaults', async ({ page }) => {
+    test('Reset prefs row: second click within 3s clears beastty.prefs and reloads defaults', async ({ page }) => {
         await page.addInitScript(() => localStorage.removeItem('beastty.prefs'));
         await setup(page);
         // First customize prefs.
         await page.evaluate(() => window.__prefs.savePrefs({ theme: 'clean' }));
         await page.waitForTimeout(300);
         expect(await page.evaluate(() => localStorage.getItem('beastty.prefs'))).not.toBeNull();
-        await page.locator('#settings').evaluate((el) => el.open = true);
-        await page.locator('#reset-prefs-button').click();
-        await page.locator('#reset-prefs-button').click();
+        await page.evaluate(() => window.__menuBar.open('settings'));
+        await page.click(RESET_ROW);
+        await page.click(RESET_ROW);
         // Defaults reloaded in-place (no page reload — D-35).
         expect(await page.evaluate(() => window.__prefs.getPrefs().theme)).toBe('crt');
         expect(await page.evaluate(() => localStorage.getItem('beastty.prefs'))).toBeNull();
-        // Label restored.
-        await expect(page.locator('#reset-prefs-button')).toHaveText('Reset all preferences');
+        // Label restored to idle.
+        await expect(page.locator(RESET_LBL)).toHaveText('Reset all preferences');
     });
 
-    test('Reset prefs button: 3s timeout returns label to "Reset all preferences"', async ({ page }) => {
+    test('Reset prefs row: 3s timeout returns label to "Reset all preferences"', async ({ page }) => {
         await page.addInitScript(() => localStorage.removeItem('beastty.prefs'));
         await setup(page);
-        await page.locator('#settings').evaluate((el) => el.open = true);
-        await page.locator('#reset-prefs-button').click();
-        await expect(page.locator('#reset-prefs-button')).toHaveText('Click again to confirm (3 s)');
+        await page.evaluate(() => window.__menuBar.open('settings'));
+        await page.click(RESET_ROW);
+        await expect(page.locator(RESET_LBL)).toHaveText('Click again to confirm (3 s)');
         await page.waitForTimeout(3500);   // wait > 3 s
-        await expect(page.locator('#reset-prefs-button')).toHaveText('Reset all preferences');
+        await expect(page.locator(RESET_LBL)).toHaveText('Reset all preferences');
     });
 
     // Phase 6 Plan 06-09 (gap closure) — no-revert regression suite.

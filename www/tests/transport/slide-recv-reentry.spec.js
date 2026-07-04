@@ -19,11 +19,11 @@ async function setup(page) {
     await page.goto('/');
     await page.locator('#terminal-wrapper').focus();
     await page.waitForFunction(() => document.getElementById('terminal').width > 0);
-    await page.locator('#connection').evaluate((el) => { el.open = true; });
 }
 
 async function commonReset(page) {
-    await page.locator('#connect-button').click();
+    await page.evaluate(() => window.__menuBar.open('connection'));
+    await page.click('#menu-connect-item');
     await expect.poll(
         () => page.evaluate(() => Boolean(navigator.serial._grantedPorts[0]?._reader)),
         { timeout: 5000 },

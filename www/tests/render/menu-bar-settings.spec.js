@@ -31,7 +31,7 @@ const crlfRadio = (v) =>
   `#dropdown-settings .submenu[data-submenu-panel="crlf"] .menu-item[data-value="${v}"]`;
 
 test.describe('E3.2 AC-1/AC-4/AC-5 — Local echo', () => {
-  test('toggle persists, applies live, mirrors #local-echo, keeps menu open, retains focus @fast', async ({ page }) => {
+  test('toggle persists, applies live, keeps menu open, retains focus @fast', async ({ page }) => {
     await ready(page);
     // Focus the terminal first so retainFocus can prove focus never leaves it.
     await page.locator('#terminal-wrapper').focus();
@@ -55,8 +55,8 @@ test.describe('E3.2 AC-1/AC-4/AC-5 — Local echo', () => {
     // Persist ≠ apply: BOTH the pref persisted AND the live keyboard.js state changed.
     expect(await page.evaluate(() => window.__prefs.getPrefs().localEcho)).toBe(true);
     expect(await page.evaluate(() => window.__keyboardState.getLocalEcho())).toBe(true);
-    // Menu→pane lockstep (AC-4) — the coexisting legacy checkbox agrees.
-    await expect(page.locator('#local-echo')).toBeChecked();
+    // E7.1 — the menu row is the SOLE surface now (the legacy #local-echo checkbox
+    // retired with <details id="settings">); no menu→pane mirror to assert.
     // retainFocus (AC-5) — the click never stole keyboard focus.
     expect(await page.evaluate(() => document.activeElement && document.activeElement.id)).toBe('terminal-wrapper');
 
@@ -79,7 +79,6 @@ test.describe('E3.2 AC-1/AC-4/AC-5 — Local echo', () => {
     await expect(page.locator(LOCAL_ECHO)).toHaveAttribute('data-checked', 'false');
     expect(await page.evaluate(() => window.__prefs.getPrefs().localEcho)).toBe(false);
     expect(await page.evaluate(() => window.__keyboardState.getLocalEcho())).toBe(false);
-    await expect(page.locator('#local-echo')).not.toBeChecked();
     // Live: OFF means a typed char does NOT render (cell (0,0) unchanged).
     await page.evaluate(() => window.__menuBar.close());
     const before = await page.evaluate(() => window.__testGridView()[0]);
@@ -93,11 +92,11 @@ test.describe('E3.2 AC-1/AC-4/AC-5 — Local echo', () => {
 test.describe('E3.2 AC-2/AC-4/AC-5 — Enter key sends', () => {
   // Selecting a radio in the menu must persist + apply crlfMode AND make Enter
   // transmit exactly the chosen bytes. #tx-strip (debug pane) is the byte oracle.
-  for (const { value, id, bytes } of [
-    { value: 'lf', id: '#crlf-lf', bytes: '0A' },
-    { value: 'crlf', id: '#crlf-crlf', bytes: '0D 0A' },
+  for (const { value, bytes } of [
+    { value: 'lf', bytes: '0A' },
+    { value: 'crlf', bytes: '0D 0A' },
   ]) {
-    test(`${value} radio persists, mirrors ${id}, Enter transmits ${bytes} @fast`, async ({ page }) => {
+    test(`${value} radio persists, Enter transmits ${bytes} @fast`, async ({ page }) => {
       await ready(page);
       await page.locator('#debug').evaluate((el) => { el.open = true; });   // reveal #tx-strip / #tx-reset
 
@@ -114,11 +113,10 @@ test.describe('E3.2 AC-2/AC-4/AC-5 — Enter key sends', () => {
       expect(await page.evaluate(() => window.__menuBar.getOpenMenu())).toBe('settings');
       await expect(page.locator(`.submenu[data-submenu-panel="crlf"]`)).toBeVisible();
 
-      // Persist ≠ apply + legacy radio mirror (AC-2/AC-4).
+      // Persist ≠ apply (AC-2/AC-4). E7.1 — the submenu is the SOLE surface now
+      // (the legacy #crlf-* radios retired with <details id="settings">).
       expect(await page.evaluate(() => window.__prefs.getPrefs().crlfMode)).toBe(value);
       expect(await page.evaluate(() => window.__keyboardState.getCrlfMode())).toBe(value);
-      await expect(page.locator(id)).toBeChecked();
-      await expect(page.locator('#crlf-cr')).not.toBeChecked();
       // retainFocus (AC-5).
       expect(await page.evaluate(() => document.activeElement && document.activeElement.id)).toBe('terminal-wrapper');
 

@@ -21,47 +21,63 @@ async function setup(page) {
     await page.waitForFunction(() => document.getElementById('terminal').width > 0);
     // Wait for window.__sessionLog (set by main.js after wireSessionLog).
     await page.waitForFunction(() => typeof window.__sessionLog === 'object' && window.__sessionLog !== null);
-    // Open Connection pane so #download-log-button is visible / clickable.
-    await page.locator('#connection').evaluate((el) => { el.open = true; });
+}
+
+// E7.1 — the #download-log-button retired with <details id="connection">; File ▸
+// Download Session Log is the sole download surface now. Its enabled/disabled state
+// + tooltip live on the menu row (#menu-download-log-item), byte-gated by session-log.
+const DL_ROW = '#menu-download-log-item';
+async function downloadViaMenu(page) {
+    await page.evaluate(() => window.__menuBar.open('file'));
+    await page.click(DL_ROW);
 }
 
 test.describe('SESS-04/SESS-05 — Session log download', () => {
     test('log auto-starts per Connect; chunks accumulate by reference @fast', async ({ page }) => {
         await setup(page);
-        await page.locator('#connect-button').click();
-        await page.waitForSelector('#connect-button[data-state="connected"]', { timeout: 5000 });
+        await page.evaluate(() => window.__menuBar.open('connection'));
+        await page.click('#menu-connect-item');
+        await page.waitForSelector('#menu-connect-item[data-state="connected"]', { state: 'attached', timeout: 5000 });
         await page.evaluate(() => window.__mockReaderPush(new TextEncoder().encode('hello')));
         await page.evaluate(() => window.__mockReaderPush(new TextEncoder().encode(' world')));
         await page.waitForFunction(() => window.__sessionLog.getCurrentBytes() === 11, { timeout: 2000 });
     });
 
-    test('Download log button enabled after first byte arrives', async ({ page }) => {
+    test('Download Session Log row enables after first byte arrives', async ({ page }) => {
         await setup(page);
-        await page.locator('#connect-button').click();
-        await page.waitForSelector('#connect-button[data-state="connected"]');
-        await expect(page.locator('#download-log-button')).toBeDisabled();
+        await page.evaluate(() => window.__menuBar.open('connection'));
+        await page.click('#menu-connect-item');
+        await page.waitForSelector('#menu-connect-item[data-state="connected"]', { state: 'attached' });
+        await page.evaluate(() => window.__menuBar.open('file'));
+        await expect(page.locator(DL_ROW)).toHaveAttribute('data-disabled', 'true');
         await page.evaluate(() => window.__mockReaderPush(new Uint8Array([0x41])));
-        await page.waitForSelector('#download-log-button:not([disabled])');
-        await expect(page.locator('#download-log-button')).toHaveAttribute(
+        // The onStateChange hook re-projects the row live while the File menu is open.
+        // Enabled = the data-disabled attribute is removed (projectSessionLog only
+        // sets it when disabled), so assert its absence rather than "false".
+        await expect(page.locator(DL_ROW)).not.toHaveAttribute('data-disabled', 'true');
+        await expect(page.locator(DL_ROW)).toHaveAttribute(
             'title', 'Download all bytes received this connection (.bin)');
     });
 
-    test('Download log button disabled before first byte; tooltip "No bytes received yet"', async ({ page }) => {
+    test('Download Session Log row disabled before first byte; tooltip "No bytes received yet"', async ({ page }) => {
         await setup(page);
-        await page.locator('#connect-button').click();
-        await page.waitForSelector('#connect-button[data-state="connected"]');
-        await expect(page.locator('#download-log-button')).toBeDisabled();
-        await expect(page.locator('#download-log-button')).toHaveAttribute('title', 'No bytes received yet');
+        await page.evaluate(() => window.__menuBar.open('connection'));
+        await page.click('#menu-connect-item');
+        await page.waitForSelector('#menu-connect-item[data-state="connected"]', { state: 'attached' });
+        await page.evaluate(() => window.__menuBar.open('file'));
+        await expect(page.locator(DL_ROW)).toHaveAttribute('data-disabled', 'true');
+        await expect(page.locator(DL_ROW)).toHaveAttribute('title', 'No bytes received yet');
     });
 
     test('download produces correct Blob with all bytes (application/octet-stream)', async ({ page }) => {
         await setup(page);
-        await page.locator('#connect-button').click();
-        await page.waitForSelector('#connect-button[data-state="connected"]');
+        await page.evaluate(() => window.__menuBar.open('connection'));
+        await page.click('#menu-connect-item');
+        await page.waitForSelector('#menu-connect-item[data-state="connected"]', { state: 'attached' });
         await page.evaluate(() => window.__mockReaderPush(new TextEncoder().encode('test bytes here')));
-        await page.waitForSelector('#download-log-button:not([disabled])');
+        await page.waitForFunction(() => window.__sessionLog.getCurrentBytes() > 0);
         const downloadPromise = page.waitForEvent('download');
-        await page.locator('#download-log-button').click();
+        await downloadViaMenu(page);
         const download = await downloadPromise;
         expect(download.suggestedFilename()).toMatch(/^beastty-\d{8}-\d{6}\.bin$/);
         const stream = await download.createReadStream();
@@ -73,17 +89,18 @@ test.describe('SESS-04/SESS-05 — Session log download', () => {
 
     test('mid-session download captures so-far + appends continue', async ({ page }) => {
         await setup(page);
-        await page.locator('#connect-button').click();
-        await page.waitForSelector('#connect-button[data-state="connected"]');
+        await page.evaluate(() => window.__menuBar.open('connection'));
+        await page.click('#menu-connect-item');
+        await page.waitForSelector('#menu-connect-item[data-state="connected"]', { state: 'attached' });
         await page.evaluate(() => window.__mockReaderPush(new TextEncoder().encode('first')));
         await page.waitForFunction(() => window.__sessionLog.getCurrentBytes() === 5);
         const dl1 = page.waitForEvent('download');
-        await page.locator('#download-log-button').click();
+        await downloadViaMenu(page);
         await dl1;
         await page.evaluate(() => window.__mockReaderPush(new TextEncoder().encode('two')));
         await page.waitForFunction(() => window.__sessionLog.getCurrentBytes() === 8);
         const dl2 = page.waitForEvent('download');
-        await page.locator('#download-log-button').click();
+        await downloadViaMenu(page);
         const d2 = await dl2;
         const stream = await d2.createReadStream();
         const chunks = [];
@@ -93,28 +110,32 @@ test.describe('SESS-04/SESS-05 — Session log download', () => {
 
     test('filename uses connect-time UTC stamp YYYYMMDD-HHMMSS.bin', async ({ page }) => {
         await setup(page);
-        await page.locator('#connect-button').click();
-        await page.waitForSelector('#connect-button[data-state="connected"]');
+        await page.evaluate(() => window.__menuBar.open('connection'));
+        await page.click('#menu-connect-item');
+        await page.waitForSelector('#menu-connect-item[data-state="connected"]', { state: 'attached' });
         await page.evaluate(() => window.__mockReaderPush(new Uint8Array([0x41])));
-        await page.waitForSelector('#download-log-button:not([disabled])');
+        await page.waitForFunction(() => window.__sessionLog.getCurrentBytes() > 0);
         const dl = page.waitForEvent('download');
-        await page.locator('#download-log-button').click();
+        await downloadViaMenu(page);
         const download = await dl;
         expect(download.suggestedFilename()).toMatch(/^beastty-\d{8}-\d{6}\.bin$/);
     });
 
     test('subsequent Connect discards prior chunks (per-connection lifecycle)', async ({ page }) => {
         await setup(page);
-        await page.locator('#connect-button').click();
-        await page.waitForSelector('#connect-button[data-state="connected"]');
+        await page.evaluate(() => window.__menuBar.open('connection'));
+        await page.click('#menu-connect-item');
+        await page.waitForSelector('#menu-connect-item[data-state="connected"]', { state: 'attached' });
         await page.evaluate(() => window.__mockReaderPush(new TextEncoder().encode('first conn')));
         await page.waitForFunction(() => window.__sessionLog.getCurrentBytes() === 10);
         // Disconnect.
-        await page.locator('#connect-button').click();
-        await page.waitForSelector('#connect-button[data-state="disconnected"]');
+        await page.evaluate(() => window.__menuBar.open('connection'));
+        await page.click('#menu-connect-item');
+        await page.waitForSelector('#menu-connect-item[data-state="disconnected"]', { state: 'attached' });
         // Reconnect.
-        await page.locator('#connect-button').click();
-        await page.waitForSelector('#connect-button[data-state="connected"]');
+        await page.evaluate(() => window.__menuBar.open('connection'));
+        await page.click('#menu-connect-item');
+        await page.waitForSelector('#menu-connect-item[data-state="connected"]', { state: 'attached' });
         expect(await page.evaluate(() => window.__sessionLog.getCurrentBytes())).toBe(0);
     });
 
@@ -123,8 +144,9 @@ test.describe('SESS-04/SESS-05 — Session log download', () => {
     // (session-log is the sole writer of that button); this adds the menu path.
     test('File ▸ Download Session Log downloads the .bin via the menu path @fast', async ({ page }) => {
         await setup(page);
-        await page.locator('#connect-button').click();
-        await page.waitForSelector('#connect-button[data-state="connected"]');
+        await page.evaluate(() => window.__menuBar.open('connection'));
+        await page.click('#menu-connect-item');
+        await page.waitForSelector('#menu-connect-item[data-state="connected"]', { state: 'attached' });
         await page.evaluate(() => window.__mockReaderPush(new TextEncoder().encode('menu log')));
         await page.waitForFunction(() => window.__sessionLog.getCurrentBytes() === 8);
         // Boot-race guard, then open File; the row must have enabled off the first

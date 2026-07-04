@@ -36,9 +36,10 @@ async function selectFirstFiveCells(page) {
 }
 
 async function connectMockSerial(page) {
-    await page.locator('#connect-button').click();
+    await page.evaluate(() => window.__menuBar.open('connection'));
+    await page.click('#menu-connect-item');
     await page.waitForFunction(() =>
-        document.getElementById('connect-button').getAttribute('data-state') === 'connected');
+        document.getElementById('menu-connect-item').getAttribute('data-state') === 'connected');
 }
 
 test.describe('SESS-02/SESS-03 — Clipboard', () => {
@@ -133,10 +134,12 @@ test.describe('SESS-02/SESS-03 — Clipboard', () => {
     test('paste applies CR/LF rewrite per Phase 4 crlfMode', async ({ page }) => {
         await setup(page);
         // Switch CR/LF mode to LF — Phase 5 paste-pump rewrites 0x0D → 0x0A.
-        // The Settings <details> pane is collapsed at boot; open it so the
-        // radio is interactable, then dispatch a change to flip the radio.
-        await page.locator('#settings').evaluate((el) => { el.open = true; });
-        await page.locator('#crlf-lf').check();
+        // E7.1 — set via the Settings ▸ Enter key sends submenu (the #crlf-* radios
+        // retired with <details id="settings">).
+        await page.evaluate(() => window.__menuBar.open('settings'));
+        await page.click('#dropdown-settings .menu-item[data-submenu="crlf"]');
+        await page.click('#dropdown-settings .submenu[data-submenu-panel="crlf"] .menu-item[data-value="lf"]');
+        await page.evaluate(() => window.__menuBar.close());
         await page.evaluate(() => window.__setClipboardContents('A\rB'));
         await connectMockSerial(page);
         await page.evaluate(() => window.__pasteFromClipboard());
@@ -155,14 +158,14 @@ test.describe('SESS-02/SESS-03 — Clipboard', () => {
         // Fire pasteFromClipboard but don't await it — the confirm chip will
         // hold the promise until the user clicks Paste/Cancel.
         await page.evaluate(() => { window.__pendingPasteResult = window.__pasteFromClipboard(); });
-        // Confirm chip is visible.
-        await expect(page.locator('#paste-progress-text')).toContainText('About to paste 5,000 B');
-        await expect(page.locator('#paste-confirm')).toBeVisible();
+        // Confirm toast is visible (E7.1 — the confirm rehomed to #paste-toast).
+        await expect(page.locator('#paste-toast-text')).toContainText('About to paste 5,000 B');
+        await expect(page.locator('#paste-toast button[data-action="paste"]')).toBeVisible();
         // No bytes have been written yet.
         const log0 = await page.evaluate(() => window.__mockWriterLog.length);
         expect(log0).toBe(0);
         // Click Paste.
-        await page.locator('#paste-confirm').click();
+        await page.locator('#paste-toast button[data-action="paste"]').click();
         await page.waitForFunction(() => window.__mockWriterLog.length > 0, { timeout: 5000 });
     });
 
@@ -171,10 +174,10 @@ test.describe('SESS-02/SESS-03 — Clipboard', () => {
         await page.evaluate(() => window.__setClipboardContents('A'.repeat(5000)));
         await connectMockSerial(page);
         await page.evaluate(() => { window.__pendingPasteResult = window.__pasteFromClipboard(); });
-        await expect(page.locator('#paste-confirm')).toBeVisible();
+        await expect(page.locator('#paste-toast button[data-action="paste"]')).toBeVisible();
         const log0 = await page.evaluate(() => window.__mockWriterLog.length);
         expect(log0).toBe(0);
-        await page.locator('#paste-cancel').click();
+        await page.locator('#paste-toast button[data-action="cancel"]').click();
         // After Cancel, paste did not start — pump never wrote bytes.
         await page.waitForTimeout(300);
         const logAfter = await page.evaluate(() => window.__mockWriterLog.length);

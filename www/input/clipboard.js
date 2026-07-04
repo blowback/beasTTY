@@ -21,27 +21,26 @@
 import { enqueuePaste } from './paste-pump.js';
 import { getSelection, clearSelection } from './selection.js';
 
+// D-25 — large-paste confirm threshold (bytes). Epic E7 Story E7.1 (e6 retro #3
+// single-source guard) — hoisted from an inline literal to one exported constant
+// the paste toast / spec import, so the "when to confirm" line is defined once.
+export const LARGE_PASTE_THRESHOLD = 4096;
+
 // --- Injected deps -------------------------------------------------------
 
-let pasteProgressTextEl = null;
-let pasteCancelBtn = null;
-let pasteConfirmBtn = null;
-let pasteProgressRow = null;
-let baudGetter = null;
+// E7.1 (FR-29 / AD-16) — the large-paste confirm is DOM-agnostic here: it calls
+// the injected confirmLargePaste (backed by renderer/paste-toast.js), which
+// returns a Promise<boolean>. The retired #paste-progress-row's
+// #paste-confirm/#paste-cancel are gone; clipboard.js holds no paste DOM refs.
+let confirmLargePasteFn = null;
 
 // --- Public wire entry ---------------------------------------------------
 
 export function wireClipboard(opts) {
-    pasteProgressTextEl = opts.pasteProgressText;
-    pasteCancelBtn = opts.pasteCancelBtn;
-    pasteConfirmBtn = opts.pasteConfirmBtn;
-    pasteProgressRow = opts.pasteProgressRow;
-    baudGetter = opts.getBaud || (() => 19200);
-
-    // Phase 4 D-16 — focus retention on the new chrome control.
-    if (pasteConfirmBtn) {
-        pasteConfirmBtn.addEventListener('mousedown', (e) => e.preventDefault());
-    }
+    // confirmLargePaste(byteCount) → Promise<boolean>. A harness that omits it
+    // falls back to auto-confirm (true) so a large paste is never silently
+    // stuck awaiting a confirm surface that isn't wired.
+    confirmLargePasteFn = opts.confirmLargePaste || (() => Promise.resolve(true));
 }
 
 // --- D-21 / D-23 — Copy --------------------------------------------------
@@ -86,47 +85,11 @@ export async function pasteFromClipboard() {
     const bytes = encoded.subarray(0, w);
     if (bytes.length === 0) return;
 
-    // D-25 — large-paste confirm chip.
-    if (bytes.length >= 4096) {
-        const ok = await showLargePasteConfirm(bytes.length);
+    // D-25 — large-paste confirm gate (E7.1 — resolved off the paste toast).
+    if (bytes.length >= LARGE_PASTE_THRESHOLD) {
+        const ok = await confirmLargePasteFn(bytes.length);
         if (!ok) return;
     }
     // CR/LF rewrite happens INSIDE paste-pump.enqueuePaste (Phase 5 D-23).
     enqueuePaste(bytes);
-}
-
-// --- Large-paste confirm chip --------------------------------------------
-
-function showLargePasteConfirm(byteCount) {
-    return new Promise((resolve) => {
-        const baud = baudGetter();
-        const seconds = Math.ceil((byteCount * 10) / baud);   // 10 bits / byte at 8N1
-        const formattedN = byteCount.toLocaleString();
-        // Verbatim copy from 06-UI-SPEC §Large-paste inline confirm chip.
-        if (pasteProgressTextEl) {
-            pasteProgressTextEl.textContent = `About to paste ${formattedN} B (~${seconds} s at ${baud} baud).`;
-        }
-        if (pasteProgressRow) pasteProgressRow.removeAttribute('hidden');
-        if (pasteConfirmBtn) pasteConfirmBtn.removeAttribute('hidden');
-        if (pasteCancelBtn) pasteCancelBtn.removeAttribute('hidden');
-
-        const cleanup = () => {
-            if (pasteConfirmBtn) {
-                pasteConfirmBtn.removeEventListener('click', onConfirm);
-                pasteConfirmBtn.setAttribute('hidden', '');
-            }
-            if (pasteCancelBtn) {
-                pasteCancelBtn.removeEventListener('click', onCancel);
-            }
-            // Hide the progress row when neither button is committed yet; the
-            // paste-pump 'started' progress event will re-show it on confirm.
-            if (pasteProgressRow) pasteProgressRow.setAttribute('hidden', '');
-            if (pasteProgressTextEl) pasteProgressTextEl.textContent = '';
-        };
-        const onConfirm = () => { cleanup(); resolve(true); };
-        const onCancel = () => { cleanup(); resolve(false); };
-
-        if (pasteConfirmBtn) pasteConfirmBtn.addEventListener('click', onConfirm);
-        if (pasteCancelBtn) pasteCancelBtn.addEventListener('click', onCancel);
-    });
 }

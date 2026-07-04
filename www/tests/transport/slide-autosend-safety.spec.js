@@ -52,7 +52,8 @@ async function openSlideModal(page) {
 
 async function setupConnected(page) {
     await setup(page);
-    await page.locator('#connect-button').click();
+    await page.evaluate(() => window.__menuBar.open('connection'));
+    await page.click('#menu-connect-item');
     // Generous timeout — Playwright's 10-worker parallelism can starve
     // the wasm boot path on busy hardware (Phase 11 5s precedent — 8s
     // covers worst-case Chromium scheduling under heavy load).

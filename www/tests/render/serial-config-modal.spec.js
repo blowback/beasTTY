@@ -126,8 +126,9 @@ test.describe('E2.3 AC-5 — reconnect hint on config change while connected', (
     test('changing baud while connected shows the hint; Reset clears it @fast', async ({ page }) => {
         await ready(page, { preGrant: true });
         // Connect via the legacy top-bar mirror (outside the modal), then open the modal.
-        await page.locator('#connect-button').click();
-        await expect(page.locator('#connect-button')).toHaveAttribute('data-state', 'connected');
+        await page.evaluate(() => window.__menuBar.open('connection'));
+        await page.click('#menu-connect-item');
+        await expect(page.locator('#menu-connect-item')).toHaveAttribute('data-state', 'connected');
         await openModal(page);
         await expect(page.locator('#serial-reconnect-hint')).toBeHidden();
         await page.locator('#serial-baud').selectOption('9600');
@@ -152,7 +153,8 @@ test.describe('E2.3 AC-6 — errors accumulate silently; the modal never self-op
                 return p;
             });
         });
-        await page.locator('#connect-button').click();
+        await page.evaluate(() => window.__menuBar.open('connection'));
+        await page.click('#menu-connect-item');
         // Log populated (read via textContent while the dialog is closed)...
         await expect(page.locator('#error-log')).not.toHaveText('(no recent errors)');
         // ...but the modal did NOT auto-open (the D-27 pane auto-expand was removed).
@@ -192,25 +194,21 @@ test.describe('E2.3 AC-7/AC-8 — neutral chrome styling, focus, footer contract
     });
 });
 
-test.describe('E2.3 AC-9 — legacy pane retired; exactly one serial-config surface', () => {
-    test('the moved controls live in the modal, not the <details id="connection"> pane @fast', async ({ page }) => {
+test.describe('E2.3 AC-9 — exactly one serial-config surface (modal-only)', () => {
+    test('the moved controls live only in the modal; the #connection pane is gone (E7.1) @fast', async ({ page }) => {
         await ready(page);
-        // Exactly one of each moved control exists (no dual-chrome).
+        // Exactly one of each moved control exists (no dual-chrome), all in the modal.
         for (const id of ['serial-baud', 'serial-reset-preset', 'show-all-serial-devices',
                           'serial-assert-rts-on-connect-checkbox', 'error-log', 'serial-reconnect-hint']) {
             expect(await page.locator(`#${id}`).count()).toBe(1);
-            // And each is a descendant of the modal, not the pane.
             expect(await page.locator(`#serial-config-modal #${id}`).count()).toBe(1);
-            expect(await page.locator(`#connection #${id}`).count()).toBe(0);
         }
-        // The vestige pane keeps only #download-log-button. E4.1 relocated
-        // #port-status into the #status-bar footer, so it is gone from #connection
-        // (0 here) and lives once in the bar.
-        await expect(page.locator('#connection')).toBeAttached();
-        expect(await page.locator('#connection #port-status').count()).toBe(0);
+        // E7.1 — the vestigial <details id="connection"> was swept away entirely
+        // (its last control, Download Session Log, is now the File-menu row). #port-status
+        // lives once in the status bar (E4.1).
+        expect(await page.locator('#connection').count()).toBe(0);
+        expect(await page.locator('#download-log-button').count()).toBe(0);
         expect(await page.locator('#status-bar #port-status').count()).toBe(1);
-        expect(await page.locator('#connection #download-log-button').count()).toBe(1);
-        expect(await page.locator('#connection fieldset').count()).toBe(0);
     });
 });
 

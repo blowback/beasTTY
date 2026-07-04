@@ -21,14 +21,16 @@ import {
 // Epic E0 Story E0.1 (AD-10) — shared focus-retention helper. Picks the right
 // branch (mousedown-preventDefault for buttons, change-restore for <select>)
 // so callers stop hand-writing either one.
-import { retainFocus } from './focus.js';
-// E3.3 review fix — the reset 2-click confirm labels are single-sourced in prefs.js
-// (the reset SSOT) so this legacy button and the Settings menu row share one copy.
-import { RESET_PREFS_IDLE_LABEL, RESET_PREFS_CONFIRM_LABEL } from '../state/prefs.js';
-// Code-review fix — the 2-click confirm STATE MACHINE is now shared too (not just the
-// labels), so this legacy button and the Settings menu row can never drift on the
-// arm/commit/disarm semantics or the confirm window.
-import { makeTwoClickConfirm } from './confirm-toggle.js';
+// E7.1 — chrome.js no longer wires any interactive control that needs focus
+// retention (the auto-connect + reset-prefs legacy controls retired with
+// <details id="settings">), so the retainFocus import is gone. The surviving
+// "show all serial devices" checkbox lives inside a focus-trapped modal (E2.3), so
+// it deliberately does not use retainFocus.
+// E7.1 — the reset 2-click confirm (labels + shared state machine) moved wholly to
+// menu-bar.js's Settings ▸ Reset all preferences row with the legacy
+// #reset-prefs-button's removal, so chrome.js no longer imports the reset labels or
+// confirm-toggle. (prefs.js RESET_PREFS_* + confirm-toggle.js are still the single
+// source — menu-bar.js imports them.)
 // E6.1 fix (code-review #7) — the theme + zoom chord predicates are single-sourced in
 // the shortcut registry that the Help ▸ Keyboard Shortcuts modal renders from, so the
 // chord this handler matches and the chord the modal advertises can never diverge.
@@ -92,15 +94,15 @@ export function wireChrome(opts) {
         // path pushes the new level so the status bar (E4) updates from the
         // shortcut too; no-op stub until E4 wires the real bar.
         pushZoom,
-        // Phase 6 Plan 06 (Wave 5) — pref persistence + Settings new rows.
-        // prefs:        starting blob (loadPrefs() result) — used for the Auto
-        //               connect checkbox's initial DOM state at boot.
-        // savePrefs:    debounced merge-and-persist; called on the Ctrl+Alt+T
-        //               theme chord / zoom / Auto-connect change.
-        // resetPrefs:   D-35 reset-all-preferences trigger.
+        // Phase 6 Plan 06 (Wave 5) — pref persistence.
+        // prefs:        starting blob (loadPrefs() result) — used for the "show all
+        //               serial devices" checkbox's initial DOM state at boot.
+        // savePrefs:    debounced merge-and-persist; called on the Ctrl+Alt+T theme
+        //               chord / zoom / show-all-serial-devices change.
+        // E7.1 — resetPrefs opt dropped: the reset surface moved wholly to the
+        // Settings menu (the legacy #reset-prefs-button retired with <details>).
         prefs,
         savePrefs,
-        resetPrefs,
         // Phase 11 Plan 11-04 D-13 / SLIDE-31 — fire-and-forget CTRL_CAN
         // emission on hide / pagehide during active SLIDE session. All three
         // refs are optional; missing refs disable the branch (production
@@ -248,18 +250,11 @@ export function wireChrome(opts) {
     // SAME setFont + savePrefs verbatim, and — per AD-9 — showing the submenu
     // disabled off-CRT instead of the old #font-row hide. Do NOT re-wire it here.
 
-    // ==== Phase 6 Plan 06 (Wave 5) — Auto connect checkbox (D-34) ====
-    // Toggle saves prefs.autoConnect; takes effect on NEXT page load (no
-    // immediate connect/disconnect on toggle). Initial DOM state mirrors the
-    // loaded blob so a fresh page always reflects persisted state.
-    const autoConnectCheckbox = document.getElementById('auto-connect-checkbox');
-    if (autoConnectCheckbox) {
-        autoConnectCheckbox.checked = !!(prefs && prefs.autoConnect);
-        autoConnectCheckbox.addEventListener('change', (e) => {
-            if (savePrefs) savePrefs({ autoConnect: e.target.checked });
-        });
-        retainFocus(autoConnectCheckbox);   // Phase 4 D-16 — focus retention (AD-10).
-    }
+    // ==== Epic E7 Story E7.1 (AD-7) — auto-connect checkbox wiring removed ====
+    // The legacy #auto-connect-checkbox retired with <details id="settings">.
+    // Connection ▸ Auto connect on load (menu-bar.js checkable) is now the sole
+    // surface; its handler already calls savePrefs({ autoConnect }). Removing this
+    // wiring (not merely null-guarding it) keeps boot from throwing on the absent node.
 
     // ==== "Show all serial devices" checkbox ====
     // When on, the Connect picker drops the CP2102N VID/PID filter so users
@@ -282,25 +277,11 @@ export function wireChrome(opts) {
         });
     }
 
-    // ==== Phase 6 Plan 06 (Wave 5) — Reset prefs 2-click confirm (D-35) ====
-    // First click swaps label to "Click again to confirm (3 s)" and arms a
-    // 3-second timer that reverts. Second click within 3 s commits the reset:
-    // clears beastty.prefs, in-memory blob replaced with defaults,
-    // subscribers fire (applyPrefs in main.js re-applies defaults to chrome /
-    // canvas state in-place — NO page reload per D-35).
-    const resetPrefsButton = document.getElementById('reset-prefs-button');
-    if (resetPrefsButton) {
-        // Shared machine (confirm-toggle.js) — the label swaps directly on the button;
-        // a lone button has no dropdown to dismiss, so it never needs external disarm.
-        const resetConfirm = makeTwoClickConfirm({
-            getLabelEl: () => resetPrefsButton,
-            idleLabel: RESET_PREFS_IDLE_LABEL,
-            confirmLabel: RESET_PREFS_CONFIRM_LABEL,
-            onCommit: () => { if (resetPrefs) resetPrefs(); },
-        });
-        resetPrefsButton.addEventListener('click', () => resetConfirm.activate());
-        retainFocus(resetPrefsButton);   // Phase 4 D-16 — focus retention (AD-10).
-    }
+    // ==== Epic E7 Story E7.1 (AD-7) — reset-prefs 2-click confirm removed ====
+    // The legacy #reset-prefs-button retired with <details id="settings">.
+    // Settings ▸ Reset all preferences (menu-bar.js) is a SEPARATE, independent
+    // 2-click machine (shared confirm-toggle.js + resetPrefs()) and remains the sole
+    // reset surface. Removing this wiring keeps boot from throwing on the absent node.
 
     // Auto-focus the wrapper at boot so cursor blinks and Ctrl+Shift+T works immediately.
     terminalWrapper.focus();

@@ -9,16 +9,29 @@ async function setup(page) {
     await page.locator('#terminal-wrapper').focus();
     await page.waitForFunction(() => document.getElementById('terminal').width > 0);
     await page.waitForFunction(() => typeof window.__testGridView === 'function');
-    await page.locator('#settings').evaluate((el) => { el.open = true; });
+    await page.waitForFunction(() =>
+        window.__menuBar && typeof window.__menuBar.open === 'function');
     await page.locator('#debug').evaluate((el) => { el.open = true; });
     await page.locator('#tx-reset').click();
+}
+
+// E7.1 — Local echo is a Settings-menu checkable now (the #local-echo checkbox
+// retired with <details id="settings">). Toggle it via the menu row; the live
+// effect (keyboard.js setLocalEcho) is what these behavioural tests exercise.
+async function setLocalEcho(page, on) {
+    const cur = await page.evaluate(() => window.__keyboardState.getLocalEcho());
+    if (cur === on) return;
+    await page.evaluate(() => window.__menuBar.open('settings'));
+    await page.click('#menu-local-echo-item');
+    await page.evaluate(() => window.__menuBar.close());
+    await page.locator('#terminal-wrapper').focus();
 }
 
 test.describe('INPUT-04 — Local echo toggle', () => {
     test('default OFF — typed key does NOT render on grid @fast', async ({ page }) => {
         await setup(page);
-        // Confirm default state.
-        await expect(page.locator('#local-echo')).not.toBeChecked();
+        // Confirm default state (keyboard.js is the live owner).
+        expect(await page.evaluate(() => window.__keyboardState.getLocalEcho())).toBe(false);
 
         // Sanity: cell (0,0) is empty (0x00 or 0x20 depending on wasm init; key.rs
         // has no state, grid starts cleared per Phase 1 Plan 04 D-01).
@@ -37,8 +50,8 @@ test.describe('INPUT-04 — Local echo toggle', () => {
 
     test('ON — typed key renders on grid', async ({ page }) => {
         await setup(page);
-        await page.locator('#local-echo').check();
-        await expect(page.locator('#local-echo')).toBeChecked();
+        await setLocalEcho(page, true);
+        expect(await page.evaluate(() => window.__keyboardState.getLocalEcho())).toBe(true);
 
         await page.locator('#terminal-wrapper').focus();
         await page.keyboard.press('Shift+KeyA');
@@ -64,7 +77,7 @@ test.describe('INPUT-04 — Local echo toggle', () => {
 
         // ON — renders at whatever the cursor position is after the OFF press
         // (arrow-less + OFF means no cursor change — cursor still at (0,0)).
-        await page.locator('#local-echo').check();
+        await setLocalEcho(page, true);
         await page.locator('#terminal-wrapper').focus();
         await page.keyboard.press('Shift+KeyC');
         await page.waitForTimeout(80);
@@ -72,7 +85,7 @@ test.describe('INPUT-04 — Local echo toggle', () => {
         expect(onCh).toBe(0x43);
 
         // OFF again — next press does not advance cell (0,1).
-        await page.locator('#local-echo').uncheck();
+        await setLocalEcho(page, false);
         await page.locator('#terminal-wrapper').focus();
         await page.keyboard.press('Shift+KeyD');
         await page.waitForTimeout(50);

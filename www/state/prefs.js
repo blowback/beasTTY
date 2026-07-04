@@ -155,9 +155,9 @@ window.addEventListener('beforeunload', () => {
 });
 
 // D-35 — the reset 2-click confirm labels. Single-sourced here (the reset SSOT)
-// so the two independent confirm machines that drive resetPrefs() — the legacy
-// #reset-prefs-button (chrome.js) and the Settings ▸ Reset all preferences menu row
-// (menu-bar.js) — render byte-identical prompts and can never drift on a re-word.
+// so the confirm machine that drives resetPrefs() — the Settings ▸ Reset all
+// preferences menu row (menu-bar.js via confirm-toggle.js) — renders these exact
+// prompts. (E7.1 retired the second surface, the legacy #reset-prefs-button.)
 export const RESET_PREFS_IDLE_LABEL = 'Reset all preferences';
 export const RESET_PREFS_CONFIRM_LABEL = 'Click again to confirm (3 s)';
 

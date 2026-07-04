@@ -42,13 +42,13 @@ async function startPaste(page) {
   await page.waitForFunction(
     () => window.__menuBar && typeof window.__menuBar.__getStateForTests === 'function',
   );
-  await page.locator('#connection').evaluate((el) => { el.open = true; });
   await page.locator('#debug').evaluate((el) => { el.open = true; });
-  await page.locator('#connect-button').click();
-  await expect(page.locator('#connect-button')).toHaveAttribute('data-state', 'connected');
+  await page.evaluate(() => window.__menuBar.open('connection'));
+  await page.click('#menu-connect-item');
+  await expect(page.locator('#menu-connect-item')).toHaveAttribute('data-state', 'connected');
   await page.locator('#input').fill('D'.repeat(4096));
   await page.locator('#paste-test').click();
-  await expect(page.locator('#paste-progress-row')).toBeVisible();
+  await expect(page.locator('#paste-toast')).toBeVisible();
   await page.locator('#terminal-wrapper').focus();
 }
 
@@ -84,7 +84,7 @@ test.describe('E1.2 AC-3/AC-4 — Esc passthrough guard (highest risk)', () => {
     // Menu closed…
     await expect(page.locator('#dropdown-view')).toBeHidden();
     // …but the paste is UNAFFECTED — keyboard.js never saw the Esc.
-    await expect(page.locator('#paste-progress-text')).not.toContainText('cancelled');
+    await expect(page.locator('#paste-toast-text')).not.toContainText('cancelled');
   });
 
   test('Esc with NO menu open passes through and cancels the in-flight paste', async ({ page }) => {
@@ -93,7 +93,7 @@ test.describe('E1.2 AC-3/AC-4 — Esc passthrough guard (highest risk)', () => {
 
     await page.keyboard.press('Escape');
     // The passthrough contract: menu-bar early-returned, keyboard.js cancelled.
-    await expect(page.locator('#paste-progress-text')).toContainText('Paste cancelled');
+    await expect(page.locator('#paste-toast-text')).toContainText('Paste cancelled');
   });
 });
 
@@ -234,8 +234,13 @@ test.describe('E1.2 AC-2 — disabled reason announced via aria-live', () => {
       () => window.__menuBar && typeof window.__menuBar.__getStateForTests === 'function',
     );
     await page.locator('#terminal-wrapper').focus();
-    await page.locator('#connect-button').click();
-    await expect(page.locator('#send-file-button')).toBeEnabled({ timeout: 5000 });   // gate open → row enabled
+    await page.evaluate(() => window.__menuBar.open('connection'));
+    await page.click('#menu-connect-item');
+    // E7.1 — wait for the file-source send gate to open (the #send-file-button retired;
+    // the gate is module state exposed via __getStateForTests) so Send File… is enabled.
+    await page.waitForFunction(
+      () => window.__fileSource.__getStateForTests().sendBtnDisabled === false,
+      undefined, { timeout: 5000 });
 
     await page.evaluate(() => window.__menuBar.open('file'));
     // Nav down to Send File… — adjacent to the disabled "Download Session Log" below it.

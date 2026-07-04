@@ -1,21 +1,21 @@
 // Epic E2 Story E2.1 — Connect/Disconnect single-writer menu item.
 //
-// The NEW E2.1 slice: the connect-button DOM projection is injected OUT of
-// serial.js and menu-bar.js becomes the SOLE writer of every Connect surface —
-// the Connect menu item (label + data-state), the right-aligned status dot
-// (discrete colour) + label, and — during coexistence — the legacy
-// #connect-button. serial.js still owns the state MACHINE (onStateChange /
+// The E2.1 slice: the connect-button DOM projection is injected OUT of serial.js
+// and menu-bar.js becomes the SOLE writer of every Connect surface — the Connect
+// menu item (label + data-state) and the right-aligned status dot (discrete
+// colour) + label. serial.js still owns the state MACHINE (onStateChange /
 // getState / toggleConnection); menu-bar subscribes and projects.
 //
-// This spec proves: (1) the frozen 5-state label map + label↔dot↔button lockstep
-// across ALL states incl. the transient connecting/reconnecting (driven
-// deterministically via window.__menuBar.projectConnection — no serial race);
-// (2) discrete, never-animated dot colours (AC-3); (3) the menu item + legacy
-// button actually drive the serial toggle end-to-end over a mock-serial cycle
-// (AC-2); (4) focus retention on the Connect click (AC-5 "Sacred"); (5) the
-// out-of-band "Choose MicroBeast…" override (AC-4); (6) dispose() unsubscribes
-// (AC-6). The transport/session #connect-button oracles stay green unchanged
-// (Task 3 coexistence mirror) — verified by the existing transport suite.
+// E7.1 — the legacy #top-bar #connect-button coexistence mirror is retired, so
+// this spec now drives + asserts ONLY the menu row + status dot.
+//
+// This spec proves: (1) the frozen 5-state label map + label↔dot lockstep across
+// ALL states incl. the transient connecting/reconnecting (driven deterministically
+// via window.__menuBar.projectConnection — no serial race); (2) discrete,
+// never-animated dot colours (AC-3); (3) the menu item actually drives the serial
+// toggle end-to-end over a mock-serial cycle (AC-2); (4) focus retention on the
+// Connect click (AC-5 "Sacred"); (5) the out-of-band "Choose MicroBeast…" override
+// (AC-4); (6) dispose() unsubscribes (AC-6).
 //
 // Boot-race guard (E0.1 learning): wait on window.__menuBar before driving it.
 import { test, expect } from '@playwright/test';
@@ -25,7 +25,8 @@ const ITEM  = '#menu-connect-item';
 const LBL   = '#menu-connect-item .lbl';
 const DOT   = '#menu-conn-dot';
 const CLBL  = '#menu-conn-label';
-const LEGACY = '#connect-button';
+// E7.1 — the legacy #connect-button coexistence mirror retired with #top-bar;
+// the menu row (ITEM/LBL) + status dot (DOT/CLBL) are now the sole Connect surfaces.
 
 // Boot the full app with the Web Serial mock installed BEFORE any module loads,
 // then wait for the menu bar API + focus the terminal (the retainFocus target).
@@ -68,24 +69,20 @@ test.describe('E2.1 AC-1/AC-3 — sole writer: label ↔ dot ↔ button lockstep
     await expect(page.locator(LBL)).toHaveText('Connect');
     await expect(page.locator(DOT)).toHaveAttribute('data-state', 'disconnected');
     await expect(page.locator(CLBL)).toHaveText('Not connected');
-    await expect(page.locator(LEGACY)).toHaveText('Connect');
-    await expect(page.locator(LEGACY)).toHaveAttribute('data-state', 'disconnected');
     // Gray disconnected token on the dot.
     const bg = await page.$eval(DOT, (el) => getComputedStyle(el).backgroundColor);
     expect(bg).toBe('rgba(255, 255, 255, 0.4)');
   });
 
-  test('every state moves item label + item data-state + dot + status label + legacy button in lockstep @fast', async ({ page }) => {
+  test('every state moves item label + item data-state + dot + status label in lockstep @fast', async ({ page }) => {
     await ready(page);
     for (const state of ['connecting', 'connected', 'reconnecting', 'port-lost', 'disconnected']) {
       await project(page, state);
-      // Connect ACTION label (item + legacy button) = the frozen CONNECT_LABELS.
+      // Connect ACTION label = the frozen CONNECT_LABELS.
       await expect(page.locator(LBL)).toHaveText(CONNECT_LABELS[state]);
-      await expect(page.locator(LEGACY)).toHaveText(CONNECT_LABELS[state]);
-      // data-state snaps together on item, dot, and legacy button.
+      // data-state snaps together on the item and the dot.
       await expect(page.locator(ITEM)).toHaveAttribute('data-state', state);
       await expect(page.locator(DOT)).toHaveAttribute('data-state', state);
-      await expect(page.locator(LEGACY)).toHaveAttribute('data-state', state);
       // Status label DESCRIBES the state (distinct from the action label).
       await expect(page.locator(CLBL)).toHaveText(STATUS_LABELS[state]);
     }
@@ -137,7 +134,6 @@ test.describe('E2.1 AC-2 — the Connect item drives the unchanged serial path',
     await expect(page.locator(DOT)).toHaveAttribute('data-state', 'port-lost');
     await expect(page.locator(LBL)).toHaveText('Reconnect');
     await expect(page.locator(CLBL)).toHaveText('Connection lost');
-    await expect(page.locator(LEGACY)).toHaveText('Reconnect');
     // Replug with matching VID/PID → silent auto-reconnect back to connected.
     await page.evaluate(() => window.__simulateReplug());
     await expect(page.locator(DOT)).toHaveAttribute('data-state', 'connected');
@@ -153,35 +149,28 @@ test.describe('E2.1 AC-5 — focus retention (Sacred)', () => {
     await expect(page.locator(DOT)).toHaveAttribute('data-state', 'connected');
     expect(await page.evaluate(() => document.activeElement.id)).toBe('terminal-wrapper');
   });
-
-  test('clicking the legacy #connect-button also retains focus + drives the toggle', async ({ page }) => {
-    await ready(page);
-    await page.click(LEGACY);
-    await expect(page.locator(LEGACY)).toHaveAttribute('data-state', 'connected');
-    // The menu item mirrors the same state (single source of truth).
-    await expect(page.locator(ITEM)).toHaveAttribute('data-state', 'connected');
-    expect(await page.evaluate(() => document.activeElement.id)).toBe('terminal-wrapper');
-  });
+  // E7.1 — the "clicking the legacy #connect-button retains focus" test retired
+  // with the button; focus retention on the Connect surface is covered by the
+  // menu-item test above (menu-bar.js retainFocus on the row).
 });
 
 test.describe('E2.1 AC-4 — "Choose MicroBeast…" out-of-band override', () => {
-  test('signalConnectLabel paints the override onto the Connect item + legacy button', async ({ page }) => {
+  test('signalConnectLabel paints the override onto the Connect item', async ({ page }) => {
     await ready(page);
     // Simulate the multi-adapter guard handing the label to the sole writer.
     await page.evaluate(() => window.__menuBar.signalConnectLabel('Choose MicroBeast…'));
     await expect(page.locator(LBL)).toHaveText('Choose MicroBeast…');
-    await expect(page.locator(LEGACY)).toHaveText('Choose MicroBeast…');
-    // The next state projection re-takes the surfaces (override is transient).
+    // The next state projection re-takes the surface (override is transient).
     await project(page, 'disconnected');
     await expect(page.locator(LBL)).toHaveText('Connect');
-    await expect(page.locator(LEGACY)).toHaveText('Connect');
   });
 });
 
 test.describe('E2.1 AC-6 — dispose() unsubscribes the state subscriber', () => {
   test('after dispose, serial transitions no longer re-project the menu surfaces', async ({ page }) => {
     await ready(page);
-    await page.click(LEGACY);
+    await page.evaluate(() => window.__menuBar.open('connection'));
+    await page.click(ITEM);
     await expect(page.locator(DOT)).toHaveAttribute('data-state', 'connected');
     // Dispose the bar, then unplug: the machine transitions to port-lost but the
     // unsubscribed projector must NOT touch the dot — it stays 'connected'.

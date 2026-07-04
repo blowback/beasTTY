@@ -75,8 +75,9 @@ test.describe('XPORT-05 + D-08 — Serial config form', () => {
         // Connect so state === 'connected' before we mutate the form. #connect-button
         // is the legacy top-bar mirror (outside the modal) — click it with the modal
         // closed, then open the form to mutate baud.
-        await page.locator('#connect-button').click();
-        await expect(page.locator('#connect-button')).toHaveAttribute('data-state', 'connected');
+        await page.evaluate(() => window.__menuBar.open('connection'));
+        await page.click('#menu-connect-item');
+        await expect(page.locator('#menu-connect-item')).toHaveAttribute('data-state', 'connected');
         await openForm(page);
         // Hint must start hidden.
         await expect(page.locator('#serial-reconnect-hint')).toBeHidden();
@@ -95,8 +96,9 @@ test.describe('XPORT-05 + D-08 — Serial config form', () => {
         await page.locator('#serial-baud').selectOption('9600');
         await page.locator('#serial-parity').selectOption('even');
         await closeForm(page);
-        await page.locator('#connect-button').click();
-        await expect(page.locator('#connect-button')).toHaveAttribute('data-state', 'connected');
+        await page.evaluate(() => window.__menuBar.open('connection'));
+        await page.click('#menu-connect-item');
+        await expect(page.locator('#menu-connect-item')).toHaveAttribute('data-state', 'connected');
         // Spec introspection — the mock port records the config passed to open().
         const cfg = await page.evaluate(() => navigator.serial._grantedPorts[0]._config);
         expect(cfg.baudRate).toBe(9600);

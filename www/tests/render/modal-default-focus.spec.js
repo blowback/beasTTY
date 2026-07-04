@@ -60,13 +60,14 @@ test('Plan 12-06 — [Send N renamed] default-focus paints visible border on col
     ).toBe('true');
 
     // Defense-in-depth — the [data-focused="true"] CSS rule paints the
-    // border-color = var(--chrome-accent). Default theme is data-theme="crt"
-    // (body attribute set in www/index.html line 768) where --chrome-accent
-    // resolves to var(--phosphor-fg) = #33ff66 = rgb(51, 255, 102).
+    // border-color = var(--chrome-accent). E7.1 retired the [data-theme="crt"]
+    // chrome override (AD-9 neutral shell), so --chrome-accent is now the
+    // theme-independent neutral #7fdbca = rgb(127, 219, 202) — no longer the
+    // phosphor green it inherited under the old dual-chrome coupling.
     const borderColor = await sendRenamedBtn.evaluate((el) =>
         window.getComputedStyle(el).borderColor
     );
-    expect(borderColor).toBe('rgb(51, 255, 102)');
+    expect(borderColor).toBe('rgb(127, 219, 202)');
 });
 
 test('Plan 12-06 — modal close clears data-focused on default-focus button', async ({ page }) => {

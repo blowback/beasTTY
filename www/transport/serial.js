@@ -7,7 +7,7 @@
 // this module. serial.js still owns the connection STATE MACHINE (state,
 // setState fan-out, onStateChange, getState) but no longer writes any Connect
 // DOM. menu-bar.js subscribes to onStateChange and is now the SOLE writer of the
-// Connect item / status dot / label / legacy #connect-button. toggleConnection()
+// Connect item / status dot / label. toggleConnection()
 // is the exported click action (its state-branch logic stays here — it reads the
 // internal `state`); the out-of-band "Choose MicroBeast…" prompt is surfaced via
 // the injected opts.signalConnectLabel signal, not a direct button write.
@@ -74,7 +74,6 @@ let requestFrameFn = null;
 // (the multi-adapter guard). menu-bar.js owns the actual DOM write; serial.js
 // only hands it the string. Null-guarded — a harness that omits it is inert.
 let signalConnectLabelFn = null;
-let connectionPane = null;
 let errorLogEl = null;
 // Wave 3 (D-08) — serial-config form refs:
 //   { baud, dataBits, stopBits, parity, flowCtl, resetBtn, reconnectHintEl }
@@ -132,7 +131,6 @@ export function renderPoliteFail() {
 export async function wireSerial(opts) {
     const {
         term: termArg, sampleBell, drainHostReply, requestFrame,
-        connectionPane: pane,
         errorLogEl: log,   // E4.1 (#8) — portStatusEl opt removed: #port-status lives in status-bar.js now
         signalConnectLabel,                  // E2.1 (AD-15) — "Choose MicroBeast…" out-of-band signal
         serialConfigEls,                     // Wave 3 (D-08) — form refs
@@ -147,7 +145,6 @@ export async function wireSerial(opts) {
     drainHostReplyFn = drainHostReply;
     requestFrameFn = requestFrame;
     signalConnectLabelFn = signalConnectLabel || null;
-    connectionPane = pane;
     errorLogEl = log;
     serialEls = serialConfigEls || null;
     sessionLogRef = sessionLog || null;
@@ -692,7 +689,7 @@ function setState(s) {
     state = s;
     // E2.1 (AD-15) — no DOM projection here anymore; the observer fan-out is the
     // ONLY side effect. menu-bar.js's projectConnection subscriber owns every
-    // Connect-surface write (label / dot / status / legacy button).
+    // Connect-surface write (label / dot / status).
     for (const fn of stateObservers) fn(s);
 }
 
@@ -715,15 +712,14 @@ function appendErrorLog(code, message) {
     // status bar holds no independent truth (this is its only feed besides the boot
     // getRecentErrorCount read). Null-guarded — inert on a harness that omits the opt.
     if (onErrorLogChangeFn) onErrorLogChangeFn(errorLog.length);
-    // E2.3 (FR-15, AD-6) — the D-27 auto-expand (`connectionPane.open = true`) is
-    // REMOVED. The #error-log now lives inside #serial-config-modal, and a modal must
-    // never showModal() itself on every error (an error while the user is elsewhere
-    // must not steal the top layer). Errors still populate #error-log (ring-of-5) and
-    // trip the red-border Connect signal (menu-bar.js, unchanged) — that stays the
-    // primary "something's wrong" cue. The DELIBERATE path to read the log is opening
-    // Connection ▸ Serial Configuration… (and, later, the E4 status-bar recent-errors
-    // affordance opens this same modal). connectionPane is now a vestigial ref (the
-    // <details> pane no longer hosts the log) — left injected but no longer written.
+    // E2.3 (FR-15, AD-6) — the old D-27 auto-expand of the Connection <details>
+    // pane on error is gone (that pane retired in E7.1). The #error-log now lives
+    // inside #serial-config-modal, and a modal must never showModal() itself on
+    // every error (an error while the user is elsewhere must not steal the top
+    // layer). Errors still populate #error-log (ring-of-5) and trip the red-border
+    // Connect signal (menu-bar.js, unchanged) — that stays the primary "something's
+    // wrong" cue. The DELIBERATE path to read the log is Connection ▸ Serial
+    // Configuration… or the E4 status-bar recent-errors affordance (same modal).
 }
 
 // E4.3 fix — empty the recent-error ring and notify the status-bar affordance (0).

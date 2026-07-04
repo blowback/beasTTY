@@ -53,44 +53,39 @@ async function setup(page, { grantedAdapters = 0, prefs } = {}) {
     await page.locator('#terminal-wrapper').focus();
 }
 
-test.describe('E2.2 AC-1/AC-4 — Auto-connect toggle persists + mirrors legacy checkbox', () => {
-    test('toggle writes prefs.autoConnect and keeps the legacy checkbox in lockstep @fast', async ({ page }) => {
+test.describe('E2.2 AC-1/AC-4 — Auto-connect toggle persists (menu-authoritative)', () => {
+    test('toggle writes prefs.autoConnect, keeps the menu open, retains focus @fast', async ({ page }) => {
         await setup(page);
         await page.evaluate(() => window.__menuBar.open('connection'));
         const row = page.locator('#menu-autoconnect-item');
-        // Fresh page: default false → unchecked, legacy checkbox unchecked.
+        // Fresh page: default false → unchecked.
         await expect(row).toHaveAttribute('data-checked', 'false');
-        expect(await page.evaluate(() => document.getElementById('auto-connect-checkbox').checked)).toBe(false);
 
         // Toggle ON → pref persisted (getPrefs reflects savePrefs synchronously),
-        // glyph on, menu stays open, legacy pane checkbox mirrors (AC-4 menu→pane).
+        // glyph on, menu stays open. E7.1 — the row is the SOLE surface (the legacy
+        // #auto-connect-checkbox retired with <details id="settings">).
         await row.click();
         expect(await page.evaluate(() => window.__prefs.getPrefs().autoConnect)).toBe(true);
         await expect(row).toHaveAttribute('data-checked', 'true');
         await expect(row.locator('.check')).toHaveText('✓');
         expect(await page.evaluate(() => window.__menuBar.getOpenMenu())).toBe('connection');
-        expect(await page.evaluate(() => document.getElementById('auto-connect-checkbox').checked)).toBe(true);
 
         // Focus never left the terminal (AC-6 / NFR-1 "sacred").
         expect(await page.evaluate(() => document.activeElement && document.activeElement.id)).toBe('terminal-wrapper');
 
-        // Toggle OFF → back to false on both surfaces.
+        // Toggle OFF → back to false.
         await row.click();
         expect(await page.evaluate(() => window.__prefs.getPrefs().autoConnect)).toBe(false);
         await expect(row).toHaveAttribute('data-checked', 'false');
-        expect(await page.evaluate(() => document.getElementById('auto-connect-checkbox').checked)).toBe(false);
     });
 
-    test('a legacy-checkbox toggle is reflected in the menu on the next open (pane→menu) @fast', async ({ page }) => {
+    test('the row re-derives from prefs on the next open (AC-3 open re-derive) @fast', async ({ page }) => {
         await setup(page);
-        // Toggle the legacy pane checkbox directly (fires its change → savePrefs).
-        await page.evaluate(() => {
-            const cb = document.getElementById('auto-connect-checkbox');
-            cb.checked = true;
-            cb.dispatchEvent(new Event('change'));
-        });
+        // Persist autoConnect:true directly (the pref is the single source of truth;
+        // the legacy pane checkbox that used to feed it retired in E7.1).
+        await page.evaluate(() => window.__prefs.savePrefs({ autoConnect: true }));
         expect(await page.evaluate(() => window.__prefs.getPrefs().autoConnect)).toBe(true);
-        // Opening the Connection menu re-derives the row from prefs (AC-3 open re-derive).
+        // Opening the Connection menu re-derives the row from prefs.
         await page.evaluate(() => window.__menuBar.open('connection'));
         await expect(page.locator('#menu-autoconnect-item')).toHaveAttribute('data-checked', 'true');
     });

@@ -102,7 +102,8 @@ test.describe('E4.1 review fixes — connected framing + connect-error readout',
   test('connected line reports live open-config framing, not unapplied prefs (fix #2)', async ({ page }) => {
     await ready(page);
     // Real connect through the serial path → opened at the default 19200 8N1.
-    await page.click('#connect-button');
+    await page.evaluate(() => window.__menuBar.open('connection'));
+    await page.click('#menu-connect-item');
     await expect(page.locator(TEXT)).toHaveText(CONNECTED_LINE);
     // Persist a NEW baud to prefs WITHOUT re-opening the port (the live port stays
     // 19200 — exactly the scenario the reconnect-required hint covers).
@@ -129,13 +130,15 @@ test.describe('E4.1 review fixes — connected framing + connect-error readout',
     await expect(page.locator(TEXT)).toHaveText('Not connected');
     // Force the next open() to reject → 'Could not open port: boom'.
     await page.evaluate(() => { window.__forceOpenReject = 'boom'; });
-    await page.click('#connect-button');
+    await page.evaluate(() => window.__menuBar.open('connection'));
+    await page.click('#menu-connect-item');
     // Back to 'disconnected' (gray dot) BUT the readout shows the failure, not idle.
     await expect(page.locator(DOT)).toHaveAttribute('data-state', 'disconnected');
     await expect(page.locator(TEXT)).toHaveText('Could not open port: boom');
     // A fresh, successful attempt clears the cue and shows the connected line.
     await page.evaluate(() => { window.__forceOpenReject = undefined; });
-    await page.click('#connect-button');
+    await page.evaluate(() => window.__menuBar.open('connection'));
+    await page.click('#menu-connect-item');
     await expect(page.locator(DOT)).toHaveAttribute('data-state', 'connected');
     await expect(page.locator(TEXT)).toHaveText(CONNECTED_LINE);
   });
@@ -273,7 +276,8 @@ test.describe('E4.1 AC-1 — fed by the subscription end-to-end (mock-serial cyc
   test('a real connect/unplug/replug cycle re-projects the bar via onStateChange', async ({ page }) => {
     await ready(page);
     // Connect through the unchanged serial path (the legacy button drives the toggle).
-    await page.click('#connect-button');
+    await page.evaluate(() => window.__menuBar.open('connection'));
+    await page.click('#menu-connect-item');
     await expect(page.locator(DOT)).toHaveAttribute('data-state', 'connected');
     await expect(page.locator(TEXT)).toHaveText(CONNECTED_LINE);
     // Unplug → port-lost (red / "Connection lost").
@@ -288,7 +292,8 @@ test.describe('E4.1 AC-1 — fed by the subscription end-to-end (mock-serial cyc
 
   test('dispose() unsubscribes — later transitions no longer re-project the bar', async ({ page }) => {
     await ready(page);
-    await page.click('#connect-button');
+    await page.evaluate(() => window.__menuBar.open('connection'));
+    await page.click('#menu-connect-item');
     await expect(page.locator(DOT)).toHaveAttribute('data-state', 'connected');
     await page.evaluate(() => window.__statusBar.dispose());
     await page.evaluate(() => window.__simulateUnplug());
@@ -313,7 +318,8 @@ async function driveOneError(page) {
       return p;
     });
   });
-  await page.locator('#connect-button').click();
+  await page.evaluate(() => window.__menuBar.open('connection'));
+  await page.click('#menu-connect-item');
 }
 
 test.describe('E4.3 AC-1/AC-2 — initial state: 0 errors, muted, singleton, in-bar not sb-right', () => {

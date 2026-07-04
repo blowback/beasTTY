@@ -110,6 +110,7 @@ import {
 import {
     wireFileSource,
     openSendPicker,                                          // E3.1 (FR-16) — File ▸ Send File… picker entry (injected into wireMenuBar)
+    getSendGate,                                             // E7.1 — send-gate reader for the Send File… menu row
     computeRenameScheme as fileSourceComputeRenameScheme,   // Phase 12 SLIDE-36 — pure helper for Playwright tests
     __resetForTests as __fileSourceResetForTests,
     __getStateForTests as __fileSourceGetStateForTests,
@@ -138,6 +139,15 @@ import {
     __resetForTests as __slideChipResetForTests,
     __getStateForTests as __slideChipGetStateForTests,
 } from './renderer/slide-chip.js';
+// Epic E7 Story E7.1 (FR-29 / AD-16 / UX-DR15) — centered paste toast. Clones
+// the slide-chip transient-chip seam; SUBSCRIBES to paste-pump.onProgress for
+// live progress and hosts the large-paste confirm that input/clipboard.js drives
+// (rehoming the #paste-progress-row orphaned by #top-bar's removal).
+import {
+    wirePasteToast,
+    __resetForTests as __pasteToastResetForTests,
+    __getStateForTests as __pasteToastGetStateForTests,
+} from './renderer/paste-toast.js';
 // Epic E0 Story E0.1 (AD-10) — shared focus-retention helper. retainFocus is
 // imported directly by the chrome modules that own controls (see chrome.js);
 // main.js only surfaces its test hooks as window.__focus for the Playwright
@@ -177,8 +187,8 @@ const terminalWrapper = document.getElementById('terminal-wrapper');
 // (menu-bar.js owns the actions now, AD-7). Their module consts, wireChrome
 // args, applyPrefs mirrors, and D-19 capture listeners are all removed with
 // them. Epic E1 Story E1.5 — #font-select + the two Clear buttons are likewise
-// retired to the View menu; #top-bar keeps Connect (E2) / Send file (E3) / the
-// paste-progress row (E7) until #top-bar is removed in E7.
+// retired to the View menu; E7.1 removed #top-bar wholesale — Connect, Send file
+// and paste progress now live on the menus + the centered #paste-toast.
 const bellOverlay     = document.getElementById('bell-overlay');
 // Epic E1 Story E1.4 — the shared post-theme hook for the theme-change sites that
 // do NOT fan out to prefs subscribers: the Ctrl+Alt+T chord (via wireChrome) and
@@ -320,9 +330,10 @@ const openAbout = makeModalOpener(aboutModalEl, 'about-close', projectAboutBuild
 const slideConfigModalEl = document.getElementById('slide-config-modal');
 const openSlideConfig = makeModalOpener(slideConfigModalEl, 'slide-recv-to-folder-checkbox',
     () => syncAutoSendValidity(getPrefs()?.slideAutoSendCommand || ''));
-// Phase 4 Plan 03 — Settings pane + Debug TX strip refs.
-const localEchoCheckbox = document.getElementById('local-echo');
-const crlfRadios        = document.querySelectorAll('input[name="crlf"]');
+// Phase 4 Plan 03 — Debug TX strip refs. E7.1 — the Settings-pane #local-echo /
+// #crlf-* refs + their listeners retired with <details id="settings">; Local echo
+// and Enter-key-sends are now menu-authoritative (Settings menu → keyboard.js
+// setLocalEcho / setCrlfMode, called from menu-bar.js + applyPrefs).
 const txStripEl         = document.getElementById('tx-strip');
 const txResetButton     = document.getElementById('tx-reset');
 const TX_STRIP_PLACEHOLDER = '(none yet — press any key on the terminal to see TX bytes)';
@@ -339,10 +350,10 @@ const setDebugPanelVisible = (v) => { if (debugEl) debugEl.open = v; };
 // wire (it now feeds #status-build via statusBar.setBuild); see after
 // `window.__statusBar = statusBar`. window.__buildInfo is still set there for the
 // console reader + Help ▸ About (E6.2).
-// Phase 5 — Connection pane DOM refs (see www/index.html Plan 02 Wave 1).
 // E2.1 (AD-15) — the #connect-button ref moved to menu-bar.js (the sole writer +
-// click owner via its own getElementById); main.js no longer holds it.
-const connectionPane    = document.getElementById('connection');
+// click owner via its own getElementById); main.js no longer holds it. E7.1 — the
+// vestigial #connection <details> ref is gone too (it retired with #top-bar; serial.js
+// no longer auto-expands it — E2.3 removed the D-27 auto-expand).
 // E4.1 (AD-15) — #port-status relocated into #status-bar, now owned solely by
 // status-bar.js. serial.js no longer projects it, so main.js no longer fetches it
 // or passes it to wireSerial. serial.js's dead updatePortStatus* writers were
@@ -357,13 +368,16 @@ const serialParity        = document.getElementById('serial-parity');
 const serialFlowCtl       = document.getElementById('serial-flowctl');
 const serialReset         = document.getElementById('serial-reset-preset');
 const serialReconnectHint = document.getElementById('serial-reconnect-hint');
-// Phase 5 Wave 5 — paste UI refs (D-16 / D-17 / D-18).
-const pasteProgressRow    = document.getElementById('paste-progress-row');
-const pasteProgressText   = document.getElementById('paste-progress-text');
-const pasteCancelBtn      = document.getElementById('paste-cancel');
+// Epic E7 Story E7.1 (FR-29 / AD-16) — paste toast refs. The #top-bar paste row
+// (#paste-progress-row / -text / #paste-cancel / #paste-confirm) was removed; the
+// centered #paste-toast now carries progress AND the large-paste confirm.
+// #paste-test lives in the debug panel (which STAYS) so its ref remains.
+const pasteToastEl        = document.getElementById('paste-toast');
+const pasteToastTextEl    = document.getElementById('paste-toast-text');
 const pasteTestBtn        = document.getElementById('paste-test');
-// Phase 6 Plan 05 (Wave 4) — session-log download button (D-31).
-const downloadLogBtn      = document.getElementById('download-log-button');
+// Phase 6 Plan 05 (Wave 4) — E7.1 — the #download-log-button retired with
+// <details id="connection">; File ▸ Download Session Log is the sole trigger now
+// (session-log.js null-guards a missing downloadButton).
 // Phase 6 Plan 05 (Wave 4) — wireChrome's Clear button needs scrollState
 // which is wired below; pass a getter thunk so the click handler resolves
 // the live ref at click time. scrollStateRef is set right after wireScrollState
@@ -380,9 +394,10 @@ let scrollStateRef = null;
 // it's bound.
 let cancelSlideRecvLazy = () => { /* no-op until wireSlideRecv runs */ };
 
-// Phase 6 Plan 06 (Wave 5) — Settings-pane new rows (Clear scrollback / Auto
-// connect / Reset prefs). chrome.js owns the click handlers; main.js injects
-// resetPrefs + savePrefs + prefs so the handlers can persist user choices.
+// Phase 6 Plan 06 (Wave 5) — chrome.js owns the Ctrl+Alt+T / zoom chords + the
+// "show all serial devices" checkbox; main.js injects savePrefs + prefs so those
+// handlers can persist user choices. E7.1 — the auto-connect + reset-prefs legacy
+// wirings (and the resetPrefs opt) retired with <details id="settings">.
 //
 // Phase 11 Plan 11-04 D-13 / SLIDE-31 — visibilitychange + pagehide listeners
 // in chrome.js need three additional refs to emit fire-and-forget CTRL_CAN
@@ -402,9 +417,8 @@ wireChrome({
     // the open View menu after the chord (E1.5 removed its #font-row hide-gate).
     onThemeChange,                              // E1.4 — re-project the open View menu after the chord
     pushZoom,                                   // E1.5 (AD-6) — feed the status bar from the zoom chord
-    prefs,                                      // Phase 6 Plan 06 — Auto connect checkbox initial state
-    savePrefs,                                  // Phase 6 Plan 06 — persist Auto connect + the Ctrl+Alt+T chord theme change
-    resetPrefs,                                 // Phase 6 Plan 06 — Reset all preferences 2-click confirm
+    prefs,                                      // Phase 6 Plan 06 — "show all serial devices" checkbox initial state
+    savePrefs,                                  // Phase 6 Plan 06 — persist the show-all toggle + the Ctrl+Alt+T chord theme change
     isSlideActive: isSlideActive,               // Phase 11 D-13 — predicate gate for CTRL_CAN branch
     cancelSlideRecv: () => cancelSlideRecvLazy(),  // Phase 11 D-13 — thunk-holder; resolved below
     txSink: { writeSlideFrame, writeSlideFrameAwaitable },  // Phase 11 D-13 — fire-and-forget CTRL_CAN
@@ -449,6 +463,7 @@ const menuBar = wireMenuBar({
     // sessionLogTooltips single-sources the row's tooltip copy (AC-4). menu-bar
     // reaches file-source + session-log ONLY across this seam (it imports neither).
     sendFile: openSendPicker,
+    getSendGate,                       // E7.1 — Send File… row derives its disabled/tooltip from file-source's gate
     downloadSessionLog: sessionLogDownload,
     getSessionLogBytes: sessionLogBytes,
     sessionLogTooltips: SESSION_LOG_TOOLTIPS,
@@ -784,19 +799,28 @@ wireKeyboard({
 // pump is ready to accept bytes the instant the port opens.
 wirePastePump({ term, sampleBell, drainHostReply, requestFrame });
 
+// ---- Epic E7 Story E7.1 (FR-29 / AD-16) — wire the centered paste toast ----
+// Wired BEFORE the onProgress subscription (further below) and before
+// wireClipboard so its confirm function can be injected. The toast is the SOLE
+// consumer of paste-pump.onProgress for UI; its [Cancel] mid-pump routes to
+// cancelPastePump (the pump stays the single source of truth — NFR-4).
+const pasteToast = wirePasteToast({
+    toastEl: pasteToastEl,
+    toastTextEl: pasteToastTextEl,
+    onCancel: () => cancelPastePump(),
+});
+
 // ---- Phase 6 Plan 04 (Wave 3) — wire clipboard adapter ----
-// wireClipboard owns the large-paste confirm chip lifecycle (D-25) and the
-// #paste-confirm focus-retention listener. The DOM refs were already resolved
-// at the top of main.js (Phase 5 paste-progress block); we add #paste-confirm.
-const pasteConfirmBtn = document.getElementById('paste-confirm');
+// E7.1 — the large-paste confirm now resolves off the paste toast (the retired
+// #paste-progress-row's #paste-confirm/#paste-cancel are gone). clipboard.js
+// stays DOM-agnostic: it calls the injected confirmLargePaste, which returns the
+// toast's Promise<boolean>.
 wireClipboard({
-    pasteProgressText,
-    pasteCancelBtn,
-    pasteConfirmBtn,
-    pasteProgressRow,
-    // Plan 06-06 (PREF-01) wires the Settings serial-config baud as the
-    // authoritative source. For now the form select element is the live value.
-    getBaud: () => parseInt(serialBaud.value, 10) || 19200,
+    confirmLargePaste: (byteCount) => pasteToast.confirmLargePaste(byteCount, {
+        // Plan 06-06 (PREF-01) wires the Settings serial-config baud as the
+        // authoritative source. For now the form select element is the live value.
+        getBaud: () => parseInt(serialBaud.value, 10) || 19200,
+    }),
 });
 window.__copySelection = copySelection;
 window.__pasteFromClipboard = pasteFromClipboard;
@@ -809,20 +833,29 @@ window.__pastePump = {
     cancelPaste: cancelPastePump,
     isActive: pastePumpIsActive,
 };
+// Epic E7 Story E7.1 (AD-2) — paste-toast introspection for the
+// paste-toast.spec.js chromium suite. Public state-entry/confirm methods are
+// exposed alongside __reset/__getStateForTests so specs can drive the toast
+// programmatically AND assert live state.
+window.__pasteToast = {
+    __resetForTests: __pasteToastResetForTests,
+    __getStateForTests: __pasteToastGetStateForTests,
+    handleProgress: pasteToast.handleProgress,
+    confirmLargePaste: pasteToast.confirmLargePaste,
+    hide: pasteToast.hide,
+};
 
 // ---- Phase 6 Plan 05 (Wave 4) — wire session log accumulator ----
 // wireSessionLog owns the chunks-by-reference buffer + Blob download trigger
 // (D-30 / D-31). Slotted BEFORE wireSerial so the read-loop append callback
-// is bound by the time the first chunk arrives. The Connection-pane
-// #download-log-button is registered here; sessionLog.reset() runs inside
+// is bound by the time the first chunk arrives. sessionLog.reset() runs inside
 // wireSerial's connectMicroBeast / finishReconnect paths.
 // E3.1 (AC-5/AC-7) — onStateChange re-projects the File ▸ Download Session Log
 // menu row on the first-byte enable and the reset-to-disabled. menuBar is defined
-// above (:338), so the ref exists; projectSessionLog reads the live byte count
-// itself (the enabled arg is unused here). Keeps session-log the sole writer of
-// its button and menu-bar the sole writer of its row.
+// above, so the ref exists; projectSessionLog reads the live byte count itself.
+// E7.1 — the #download-log-button retired with <details id="connection">, so no
+// downloadButton opt is passed; the File-menu row is the sole download surface.
 wireSessionLog({
-    downloadButton: downloadLogBtn,
     onStateChange: () => menuBar.projectSessionLog?.(),
 });
 // Test introspection — Playwright drives append/reset/download via the spec
@@ -1102,12 +1135,12 @@ window.__txSink = { setWireOwner, getWireOwner, writeSlideFrame, writeSlideFrame
 
 // Phase 9 Plan 03 — wire file-source AFTER wireSlideDispatcher so file-source's
 // injected `enterSendMode` reaches the already-wired dispatcher. file-source
-// owns the top-bar [↑ Send file] button click + hidden multi-file picker,
-// the drag-drop overlay on #terminal-wrapper, the rewrite/rejection confirm
-// modal, and the button-state observer. terminalWrapper was already fetched
-// at main.js:100 for canvas + scrollback wiring; reuse the existing reference.
-const sendFileButton           = document.getElementById('send-file-button');
-const sendFileInput            = document.getElementById('send-file-input');
+// owns its own (programmatic, never-rendered) multi-file picker, the drag-drop
+// overlay on #terminal-wrapper, the rewrite/rejection confirm modal, and the
+// send-gate observer. E7.1 — the top-bar [↑ Send file] button + #send-file-input
+// retired with #top-bar; File ▸ Send File… (openSendPicker) is the sole trigger.
+// terminalWrapper was already fetched at main.js:100 for canvas + scrollback
+// wiring; reuse the existing reference.
 const sendModalDialog          = document.getElementById('send-modal');
 const sendModalTitle           = document.getElementById('send-modal-title');
 const sendModalList            = document.getElementById('send-modal-list');
@@ -1131,8 +1164,6 @@ const sendModalRefuseButton      = document.getElementById('send-modal-refuse');
 // during teardown in tests), the drop should still complete (T-12-10).
 wireFileSource({
     wrapperEl: terminalWrapper,
-    sendBtn: sendFileButton,
-    sendInput: sendFileInput,
     modalEl: sendModalDialog,
     titleEl: sendModalTitle,
     listEl: sendModalList,
@@ -1213,7 +1244,6 @@ await wireSerial({
     // out-of-band label is surfaced through menu-bar (the sole writer) via this
     // signal instead of a direct button write (AC-4).
     signalConnectLabel: menuBar.signalConnectLabel,
-    connectionPane,
     // E4.1 (AD-15) — portStatusEl dropped: #port-status is now owned by status-bar.js
     // (fed by the same onStateChange). serial.js's dead updatePortStatus* writers were
     // removed (E4.1 review fix #8).
@@ -1245,49 +1275,12 @@ await wireSerial({
 });
 
 // ---- Phase 4 Plan 03 — Settings controls ----
-// Local-echo toggle (INPUT-04). Default unchecked in DOM; setLocalEcho(false)
-// is the default in keyboard.js. Change event fires for both mouse-click
-// (after mousedown preventDefault below restores the toggle) and keyboard
-// activation (Tab + Space).
-localEchoCheckbox.addEventListener('change', (e) => {
-    setLocalEcho(e.target.checked);
-    savePrefs({ localEcho: e.target.checked });   // Phase 6 Plan 06 (PREF-02) — persist
-});
-// D-16 — mousedown preventDefault prevents focus transfer. For a native
-// <input type="checkbox">, the subsequent click event STILL toggles the
-// checked state (mousedown's preventDefault only stops focus, not the
-// native click-toggle), so we do NOT manually flip .checked here — the
-// change listener above already fires from that native toggle. Plan 04-04
-// Task 1 Rule 1 fix: an earlier version manually flipped .checked in this
-// handler, which the subsequent native click then reverted, leaving the
-// checkbox effectively un-togglable by mouse.
-localEchoCheckbox.addEventListener('mousedown', (e) => {
-    e.preventDefault();
-});
-
-// CR/LF override (INPUT-05). Radio default 'cr' per UI-SPEC (checked attr
-// on #crlf-cr). Change event fires via Tab+Space or (after mousedown restore)
-// mouse click.
-for (const radio of crlfRadios) {
-    radio.addEventListener('change', (e) => {
-        if (e.target.checked) {
-            setCrlfMode(e.target.value);
-            savePrefs({ crlfMode: e.target.value });   // Phase 6 Plan 06 (PREF-02) — persist
-        }
-    });
-    // D-16 — mousedown preventDefault + explicit check + setCrlfMode.
-    radio.addEventListener('mousedown', (e) => {
-        e.preventDefault();
-        radio.checked = true;
-        // Clear sibling radios (native radio group exclusion is bypassed
-        // when we set .checked programmatically after preventDefault).
-        for (const other of crlfRadios) {
-            if (other !== radio) other.checked = false;
-        }
-        setCrlfMode(radio.value);
-        savePrefs({ crlfMode: radio.value });          // Phase 6 Plan 06 (PREF-02) — persist
-    });
-}
+// E7.1 (AC-2) — the legacy #local-echo checkbox + #crlf-* radio change/mousedown
+// listeners retired with <details id="settings">. Local echo and Enter-key-sends
+// are now driven from the Settings menu (menu-bar.js calls keyboard.js's live
+// setLocalEcho / setCrlfMode + savePrefs), and applyPrefs re-applies both on the
+// boot + resetPrefs() fan-out via those same setters. Removing the listeners (not
+// merely null-guarding them) is what keeps boot from throwing on the absent nodes.
 
 // TX-strip observer (D-15). Registered exactly once; fires synchronously on
 // every pushTxBytes. Placeholder restored when ring is empty (after resetTx
@@ -1308,56 +1301,13 @@ txResetButton.addEventListener('mousedown', (e) => {
     resetTx();                                    // explicit action — mousedown suppressed native click path.
 });
 
-// ---- Phase 5 Plan 09 (Gap 2 fix) — paste progress observer ----
-// Paste progress is surfaced in the #top-bar slot (index.html relocation),
-// NOT by auto-expanding the Connection pane. Per amended D-17 (05-CONTEXT.md
-// Plan 09 amendment) and the amended 05-UI-SPEC.md auto-expand rules table,
-// the pump does NOT mutate the Connection pane's open state — the top-bar is
-// sticky so visibility is achieved without displacing the terminal canvas.
-// The connectionPane DOM ref is still passed to wireSerial so serial.js's
-// D-27 error-log auto-expand path keeps working (intentionally asymmetric:
-// errors are rare and sticky, paste is frequent — see amended D-17 rationale).
-onPastePumpProgress((ev) => {
-    if (ev.status === 'started') {
-        pasteProgressRow.hidden = false;
-        pasteProgressText.textContent = `Pasting ${ev.total} B — 0%`;
-        return;
-    }
-    if (ev.status === 'chunk') {
-        const pct = Math.round(ev.written / ev.total * 100);
-        pasteProgressText.textContent = `Pasting ${ev.total} B — ${pct}%`;
-        return;
-    }
-    if (ev.status === 'complete') {
-        pasteProgressText.textContent = 'Paste complete';
-        setTimeout(() => {
-            pasteProgressRow.hidden = true;
-            pasteProgressText.textContent = '';
-        }, 2000);
-        return;
-    }
-    if (ev.status === 'cancelled') {
-        pasteProgressText.textContent = 'Paste cancelled';
-        setTimeout(() => {
-            pasteProgressRow.hidden = true;
-            pasteProgressText.textContent = '';
-        }, 2000);
-        return;
-    }
-    if (ev.status === 'cancelled-port-lost') {
-        pasteProgressText.textContent = `Paste cancelled — port lost (${ev.unsent} bytes unsent)`;
-        setTimeout(() => {
-            pasteProgressRow.hidden = true;
-            pasteProgressText.textContent = '';
-        }, 3000);
-        return;
-    }
-});
-
-// D-18 Cancel button wiring. mousedown preventDefault retains #terminal-wrapper
-// focus so Esc continues to work after a mouse-click cancel (UI-SPEC §Focus retention).
-pasteCancelBtn.addEventListener('click', () => cancelPastePump());
-pasteCancelBtn.addEventListener('mousedown', (e) => e.preventDefault());
+// ---- Epic E7 Story E7.1 (FR-29 / AD-16) — paste progress → centered toast ----
+// The toast is the SOLE consumer of paste-pump.onProgress for UI (the old
+// #top-bar inline observer + its pasteProgressRow/-text derefs are gone). The
+// pump stays the single source of truth (NFR-4); the toast only reflects it. The
+// [Cancel] affordance and Esc-cancel (keyboard.js) both route to the pump, which
+// fires 'cancelled' → the toast renders it — so no button DOM ref lives here.
+onPastePumpProgress(pasteToast.handleProgress);
 
 // D-16 — Paste test button routes textarea bytes through the pump.
 // Uses parseHexEscapes so \xNN escapes produce control bytes.
@@ -1410,9 +1360,11 @@ document.getElementById('stress64k').addEventListener('click', () => {
 //   kind 'bool'        → el.checked = !!p[key]
 //   kind 'boolDefault' → el.checked = p[key] !== false   (default-ON prefs)
 //   kind 'select'      → el.value   = p[key]  when it is one of `allowed`
+// E7.1 — the #local-echo / #auto-connect-checkbox entries retired with
+// <details id="settings">: those prefs are now menu checkables, re-projected by
+// menuBar.projectPrefs (not a pane checkbox). Only the surviving modal controls
+// (serial-config / SLIDE) mirror here.
 const PREF_CONTROL_MIRRORS = [
-    { id: 'local-echo',                            key: 'localEcho',                kind: 'bool' },
-    { id: 'auto-connect-checkbox',                 key: 'autoConnect',              kind: 'bool' },
     { id: 'show-all-serial-devices',               key: 'showAllSerialDevices',     kind: 'bool' },
     { id: 'serial-assert-rts-on-connect-checkbox', key: 'serialAssertRtsOnConnect', kind: 'boolDefault' },
     { id: 'slide-confirm-transfers-checkbox',      key: 'slideConfirmTransfers',    kind: 'boolDefault' },
@@ -1471,15 +1423,15 @@ function applyPrefs(p) {
     // resetPrefs() fan-out it restores OFF. menuBar.projectPrefs re-derives only the row.
     setDebugPanelVisible(p.showDebugPanel);
     setCrlfMode(p.crlfMode);
-    for (const radio of crlfRadios) {
-        radio.checked = (radio.value === p.crlfMode);
-    }
+    // E7.1 — the legacy #crlf-* radio mirror loop retired with <details id="settings">;
+    // the Enter-key-sends submenu's active-radio is re-projected by menuBar.projectPrefs
+    // (the crlfPanel) on the boot + resetPrefs() fan-out, so no DOM mirror is written here.
     // Pure checkbox / select DOM mirrors — driven by the PREF_CONTROL_MIRRORS table
     // (defined above applyPrefs) so every mirrored control is restored on the boot +
     // resetPrefs() fan-out without a hand-written line each (the drift the E3.4 review
-    // fix #5 had to patch). Covers local-echo, auto-connect, show-all-serial-devices,
-    // assert-RTS, confirm-transfers, and the three SLIDE-modal controls. chrome.js /
-    // keyboard.js own the change listeners; applyPrefs only mirrors the stored value.
+    // fix #5 had to patch). Covers show-all-serial-devices, assert-RTS,
+    // confirm-transfers, and the three SLIDE-modal controls. chrome.js / keyboard.js own
+    // the change listeners; applyPrefs only mirrors the stored value.
     applyControlMirrors(p);
     // slide-auto-send-input is NOT a pure mirror (strips the trailing \r + re-syncs the
     // validity cue), so it stays explicit below.

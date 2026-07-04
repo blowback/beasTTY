@@ -9,14 +9,15 @@ async function setup(page) {
     await page.goto('/');
     await page.locator('#terminal-wrapper').focus();
     await page.waitForFunction(() => document.getElementById('terminal').width > 0);
-    await page.locator('#connection').evaluate((el) => { el.open = true; });
 }
 
 test.describe('XPORT-01..04 + D-01/D-02/D-06..D-11 — Connect to MicroBeast', () => {
-    test('Connect button visible in top-bar with data-state="disconnected" @fast', async ({ page }) => {
+    test('Connect menu row present with data-state="disconnected" @fast', async ({ page }) => {
         await setup(page);
-        await expect(page.locator('#connect-button')).toHaveAttribute('data-state', 'disconnected');
-        await expect(page.locator('#connect-button')).toHaveText('Connect');
+        // E7.1 — the Connect surface is the Connection menu row (the #top-bar
+        // #connect-button retired); menu-bar.js is its sole state writer.
+        await expect(page.locator('#menu-connect-item')).toHaveAttribute('data-state', 'disconnected');
+        await expect(page.locator('#menu-connect-item .lbl')).toHaveText('Connect');
     });
 
     test('click Connect calls requestPort with CP2102N filter 10c4:ea60', async ({ page }) => {
@@ -30,7 +31,8 @@ test.describe('XPORT-01..04 + D-01/D-02/D-06..D-11 — Connect to MicroBeast', (
                 return orig(opts);
             };
         });
-        await page.locator('#connect-button').click();
+        await page.evaluate(() => window.__menuBar.open('connection'));
+        await page.click('#menu-connect-item');
         const opts = await page.evaluate(() => window.__lastRequestPortOpts);
         expect(opts).toEqual({
             filters: [{ usbVendorId: 0x10c4, usbProductId: 0xea60 }],
@@ -39,7 +41,8 @@ test.describe('XPORT-01..04 + D-01/D-02/D-06..D-11 — Connect to MicroBeast', (
 
     test('port.open called with 19200 8N1 none none preset @fast', async ({ page }) => {
         await setup(page);
-        await page.locator('#connect-button').click();
+        await page.evaluate(() => window.__menuBar.open('connection'));
+        await page.click('#menu-connect-item');
         // Poll because open() happens async after the click resolves.
         await expect.poll(
             () => page.evaluate(() => navigator.serial._grantedPorts[0]?._config ?? null),
@@ -55,7 +58,8 @@ test.describe('XPORT-01..04 + D-01/D-02/D-06..D-11 — Connect to MicroBeast', (
     // applicable to DTR than RTS).
     test('setSignals called with DTR=false RTS=true after open (assertRtsOnConnect default)', async ({ page }) => {
         await setup(page);
-        await page.locator('#connect-button').click();
+        await page.evaluate(() => window.__menuBar.open('connection'));
+        await page.click('#menu-connect-item');
         await expect.poll(
             () => page.evaluate(() => navigator.serial._grantedPorts[0]?._lastSignals ?? null),
             { timeout: 2000 },
@@ -79,8 +83,8 @@ test.describe('XPORT-01..04 + D-01/D-02/D-06..D-11 — Connect to MicroBeast', (
         await page.reload();
         await page.locator('#terminal-wrapper').focus();
         await page.waitForFunction(() => document.getElementById('terminal').width > 0);
-        await page.locator('#connection').evaluate((el) => { el.open = true; });
-        await page.locator('#connect-button').click();
+        await page.evaluate(() => window.__menuBar.open('connection'));
+        await page.click('#menu-connect-item');
         await expect.poll(
             () => page.evaluate(() => navigator.serial._grantedPorts[0]?._lastSignals ?? null),
             { timeout: 2000 },
@@ -89,20 +93,24 @@ test.describe('XPORT-01..04 + D-01/D-02/D-06..D-11 — Connect to MicroBeast', (
 
     test('button label cycles Connect → Connecting… → Disconnect', async ({ page }) => {
         await setup(page);
-        await expect(page.locator('#connect-button')).toHaveText('Connect');
-        await page.locator('#connect-button').click();
+        await expect(page.locator('#menu-connect-item .lbl')).toHaveText('Connect');
+        await page.evaluate(() => window.__menuBar.open('connection'));
+        await page.click('#menu-connect-item');
         // 'connecting' transient is fast; asserting the stable 'connected' end state
         // is the Wave 2 contract. Wave 4 may add mid-state assertions via time-warp
         // helpers if the intermediate is worth pinning.
-        await expect(page.locator('#connect-button')).toHaveAttribute('data-state', 'connected');
-        await expect(page.locator('#connect-button')).toHaveText('Disconnect');
+        await expect(page.locator('#menu-connect-item')).toHaveAttribute('data-state', 'connected');
+        await expect(page.locator('#menu-connect-item .lbl')).toHaveText('Disconnect');
     });
 
-    test('button border color transitions gray → amber → green', async ({ page }) => {
+    test('connection dot colour transitions gray → amber → green', async ({ page }) => {
         await setup(page);
-        await page.locator('#connect-button').click();
-        await expect(page.locator('#connect-button')).toHaveAttribute('data-state', 'connected');
-        // Literal #33ff66 green — see www/index.html #connect-button[data-state="connected"] rule.
-        await expect(page.locator('#connect-button')).toHaveCSS('border-color', 'rgb(51, 255, 102)');
+        await page.evaluate(() => window.__menuBar.open('connection'));
+        await page.click('#menu-connect-item');
+        await expect(page.locator('#menu-connect-item')).toHaveAttribute('data-state', 'connected');
+        // E7.1 — the green "connected" colour signal moved from the retired
+        // #connect-button border to the connection dot (--status-green #33ff66),
+        // shared by #menu-conn-dot + #status-conn-dot via the .conn-dot rule.
+        await expect(page.locator('#status-conn-dot')).toHaveCSS('background-color', 'rgb(51, 255, 102)');
     });
 });

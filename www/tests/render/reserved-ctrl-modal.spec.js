@@ -80,12 +80,9 @@ test.describe('E3.3 AC-5 — verbatim copy + header', () => {
     await expect(dialog(page).locator('#reserved-ctrl-modal-title'))
       .toHaveText('Browser-reserved Ctrl combinations');
   });
-
-  test('the copy is single-sourced — still verbatim in the legacy pane during coexistence @fast', async ({ page }) => {
-    await ready(page);
-    // The legacy <details class="reserved"> stays functional through the E7 window.
-    await expect(page.locator('details.reserved > p.hint')).toHaveText(VERBATIM);
-  });
+  // E7.1 — the "still verbatim in the legacy pane during coexistence" test retired
+  // with <details class="reserved"> (swept away with <details id="settings">). The
+  // modal is now the sole home for this copy; the verbatim assertion above covers it.
 });
 
 test.describe('E3.3 AC-6 — neutral-shell styling', () => {

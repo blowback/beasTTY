@@ -5,8 +5,9 @@
 // state machine; this module SUBSCRIBES via wireStatusBar opts and projects
 // state → frozen label map → #port-status textContent + #status-conn-dot
 // [data-state]. It is the single writer of its own two DOM fields (NFR-4),
-// coexisting with menu-bar.js (#menu-conn-dot) and — until E7 — nothing else,
-// all reading the same serial.onStateChange truth.
+// coexisting with menu-bar.js (#menu-conn-dot) — the two dots that render the
+// same serial state, both reading the same serial.onStateChange truth. (E7.1 —
+// the old #top-bar #connect-button that also read this state is gone.)
 //
 // Follows the www/renderer/scroll-state.js / www/renderer/slide-chip.js template
 // (AD-2): module-scope state + injected …Ref vars + wireStatusBar(opts) → API +

@@ -22,11 +22,11 @@ async function setup(page) {
     await page.goto('/');
     await page.locator('#terminal-wrapper').focus();
     await page.waitForFunction(() => document.getElementById('terminal').width > 0);
-    await page.locator('#connection').evaluate((el) => { el.open = true; });
 }
 
 async function connect(page) {
-    await page.locator('#connect-button').click();
+    await page.evaluate(() => window.__menuBar.open('connection'));
+    await page.click('#menu-connect-item');
     // Generous timeout — Playwright's 10-worker parallelism can starve
     // the wasm boot path on busy hardware; 2s flakes intermittently.
     await expect.poll(

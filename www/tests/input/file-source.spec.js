@@ -103,7 +103,8 @@ test('drop triggers picker-equivalent flow — modal opens @fast', async ({ page
     // tx-sink even before Connect, but Plan 09-03's processFiles uses
     // dependency-injected enterSendMode which itself needs a connected
     // writer to push the auto-type bytes onto the wire — verified locally).
-    await page.locator('#connect-button').click();
+    await page.evaluate(() => window.__menuBar.open('connection'));
+    await page.click('#menu-connect-item');
     await expect.poll(
         () => page.evaluate(() => Boolean(navigator.serial._grantedPorts[0]?._reader)),
         { timeout: 5000 },
@@ -158,14 +159,18 @@ test('all-files-rejected disables Send button @fast', async ({ page }) => {
 
 test('File ▸ Send File… opens the picker → #send-modal (menu path) + retains focus @fast', async ({ page }) => {
     // Connect so the picker gate (writer-ready) is open — mirrors the drop test.
-    await page.locator('#connect-button').click();
+    await page.evaluate(() => window.__menuBar.open('connection'));
+    await page.click('#menu-connect-item');
     await expect.poll(
         () => page.evaluate(() => Boolean(navigator.serial._grantedPorts[0]?._reader)),
         { timeout: 5000 },
     ).toBe(true);
-    // The gate is polled every 200ms; wait for the top-bar button to reflect it so
+    // The gate is polled every 200ms; wait for the file-source send gate to open so
     // openSendPicker actually opens the picker instead of no-op'ing on the gate.
-    await expect(page.locator('#send-file-button')).toBeEnabled({ timeout: 3000 });
+    // E7.1 — the #send-file-button retired with #top-bar; the gate is module state.
+    await page.waitForFunction(
+        () => window.__fileSource.__getStateForTests().sendBtnDisabled === false,
+        undefined, { timeout: 3000 });
     await page.waitForFunction(
         () => window.__menuBar && typeof window.__menuBar.__getStateForTests === 'function',
     );
@@ -195,10 +200,12 @@ test('File ▸ Send File… row mirrors the send gate: disabled + reason when no
     );
     const row = page.locator('#menu-send-file-item');
 
-    // Not connected → the picker gate is closed; the top-bar button disables (polled
-    // ~200ms) and the menu row MIRRORS it (greyed + reason) on File-menu open — the fix
-    // for "Send File… does nothing with no feedback".
-    await expect(page.locator('#send-file-button')).toBeDisabled({ timeout: 3000 });
+    // Not connected → the picker gate is closed (module state), and the menu row
+    // reflects it (greyed + reason) on File-menu open — the fix for "Send File… does
+    // nothing with no feedback". E7.1 — the gate no longer has a #send-file-button DOM node.
+    await page.waitForFunction(
+        () => window.__fileSource.__getStateForTests().sendBtnDisabled === true,
+        undefined, { timeout: 3000 });
     await page.evaluate(() => window.__menuBar.open('file'));
     await expect(row).toHaveAttribute('data-disabled', 'true');
     await expect(row).toHaveAttribute('aria-disabled', 'true');
@@ -214,8 +221,11 @@ test('File ▸ Send File… row mirrors the send gate: disabled + reason when no
     await page.evaluate(() => window.__menuBar.close());
 
     // Connect → the gate opens; reopening File shows the row enabled (no data-disabled).
-    await page.locator('#connect-button').click();
-    await expect(page.locator('#send-file-button')).toBeEnabled({ timeout: 5000 });
+    await page.evaluate(() => window.__menuBar.open('connection'));
+    await page.click('#menu-connect-item');
+    await page.waitForFunction(
+        () => window.__fileSource.__getStateForTests().sendBtnDisabled === false,
+        undefined, { timeout: 5000 });
     await page.evaluate(() => window.__menuBar.open('file'));
     await expect(row).not.toHaveAttribute('data-disabled', 'true');
 });

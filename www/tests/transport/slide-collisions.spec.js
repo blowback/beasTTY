@@ -33,12 +33,12 @@ async function setup(page) {
     await page.goto('/');
     await page.locator('#terminal-wrapper').focus();
     await page.waitForFunction(() => document.getElementById('terminal').width > 0);
-    await page.locator('#connection').evaluate((el) => { el.open = true; });
 }
 
 test.beforeEach(async ({ page }) => {
     await setup(page);
-    await page.locator('#connect-button').click();
+    await page.evaluate(() => window.__menuBar.open('connection'));
+    await page.click('#menu-connect-item');
     // 8s timeout — Chromium parallel-load throttling (Phase 11 11-05 precedent).
     await expect.poll(
         () => page.evaluate(() => Boolean(navigator.serial._grantedPorts[0]?._reader)),

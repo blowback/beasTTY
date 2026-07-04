@@ -82,14 +82,15 @@ test.describe('E1.1 AC-1 — menu-bar shell renders', () => {
     expect(shape.state.menus).toEqual(['file', 'connection', 'view', 'settings', 'debug', 'help']);
   });
 
-  test('incumbent #top-bar + <details> panes still present (coexist, AC-1/AC-4) @fast', async ({ page }) => {
+  test('E7.1 sweep — #top-bar + the two <details> vestiges gone; #debug stays @fast', async ({ page }) => {
     await ready(page);
-    await expect(page.locator('#top-bar')).toBeAttached();
-    await expect(page.locator('#connection')).toBeAttached();
-    await expect(page.locator('#settings')).toBeAttached();
+    // The dual-chrome formal sweep retired these wholesale (AD-7).
+    await expect(page.locator('#top-bar')).toHaveCount(0);
+    await expect(page.locator('#connection')).toHaveCount(0);
+    await expect(page.locator('#settings')).toHaveCount(0);
+    await expect(page.locator('#connect-button')).toHaveCount(0);
+    // The debug panel is the ONE recorded pane that survives (AD-11/FR-23).
     await expect(page.locator('#debug')).toBeAttached();
-    // A representative incumbent control is still wired.
-    await expect(page.locator('#connect-button')).toBeVisible();
   });
 });
 
@@ -341,11 +342,11 @@ test.describe('E3.1 — File menu Send File… + Download Session Log', () => {
   test('Send File… mirrors the send gate — disabled + inert pre-Connect, retains focus @fast', async ({ page }) => {
     await ready(page);
     await page.locator('#terminal-wrapper').focus();
-    // E3.1 follow-up — Send File… now mirrors #send-file-button's gate: pre-Connect the
-    // writer isn't ready, so the row is disabled + inert (like Download Session Log
+    // E3.1 follow-up / E7.1 — Send File… derives its disabled state from file-source's
+    // send gate (getSendGate; the #send-file-button retired with #top-bar): pre-Connect
+    // the writer isn't ready, so the row is disabled + inert (like Download Session Log
     // below it), not a menu-closing action. Its enabled action-semantics + picker-open
     // are covered by the connected path in file-source.spec.js.
-    await expect(page.locator('#send-file-button')).toBeDisabled();
     await page.evaluate(() => window.__menuBar.open('file'));
     const row = page.locator('#dropdown-file .menu-item[data-action="send-file"]');
     await expect(row).toHaveAttribute('data-disabled', 'true');

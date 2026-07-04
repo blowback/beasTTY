@@ -30,7 +30,6 @@ async function setup(page) {
     await page.goto('/');
     await page.locator('#terminal-wrapper').focus();
     await page.waitForFunction(() => document.getElementById('terminal').width > 0);
-    await page.locator('#connection').evaluate((el) => { el.open = true; });
     // E3.4 — these tests drive SLIDE via window.__slide / prefs programmatically and
     // never touch the SLIDE settings controls, so the old <details id="settings-slide">
     // pane expand is dropped (the pane no longer exists; the controls live in
@@ -38,7 +37,8 @@ async function setup(page) {
 }
 
 async function commonReset(page) {
-    await page.locator('#connect-button').click();
+    await page.evaluate(() => window.__menuBar.open('connection'));
+    await page.click('#menu-connect-item');
     await expect.poll(
         () => page.evaluate(() => Boolean(navigator.serial._grantedPorts[0]?._reader)),
         { timeout: 8000 },
