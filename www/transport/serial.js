@@ -33,7 +33,7 @@ import { isSlideActive } from './slide-recv.js';
 // Live read of prefs.showAllSerialDevices at picker time. Cannot use the
 // boot-time `prefsRef` snapshot because savePrefs replaces the cached object —
 // prefsRef would still point at the original blob and miss subsequent toggles.
-import { getPrefs } from '../state/prefs.js';
+import { getPrefs, MICROBEAST_DEVICE_LABEL, formatFraming } from '../state/prefs.js';
 
 // Constants -----------------------------------------------------------------
 const VID_MICROBEAST = 0x10c4;   // D-02 — Silicon Labs (CP2102N)
@@ -527,8 +527,15 @@ export function getWriter() { return writer; }
 // when nothing is open yet (never connected), letting the caller fall back.
 export function getActiveFraming() {
     if (!lastConfig) return null;
-    const p = String(lastConfig.parity || 'none')[0].toUpperCase();   // 'none' → 'N'
-    return `${lastConfig.baudRate} ${lastConfig.dataBits}${p}${lastConfig.stopBits}`;
+    // Shared pure formatter (prefs.js) — map the open-port schema (baudRate) onto
+    // its `baud` field so the live readout and status-bar's prefs-derived fallback
+    // format identically.
+    return formatFraming({
+        baud: lastConfig.baudRate,
+        dataBits: lastConfig.dataBits,
+        parity: lastConfig.parity,
+        stopBits: lastConfig.stopBits,
+    });
 }
 
 // E4.1 fix (#4) — the most-recent connect-time failure message (or null). The status
@@ -556,7 +563,7 @@ export function getConnectionDevice() {
     let info;
     try { info = p.getInfo(); } catch { return null; }
     if (isMicroBeast(info)) {
-        return 'MicroBeast (CP2102N 10c4:ea60)';
+        return MICROBEAST_DEVICE_LABEL;   // shared literal (prefs.js) — single source with status-bar's fallback
     }
     const hex = (n) => (n == null ? '????' : n.toString(16).padStart(4, '0'));
     return `Serial device (${hex(info.usbVendorId)}:${hex(info.usbProductId)})`;

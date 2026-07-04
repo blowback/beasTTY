@@ -32,7 +32,10 @@ def done_story_slugs(sprint_text: str) -> list[str]:
     slugs = []
     in_status = False
     for line in sprint_text.splitlines():
-        if re.match(r"^development_status:\s*$", line):
+        # Match the block header whether bare OR carrying an inline `# comment`
+        # (sibling top-level keys like `last_updated:` already do — without the
+        # optional-comment tail a commented header silently disables the guard).
+        if re.match(r"^development_status:\s*(#.*)?$", line):
             in_status = True
             continue
         if in_status:

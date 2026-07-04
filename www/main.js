@@ -229,56 +229,36 @@ function confirmClearScrollback() {
 // modals); restoreTo = terminalWrapper (focus round-trips on close, NFR-1/AD-10).
 // Shaped as a zero-arg opener returning the openModal promise so E4's status-bar
 // recent-errors affordance can reuse it verbatim.
+// The three chrome modals (Serial Configuration / Reserved-Ctrl info / SLIDE File
+// Transfer) share ONE opener contract, injected into wireMenuBar (menu-bar.js must
+// not import modal.js): null-guard to a resolved '' on a harness with no markup,
+// focus a named control on open, and round-trip focus to #terminal-wrapper on close
+// (NFR-1/AD-10). initialFocus is looked up by id at call time (id-keyed markup); the
+// non-destructive returnValue ('close'/'') is ignored by every caller. `onOpen` runs
+// just before showModal for the modals that need a pre-open sync. A shared factory
+// keeps the contract in one place (a fourth modal — E6.2 Help ▸ About — is one line).
+function makeModalOpener(modalEl, initialFocusId, onOpen) {
+    return () => {
+        if (!modalEl) return Promise.resolve('');   // no markup — harness; don't throw
+        if (onOpen) onOpen();
+        return openModal(modalEl, {
+            initialFocus: document.getElementById(initialFocusId),
+            restoreTo: terminalWrapper,
+        });
+    };
+}
+// E2.3 — Serial Configuration modal; initialFocus = Baud (first form control).
 const serialConfigModalEl = document.getElementById('serial-config-modal');
-function openSerialConfig() {
-    if (!serialConfigModalEl) return Promise.resolve('');   // no markup — harness; don't throw
-    const baudSelect = document.getElementById('serial-baud');
-    return openModal(serialConfigModalEl, {
-        initialFocus: baudSelect,
-        restoreTo: terminalWrapper,
-    });
-}
-// Epic E3 Story E3.3 (FR-21, AD-8, AD-3) — Browser-reserved Ctrl combinations info
-// modal opener, injected into wireMenuBar (menu-bar.js must not import modal.js). A
-// non-destructive info modal (body copy + Close): initialFocus = the Close button
-// (modal.js returnValue policy #4 — no destructive default to guard, so Close is a
-// compliant safe default); restoreTo = terminalWrapper (focus round-trips on close,
-// NFR-1/AD-10). Close/Esc resolve 'close'/'' and the caller ignores the returnValue.
-// Zero-arg opener returning the openModal promise — mirrors openSerialConfig (E2.3).
+const openSerialConfig = makeModalOpener(serialConfigModalEl, 'serial-baud');
+// E3.3 (FR-21) — Reserved-Ctrl info modal; initialFocus = Close (no destructive default).
 const reservedCtrlModalEl = document.getElementById('reserved-ctrl-modal');
-function openReservedCtrl() {
-    if (!reservedCtrlModalEl) return Promise.resolve('');   // no markup — harness; don't throw
-    const closeBtn = document.getElementById('reserved-ctrl-close');
-    return openModal(reservedCtrlModalEl, {
-        initialFocus: closeBtn,
-        restoreTo: terminalWrapper,
-    });
-}
-// Epic E3 Story E3.4 (FR-20, AD-8, AD-3) — SLIDE File Transfer modal opener, injected
-// into wireMenuBar (menu-bar.js must not import modal.js/slide*.js). The controls inside
-// #slide-config-modal are the SAME id-keyed elements the boot-time SLIDE settings wiring
-// (auto-send / show-summary / confirm-transfers / compat) and wireSlideRecv already wire;
-// this opener only surfaces the <dialog>. A non-destructive prefs modal: every change
-// persists immediately (existing change→savePrefs listeners) and gates the UNCHANGED SLIDE
-// chip lifecycle, so there is no affirmative "apply" — Close/Esc resolve 'close'/'' and the
-// caller ignores the returnValue. initialFocus = the Save-to-folder checkbox (first form
-// control — compliant with the modal.js returnValue policy for non-destructive modals);
-// restoreTo = terminalWrapper (focus round-trips on close, NFR-1/AD-10). Zero-arg opener
-// returning the openModal promise — mirrors openSerialConfig (E2.3) / openReservedCtrl (E3.3).
+const openReservedCtrl = makeModalOpener(reservedCtrlModalEl, 'reserved-ctrl-close');
+// E3.4 (FR-20) — SLIDE File Transfer modal; initialFocus = Save-to-folder checkbox.
+// onOpen re-projects the auto-send validity cue from the LIVE stored command (not the
+// boot snapshot — the hint lives in this modal and the use-time gate fires while closed).
 const slideConfigModalEl = document.getElementById('slide-config-modal');
-function openSlideConfig() {
-    if (!slideConfigModalEl) return Promise.resolve('');   // no markup — harness; don't throw
-    // E4.2 review — re-project the auto-send validity cue on every open (reads the
-    // LIVE stored command, not the boot snapshot) so a user inspecting/fixing the
-    // command always sees its current unsafe state; the hint lives in this modal and
-    // the use-time gate fires while it is closed.
-    syncAutoSendValidity(getPrefs()?.slideAutoSendCommand || '');
-    const recvToggle = document.getElementById('slide-recv-to-folder-checkbox');
-    return openModal(slideConfigModalEl, {
-        initialFocus: recvToggle,
-        restoreTo: terminalWrapper,
-    });
-}
+const openSlideConfig = makeModalOpener(slideConfigModalEl, 'slide-recv-to-folder-checkbox',
+    () => syncAutoSendValidity(getPrefs()?.slideAutoSendCommand || ''));
 // Phase 4 Plan 03 — Settings pane + Debug TX strip refs.
 const localEchoCheckbox = document.getElementById('local-echo');
 const crlfRadios        = document.querySelectorAll('input[name="crlf"]');
@@ -1345,6 +1325,37 @@ document.getElementById('stress64k').addEventListener('click', () => {
 });
 
 // ---- Phase 6 Plan 06 (Wave 5) — pref subscribers ----
+// Checkbox / select DOM mirrors, applied on the boot + resetPrefs() fan-out. Driven
+// by a TABLE (not a hand-written line per control) so adding a pref to DEFAULTS can't
+// silently skip its reset mirror — the exact drift the E3.4 "review fix #5" block had
+// to patch after four SLIDE-modal controls were added to DEFAULTS but not to applyPrefs
+// (a reset then defaulted the blob while the controls kept showing — and re-persisting —
+// stale values). Only pure DOM mirrors live here; the live-effect setters
+// (theme/phosphor/font/zoom/localEcho/debug-panel/crlf) stay explicit in applyPrefs.
+//   kind 'bool'        → el.checked = !!p[key]
+//   kind 'boolDefault' → el.checked = p[key] !== false   (default-ON prefs)
+//   kind 'select'      → el.value   = p[key]  when it is one of `allowed`
+const PREF_CONTROL_MIRRORS = [
+    { id: 'local-echo',                            key: 'localEcho',                kind: 'bool' },
+    { id: 'auto-connect-checkbox',                 key: 'autoConnect',              kind: 'bool' },
+    { id: 'show-all-serial-devices',               key: 'showAllSerialDevices',     kind: 'bool' },
+    { id: 'serial-assert-rts-on-connect-checkbox', key: 'serialAssertRtsOnConnect', kind: 'boolDefault' },
+    { id: 'slide-confirm-transfers-checkbox',      key: 'slideConfirmTransfers',    kind: 'boolDefault' },
+    { id: 'slide-recv-to-folder-checkbox',         key: 'slideRecvToFolder',        kind: 'bool' },
+    { id: 'slide-show-summary',                    key: 'slideShowSummary',         kind: 'bool' },
+    { id: 'slide-compat-select',                   key: 'slideCompatibilityMode',   kind: 'select',
+      allowed: ['auto', 'wakeup-required', 'force-start'] },
+];
+function applyControlMirrors(p) {
+    for (const m of PREF_CONTROL_MIRRORS) {
+        const el = document.getElementById(m.id);
+        if (!el) continue;   // control absent (harness / not-yet-mounted) — skip, no throw
+        if (m.kind === 'bool') el.checked = !!p[m.key];
+        else if (m.kind === 'boolDefault') el.checked = p[m.key] !== false;
+        else if (m.kind === 'select' && m.allowed.includes(p[m.key])) el.value = p[m.key];
+    }
+}
+
 // applyPrefs re-applies the loaded prefs to chrome / canvas / keyboard state.
 // Fires on every flushPrefs (after debounce) AND on resetPrefs() — the latter
 // is how the Settings 'Reset all preferences' 2-click confirm restores defaults
@@ -1379,7 +1390,6 @@ function applyPrefs(p) {
     // (matches the chord path, which already pushes getActiveZoom()).
     pushZoom(getActiveZoom());
     setLocalEcho(p.localEcho);
-    if (localEchoCheckbox.checked !== p.localEcho) localEchoCheckbox.checked = p.localEcho;
     // E5.1 (AC-3/AC-6) — applyPrefs is the SINGLE writer of the debug panel's live
     // visibility on the reset/boot path (the menu toggle owns it on click). At boot
     // (applyPrefs(prefs) below) this applies the default OFF ⇒ fully invisible; on
@@ -1389,44 +1399,15 @@ function applyPrefs(p) {
     for (const radio of crlfRadios) {
         radio.checked = (radio.value === p.crlfMode);
     }
-    // Auto-connect checkbox initial / reset state — chrome.js owns the change
-    // listener; applyPrefs only mirrors the stored value into the DOM so a
-    // resetPrefs() (D-35) restores the unchecked default in-place.
-    const autoConnectCheckbox = document.getElementById('auto-connect-checkbox');
-    if (autoConnectCheckbox) autoConnectCheckbox.checked = !!p.autoConnect;
-    // Show-all-serial-devices checkbox — same mirror-only pattern. The change
-    // listener is wired below at boot; serial.js reads the live pref via
-    // getPrefs() at requestPort time, so this checkbox does not need a click
-    // to take effect on the next Connect.
-    const showAllSerialCheckbox = document.getElementById('show-all-serial-devices');
-    if (showAllSerialCheckbox) showAllSerialCheckbox.checked = !!p.showAllSerialDevices;
-    // Phase 12.1 Plan 12-08 — assert-RTS-on-connect mirror. Direct
-    // getElementById (not the boot-time const) because applyPrefs is
-    // called both at boot AND on resetPrefs() — direct lookup matches
-    // showAllSerialDevices precedent above. DEFAULTS is true so a reset
-    // restores the checked state.
-    const serialAssertRtsCheckboxRef = document.getElementById('serial-assert-rts-on-connect-checkbox');
-    if (serialAssertRtsCheckboxRef) serialAssertRtsCheckboxRef.checked = (p.serialAssertRtsOnConnect !== false);
-    // v1.1 polish (260513-grs Task 2) — Confirm file transfers applyPrefs mirror.
-    // Same defensive `!== false` pattern as serialAssertRtsOnConnect so a reset
-    // restores the default-ON checked state.
-    const slideConfirmTransfersCheckboxRef = document.getElementById('slide-confirm-transfers-checkbox');
-    if (slideConfirmTransfersCheckboxRef) slideConfirmTransfersCheckboxRef.checked = (p.slideConfirmTransfers !== false);
-    // E3.4 review fix (#5) — the Settings ▸ SLIDE File Transfer… modal controls need
-    // the same reset mirror as the sibling controls above; without it a resetPrefs()
-    // defaults the prefs blob but leaves these four showing stale values (re-opening
-    // the modal shows the OLD settings, and the next change re-persists the stale
-    // value). Direct getElementById matches the showAllSerial / confirmTransfers
-    // precedent (applyPrefs runs at boot AND reset). These controls otherwise only
-    // hydrate once at wire time — nothing re-projects them on the reset fan-out.
-    const slideRecvToFolderRef = document.getElementById('slide-recv-to-folder-checkbox');
-    if (slideRecvToFolderRef) slideRecvToFolderRef.checked = !!p.slideRecvToFolder;
-    const slideShowSummaryRef = document.getElementById('slide-show-summary');
-    if (slideShowSummaryRef) slideShowSummaryRef.checked = !!p.slideShowSummary;
-    const slideCompatRef = document.getElementById('slide-compat-select');
-    if (slideCompatRef && ['auto', 'wakeup-required', 'force-start'].includes(p.slideCompatibilityMode)) {
-        slideCompatRef.value = p.slideCompatibilityMode;
-    }
+    // Pure checkbox / select DOM mirrors — driven by the PREF_CONTROL_MIRRORS table
+    // (defined above applyPrefs) so every mirrored control is restored on the boot +
+    // resetPrefs() fan-out without a hand-written line each (the drift the E3.4 review
+    // fix #5 had to patch). Covers local-echo, auto-connect, show-all-serial-devices,
+    // assert-RTS, confirm-transfers, and the three SLIDE-modal controls. chrome.js /
+    // keyboard.js own the change listeners; applyPrefs only mirrors the stored value.
+    applyControlMirrors(p);
+    // slide-auto-send-input is NOT a pure mirror (strips the trailing \r + re-syncs the
+    // validity cue), so it stays explicit below.
     const slideAutoSendRef = document.getElementById('slide-auto-send-input');
     if (slideAutoSendRef) {
         // Display value strips the trailing \r (appended at save time — D-06), mirroring

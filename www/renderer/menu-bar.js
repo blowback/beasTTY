@@ -45,6 +45,7 @@ import { retainFocus } from './focus.js';
 // View ▸ Theme / Phosphor selects persist via savePrefs (the graph edge
 // `menu -->|direct import OK| prefs` is authoritative over the AD-3 prose).
 import { getPrefs, savePrefs, RESET_PREFS_IDLE_LABEL, RESET_PREFS_CONFIRM_LABEL, CONN_STATUS_LABELS } from '../state/prefs.js';
+import { makeTwoClickConfirm } from './confirm-toggle.js';
 // E1.4 (AD-3 / AD-7) — the theme/phosphor menu actions relocate the SAME canvas
 // setters the retired #theme-toggle / #phosphor-group handlers called, verbatim.
 // canvas.js setters are the only other allowed direct import (AD-3 allowlist).
@@ -165,6 +166,21 @@ let crlfPanelEl = null;            // [data-submenu-panel="crlf"] — active rad
 let setDebugPanelVisibleRef = null;
 let debugPanelItemEl = null;       // #menu-debug-panel-item — checkable, derived from prefs.showDebugPanel
 
+// Per-pref side effects for pref-backed checkable rows (data-pref). savePrefs persists
+// + flips the glyph but does NOT fan out (AD-4), so this table carries the two extra
+// obligations a checkable can have: `apply` — the injected live-effect setter to run
+// NOW (persist ≠ apply; boot-time-only prefs like autoConnect have none); and
+// `legacyMirrorId` — the coexisting <details>-pane checkbox to keep in lockstep during
+// the E7 window (menu→pane; every mirror line retires with #top-bar). Setters are read
+// LIVE via closures (the *Ref lets are re-assigned on an idempotent re-wire). One entry
+// per pref instead of an if-chain, so a new live checkable is a single edit here (paired
+// with its main.js injection + applyControlMirrors table entry).
+const CHECKABLE_PREF_EFFECTS = {
+    autoConnect:    { legacyMirrorId: 'auto-connect-checkbox' },              // boot-time only — no live setter
+    localEcho:      { apply: (next) => setLocalEchoRef?.(next), legacyMirrorId: 'local-echo' },
+    showDebugPanel: { apply: (next) => setDebugPanelVisibleRef?.(next) },     // no coexisting pane checkbox (AC-4)
+};
+
 // E3.3 (FR-21/FR-22, AD-3) — Settings-menu injected seams. resetPrefsRef is the
 // prefs.js reset action, injected (NOT imported) per AD-3's opts-injected set —
 // contrast the direct getPrefs/savePrefs import. openReservedCtrlRef opens the
@@ -178,12 +194,19 @@ let openReservedCtrlRef = null;
 // slide*.js). Optional: a harness that omits it leaves that row's click inert.
 let openSlideConfigRef = null;
 let resetPrefsItemEl = null;       // #menu-reset-prefs-item — cached at wire time like the sibling projected rows
-// The Reset row's inline 2-click confirm — labels single-sourced from prefs.js (the
-// reset SSOT — E3.3 review fix; chrome.js's legacy button shares them). Replicates the
-// chrome.js:274-284 machine against the menu row's .lbl. resetPrefsConfirmTimer is the
-// module-scope disarm timer: null = idle, non-null = armed. The two confirm machines
-// (menu + legacy button) are INDEPENDENT — neither mirrors the other's transient state.
-let resetPrefsConfirmTimer = null;
+// The Reset row's inline 2-click confirm. Both the labels AND the arm/commit/disarm
+// state machine are shared (confirm-toggle.js) with chrome.js's legacy #reset-prefs-button,
+// so the two surfaces can never drift on the confirm copy OR the window/semantics. The
+// callbacks read module-scope refs LIVE (resetPrefsItemEl / resetPrefsRef are assigned at
+// wire time and re-assigned on an idempotent re-wire), so this can be built once at load.
+// The .lbl is resolved at call time (the row hosts the label as a child, unlike chrome's
+// button). disarmResetConfirm() below delegates here — every dropdown-hide path calls it.
+const resetConfirm = makeTwoClickConfirm({
+    getLabelEl: () => resetPrefsItemEl && resetPrefsItemEl.querySelector('.lbl'),
+    idleLabel: RESET_PREFS_IDLE_LABEL,
+    confirmLabel: RESET_PREFS_CONFIRM_LABEL,
+    onCommit: () => resetPrefsRef?.(),
+});
 
 // E2.1 (AD-15) — connection projection state. serial.js arrives via opts (never a
 // direct import — AD-3): toggleConnectionRef is the exported click action;
@@ -852,7 +875,7 @@ function onItemClick(item, ev) {
     // interleaved either). Placed before every branch so no activation path slips past;
     // the second reset-prefs click is data-action reset-prefs, so it is exempt here and
     // reaches its commit branch below.
-    if (resetPrefsConfirmTimer !== null && item.getAttribute('data-action') !== 'reset-prefs') {
+    if (resetConfirm.isArmed() && item.getAttribute('data-action') !== 'reset-prefs') {
         disarmResetConfirm();
     }
 
@@ -873,33 +896,18 @@ function onItemClick(item, ev) {
         // savePrefs touches ONLY the named key (AD-4) and does NOT fire subscribers.
         const prefKey = item.getAttribute('data-pref');
         if (prefKey) {
-            savePrefs({ [prefKey]: next });
-            // E2.2 (AC-4) — menu→pane lockstep during the E7 coexistence window:
-            // savePrefs does not fan out, so the legacy #auto-connect-checkbox in
-            // the <details> pane would go stale in-session. Mirror it here. This
-            // line retires with #top-bar in E7 (E1 retro open action #5), same as
-            // the #connect-button mirror in projectConnection.
-            if (prefKey === 'autoConnect') {
-                const legacy = document.getElementById('auto-connect-checkbox');
-                if (legacy) legacy.checked = next;
-            }
-            // E3.2 (AC-1/AC-4) — unlike autoConnect (boot-time only), localEcho has
-            // LIVE effect: savePrefs alone flips the glyph + persists but the running
-            // keyboard.js echo path is unchanged until reload (AD-4 — savePrefs does
-            // not fan out). So ALSO call the injected setter (apply now), and mirror
-            // the coexisting legacy #local-echo checkbox (menu→pane lockstep). The
-            // mirror line retires with #top-bar in E7 (E1 retro open action #5).
-            if (prefKey === 'localEcho') {
-                setLocalEchoRef?.(next);
-                const legacy = document.getElementById('local-echo');   // E7-retirement mirror
-                if (legacy) legacy.checked = next;
-            }
-            // E5.1 (AC-1/AC-6) — showDebugPanel has a LIVE effect (show/hide the in-page
-            // #debug panel): savePrefs persists + flips the glyph, so ALSO call the
-            // injected setter to apply it now (persist ≠ apply — AD-4). No legacy mirror
-            // (AC-4): unlike localEcho there is no coexisting pane checkbox for this row.
-            if (prefKey === 'showDebugPanel') {
-                setDebugPanelVisibleRef?.(next);
+            savePrefs({ [prefKey]: next });   // AD-4 — persist only; no fan-out
+            // Table-driven side effects (CHECKABLE_PREF_EFFECTS): the LIVE-effect setter
+            // (E3.2 localEcho / E5.1 showDebugPanel — persist ≠ apply) and the E7-window
+            // menu→pane mirror (E2.2 AC-4 — the coexisting legacy pane checkbox that would
+            // otherwise go stale in-session; every mirror retires with #top-bar).
+            const effect = CHECKABLE_PREF_EFFECTS[prefKey];
+            if (effect) {
+                effect.apply?.(next);
+                if (effect.legacyMirrorId) {
+                    const legacy = document.getElementById(effect.legacyMirrorId);
+                    if (legacy) legacy.checked = next;
+                }
             }
         }
         return;                          // checkable keeps the menu open (AC-1)
@@ -960,26 +968,20 @@ function onItemClick(item, ev) {
         return;
     }
     // E3.3 (FR-22, AD-4/AD-14) — Reset all preferences: a THIRD menu-item behaviour
-    // alongside "action closes" / "checkable+radio keep open". Replicates the D-35
-    // 2-click confirm (chrome.js:278-291) against THIS row's .lbl. First activation
-    // arms + shows the confirm prompt and KEEPS THE MENU OPEN (unlike a normal action
-    // row); the second activation within the 3s window commits the injected
-    // resetPrefs() and closes (action semantics now apply). Placed BEFORE the generic
-    // runViewAction fallthrough so it never leaks into runViewAction (which has no
-    // reset-prefs case and would closeMenu() — killing the confirm). Disarm on every
-    // Settings-dropdown-hide path is wired via disarmResetConfirm() (closeMenu /
-    // openMenuNamed / toggleMenu).
+    // alongside "action closes" / "checkable+radio keep open". The D-35 2-click confirm
+    // machine is shared with chrome.js's legacy button (confirm-toggle.js); here the
+    // caller owns only the surface behaviour: first activation ARMS and KEEPS THE MENU
+    // OPEN (unlike a normal action row); the second COMMITS (the machine runs the
+    // injected resetPrefs() via onCommit) and closes (action semantics now apply).
+    // Placed BEFORE the generic runViewAction fallthrough so it never leaks into
+    // runViewAction (which has no reset-prefs case and would closeMenu() — killing the
+    // confirm). Disarm on every Settings-dropdown-hide path is wired via
+    // disarmResetConfirm() (closeMenu / openMenuNamed / toggleMenu).
     if (action === 'reset-prefs') {
-        if (resetPrefsConfirmTimer === null) {
-            const lbl = (resetPrefsItemEl || item).querySelector('.lbl');
-            if (lbl) lbl.textContent = RESET_PREFS_CONFIRM_LABEL;
-            resetPrefsConfirmTimer = setTimeout(disarmResetConfirm, 3000);
-            // NO closeMenu() — the confirm prompt must stay visible.
-        } else {
-            disarmResetConfirm();            // clear the timer + revert the .lbl
-            resetPrefsRef?.();               // AD-3 — reached via opts, not imported
+        if (resetConfirm.activate() === 'committed') {
             closeMenu();                     // destructive action committed → close
         }
+        // 'armed' → NO closeMenu(); the confirm prompt must stay visible.
         return;
     }
     // E1.5 — an action row carrying data-action drives a View action (zoom / clear);
@@ -1219,12 +1221,10 @@ function setChooseMicroBeastPresent(present) {
 // (clicking another menu title, which likewise bypasses closeMenu) — so re-opening
 // Settings never shows a stale "Click again to confirm (3 s)" prompt and no leaked
 // setTimeout re-labels a closed row. Also called from the commit branch + the timeout.
+// Thin delegator over the shared machine (confirm-toggle.js) — kept as a named local
+// so the many dropdown-hide call sites read intention-first.
 function disarmResetConfirm() {
-    if (resetPrefsConfirmTimer === null) return;   // idle — nothing to disarm
-    clearTimeout(resetPrefsConfirmTimer);
-    resetPrefsConfirmTimer = null;
-    const lbl = resetPrefsItemEl && resetPrefsItemEl.querySelector('.lbl');
-    if (lbl) lbl.textContent = RESET_PREFS_IDLE_LABEL;
+    resetConfirm.disarm();
 }
 
 function closeMenu() {

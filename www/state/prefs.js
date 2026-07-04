@@ -177,6 +177,23 @@ export const CONN_STATUS_LABELS = Object.freeze({
     'port-lost':   'Connection lost',
 });
 
+// The canonical MicroBeast (CP2102N) device string, single-sourced here (same
+// AD-3 precedent as CONN_STATUS_LABELS above) so serial.js's getConnectionDevice()
+// label and status-bar.js's harness fallback share ONE literal and can never drift
+// on a PID/relabel change. serial.js owns the VID/PID predicate; this is only the
+// display string those two surfaces render.
+export const MICROBEAST_DEVICE_LABEL = 'MicroBeast (CP2102N 10c4:ea60)';
+
+// Pure framing formatter → the `19200 8N1` segment. Single-sourced so the live
+// path (serial.js getActiveFraming, from the open port's lastConfig) and the
+// prefs-derived fallback (status-bar.js, from getPrefs().serial) format identically.
+// Callers map their own schema onto the named fields (serial uses `baudRate`, the
+// prefs blob uses `baud`). parity → its uppercased initial ('none' → 'N').
+export function formatFraming({ baud, dataBits, parity, stopBits }) {
+    const p = String(parity || 'none')[0].toUpperCase();
+    return `${baud} ${dataBits}${p}${stopBits}`;
+}
+
 // D-35 — reset all preferences. Removes the storage key and replaces the
 // in-memory blob with defaults; subscribers re-apply defaults to chrome state
 // in-place (no page reload).

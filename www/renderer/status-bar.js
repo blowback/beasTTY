@@ -30,7 +30,7 @@
 //   - Analog: www/renderer/menu-bar.js:387-401 (subscribe + initial paint),
 //     :1369-1377 (projectConnection), :63-82 (frozen CONN_STATUS_LABELS).
 
-import { getPrefs, CONN_STATUS_LABELS } from '../state/prefs.js';
+import { getPrefs, CONN_STATUS_LABELS, MICROBEAST_DEVICE_LABEL, formatFraming as composeFraming } from '../state/prefs.js';
 import { retainFocus } from './focus.js';   // E4.3 (AD-10) — the bar's first interactive control
 
 // ====== Frozen label maps ======
@@ -47,8 +47,9 @@ import { retainFocus } from './focus.js';   // E4.3 (AD-10) — the bar's first 
 // device, so a "Show all serial devices" connection to a non-CP2102N adapter is not
 // mislabelled as a MicroBeast (fix #7). This literal is only the FALLBACK for the
 // no-serial harness path (projectConnection driven directly with no port open); it
-// mirrors serial.js's canonical MicroBeast string (the boot scan / stock adapter case).
-const DEVICE_LABEL = 'MicroBeast (CP2102N 10c4:ea60)';
+// reuses serial.js's canonical MicroBeast string via the shared prefs.js export
+// (MICROBEAST_DEVICE_LABEL) so the two can never drift (the boot scan / stock adapter case).
+const DEVICE_LABEL = MICROBEAST_DEVICE_LABEL;
 
 // ====== Module-scope state ======
 
@@ -108,9 +109,9 @@ function formatFraming() {
     // every other getPrefs() read in this module (setZoom) is likewise `?.`-guarded.
     const serial = getPrefs()?.serial;
     if (!serial) return '';
-    const { baud, dataBits, parity, stopBits } = serial;
-    const p = String(parity || 'none')[0].toUpperCase();   // 'none' → 'N'
-    return `${baud} ${dataBits}${p}${stopBits}`;
+    // Shared pure formatter (prefs.js) — the prefs blob uses `baud`; serial.js's
+    // live path maps `baudRate` onto the same helper so both format identically.
+    return composeFraming(serial);
 }
 
 // ====== Projection (the sole writer of #status-conn-dot + #port-status) ======

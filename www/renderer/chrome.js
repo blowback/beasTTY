@@ -25,6 +25,10 @@ import { retainFocus } from './focus.js';
 // E3.3 review fix — the reset 2-click confirm labels are single-sourced in prefs.js
 // (the reset SSOT) so this legacy button and the Settings menu row share one copy.
 import { RESET_PREFS_IDLE_LABEL, RESET_PREFS_CONFIRM_LABEL } from '../state/prefs.js';
+// Code-review fix — the 2-click confirm STATE MACHINE is now shared too (not just the
+// labels), so this legacy button and the Settings menu row can never drift on the
+// arm/commit/disarm semantics or the confirm window.
+import { makeTwoClickConfirm } from './confirm-toggle.js';
 
 // Phase 11 Plan 11-04 D-13 / SLIDE-31 — module-scope refs for the
 // visibilitychange + pagehide CTRL_CAN best-effort branches. Set inside
@@ -274,24 +278,16 @@ export function wireChrome(opts) {
     // subscribers fire (applyPrefs in main.js re-applies defaults to chrome /
     // canvas state in-place — NO page reload per D-35).
     const resetPrefsButton = document.getElementById('reset-prefs-button');
-    // Labels single-sourced from prefs.js (the reset SSOT) so this legacy button and
-    // the Settings ▸ Reset menu row never drift on the confirm copy (E3.3 review fix).
-    let resetPrefsConfirmTimer = null;
     if (resetPrefsButton) {
-        resetPrefsButton.addEventListener('click', () => {
-            if (resetPrefsConfirmTimer === null) {
-                resetPrefsButton.textContent = RESET_PREFS_CONFIRM_LABEL;
-                resetPrefsConfirmTimer = setTimeout(() => {
-                    resetPrefsButton.textContent = RESET_PREFS_IDLE_LABEL;
-                    resetPrefsConfirmTimer = null;
-                }, 3000);
-            } else {
-                clearTimeout(resetPrefsConfirmTimer);
-                resetPrefsConfirmTimer = null;
-                if (resetPrefs) resetPrefs();
-                resetPrefsButton.textContent = RESET_PREFS_IDLE_LABEL;
-            }
+        // Shared machine (confirm-toggle.js) — the label swaps directly on the button;
+        // a lone button has no dropdown to dismiss, so it never needs external disarm.
+        const resetConfirm = makeTwoClickConfirm({
+            getLabelEl: () => resetPrefsButton,
+            idleLabel: RESET_PREFS_IDLE_LABEL,
+            confirmLabel: RESET_PREFS_CONFIRM_LABEL,
+            onCommit: () => { if (resetPrefs) resetPrefs(); },
         });
+        resetPrefsButton.addEventListener('click', () => resetConfirm.activate());
         retainFocus(resetPrefsButton);   // Phase 4 D-16 — focus retention (AD-10).
     }
 
