@@ -1196,6 +1196,52 @@
       max-width: 70ch;                     /* body-copy modal — narrower than the config form */
     }
 
+    /* ==== Epic E6 Story E6.1 (FR-24) — #keyboard-shortcuts-modal specifics ==== */
+    /* An info modal (shortcut reference): body copy + Close. Only a max-width + the
+       two-column shortcut-row layout are modal-specific; everything else inherits the
+       shared .chrome-modal chrome (no box-shadow; --chrome-* only; 8px corner). */
+    #keyboard-shortcuts-modal[open] {
+      max-width: 64ch;                     /* aligned two-column rows — narrower than the config form */
+    }
+    /* Group subhead — a muted, uppercase divider between shortcut clusters. The shared
+       .modal-body flex-column gap (12px) does the vertical spacing; trim the top gap so
+       a subhead hugs its group. */
+    #keyboard-shortcuts-modal .shortcut-group {
+      margin: 8px 0 0 0;
+      font-size: 11px;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--chrome-muted);
+    }
+    #keyboard-shortcuts-modal .shortcut-group:first-child {
+      margin-top: 0;
+    }
+    /* Aligned two-column row: key on the LEFT, action on the RIGHT (space-between,
+       mirroring the .chrome-modal .field family without the form-control styling). */
+    #keyboard-shortcuts-modal .shortcut-row {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    #keyboard-shortcuts-modal .shortcut-row kbd {
+      flex: 0 0 auto;
+      font-family: inherit;
+      font-size: 12px;
+      color: var(--chrome-fg);
+      background: var(--field-bg);
+      border: 1px solid var(--chrome-border);
+      border-radius: 4px;                  /* rounded/sm */
+      padding: 1px 6px;
+      white-space: nowrap;
+    }
+    #keyboard-shortcuts-modal .shortcut-row .act {
+      color: var(--chrome-muted);
+      font-size: 13px;
+      text-align: right;
+    }
+
     /* ==== Epic E3 Story E3.4 (FR-20) — #slide-config-modal specifics ==== */
     /* Same aligned-row family as the Serial Config modal (shared .chrome-modal .field
        chrome above). Only the width + two compound-row layouts (the auto-send control
@@ -1524,8 +1570,14 @@
     <div class="menu-group">
       <button id="menu-help" class="menu-title" type="button" aria-haspopup="true" aria-expanded="false">Help</button>
       <div id="dropdown-help" class="dropdown" role="menu" hidden>
-        <button class="menu-item" type="button" role="menuitem" data-variant="action">
-          <span class="check"></span><span class="lbl">Keyboard Shortcuts…</span><span class="caret">▸ modal</span>
+        <!-- Epic E6 Story E6.1 (FR-24, AD-8/AD-3) — Keyboard Shortcuts… opens the
+             #keyboard-shortcuts-modal via openModal. An action row: closeMenu() then the
+             injected openKeyboardShortcuts opener (mirrors Serial Configuration… /
+             Browser-reserved Ctrl combinations… / SLIDE File Transfer…). Trailing … =
+             "opens further UI"; no ▸ caret — that is reserved for radio submenus. -->
+        <button id="menu-keyboard-shortcuts-item" class="menu-item" type="button" role="menuitem"
+                data-variant="action" data-action="keyboard-shortcuts">
+          <span class="check"></span><span class="lbl">Keyboard Shortcuts…</span>
         </button>
         <button class="menu-item" type="button" role="menuitem" data-variant="action">
           <span class="check"></span><span class="lbl">About Beastty…</span><span class="caret">▸ modal</span>
@@ -1917,6 +1969,62 @@
            nothing to apply). Esc closes the same way. -->
       <form method="dialog">
         <button id="reserved-ctrl-close" value="close">Close</button>
+      </form>
+    </footer>
+  </dialog>
+
+  <!-- Epic E6 Story E6.1 (FR-24, AD-8/AD-9) — Keyboard Shortcuts info modal. A
+       fourth static-content <dialog> on the shared modal rails (clone of
+       #reserved-ctrl-modal above): a non-destructive INFO modal (aligned shortcut
+       rows + Close only), so initialFocus is the Close button (modal.js returnValue
+       policy #4 — no destructive default to guard). Opened from Help ▸ Keyboard
+       Shortcuts… (main.js openKeyboardShortcuts, injected into wireMenuBar). Reuses
+       the shared .chrome-modal chrome (::backdrop scrim, rounded/lg, NO box-shadow —
+       UX-DR5); only a max-width + the two-column .shortcut-row layout are modal-specific.
+
+       CONTENT SSOT: EXPERIENCE.md:180-192 (§Interaction Primitives — Keyboard shortcuts).
+       Combos are rendered code-accurate against their real handlers so a user reading
+       this reference learns the exact keys:
+         Ctrl+Alt+T  → renderer/chrome.js:127 chord → :55 toggleTheme (AD-13)
+         Ctrl+= / -  → renderer/chrome.js zoom chords → canvas.js zoomStep
+         Ctrl+0      → renderer/chrome.js → canvas.js resetZoom
+         Ctrl+Shift+C→ input/keyboard.js:248 copySelection  (bare Ctrl+C encodes 0x03)
+         Ctrl+Shift+V→ input/keyboard.js:256 pasteFromClipboard
+         Esc         → input/keyboard.js:208-242 cancel chain + menu-bar.js Esc-passthrough
+       The reserved-Ctrl combos are single-sourced in full at #reserved-ctrl-modal
+       (E3.3, index.html:1912); this modal lists the names + alternatives and points
+       there rather than transcribing the paragraph a third time (E6.1 Q3). -->
+  <dialog id="keyboard-shortcuts-modal" class="chrome-modal" aria-labelledby="keyboard-shortcuts-modal-title">
+    <header>
+      <h2 id="keyboard-shortcuts-modal-title">Keyboard Shortcuts</h2>
+    </header>
+    <div class="modal-body">
+      <h3 class="shortcut-group">Display</h3>
+      <div class="shortcut-row"><kbd>Ctrl+Alt+T</kbd><span class="act">Toggle theme (Console ↔ CRT)</span></div>
+
+      <h3 class="shortcut-group">Zoom</h3>
+      <div class="shortcut-row"><kbd>Ctrl+=</kbd><span class="act">Zoom In</span></div>
+      <div class="shortcut-row"><kbd>Ctrl+-</kbd><span class="act">Zoom Out</span></div>
+      <div class="shortcut-row"><kbd>Ctrl+0</kbd><span class="act">Actual Size (zoom 1×)</span></div>
+
+      <h3 class="shortcut-group">Editing</h3>
+      <div class="shortcut-row"><kbd>Ctrl+Shift+C</kbd><span class="act">Copy selection</span></div>
+      <div class="shortcut-row"><kbd>Ctrl+Shift+V</kbd><span class="act">Paste (large paste ≥4096 B → paste-confirm toast)</span></div>
+
+      <h3 class="shortcut-group">Cancel</h3>
+      <div class="shortcut-row"><kbd>Esc</kbd><span class="act">Cancel in-flight SLIDE / close topmost modal / dismiss confirm</span></div>
+
+      <h3 class="shortcut-group">Reserved Ctrl combinations</h3>
+      <div class="shortcut-row"><kbd>Ctrl+A…Ctrl+Z</kbd><span class="act">Forwarded to MicroBeast as control codes (except W / N / T)</span></div>
+      <div class="shortcut-row"><kbd>Ctrl+W / Ctrl+N / Ctrl+T</kbd><span class="act">Claimed by Chromium — use Ctrl+F4 / Ctrl+Shift+N / a different keybinding</span></div>
+      <p class="hint">See Settings ▸ Browser-reserved Ctrl combinations… for the full list.</p>
+    </div>
+    <footer>
+      <!-- Close via native <form method="dialog"> submit → returnValue 'close'.
+           openModal resolves it; openKeyboardShortcuts ignores the value (info modal —
+           nothing to apply). Esc closes the same way. -->
+      <form method="dialog">
+        <button id="keyboard-shortcuts-close" value="close">Close</button>
       </form>
     </footer>
   </dialog>

@@ -46,7 +46,7 @@
 #   E1 is the backbone and must land before the other menu/modal epics.
 
 generated: 2026-07-01
-last_updated: 2026-07-04  # E5.1 → done (code-review clean: 0 findings)
+last_updated: 2026-07-04  # E6.1 Keyboard Shortcuts modal → done (code review: E6.1 clean; 4 adjacent E3/E4 findings fixed; suite green)
 # retrospective action items (surface open ones during sprint status)
 action_items:
   - epic: "e0"
@@ -76,7 +76,7 @@ action_items:
   - epic: "e1"
     action: "Codify menu-driven testing idioms (window.__menuBar.open, force:true on aria-disabled, snap-to-bottom as scrollback-flush fingerprint) for E2/E3/E6"
     owner: "Amelia"
-    status: open
+    status: done   # 2026-07-04 (E5 retro) — codified-idioms carry closed as intentionally per-story (E5.1 Q3); zero-sweep Q1 mechanism removed the extraction trigger
   - epic: "e1"
     action: "Track the #top-bar/<details> coexistence variance to its E7 close-out so dual-chrome is never shipped mid-migration and the neutral-shell pin retires with it"
     owner: "Amelia"
@@ -84,15 +84,15 @@ action_items:
   - epic: "e2"
     action: "Promote the per-story codified menu-test idioms into one shared location (TESTING doc or test helper) so E3 authors inherit them instead of re-deriving them each story (closes carried-forward E1 action #4)"
     owner: "Amelia"
-    status: open
+    status: done   # 2026-07-04 (E5 retro) — same carry as E1 #4; closed as intentionally per-story (E5.1 Q3)
   - epic: "e2"
     action: "Capture code-review outcomes in the story file (one line: N findings, fixed in <sha>) so reviews are visible to retro/audit and not only in git history"
     owner: "Amelia + reviewer"
-    status: open
+    status: done   # 2026-07-04 (E5 retro) — root fixed by E4 #2 (scripts/check-story-done-consistency.py); E5.1's Code Review section is recorded
   - epic: "e2"
     action: "Decide the flake endgame once, in writing: accept retries:1 as the permanent mask and stop per-story re-diagnosis, OR fix the root wasm-boot-under-parallelism contention (boot barrier / quarantine boot-race specs)"
     owner: "Amelia"
-    status: open
+    status: done   # 2026-07-04 (E5 retro) — Ant DECIDED: accept retries:1 + chromium-transport as the permanent mask; stop per-story re-diagnosis (see E5 action #1 — record in playwright.config.js)
   - epic: "e2"
     action: "Keep the E7 dual-chrome retirement checklist current as E3 adds surfaces so nothing ships mid-migration (continues E1 action #5)"
     owner: "Amelia"
@@ -104,11 +104,11 @@ action_items:
   - epic: "e3"
     action: "Resolve the codified-idioms carry once and for all (3 epics old): extract the menu-test idioms block into a shared TESTING doc or test helper before E4, OR formally close the action as intentionally per-story. Stop carrying it unresolved. Closes carried-forward E1 #4 / E2 #1."
     owner: "Amelia"
-    status: open
+    status: done   # 2026-07-04 (E5 retro) — closed as intentionally per-story (E5.1 Q3); same carry as E1 #4 / E2 #1
   - epic: "e3"
     action: "Run and record code review for E3.1 and E3.4 (both shipped done with a Pending review section), and make review-section-filled a done-gate so it cannot recur. Closes the half-adopted E2 #2."
     owner: "Amelia + reviewer"
-    status: open
+    status: done   # 2026-07-04 (E5 retro) — done-gate is now scripts/check-story-done-consistency.py (E4 #2); E5.1 review recorded
   - epic: "e3"
     action: "Frame E4 planning as build-new, not relocate: write acceptance criteria against the spec (subscription + imperative push, holds no independent truth), not against a v1.1 incumbent — the preservation premise that anchored E0-E3 ends here."
     owner: "Amelia"
@@ -128,13 +128,25 @@ action_items:
   - epic: "e4"
     action: "Kill or extract the codified-idioms carry — last call (5 epics): before E5.1 re-derives the block a fifth time, extract it into a shared TESTING doc/test helper, OR formally close it as intentionally per-story and stop listing it. Closes E1 #4 / E2 #1 / E3 #1."
     owner: "Amelia"
-    status: open
+    status: done   # 2026-07-04 (E5 retro) — E5.1 Q3 formally closed as intentionally per-story; the block is re-embedded per story by design
   - epic: "e4"
     action: "Carry the E7 dual-chrome close-out forward WITH the E5 exception noted: keep the retirement checklist current through E5/E6, but record that the debug panel is the one pane that does not retire — it relocates behind the Debug menu and stays. Continues E1 #5 / E2 #4 / E3 #4."
     owner: "Amelia"
     status: open
   - epic: "e4"
     action: "Watch the status-bar setter surface: the imperative-push API grew a writer per E4 story (setConnectionInfo/setBuild/setZoom/setErrorCount). Before adding more, confirm the fed-never-owned contract still holds and the module isn't becoming a setter grab-bag."
+    owner: "Amelia"
+    status: open   # 2026-07-04 (E5 retro) — E5 didn't touch status-bar.js; standing watch carries into E6
+  - epic: "e5"
+    action: "Ratify retries:1 as the permanent flake policy at the source: add a one-line comment in playwright.config.js recording the decision (accept chromium-transport + retries:1; no per-story --workers=1 re-diagnosis) so it is never re-litigated. Closes E2 #3."
+    owner: "Amelia"
+    status: open
+  - epic: "e5"
+    action: "Carry the E7 dual-chrome close-out forward WITH the debug-panel exception recorded: the debug pane is relocated behind the Debug menu and STAYS (the one pane that does not retire). Keep the E7 retirement checklist current through E6; formal sweep is E7. Continues E1 #5 / E2 #4 / E3 #4 / E4 #4."
+    owner: "Amelia"
+    status: open
+  - epic: "e5"
+    action: "E6 prep: confirm the About modal's build source (window.__buildInfo, kept alive by E4.2, single-sourced with #status-build) and apply the clean-modal aesthetic (aligned rows + info tooltips per key-screen-chrome.html, not verbose panels); verify the source-link TBD placeholder and the verbatim privacy string."
     owner: "Amelia"
     status: open
 project: beastty
@@ -183,11 +195,11 @@ development_status:
   # ── Epic E5 · Debug Menu & In-Page Debug Panel (depends on: E1) ──
   epic-e5: in-progress
   e5-1-debug-menu-panel-toggle: done
-  epic-e5-retrospective: optional
+  epic-e5-retrospective: done
 
   # ── Epic E6 · Help Menu (depends on: E0, E1) ──
-  epic-e6: backlog
-  e6-1-keyboard-shortcuts-modal: backlog
+  epic-e6: in-progress
+  e6-1-keyboard-shortcuts-modal: done
   e6-2-about-beastty-modal: backlog
   epic-e6-retrospective: optional
 

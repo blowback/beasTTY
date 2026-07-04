@@ -189,6 +189,10 @@ const CHECKABLE_PREF_EFFECTS = {
 // second click inert; one that omits openReservedCtrl leaves that row's click inert.
 let resetPrefsRef = null;
 let openReservedCtrlRef = null;
+// E6.1 (FR-24, AD-3) — Help ▸ Keyboard Shortcuts… opener for the injected
+// #keyboard-shortcuts-modal (main.js owns openModal — menu-bar must not import
+// modal.js). Optional: a harness that omits it leaves that row's click inert.
+let openKeyboardShortcutsRef = null;
 // E3.4 (FR-20, AD-3) — Settings ▸ SLIDE File Transfer… opener for the injected
 // #slide-config-modal (main.js owns openModal — menu-bar must not import modal.js/
 // slide*.js). Optional: a harness that omits it leaves that row's click inert.
@@ -343,6 +347,7 @@ export function wireMenuBar(opts = {}) {
     // via opts (menu-bar imports neither prefs.resetPrefs nor modal.js). Both optional.
     resetPrefsRef = opts.resetPrefs || null;
     openReservedCtrlRef = opts.openReservedCtrl || null;
+    openKeyboardShortcutsRef = opts.openKeyboardShortcuts || null;   // E6.1 (FR-24, AD-3)
     openSlideConfigRef = opts.openSlideConfig || null;     // E3.4 (FR-20, AD-3)
     menuBarEl = document.getElementById('menu-bar');
     liveRegionEl = document.getElementById('menu-bar-live');
@@ -800,6 +805,27 @@ function setRadioChecked(panel, value) {
     });
 }
 
+// Shared gated-row projector — the data-disabled + aria-disabled + title triple that
+// every disable-able menu row toggles (submenu parents, Download Session Log, Send
+// File…). ONE writer so the ARIA mirror can never be forgotten and the surfaces can't
+// drift on the disable markup. `enabledTitle` (default null) lets a row keep a tooltip
+// while ENABLED (Download Session Log's "ready" hint); otherwise the title is cleared
+// on enable. A null title is left untouched (harness without a tooltip source). Callers
+// own any extra side-effect (e.g. collapsing an open submenu) and the focus re-anchor.
+function setRowDisabled(el, disabled, disabledTitle = null, enabledTitle = null) {
+    if (disabled) {
+        el.setAttribute('data-disabled', 'true');
+        el.setAttribute('aria-disabled', 'true');
+        if (disabledTitle != null) el.setAttribute('title', disabledTitle);
+        else el.removeAttribute('title');
+    } else {
+        el.removeAttribute('data-disabled');
+        el.removeAttribute('aria-disabled');
+        if (enabledTitle != null) el.setAttribute('title', enabledTitle);
+        else el.removeAttribute('title');
+    }
+}
+
 // AD-9 — Phosphor AND Font are CRT-only: the vector/Clean renderer ignores the
 // bitmap font and the phosphor tint, so each submenu parent is SHOWN but
 // data-disabled off-CRT (not hidden), aria-disabled, skipped in nav (data-disabled
@@ -810,17 +836,12 @@ function setRadioChecked(panel, value) {
 function syncSubmenuDisabled(viewDropdown, theme, key, label) {
     const parent = viewDropdown.querySelector(`.menu-item[data-submenu="${key}"]`);
     if (!parent) return;
-    if (theme !== 'crt') {
-        parent.setAttribute('data-disabled', 'true');
-        parent.setAttribute('aria-disabled', 'true');
-        parent.setAttribute('title', `${label} — CRT theme only`);
-        if (openSubmenuPanel && openSubmenuPanel.getAttribute('data-submenu-panel') === key) {
-            closeSubmenu();
-        }
-    } else {
-        parent.removeAttribute('data-disabled');
-        parent.removeAttribute('aria-disabled');
-        parent.removeAttribute('title');
+    const disabled = theme !== 'crt';
+    setRowDisabled(parent, disabled, disabled ? `${label} — CRT theme only` : null);
+    // Collapse the parent's own open submenu when it becomes disabled (side-effect the
+    // shared triple doesn't own).
+    if (disabled && openSubmenuPanel && openSubmenuPanel.getAttribute('data-submenu-panel') === key) {
+        closeSubmenu();
     }
 }
 
@@ -865,19 +886,21 @@ function wireDropdownItems(dropdown) {
 }
 
 function onItemClick(item, ev) {
-    const disabled = item.getAttribute('data-disabled') === 'true';
-    if (disabled) return;                // inert (incl. Phosphor / Font parent off-CRT)
-
     // E3.3 (D-35) — Reset all preferences is a CONSECUTIVE 2-click confirm: any other
     // menu activation between the two clicks disarms it, so a checkable toggle or radio
     // select can no longer sit between the clicks and let the second one commit a reset
     // across an unrelated interaction (the legacy standalone button couldn't be
-    // interleaved either). Placed before every branch so no activation path slips past;
-    // the second reset-prefs click is data-action reset-prefs, so it is exempt here and
-    // reaches its commit branch below.
+    // interleaved either). Placed before EVERY branch — including the disabled early-out
+    // below — so no click path (even one on an inert/disabled row) can slip past and
+    // leave the confirm armed across an unrelated interaction. The second reset-prefs
+    // click is data-action reset-prefs, so it is exempt here and reaches its commit
+    // branch below.
     if (resetConfirm.isArmed() && item.getAttribute('data-action') !== 'reset-prefs') {
         disarmResetConfirm();
     }
+
+    const disabled = item.getAttribute('data-disabled') === 'true';
+    if (disabled) return;                // inert (incl. Phosphor / Font parent off-CRT)
 
     // E1.4 — a click inside a .submenu panel is a radio SELECT (Theme/Phosphor/Font).
     // Routed before the variant switch; radio select keeps the menu open (AD-7).
@@ -944,6 +967,7 @@ function onItemClick(item, ev) {
         'serial-config': openSerialConfigRef,   // Connection ▸ Serial Configuration…
         'reserved-ctrl': openReservedCtrlRef,   // Settings ▸ Browser-reserved Ctrl combos…
         'slide-config': openSlideConfigRef,     // Settings ▸ SLIDE File Transfer…
+        'keyboard-shortcuts': openKeyboardShortcutsRef,   // Help ▸ Keyboard Shortcuts… (E6.1)
     }[action];
     if (modalOpener !== undefined) {
         closeMenu();
@@ -1139,15 +1163,11 @@ function projectSessionLog() {
     if (!downloadLogItemEl) return;                  // row absent (harness) — no-op
     const focused = (openMenu === 'file') ? currentFocusedItem() : null;
     const hasBytes = (getSessionLogBytesRef ? getSessionLogBytesRef() : 0) > 0;
-    if (hasBytes) {
-        downloadLogItemEl.removeAttribute('data-disabled');
-        downloadLogItemEl.removeAttribute('aria-disabled');
-        if (sessionLogTooltipsRef) downloadLogItemEl.setAttribute('title', sessionLogTooltipsRef.enabled);
-    } else {
-        downloadLogItemEl.setAttribute('data-disabled', 'true');
-        downloadLogItemEl.setAttribute('aria-disabled', 'true');
-        if (sessionLogTooltipsRef) downloadLogItemEl.setAttribute('title', sessionLogTooltipsRef.disabled);
-    }
+    // Shared triple (setRowDisabled); this row keeps a tooltip in BOTH states, so pass
+    // enabledTitle too. Null tooltips (harness) leave the title untouched.
+    setRowDisabled(downloadLogItemEl, !hasBytes,
+        sessionLogTooltipsRef ? sessionLogTooltipsRef.disabled : null,
+        sessionLogTooltipsRef ? sessionLogTooltipsRef.enabled : null);
     // Re-anchor keyboard focus if the row's focusable membership changed under the
     // cursor while File is open. Gated on openMenu so an onStateChange fire while a
     // DIFFERENT menu is open never disturbs that menu's focus; no-op on the
@@ -1169,16 +1189,9 @@ function projectSendFile() {
     const btn = document.getElementById('send-file-button');
     const focused = (openMenu === 'file') ? currentFocusedItem() : null;
     // Fail OPEN when the legacy button is absent (post-E7 / harness): leave the row
-    // enabled — openSendPicker still no-ops safely when it genuinely can't send.
-    if (btn && btn.disabled) {
-        sendFileItemEl.setAttribute('data-disabled', 'true');
-        sendFileItemEl.setAttribute('aria-disabled', 'true');
-        if (btn.title) sendFileItemEl.setAttribute('title', btn.title);
-    } else {
-        sendFileItemEl.removeAttribute('data-disabled');
-        sendFileItemEl.removeAttribute('aria-disabled');
-        sendFileItemEl.removeAttribute('title');
-    }
+    // enabled — openSendPicker still no-ops safely when it genuinely can't send. Shared
+    // triple (setRowDisabled); mirror the button's title only when disabled.
+    setRowDisabled(sendFileItemEl, !!(btn && btn.disabled), btn && btn.title ? btn.title : null);
     if (openMenu === 'file') reanchorFocus(focused);
 }
 

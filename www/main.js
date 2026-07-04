@@ -253,6 +253,9 @@ const openSerialConfig = makeModalOpener(serialConfigModalEl, 'serial-baud');
 // E3.3 (FR-21) — Reserved-Ctrl info modal; initialFocus = Close (no destructive default).
 const reservedCtrlModalEl = document.getElementById('reserved-ctrl-modal');
 const openReservedCtrl = makeModalOpener(reservedCtrlModalEl, 'reserved-ctrl-close');
+// E6.1 (FR-24) — Keyboard Shortcuts info modal; initialFocus = Close (no destructive default).
+const keyboardShortcutsModalEl = document.getElementById('keyboard-shortcuts-modal');
+const openKeyboardShortcuts = makeModalOpener(keyboardShortcutsModalEl, 'keyboard-shortcuts-close');
 // E3.4 (FR-20) — SLIDE File Transfer modal; initialFocus = Save-to-folder checkbox.
 // onOpen re-projects the auto-send validity cue from the LIVE stored command (not the
 // boot snapshot — the hint lives in this modal and the use-time gate fires while closed).
@@ -443,6 +446,10 @@ const menuBar = wireMenuBar({
     // prefs.resetPrefs nor modal.js — AD-3).
     resetPrefs,
     openReservedCtrl,
+    // Epic E6 Story E6.1 (FR-24, AD-3/AD-8) — Help ▸ Keyboard Shortcuts… opens the
+    // #keyboard-shortcuts-modal via openModal. Injected like openReservedCtrl (menu-bar
+    // imports neither modal.js nor this opener — AD-3).
+    openKeyboardShortcuts,
     // Epic E3 Story E3.4 (FR-20, AD-3/AD-8) — Settings ▸ SLIDE File Transfer… opens the
     // #slide-config-modal via openModal. Injected like openSerialConfig / openReservedCtrl
     // (menu-bar imports neither modal.js nor slide*.js — AD-3).

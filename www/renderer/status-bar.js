@@ -91,8 +91,9 @@ let lastState = 'disconnected';
 
 // fix (#3) — set true when serial's boot getPorts() scan recognizes an already-
 // granted MicroBeast (pushed via showBootReady). While true AND disconnected, the
-// readout shows the "…— click Connect" affordance. Cleared on the first transition
-// away from 'disconnected' so post-connect disconnects show the plain idle label.
+// readout shows the "…— click Connect" affordance. Cleared on the 'connected'
+// transition (NOT the transient 'connecting') so post-connect disconnects show the
+// plain idle label while a cancelled picker keeps the cue.
 let bootDeviceReady = false;
 
 // ====== Baud/framing composition (prefs read AT USE-TIME — never cached across a
@@ -123,10 +124,13 @@ function formatFraming() {
 // machine (reading state must not call a serial setter).
 function projectConnection(state) {
     lastState = state;
-    // Any transition away from 'disconnected' clears the boot cue: once connected,
-    // later disconnects show the plain idle label (matches the pre-relocation
-    // #port-status behavior).
-    if (state !== 'disconnected') bootDeviceReady = false;
+    // Clear the boot cue only once we ACTUALLY connect — never on the transient
+    // 'connecting'. Clearing on 'connecting' dropped the returning-user cue when the
+    // native port picker was cancelled (connecting → disconnected, lastConnectError
+    // cleared at connect entry), leaving a bare 'Not connected' over a still-granted,
+    // still-connectable adapter until reload. A successful connect still clears it, so
+    // post-connect disconnects show the plain idle label (pre-relocation behavior).
+    if (state === 'connected') bootDeviceReady = false;
     if (dotElRef) dotElRef.dataset.state = state;
     if (textElRef) textElRef.textContent = composeText(state);
 }
@@ -311,6 +315,14 @@ export function wireStatusBar(opts) {
 
 function dispose() {
     if (connUnsub) { connUnsub(); connUnsub = null; }
+    // E4.3 — drop the recent-errors click opener too, so a disposed bar is fully
+    // inert (a bare dispose() with no re-wire otherwise leaves the affordance still
+    // opening the serial-config modal). Mirrors the wire-time drop-before-re-add;
+    // retainFocus's mousedown handler is idempotent (its own WeakSet) and harmless.
+    if (errorsClickHandler && errorsElRef) {
+        errorsElRef.removeEventListener('click', errorsClickHandler);
+        errorsClickHandler = null;
+    }
 }
 
 // ====== Test introspection (matches the scroll-state/slide-chip pattern) ======
