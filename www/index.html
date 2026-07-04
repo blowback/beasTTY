@@ -448,22 +448,30 @@
     }
     [data-theme="crt"] #scanlines { display: block; }
 
-    /* ==== Debug details (D-15) ==== */
+    /* ==== In-page debug panel (D-15; E5.1 FR-23/AD-11) ==== */
+    /* The ONE persistent in-page chrome element. Toggled from Debug ▸ Show Debug
+       Panel (default OFF). Two rules deliver "completely invisible when off, zero
+       fixture churn" (E5.1 Q1): the native <summary> disclosure paints nothing (the
+       menu is the sole toggle), and when NOT [open] the whole container generates no
+       box — no triangle, no empty bordered panel. Visibility keys off the `open`
+       attribute, so setDebugPanelVisible (menu setter / applyPrefs) AND every existing
+       `el.open = true` test fixture reveal the widgets identically. DESIGN.md
+       debug-panel tokens: field-bg bg, chrome-fg text, 1px chrome-border, rounded/sm. */
+    #debug:not([open]) { display: none; }   /* off ⇒ zero on-screen furniture (AC-3/AC-4) */
+    #debug summary { display: none; }        /* native disclosure retired — menu is the sole toggle (AC-4) */
     #debug {
       margin: 16px auto; max-width: 90ch;
       padding: 8px 16px;
-      background: var(--chrome-bg);
+      background: var(--field-bg);
+      color: var(--chrome-fg);
       border: 1px solid var(--chrome-border);
+      border-radius: 4px;                   /* rounded/sm (DESIGN.md) */
       font-size: 12px;                      /* UI-SPEC Label */
-    }
-    #debug summary {
-      cursor: pointer; font-size: 14px;
-      padding: 4px 0;
     }
     #debug textarea {
       width: 100%; box-sizing: border-box;
       font-family: inherit; font-size: 12px;
-      background: #0f1419; color: #e4e8ee;
+      background: var(--field-bg); color: var(--chrome-fg);
       border: 1px solid var(--chrome-border);
       padding: 4px;
     }
@@ -476,11 +484,11 @@
       cursor: pointer;
     }
     #debug .hint {
-      color: rgba(255,255,255,0.6);
+      color: var(--chrome-muted);
       font-size: 12px;
       margin: 4px 0;
     }
-    #debug code { background: rgba(255,255,255,0.08); padding: 0 4px; border-radius: 2px; }
+    #debug code { background: var(--chrome-border); padding: 0 4px; border-radius: 2px; }
 
     /* ==== Phase 6 Plan 06 (Wave 5) — Settings-pane new rows (D-15, D-34, D-35) ==== */
     /* Verbatim from 06-UI-SPEC §"CSS additions" §"Settings-pane new rows". */
@@ -1499,8 +1507,15 @@
     <div class="menu-group">
       <button id="menu-debug" class="menu-title" type="button" aria-haspopup="true" aria-expanded="false">Debug</button>
       <div id="dropdown-debug" class="dropdown" role="menu" hidden>
-        <button class="menu-item" type="button" role="menuitemcheckbox"
-                data-variant="checkable" data-checked="false" aria-checked="false">
+        <!-- Epic E5 Story E5.1 (FR-23, AD-11, AD-4) — Show Debug Panel checkable.
+             id + data-pref match the #menu-local-echo-item template: the generic
+             data-pref seam persists prefs.showDebugPanel, and the injected
+             setDebugPanelVisible setter applies it live (persist ≠ apply). Panel is
+             the in-page #debug container, shown/hidden via its `open` attribute.
+             data-checked starts "false" (the default) and is re-derived from prefs at
+             wire-time / on open / on reset — never trusted as a literal. -->
+        <button id="menu-debug-panel-item" class="menu-item" type="button" role="menuitemcheckbox"
+                data-variant="checkable" data-pref="showDebugPanel" data-checked="false" aria-checked="false">
           <span class="check"></span><span class="lbl">Show Debug Panel</span>
         </button>
       </div>

@@ -155,6 +155,16 @@ let setCrlfModeRef = null;
 let localEchoItemEl = null;        // #menu-local-echo-item — checkable, derived from prefs.localEcho
 let crlfPanelEl = null;            // [data-submenu-panel="crlf"] — active radio derived from prefs.crlfMode
 
+// E5.1 (FR-23, AD-3/AD-11) — Debug ▸ Show Debug Panel injected seam. Like localEcho,
+// showDebugPanel has a LIVE effect (show/hide the in-page #debug panel), so the menu
+// handler must call setDebugPanelVisibleRef too — savePrefs alone does not fan out
+// (AD-4) and would leave the panel unchanged until the next reload/applyPrefs. Injected
+// because menu-bar owns no panel node and may not import one (AD-3). Optional: a harness
+// that omits it keeps persist + glyph working but leaves the live show/hide inert.
+// Unlike localEcho there is NO coexisting legacy checkbox to mirror (AC-4).
+let setDebugPanelVisibleRef = null;
+let debugPanelItemEl = null;       // #menu-debug-panel-item — checkable, derived from prefs.showDebugPanel
+
 // E3.3 (FR-21/FR-22, AD-3) — Settings-menu injected seams. resetPrefsRef is the
 // prefs.js reset action, injected (NOT imported) per AD-3's opts-injected set —
 // contrast the direct getPrefs/savePrefs import. openReservedCtrlRef opens the
@@ -305,6 +315,7 @@ export function wireMenuBar(opts = {}) {
     // glyph working but leaves the live keyboard.js state change inert until reload.
     setLocalEchoRef = opts.setLocalEcho || null;
     setCrlfModeRef = opts.setCrlfMode || null;
+    setDebugPanelVisibleRef = opts.setDebugPanelVisible || null;   // E5.1 (FR-23, AD-3)
     // E3.3 (FR-21/FR-22, AD-3) — reset action + reserved-Ctrl modal opener, injected
     // via opts (menu-bar imports neither prefs.resetPrefs nor modal.js). Both optional.
     resetPrefsRef = opts.resetPrefs || null;
@@ -425,6 +436,13 @@ export function wireMenuBar(opts = {}) {
     localEchoItemEl = document.getElementById('menu-local-echo-item');
     crlfPanelEl = document.querySelector('.submenu[data-submenu-panel="crlf"]');
     projectLocalEcho();
+
+    // E5.1 (AC-3) — discover the Debug ▸ Show Debug Panel row and take its initial
+    // paint from prefs so the glyph is correct BEFORE the first Debug-menu open (never
+    // trust the HTML data-checked literal). applyPrefs (main.js) owns the initial PANEL
+    // visibility on the boot path — this projector touches only the row glyph (AC-6).
+    debugPanelItemEl = document.getElementById('menu-debug-panel-item');
+    projectDebugPanel();
 
     // E3.3 review fix — cache the Reset row like the sibling projected rows above, so
     // disarmResetConfirm() reads a cached ref instead of re-doing getElementById.
@@ -876,6 +894,13 @@ function onItemClick(item, ev) {
                 const legacy = document.getElementById('local-echo');   // E7-retirement mirror
                 if (legacy) legacy.checked = next;
             }
+            // E5.1 (AC-1/AC-6) — showDebugPanel has a LIVE effect (show/hide the in-page
+            // #debug panel): savePrefs persists + flips the glyph, so ALSO call the
+            // injected setter to apply it now (persist ≠ apply — AD-4). No legacy mirror
+            // (AC-4): unlike localEcho there is no coexisting pane checkbox for this row.
+            if (prefKey === 'showDebugPanel') {
+                setDebugPanelVisibleRef?.(next);
+            }
         }
         return;                          // checkable keeps the menu open (AC-1)
     }
@@ -1071,6 +1096,8 @@ function projectMenuOnOpen() {
         const p = getPrefs();
         if (crlfPanelEl && p && p.crlfMode) setRadioChecked(crlfPanelEl, p.crlfMode);
     }
+    // E5.1 (AC-3) — Debug: re-derive the Show Debug Panel glyph from prefs at USE-TIME.
+    if (openMenu === 'debug') projectDebugPanel();
 }
 
 // E2.2 / E3.2 (AC-1/AC-3) — project a checkable menu row from a boolean pref at
@@ -1090,6 +1117,10 @@ function projectCheckable(el, prefKey, prefs) {
 // menu) — as thin wrappers over the shared projector so both stay one implementation.
 function projectAutoConnect(prefs) { projectCheckable(autoConnectItemEl, 'autoConnect', prefs); }
 function projectLocalEcho(prefs)   { projectCheckable(localEchoItemEl, 'localEcho', prefs); }
+// E5.1 (AC-3/AC-6) — Debug ▸ Show Debug Panel row projector. Same contract as the
+// siblings: derives only the ROW glyph/aria from prefs.showDebugPanel, never the panel
+// node (applyPrefs is the panel's single writer on reset/boot — AC-6).
+function projectDebugPanel(prefs) { projectCheckable(debugPanelItemEl, 'showDebugPanel', prefs); }
 
 // E3.1 (FR-17, AC-4/AC-5) — project the Download Session Log row from the live RX
 // byte count at USE-TIME. Modeled on syncSubmenuDisabled but INVERSE polarity:
@@ -1313,6 +1344,12 @@ export function projectPrefs(prefs) {
     // that single-writer job on reset — AC-6).
     projectLocalEcho(p);
     if (crlfPanelEl && p.crlfMode) setRadioChecked(crlfPanelEl, p.crlfMode);
+    // E5.1 (AC-3/AC-6) — re-project the Debug ▸ Show Debug Panel row from p.showDebugPanel
+    // so resetPrefs() (AD-14) restores the unchecked default in the menu DOM. Placed
+    // BEFORE the View-dropdown guard (E2.2/E3.2 placement precedent) so a View-less
+    // harness still gets the reset re-projection. Never touches the panel node — the
+    // applyPrefs reset path is the panel's single writer (AC-6).
+    projectDebugPanel(p);
     const viewDropdown = dropdownEls.view || document.getElementById('dropdown-view');
     if (!viewDropdown) return;                       // View menu absent — no-op
     // E1.4 — project p.theme + p.phosphor onto the submenu radio check glyphs and

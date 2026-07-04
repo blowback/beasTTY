@@ -25,6 +25,9 @@ const DEFAULTS = Object.freeze({
     localEcho: false,
     crlfMode: 'cr',
     autoConnect: false,
+    showDebugPanel: false,       // E5.1 (FR-23, AD-11) — Debug ▸ Show Debug Panel checkable, default OFF.
+                                 //   New boolean rides the defensive spread-merge; CURRENT_VERSION NOT bumped
+                                 //   (same precedent as slideConfirmTransfers / serialAssertRtsOnConnect above).
     showAllSerialDevices: false,
     slideRecvToFolder: false,    // Phase 10 — CONTEXT D-02 (default OFF; toggle in Settings pane lands in Plan 10-04)
     slideAutoSendCommand: 'B:SLIDE R\r',          // Phase 11 — D-09 (SLIDE-37) — trailing \r is a 0x0D byte, not a literal backslash-r

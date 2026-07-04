@@ -285,6 +285,15 @@ const crlfRadios        = document.querySelectorAll('input[name="crlf"]');
 const txStripEl         = document.getElementById('tx-strip');
 const txResetButton     = document.getElementById('tx-reset');
 const TX_STRIP_PLACEHOLDER = '(none yet — press any key on the terminal to see TX bytes)';
+// E5.1 (FR-23, AD-11, AD-14) — the in-page debug panel is the ONE persistent chrome
+// element toggled from Debug ▸ Show Debug Panel. main.js owns the panel node (no
+// separate module — AD-2 proportionality; a show/hide over a DOM node menu-bar may
+// not import). setDebugPanelVisible is the SINGLE writer of the panel's live
+// visibility: injected into wireMenuBar (called from the checkable toggle) AND called
+// by applyPrefs on boot/reset. With the #debug:not([open]) CSS, open=false ⇒ fully
+// invisible. It is also what keeps every `el.open = true` test fixture working verbatim.
+const debugEl = document.getElementById('debug');
+const setDebugPanelVisible = (v) => { if (debugEl) debugEl.open = v; };
 // E4.2 — the build-info import/projection block relocated below the status-bar
 // wire (it now feeds #status-build via statusBar.setBuild); see after
 // `window.__statusBar = statusBar`. window.__buildInfo is still set there for the
@@ -443,6 +452,10 @@ const menuBar = wireMenuBar({
     // menu handler calls the setter AND savePrefs, exactly as the legacy handlers do.
     setLocalEcho,
     setCrlfMode,
+    // Epic E5 Story E5.1 (FR-23, AD-3/AD-11) — Debug ▸ Show Debug Panel drives the
+    // panel's live visibility. Injected (menu-bar owns no panel node and may not import
+    // one — AD-3); persist ≠ apply, so the menu handler calls this setter AND savePrefs.
+    setDebugPanelVisible,
     // Epic E3 Story E3.3 (FR-21/FR-22, AD-3) — Settings ▸ Reset all preferences drives
     // the SAME resetPrefs() the legacy #reset-prefs-button calls (already imported :31,
     // already injected into wireChrome :321); Browser-reserved Ctrl combinations… opens
@@ -1367,6 +1380,11 @@ function applyPrefs(p) {
     pushZoom(getActiveZoom());
     setLocalEcho(p.localEcho);
     if (localEchoCheckbox.checked !== p.localEcho) localEchoCheckbox.checked = p.localEcho;
+    // E5.1 (AC-3/AC-6) — applyPrefs is the SINGLE writer of the debug panel's live
+    // visibility on the reset/boot path (the menu toggle owns it on click). At boot
+    // (applyPrefs(prefs) below) this applies the default OFF ⇒ fully invisible; on
+    // resetPrefs() fan-out it restores OFF. menuBar.projectPrefs re-derives only the row.
+    setDebugPanelVisible(p.showDebugPanel);
     setCrlfMode(p.crlfMode);
     for (const radio of crlfRadios) {
         radio.checked = (radio.value === p.crlfMode);

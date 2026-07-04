@@ -46,7 +46,7 @@
 #   E1 is the backbone and must land before the other menu/modal epics.
 
 generated: 2026-07-01
-last_updated: 2026-07-03  # E4 retro → done; E4 action items appended; E4 Code Review sections backfilled
+last_updated: 2026-07-04  # E5.1 → review (dev-story complete)
 # retrospective action items (surface open ones during sprint status)
 action_items:
   - epic: "e0"
@@ -181,8 +181,8 @@ development_status:
   epic-e4-retrospective: done
 
   # ── Epic E5 · Debug Menu & In-Page Debug Panel (depends on: E1) ──
-  epic-e5: backlog
-  e5-1-debug-menu-panel-toggle: backlog
+  epic-e5: in-progress
+  e5-1-debug-menu-panel-toggle: review
   epic-e5-retrospective: optional
 
   # ── Epic E6 · Help Menu (depends on: E0, E1) ──
