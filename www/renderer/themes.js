@@ -59,6 +59,20 @@ export const THEMES = {
                 bg:     '#0a0a0a',
                 accent: '#e8e8d8',
             },
+            // DEC PDP-1 vector-display blue (labelled "P39" per request; the
+            // classic Type 30 CRT trace is really P7's blue flash). Electric azure.
+            blue: {
+                fg:     '#4da6ff',
+                bg:     '#060912',
+                accent: '#4da6ff',
+            },
+            // Menacing deep red — HAL 9000 / Terminator HUD / submarine night-ops
+            // / Sinclair red LED. Blood-red glow on near-black.
+            red: {
+                fg:     '#ff1d1d',
+                bg:     '#0d0000',
+                accent: '#ff1d1d',
+            },
         },
     },
     clean: {

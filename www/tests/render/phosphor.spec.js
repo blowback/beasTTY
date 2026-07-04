@@ -9,6 +9,8 @@ const PALETTE = {
   green: '#33ff66',
   amber: '#ffb000',
   white: '#e8e8d8',
+  blue:  '#4da6ff',
+  red:   '#ff1d1d',
 };
 
 const P = '#dropdown-view .submenu[data-submenu-panel="phosphor"]';
