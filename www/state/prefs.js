@@ -184,6 +184,14 @@ export const CONN_STATUS_LABELS = Object.freeze({
 // display string those two surfaces render.
 export const MICROBEAST_DEVICE_LABEL = 'MicroBeast (CP2102N 10c4:ea60)';
 
+// The build-stamp shown when pkg/build-info.js is absent (a raw wasm-pack build that
+// skipped build.sh). Single-sourced (same AD-3 precedent as above) so the three
+// readers that render it — main.js's import-catch fallback object, projectAboutBuild
+// (Help ▸ About), and status-bar.js's setBuild harness guard — can never word it
+// differently. main.js feeds the bar the fallback OBJECT; About and setBuild default
+// to this string only when their source is absent.
+export const BUILD_UNKNOWN_SHA = 'unknown (unbuilt)';
+
 // Pure framing formatter → the `19200 8N1` segment. Single-sourced so the live
 // path (serial.js getActiveFraming, from the open port's lastConfig) and the
 // prefs-derived fallback (status-bar.js, from getPrefs().serial) format identically.

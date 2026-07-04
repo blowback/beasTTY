@@ -187,6 +187,13 @@ export function wireFileSource(opts) {
     // is set OR mode === 'send'. Re-enabled when mode returns to 'terminal'.
     // Poll every 200ms; cheap and event-loop-friendly.
     if (buttonStateInterval) clearInterval(buttonStateInterval);
+    // Synchronous first pass BEFORE the interval so the gate reflects reality at wire
+    // time — not up to 200ms later. Without it the button held its HTML default for
+    // the first tick; the menu row (projectSendFile, re-projected via onSendGateChange)
+    // and openSendPicker both read this state, so a boot-window interaction could slip
+    // through the gate. Idempotent: if the state already matches, updateButtonState is
+    // a no-op and fires no spurious onSendGateChange.
+    updateButtonState();
     buttonStateInterval = setInterval(updateButtonState, 200);
 }
 

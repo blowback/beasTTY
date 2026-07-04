@@ -125,18 +125,20 @@
       display: flex; align-items: center; gap: 8px;
       padding: 0 8px; color: var(--chrome-muted); font-size: 13px; white-space: nowrap;
     }
-    #menu-conn-dot {
+    /* Shared connection-dot (E2.1 AC-3, UX-DR3) — the single intentional circle in
+       the chrome (DESIGN.md:180). Discrete state colours, never animated; red reserved
+       for port-lost; disconnected uses the base --status-gray (no explicit rule). BOTH
+       #menu-conn-dot and #status-conn-dot carry .conn-dot, so the two dots that render
+       the SAME serial state can never diverge — one source for the state→colour map. */
+    .conn-dot {
       width: 9px; height: 9px; flex: 0 0 9px;
-      border-radius: 50%;                 /* the one intentional circle */
+      border-radius: 50%;
       background: var(--status-gray);
-      /* E2.1 (AC-3, UX-DR3) — discrete state colours, never animated. Mirrors the
-         #connect-button[data-state] rule set; red reserved for port-lost only.
-         disconnected uses the base --status-gray above (no explicit rule needed). */
     }
-    #menu-conn-dot[data-state="connecting"],
-    #menu-conn-dot[data-state="reconnecting"] { background: var(--status-amber); }
-    #menu-conn-dot[data-state="connected"]    { background: var(--status-green); }
-    #menu-conn-dot[data-state="port-lost"]    { background: var(--status-red); }
+    .conn-dot[data-state="connecting"],
+    .conn-dot[data-state="reconnecting"] { background: var(--status-amber); }
+    .conn-dot[data-state="connected"]    { background: var(--status-green); }
+    .conn-dot[data-state="port-lost"]    { background: var(--status-red); }
 
     /* ==== Bottom status bar (Epic E4 Story E4.1) — new surface, fed never owned ==== */
     /* AD-9 / NFR-2: renders IDENTICALLY across Console↔CRT. The global
@@ -189,18 +191,9 @@
       font: inherit; color: var(--chrome-muted); cursor: pointer;
     }
     #status-bar #status-errors[data-has-errors="true"] { color: var(--status-amber); }
-    /* Discrete connection-dot colours (UX-DR3) — mirrors the #menu-conn-dot rule
-       set exactly; red reserved for port-lost. NO box-shadow (DESIGN.md no-glow
-       overrides the mockup), NO transition — the dot snaps. */
-    #status-conn-dot {
-      width: 9px; height: 9px; flex: 0 0 9px;
-      border-radius: 50%;
-      background: var(--status-gray);
-    }
-    #status-conn-dot[data-state="connecting"],
-    #status-conn-dot[data-state="reconnecting"] { background: var(--status-amber); }
-    #status-conn-dot[data-state="connected"]    { background: var(--status-green); }
-    #status-conn-dot[data-state="port-lost"]    { background: var(--status-red); }
+    /* #status-conn-dot colours come from the shared .conn-dot rule set above (defined
+       alongside #menu-conn-dot) — UX-DR3 discrete colours, NO box-shadow (DESIGN.md
+       no-glow overrides the mockup), NO transition (the dot snaps). */
     /* Dropdown panel — md 6px, 1px hairline, NO box-shadow (UX-DR5). Opens below
        its own title because it is an absolutely-positioned child of the
        position:relative .menu-group — so no inline left offset is ever set. */
@@ -1242,6 +1235,37 @@
       text-align: right;
     }
 
+    /* ==== Epic E6 Story E6.2 (FR-25) — #about-modal specifics ==== */
+    /* An info modal (build + privacy): two aligned rows + three prose lines + Close.
+       Only a max-width + the aligned-row layout are modal-specific; everything else
+       inherits the shared .chrome-modal chrome (no box-shadow; --chrome-* only; 8px
+       corner; no [data-theme] branch). Narrower than the shortcut table (a couple of
+       rows + short lines). */
+    #about-modal[open] {
+      max-width: 56ch;
+    }
+    /* Aligned row: label on the LEFT, value on the RIGHT (space-between, mirroring
+       .shortcut-row without the form-control styling). */
+    #about-modal .about-row {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    #about-modal .about-row .lbl {
+      flex: 0 0 auto;
+      color: var(--chrome-muted);
+      font-size: 11px;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    #about-modal .about-row .val {
+      color: var(--chrome-fg);
+      font-size: 13px;
+      text-align: right;
+    }
+
     /* ==== Epic E3 Story E3.4 (FR-20) — #slide-config-modal specifics ==== */
     /* Same aligned-row family as the Serial Config modal (shared .chrome-modal .field
        chrome above). Only the width + two compound-row layouts (the auto-send control
@@ -1579,8 +1603,13 @@
                 data-variant="action" data-action="keyboard-shortcuts">
           <span class="check"></span><span class="lbl">Keyboard Shortcuts…</span>
         </button>
-        <button class="menu-item" type="button" role="menuitem" data-variant="action">
-          <span class="check"></span><span class="lbl">About Beastty…</span><span class="caret">▸ modal</span>
+        <!-- Epic E6 Story E6.2 (FR-25, AD-8/AD-3) — About Beastty… opens the #about-modal
+             via openModal. Action row: closeMenu() then the injected openAbout opener
+             (mirrors Keyboard Shortcuts… above). Trailing … = "opens further UI"; no ▸
+             caret — that is reserved for radio submenus. -->
+        <button id="menu-about-item" class="menu-item" type="button" role="menuitem"
+                data-variant="action" data-action="about">
+          <span class="check"></span><span class="lbl">About Beastty…</span>
         </button>
       </div>
     </div>
@@ -1590,7 +1619,7 @@
     <!-- Connection-status PLACEHOLDER (live wiring lands in E2/E4). The dot is
          the single intentional circle in the chrome (DESIGN.md:180). -->
     <div class="menu-status">
-      <span id="menu-conn-dot" aria-hidden="true"></span>
+      <span id="menu-conn-dot" class="conn-dot" aria-hidden="true"></span>
       <span id="menu-conn-label">Not connected</span>
     </div>
 
@@ -1626,8 +1655,12 @@
          this button's live .disabled/.title onto its own data-disabled state (menu-bar
          projectSendFile, on File-menu open) so the row visibly reflects the gate — that
          mirror retires with this button in E7, like the other coexistence mirrors. -->
-    <button id="send-file-button" type="button"
-            title="Send file(s) to MicroBeast via SLIDE">↑ Send file</button>
+    <!-- Ships DISABLED with the pre-Connect title: no serial writer exists at boot, so
+         the send gate is closed until updateButtonState (wireFileSource, sync + 200ms
+         poll) enables it once Connect registers a writer. Prevents a boot-window click
+         (top-bar OR File ▸ Send File…) firing the picker with nothing to send to. -->
+    <button id="send-file-button" type="button" disabled
+            title="Connect to a serial port first">↑ Send file</button>
     <input id="send-file-input" type="file" multiple hidden>
     <!-- Epic E1 Story E1.4 — #theme-toggle + #phosphor-group retired to the View
          menu (View ▸ Theme / Phosphor). The Ctrl+Alt+T chord (chrome.js) and the
@@ -1998,33 +2031,62 @@
     <header>
       <h2 id="keyboard-shortcuts-modal-title">Keyboard Shortcuts</h2>
     </header>
-    <div class="modal-body">
-      <h3 class="shortcut-group">Display</h3>
-      <div class="shortcut-row"><kbd>Ctrl+Alt+T</kbd><span class="act">Toggle theme (Console ↔ CRT)</span></div>
-
-      <h3 class="shortcut-group">Zoom</h3>
-      <div class="shortcut-row"><kbd>Ctrl+=</kbd><span class="act">Zoom In</span></div>
-      <div class="shortcut-row"><kbd>Ctrl+-</kbd><span class="act">Zoom Out</span></div>
-      <div class="shortcut-row"><kbd>Ctrl+0</kbd><span class="act">Actual Size (zoom 1×)</span></div>
-
-      <h3 class="shortcut-group">Editing</h3>
-      <div class="shortcut-row"><kbd>Ctrl+Shift+C</kbd><span class="act">Copy selection</span></div>
-      <div class="shortcut-row"><kbd>Ctrl+Shift+V</kbd><span class="act">Paste (large paste ≥4096 B → paste-confirm toast)</span></div>
-
-      <h3 class="shortcut-group">Cancel</h3>
-      <div class="shortcut-row"><kbd>Esc</kbd><span class="act">Cancel in-flight SLIDE / close topmost modal / dismiss confirm</span></div>
-
-      <h3 class="shortcut-group">Reserved Ctrl combinations</h3>
-      <div class="shortcut-row"><kbd>Ctrl+A…Ctrl+Z</kbd><span class="act">Forwarded to MicroBeast as control codes (except W / N / T)</span></div>
-      <div class="shortcut-row"><kbd>Ctrl+W / Ctrl+N / Ctrl+T</kbd><span class="act">Claimed by Chromium — use Ctrl+F4 / Ctrl+Shift+N / a different keybinding</span></div>
-      <p class="hint">See Settings ▸ Browser-reserved Ctrl combinations… for the full list.</p>
-    </div>
+    <!-- Body rendered by main.js projectShortcuts() from the www/input/shortcuts.js
+         registry on each open (code-review #7) — the SAME registry chrome.js/keyboard.js
+         match chords against, so the advertised chords can't drift from the live
+         handlers. Kept empty here; JS is the single writer (mirrors #about-modal's
+         dynamic build rows). -->
+    <div class="modal-body"></div>
     <footer>
       <!-- Close via native <form method="dialog"> submit → returnValue 'close'.
            openModal resolves it; openKeyboardShortcuts ignores the value (info modal —
            nothing to apply). Esc closes the same way. -->
       <form method="dialog">
         <button id="keyboard-shortcuts-close" value="close">Close</button>
+      </form>
+    </footer>
+  </dialog>
+
+  <!-- Epic E6 Story E6.2 (FR-25, UX-DR10, AD-8/AD-9/AD-3) — About Beastty modal.
+       A FIFTH static-content <dialog> on the shared modal rails, cloned from
+       #keyboard-shortcuts-modal above. Non-destructive INFO modal (body copy + Close),
+       so initialFocus = the Close button and the opener ignores returnValue (AD-8 #4).
+       The ONE wrinkle vs E6.1: the Build/Built value spans are DYNAMIC — main.js's
+       projectAboutBuild (makeModalOpener's onOpen 3rd arg) reads window.__buildInfo
+       at open time and fills #about-build-sha / #about-built-at. SSOTs: the build
+       stamp is window.__buildInfo (fed by main.js:499-511 — the SAME object #status-build
+       renders via status-bar.js:setBuild, so About and the bar never drift); the privacy
+       line is byte-identical to the polite-fail page (transport/serial.js:129); the
+       source is the FR-25-specified literal TBD; the Chromium note echoes the polite-fail
+       framing (transport/serial.js:124-125). -->
+  <dialog id="about-modal" class="chrome-modal" aria-labelledby="about-modal-title">
+    <header>
+      <h2 id="about-modal-title">About Beastty</h2>
+    </header>
+    <div class="modal-body">
+      <!-- Aligned build rows (label left / value right, mirroring .shortcut-row). The
+           value spans start empty; projectAboutBuild (main.js) fills them from
+           window.__buildInfo just before showModal — never bake a SHA into static HTML
+           (it is gitignored / regenerated per build). -->
+      <div class="about-row"><span class="lbl">Build</span><span id="about-build-sha" class="val"></span></div>
+      <div class="about-row"><span class="lbl">Built</span><span id="about-built-at" class="val"></span></div>
+      <!-- Source row: literal TBD placeholder (FR-25 / UX-DR10) — Ant sets the real URL
+           later. Plain text, NOT an <a href> (a dead href would be worse than a label). -->
+      <!-- E6.2: replace TBD with <a href="…"> when Ant sets the repo URL. -->
+      <div class="about-row"><span class="lbl">Source</span><span class="val">TBD</span></div>
+      <!-- Privacy line — VERBATIM from the polite-fail page (transport/serial.js:129),
+           intentional cross-surface duplication (no shared DOM node is possible — the
+           polite-fail page rewrites document.body before wasm loads on non-Chromium). -->
+      <p class="hint">No telemetry. No data leaves your browser.</p>
+      <!-- Chromium-requirement note — mirrors the polite-fail framing (serial.js:124-125). -->
+      <p class="hint">Requires a Chromium-based browser (Web Serial is a Chromium-only API).</p>
+    </div>
+    <footer>
+      <!-- Close via native <form method="dialog"> submit → returnValue 'close'.
+           openModal resolves it; openAbout ignores the value (info modal — nothing to
+           apply). Esc closes the same way. -->
+      <form method="dialog">
+        <button id="about-close" value="close">Close</button>
       </form>
     </footer>
   </dialog>
@@ -2130,7 +2192,7 @@
        The E4.2 right group (build SHA + zoom) slots in here later — not built. -->
   <footer id="status-bar">
     <span class="sb-conn">
-      <span id="status-conn-dot" aria-hidden="true"></span>
+      <span id="status-conn-dot" class="conn-dot" aria-hidden="true"></span>
       <span id="port-status" class="hint" aria-live="polite">Not connected</span>
     </span>
     <!-- E4.3 recent-errors affordance (FR-28) — live error count + ▲ glyph, tinted

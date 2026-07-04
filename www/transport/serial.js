@@ -481,6 +481,14 @@ export async function connectMicroBeast(configOverride, preselectedPort) {
     lastConfig = config;
     persistVidPid(selectedPort);    // D-31 — Wave 4 implements; Wave 2 stubs it locally.
 
+    // E4.3 fix — a successful Connect resolves whatever the prior failures were, so
+    // clear the recent-error ring (and push 0 to the status-bar affordance). Without
+    // this the amber "▲ N recent errors" cue is monotonic: any transient error early
+    // in the session left it lit for the rest of the session even after reconnecting
+    // healthy. Clearing here mirrors the per-Connect sessionLogRef.reset() above — a
+    // fresh Connect is the session boundary, so the D-27 pane starts clean too.
+    clearErrorLog();
+
     setState('connected');
 
     // Fire the read loop (no await — runs until the reader is cancelled or port.readable=null).
@@ -716,6 +724,17 @@ function appendErrorLog(code, message) {
     // Connection ▸ Serial Configuration… (and, later, the E4 status-bar recent-errors
     // affordance opens this same modal). connectionPane is now a vestigial ref (the
     // <details> pane no longer hosts the log) — left injected but no longer written.
+}
+
+// E4.3 fix — empty the recent-error ring and notify the status-bar affordance (0).
+// Called on a successful Connect so the amber "action required" cue clears once the
+// underlying problem is resolved (fired AFTER renderErrorLog so the #error-log pane
+// and the pushed count never disagree — same ordering discipline as appendErrorLog).
+function clearErrorLog() {
+    if (errorLog.length === 0) return;   // idempotent — no spurious push when already clean
+    errorLog.length = 0;
+    renderErrorLog();
+    if (onErrorLogChangeFn) onErrorLogChangeFn(errorLog.length);
 }
 
 function renderErrorLog() {

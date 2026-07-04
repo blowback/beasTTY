@@ -29,6 +29,10 @@ import { RESET_PREFS_IDLE_LABEL, RESET_PREFS_CONFIRM_LABEL } from '../state/pref
 // labels), so this legacy button and the Settings menu row can never drift on the
 // arm/commit/disarm semantics or the confirm window.
 import { makeTwoClickConfirm } from './confirm-toggle.js';
+// E6.1 fix (code-review #7) — the theme + zoom chord predicates are single-sourced in
+// the shortcut registry that the Help ▸ Keyboard Shortcuts modal renders from, so the
+// chord this handler matches and the chord the modal advertises can never diverge.
+import { matchThemeToggle, matchZoomIn, matchZoomOut, matchZoomReset } from '../input/shortcuts.js';
 
 // Phase 11 Plan 11-04 D-13 / SLIDE-31 — module-scope refs for the
 // visibilitychange + pagehide CTRL_CAN best-effort branches. Set inside
@@ -61,6 +65,16 @@ function toggleTheme() {
     // (AD-4, synchronous) or an open menu would re-project to the stale theme.
     if (savePrefsRef) savePrefsRef({ theme: destination }); // persist the chord theme change
     if (onThemeChangeRef) onThemeChangeRef();               // re-project an open View menu (reads getPrefs)
+}
+
+// Persist the chord's new zoom level and mirror it to the status bar — shared by the
+// three Ctrl+{=,-,0} handlers so the persist + AD-6 push are identical on every zoom
+// chord (was copy-pasted per branch). Reads the CLAMPED getActiveZoom() (canvas clamps
+// to [1,4]) so the persisted pref and the bar readout can never show an out-of-range
+// level. Both refs optional — a null ref no-ops that half.
+function pushZoomLevel() {
+    if (savePrefsRef) savePrefsRef({ fontZoom: getActiveZoomFn() });   // Phase 6 Plan 06 (PREF-01)
+    if (pushZoomRef) pushZoomRef(getActiveZoomFn());                   // E1.5 (AD-6) — status-bar push
 }
 
 export function wireChrome(opts) {
@@ -132,35 +146,32 @@ export function wireChrome(opts) {
         // from a web page — the Chromium default is a no-op on this chord.
         // Do NOT include e.shiftKey: Alt+Shift+T already maps to "pin tab" on
         // some Chromium builds, and we want the chord to work with exactly
-        // Ctrl+Alt+T (no extra modifier).
-        if (e.ctrlKey && e.altKey && !e.shiftKey && !e.metaKey && e.code === 'KeyT') {
+        // Ctrl+Alt+T (no extra modifier). Predicate lives in the shortcut registry.
+        if (matchThemeToggle(e)) {
             e.preventDefault();          // SYNCHRONOUS first — RESEARCH Pitfall #3.
             toggleTheme();
             return;
         }
-        // Ctrl+{+, -, 0} — integer zoom (RENDER-09 / D-10).
-        if (e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey) {
-            if (e.code === 'Equal' || e.code === 'NumpadAdd') {
-                e.preventDefault();
-                zoomStep(+1);
-                if (savePrefs) savePrefs({ fontZoom: getActiveZoomFn() });   // Phase 6 Plan 06 (PREF-01)
-                if (pushZoomRef) pushZoomRef(getActiveZoomFn());             // E1.5 (AD-6) — status-bar push
-                return;
-            }
-            if (e.code === 'Minus' || e.code === 'NumpadSubtract') {
-                e.preventDefault();
-                zoomStep(-1);
-                if (savePrefs) savePrefs({ fontZoom: getActiveZoomFn() });   // Phase 6 Plan 06 (PREF-01)
-                if (pushZoomRef) pushZoomRef(getActiveZoomFn());             // E1.5 (AD-6) — status-bar push
-                return;
-            }
-            if (e.code === 'Digit0' || e.code === 'Numpad0') {
-                e.preventDefault();
-                resetZoom();
-                if (savePrefs) savePrefs({ fontZoom: getActiveZoomFn() });   // Phase 6 Plan 06 (PREF-01)
-                if (pushZoomRef) pushZoomRef(getActiveZoomFn());             // E1.5 (AD-6) — status-bar push
-                return;
-            }
+        // Ctrl+{+, -, 0} — integer zoom (RENDER-09 / D-10). Each registry predicate
+        // carries the full modifier guard, so the trio is three standalone checks (no
+        // shared outer `if`); the persist + status-bar push are identical per branch.
+        if (matchZoomIn(e)) {
+            e.preventDefault();
+            zoomStep(+1);
+            pushZoomLevel();
+            return;
+        }
+        if (matchZoomOut(e)) {
+            e.preventDefault();
+            zoomStep(-1);
+            pushZoomLevel();
+            return;
+        }
+        if (matchZoomReset(e)) {
+            e.preventDefault();
+            resetZoom();
+            pushZoomLevel();
+            return;
         }
         // Any other key: Phase 4 will claim character-encoding keys here.
     });

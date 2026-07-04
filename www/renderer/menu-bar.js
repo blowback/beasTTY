@@ -193,6 +193,10 @@ let openReservedCtrlRef = null;
 // #keyboard-shortcuts-modal (main.js owns openModal — menu-bar must not import
 // modal.js). Optional: a harness that omits it leaves that row's click inert.
 let openKeyboardShortcutsRef = null;
+// E6.2 (FR-25, AD-3) — Help ▸ About Beastty… opener for the injected #about-modal
+// (main.js owns openModal + reads window.__buildInfo — menu-bar must not import modal.js).
+// Optional: a harness that omits it leaves that row's click inert.
+let openAboutRef = null;
 // E3.4 (FR-20, AD-3) — Settings ▸ SLIDE File Transfer… opener for the injected
 // #slide-config-modal (main.js owns openModal — menu-bar must not import modal.js/
 // slide*.js). Optional: a harness that omits it leaves that row's click inert.
@@ -348,6 +352,7 @@ export function wireMenuBar(opts = {}) {
     resetPrefsRef = opts.resetPrefs || null;
     openReservedCtrlRef = opts.openReservedCtrl || null;
     openKeyboardShortcutsRef = opts.openKeyboardShortcuts || null;   // E6.1 (FR-24, AD-3)
+    openAboutRef = opts.openAbout || null;   // E6.2 (FR-25, AD-3)
     openSlideConfigRef = opts.openSlideConfig || null;     // E3.4 (FR-20, AD-3)
     menuBarEl = document.getElementById('menu-bar');
     liveRegionEl = document.getElementById('menu-bar-live');
@@ -968,6 +973,7 @@ function onItemClick(item, ev) {
         'reserved-ctrl': openReservedCtrlRef,   // Settings ▸ Browser-reserved Ctrl combos…
         'slide-config': openSlideConfigRef,     // Settings ▸ SLIDE File Transfer…
         'keyboard-shortcuts': openKeyboardShortcutsRef,   // Help ▸ Keyboard Shortcuts… (E6.1)
+        'about': openAboutRef,                  // Help ▸ About Beastty… (E6.2)
     }[action];
     if (modalOpener !== undefined) {
         closeMenu();

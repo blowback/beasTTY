@@ -30,7 +30,7 @@
 //   - Analog: www/renderer/menu-bar.js:387-401 (subscribe + initial paint),
 //     :1369-1377 (projectConnection), :63-82 (frozen CONN_STATUS_LABELS).
 
-import { getPrefs, CONN_STATUS_LABELS, MICROBEAST_DEVICE_LABEL, formatFraming as composeFraming } from '../state/prefs.js';
+import { getPrefs, CONN_STATUS_LABELS, MICROBEAST_DEVICE_LABEL, BUILD_UNKNOWN_SHA, formatFraming as composeFraming } from '../state/prefs.js';
 import { retainFocus } from './focus.js';   // E4.3 (AD-10) — the bar's first interactive control
 
 // ====== Frozen label maps ======
@@ -85,8 +85,8 @@ let connUnsub = null;
 // (its own WeakSet), so its mousedown handler needs no such bookkeeping.
 let errorsClickHandler = null;
 
-// Last state projected — kept for setConnectionInfo() re-projection + test
-// introspection.
+// Last state projected — read by showBootReady() (re-project only while disconnected)
+// and exposed via __getStateForTests for introspection.
 let lastState = 'disconnected';
 
 // fix (#3) — set true when serial's boot getPorts() scan recognizes an already-
@@ -178,7 +178,7 @@ function composeText(state) {
 // pane). Null-guarded so the no-markup harness path never throws.
 function setBuild(info) {
     if (!buildElRef) return;
-    buildElRef.textContent = `build ${info?.sha ?? 'unknown (unbuilt)'}`;
+    buildElRef.textContent = `build ${info?.sha ?? BUILD_UNKNOWN_SHA}`;
     if (info?.builtAt) buildElRef.title = `built ${info.builtAt}`;
 }
 
@@ -191,6 +191,18 @@ function setBuild(info) {
 function setZoom(level) {
     if (!zoomElRef) return;
     zoomElRef.textContent = `zoom ${level}×`;
+}
+
+// Best-effort pre-paint of the stored zoom before main.js's authoritative
+// pushZoom(getActiveZoom()) lands. loadPrefs does NOT clamp fontZoom, so a corrupt or
+// hand-edited value (e.g. 0 or 6) must be clamped to the canvas's [1,4] range here —
+// `?? 1` alone let a falsy 0 through and rendered an impossible "zoom 0×". Mirrors the
+// canvas clamp so the pre-paint never shows a level the terminal cannot display.
+const ZOOM_MIN = 1, ZOOM_MAX = 4;
+function prefsZoomLevel() {
+    const raw = getPrefs()?.fontZoom;
+    const n = Number.isFinite(raw) ? Math.round(raw) : ZOOM_MIN;
+    return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, n));
 }
 
 // ====== Recent-errors affordance (E4.3, FR-28 — the sole writer of #status-errors;
@@ -258,7 +270,7 @@ export function wireStatusBar(opts) {
     // this raw read does not). `?? 1` keeps it crash-safe if getPrefs() is null
     // (loadPrefs not yet run) — it must not abort the wire. Build has no synchronous
     // source, so its placeholder holds until main.js pushes setBuild on import.
-    setZoom(getPrefs()?.fontZoom ?? 1);
+    setZoom(prefsZoomLevel());
 
     // E4.3 — the recent-errors affordance. Drop the prior click listener before
     // re-adding (mirror the connUnsub drop-before-resubscribe idiom) so an idempotent
@@ -278,13 +290,6 @@ export function wireStatusBar(opts) {
     setErrorCount(getRecentErrorCountFn ? getRecentErrorCountFn() : 0);
 
     return {
-        // AD-6 imperative-push hook: observer-less sources (a baud/serial-config
-        // change in prefs — savePrefs does NOT fan out) call this to re-project the
-        // current state, re-reading getPrefs().serial. Full modal wiring is out of
-        // scope for E4.1; the primary path is the prefs read on each `connected`
-        // projection (a mid-session baud change lands on the next connect). This is
-        // just the hook so E4.2+/the serial-config modal can push on demand.
-        setConnectionInfo() { projectConnection(lastState); },
         // fix (#3) — serial's boot getPorts() scan calls this (via main.js) when it
         // recognizes an already-granted MicroBeast, so a returning user sees the
         // "…— click Connect" cue instead of a bare "Not connected". Only re-paints
@@ -351,7 +356,7 @@ export function __resetForTests() {
     // E4.2 — build reverts to its placeholder (no synchronous source); zoom
     // re-paints from prefs (mirrors the crash-safe initial wire-time paint).
     if (buildElRef) buildElRef.textContent = 'build …';
-    setZoom(getPrefs()?.fontZoom ?? 1);
+    setZoom(prefsZoomLevel());
     // E4.3 — revert the errors field to its 0/false placeholder.
     setErrorCount(0);
 }

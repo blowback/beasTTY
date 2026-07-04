@@ -32,6 +32,7 @@ import {
     subscribe as prefsSubscribe,
     getPrefs,
     isAutoSendSafe,                 // Phase 12 SLIDE-38 — Settings input validation cue
+    BUILD_UNKNOWN_SHA,              // shared "unbuilt" stamp — one wording across About/bar/fallback
 } from './state/prefs.js';
 const prefs = loadPrefs();
 // Phase 11 Plan 11-05 — also expose the live `prefs` object held by main.js
@@ -66,6 +67,10 @@ import {
     readRowText,               // Phase 6 Plan 04 — selection asks canvas for decoded row text
 } from './renderer/canvas.js';
 import { wireChrome } from './renderer/chrome.js';
+// E6.1 fix (code-review #7) — the Help ▸ Keyboard Shortcuts modal body is rendered from
+// this registry (the same one chrome.js/keyboard.js match chords against), so the modal
+// can't advertise a chord the handlers don't implement.
+import { SHORTCUT_GROUPS } from './input/shortcuts.js';
 import { wireMenuBar } from './renderer/menu-bar.js';
 import { wireStatusBar } from './renderer/status-bar.js';
 import { wireScrollState } from './renderer/scroll-state.js';
@@ -254,8 +259,61 @@ const openSerialConfig = makeModalOpener(serialConfigModalEl, 'serial-baud');
 const reservedCtrlModalEl = document.getElementById('reserved-ctrl-modal');
 const openReservedCtrl = makeModalOpener(reservedCtrlModalEl, 'reserved-ctrl-close');
 // E6.1 (FR-24) — Keyboard Shortcuts info modal; initialFocus = Close (no destructive default).
+// projectShortcuts — the SINGLE writer of the modal body, rendered from SHORTCUT_GROUPS
+// (the same registry chrome.js/keyboard.js match chords against) so the advertised chords
+// can never drift from the live handlers (code-review #7). Rebuilt on each open (cheap;
+// static trusted data → textContent, no escaping needed). Null-guarded so the no-markup
+// harness never throws. Passed as makeModalOpener's onOpen (like projectAboutBuild).
 const keyboardShortcutsModalEl = document.getElementById('keyboard-shortcuts-modal');
-const openKeyboardShortcuts = makeModalOpener(keyboardShortcutsModalEl, 'keyboard-shortcuts-close');
+function projectShortcuts() {
+    const body = keyboardShortcutsModalEl?.querySelector('.modal-body');
+    if (!body) return;
+    body.textContent = '';   // idempotent rebuild — drop any prior render
+    for (const group of SHORTCUT_GROUPS) {
+        const h = document.createElement('h3');
+        h.className = 'shortcut-group';
+        h.textContent = group.heading;
+        body.appendChild(h);
+        for (const row of group.rows) {
+            const div = document.createElement('div');
+            div.className = 'shortcut-row';
+            const kbd = document.createElement('kbd');
+            kbd.textContent = row.keys;
+            const act = document.createElement('span');
+            act.className = 'act';
+            act.textContent = row.act;
+            div.append(kbd, act);
+            body.appendChild(div);
+        }
+        if (group.hint) {
+            const p = document.createElement('p');
+            p.className = 'hint';
+            p.textContent = group.hint;
+            body.appendChild(p);
+        }
+    }
+}
+const openKeyboardShortcuts = makeModalOpener(keyboardShortcutsModalEl, 'keyboard-shortcuts-close', projectShortcuts);
+// E6.2 (FR-25, AD-8) — About Beastty info modal; initialFocus = Close (no destructive
+// default). The ONE wrinkle vs E6.1: the Build/Built rows are dynamic, so openAbout
+// passes projectAboutBuild as makeModalOpener's onOpen (3rd arg) to project the live
+// build stamp just before showModal — the same use-time seam openSlideConfig uses below.
+const aboutModalEl = document.getElementById('about-modal');
+// projectAboutBuild — the SINGLE writer of the About modal's dynamic build fields. Reads
+// window.__buildInfo (the SAME object #status-build renders via status-bar.js:setBuild —
+// fed by main.js's build-info import below), so About and the bar can never drift
+// (FR-25 / PRD:464). Read fresh at open time, NOT snapshotted at boot: the import resolves
+// a microtask after boot and the modal opens well after that. Falls back to the unbuilt
+// stamp if the import hasn't resolved. builtAt renders '—' when null (no literal "null").
+// Every getElementById is null-guarded — the render/no-markup harness must never throw.
+function projectAboutBuild() {
+    const info = window.__buildInfo || { sha: BUILD_UNKNOWN_SHA, builtAt: null };
+    const shaEl = document.getElementById('about-build-sha');
+    if (shaEl) shaEl.textContent = info.sha ?? BUILD_UNKNOWN_SHA;
+    const builtEl = document.getElementById('about-built-at');
+    if (builtEl) builtEl.textContent = info.builtAt || '—';
+}
+const openAbout = makeModalOpener(aboutModalEl, 'about-close', projectAboutBuild);
 // E3.4 (FR-20) — SLIDE File Transfer modal; initialFocus = Save-to-folder checkbox.
 // onOpen re-projects the auto-send validity cue from the LIVE stored command (not the
 // boot snapshot — the hint lives in this modal and the use-time gate fires while closed).
@@ -427,7 +485,13 @@ const menuBar = wireMenuBar({
             return;   // picker cancelled / no match — keep the current connection
         }
         if (getState() === 'connected') await disconnect();
-        connectMicroBeast(undefined, selectedPort);
+        // Floating on purpose (the picker already ran under user activation), but
+        // .catch-guarded: connectMicroBeast swallows open()/picker errors internally,
+        // yet a throw BEFORE its try (e.g. a state observer rejecting in setState
+        // 'connecting') would otherwise surface as an unhandledrejection and abort the
+        // board switch after the old port is already torn down. Mirrors the pre-refactor
+        // disconnect().catch(()=>{}) guard this call replaced.
+        connectMicroBeast(undefined, selectedPort).catch(() => {});
     },
     // Epic E3 Story E3.2 (FR-18/FR-19, AD-3) — Settings ▸ Local echo / Enter-key-sends
     // drive the SAME keyboard.js live setters the legacy #local-echo / #crlf-* controls
@@ -450,6 +514,10 @@ const menuBar = wireMenuBar({
     // #keyboard-shortcuts-modal via openModal. Injected like openReservedCtrl (menu-bar
     // imports neither modal.js nor this opener — AD-3).
     openKeyboardShortcuts,
+    // Epic E6 Story E6.2 (FR-25, AD-3/AD-8) — Help ▸ About Beastty… opens the
+    // #about-modal via openModal. Injected like openKeyboardShortcuts; its projectAboutBuild
+    // onOpen fills the live build stamp before showModal (menu-bar imports no modal.js — AD-3).
+    openAbout,
     // Epic E3 Story E3.4 (FR-20, AD-3/AD-8) — Settings ▸ SLIDE File Transfer… opens the
     // #slide-config-modal via openModal. Injected like openSerialConfig / openReservedCtrl
     // (menu-bar imports neither modal.js nor slide*.js — AD-3).
@@ -505,7 +573,7 @@ import('./pkg/build-info.js')
         // One fallback object, fed to both readers (console + Help ▸ About via
         // __buildInfo, and the bar via setBuild) so the "unbuilt" wording can never
         // drift between them.
-        const fallback = { sha: 'unknown (unbuilt)', builtAt: null };
+        const fallback = { sha: BUILD_UNKNOWN_SHA, builtAt: null };
         window.__buildInfo = fallback;
         statusBar.setBuild(fallback);
     });
