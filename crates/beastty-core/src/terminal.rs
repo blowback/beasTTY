@@ -27,6 +27,16 @@ pub struct Terminal {
     graphics_mode: bool,
     alt_keypad: bool,
     hold_screen: bool,
+    /// Optional autowrap — Settings ▸ "Wrap long lines" (JS injects via
+    /// `set_wrap`). VT52 has no autowrap by default; when `wrap` is false,
+    /// `print()` overstrikes the last column exactly as before.
+    wrap: bool,
+    /// Deferred-wrap latch. Set when a printable char lands in the last column
+    /// with `wrap` on; the row advance to col 0 fires on the NEXT printable
+    /// char (xterm/VT100 semantics — an exactly-full line + CR/LF makes no
+    /// spurious blank line). Cleared by every cursor-repositioning op. Never
+    /// armed while `wrap` is off.
+    pending_wrap: bool,
     /// Phase 2 pack-on-read scratch buffer (D-01 / D-04).
     ///
     /// Populated by `snapshot_grid()` — a row-major memcpy of the visible
@@ -57,6 +67,8 @@ impl Terminal {
             graphics_mode: false,
             alt_keypad: false,
             hold_screen: false,
+            wrap: false,
+            pending_wrap: false,
             pack_buf: Vec::new(),
         }
     }
@@ -131,6 +143,13 @@ impl Terminal {
     pub fn cols(&self) -> u32 {
         self.scrollback.cols() as u32
     }
+    /// Total retained rows (visible window + scrollback history). JS uses this
+    /// to clamp the scroll offset so display and selection agree (a scroll
+    /// offset above `total_len - rows` would over-scroll: the render clamps
+    /// internally but selection coords would not, diverging the two).
+    pub fn total_len(&self) -> u32 {
+        self.scrollback.total_len() as u32
+    }
     pub fn bell_pending(&self) -> bool {
         self.bell_pending
     }
@@ -164,10 +183,21 @@ impl Terminal {
         self.dirty.mark_all();
         self.cursor_row = self.cursor_row.min(rows.saturating_sub(1));
         self.cursor_col = self.cursor_col.min(cols.saturating_sub(1));
+        self.pending_wrap = false; // cursor repositioned — drop any deferred-wrap latch
     }
 
     pub fn resize_scrollback(&mut self, new_cap: usize) {
         self.scrollback.resize_scrollback(new_cap);
+    }
+
+    /// Settings ▸ "Wrap long lines" (JS injects this via the `lib.rs` façade).
+    /// Enables/disables deferred autowrap at the right margin. Turning it OFF
+    /// clears any armed latch so a subsequent print overstrikes as before.
+    pub fn set_wrap(&mut self, on: bool) {
+        self.wrap = on;
+        if !on {
+            self.pending_wrap = false;
+        }
     }
 
     // --- Phase 2 wasm-boundary support (D-01 / D-04) ---
@@ -234,6 +264,7 @@ impl Terminal {
         self.dirty.mark_all();
         self.cursor_row = 0;
         self.cursor_col = 0;
+        self.pending_wrap = false; // cursor homed — drop any deferred-wrap latch
     }
 
     /// Pointer to the pack buffer's first byte. Stable across `feed()`,
@@ -261,11 +292,24 @@ impl Terminal {
 
     pub(crate) fn print(&mut self, byte: u8) {
         let cols = self.scrollback.cols() as u32;
+        // Deferred autowrap (Settings ▸ "Wrap long lines"): a prior char filled
+        // the last column and armed the latch. The row advance happens HERE, on
+        // the next printable — so an exactly-full line followed by CR/LF wraps
+        // cleanly with no spurious blank line. `line_feed()` is the same
+        // scroll-aware primitive LF uses (scrolls via `push_line` at the
+        // bottom). Consumed BEFORE row/col are read so the write lands at the
+        // wrapped position.
+        if self.wrap && self.pending_wrap {
+            self.line_feed();
+            self.cursor_col = 0;
+            self.pending_wrap = false;
+        }
         let row = self.cursor_row as usize;
         let col = self.cursor_col as usize;
-        // Bounds-safe write. If the cursor is at last col, we still write
-        // there then leave cursor at last col (no auto-wrap in VT52 by default;
-        // MicroBeast capture may reveal different behavior, record as follow-up).
+        // Bounds-safe write. With wrap OFF, a char at the last col is written
+        // there and the cursor stays put (overstrike — no auto-wrap in VT52 by
+        // default). With wrap ON, the last-col write instead ARMS pending_wrap
+        // below so the NEXT printable advances the row.
         let row_ref = self.scrollback.row_mut(row);
         if col < row_ref.len() {
             // Graphics-mode (ESC F / ESC G): bytes 0x60..=0x7F are remapped to
@@ -283,7 +327,13 @@ impl Terminal {
         self.dirty.mark(row);
         if self.cursor_col + 1 < cols {
             self.cursor_col += 1;
+        } else if self.wrap {
+            // At the last column with wrap on: arm the deferred latch instead
+            // of clamping. Do NOT advance the row yet — the wrap fires on the
+            // next printable char (see the latch consumption at the top).
+            self.pending_wrap = true;
         }
+        // else (wrap off): clamp — cursor stays at the last col (overstrike).
     }
 
     pub(crate) fn execute_c0(&mut self, byte: u8) {
@@ -295,22 +345,26 @@ impl Terminal {
             0x08 => {
                 // BS
                 self.cursor_col = self.cursor_col.saturating_sub(1);
+                self.pending_wrap = false; // cursor repositioned — drop the latch
             }
             0x09 => {
                 // HT — advance to next multiple of 8; clamp at cols-1.
                 let cols = self.scrollback.cols() as u32;
                 let next = ((self.cursor_col / 8) + 1) * 8;
                 self.cursor_col = next.min(cols.saturating_sub(1));
+                self.pending_wrap = false; // cursor repositioned — drop the latch
             }
             0x0A => {
                 // LF — PARSER-07 finding: capture-01 shows CP/M emits LF-only.
                 // Default `lf_implies_cr = true` — LF resets column AND advances row.
                 self.line_feed();
                 self.cursor_col = 0;
+                self.pending_wrap = false; // cursor repositioned — drop the latch
             }
             0x0D => {
                 // CR — column to 0, row unchanged.
                 self.cursor_col = 0;
+                self.pending_wrap = false; // cursor repositioned — drop the latch
             }
             _ => {
                 // D-15: silent discard
@@ -319,11 +373,13 @@ impl Terminal {
     }
 
     pub(crate) fn cursor_up(&mut self) {
+        self.pending_wrap = false; // cursor repositioned — drop the deferred-wrap latch
         if self.cursor_row > 0 {
             self.cursor_row -= 1;
         }
     }
     pub(crate) fn cursor_down(&mut self) {
+        self.pending_wrap = false; // cursor repositioned — drop the deferred-wrap latch
         let max = self.scrollback.visible_rows() as u32;
         if self.cursor_row + 1 < max {
             self.cursor_row += 1;
@@ -331,22 +387,26 @@ impl Terminal {
         // ESC B does NOT scroll at bottom per DEC VT52 (RESEARCH opcode table).
     }
     pub(crate) fn cursor_right(&mut self) {
+        self.pending_wrap = false; // cursor repositioned — drop the deferred-wrap latch
         let max = self.scrollback.cols() as u32;
         if self.cursor_col + 1 < max {
             self.cursor_col += 1;
         }
     }
     pub(crate) fn cursor_left(&mut self) {
+        self.pending_wrap = false; // cursor repositioned — drop the deferred-wrap latch
         if self.cursor_col > 0 {
             self.cursor_col -= 1;
         }
     }
     pub(crate) fn cursor_home(&mut self) {
+        self.pending_wrap = false; // cursor repositioned — drop the deferred-wrap latch
         self.cursor_row = 0;
         self.cursor_col = 0;
     }
     pub(crate) fn reverse_lf(&mut self) {
         // ESC I: cursor up; if at top, scroll DOWN (insert blank row at top).
+        self.pending_wrap = false; // cursor repositioned — drop the deferred-wrap latch
         if self.cursor_row > 0 {
             self.cursor_row -= 1;
         } else {
@@ -388,6 +448,7 @@ impl Terminal {
         let max_col = self.scrollback.cols() as u32;
         self.cursor_row = row.min(max_row.saturating_sub(1));
         self.cursor_col = col.min(max_col.saturating_sub(1));
+        self.pending_wrap = false; // cursor repositioned — drop the deferred-wrap latch
     }
     pub(crate) fn emit_identify_reply(&mut self) {
         // PARSER-05: ESC Z -> ESC / K (three bytes).
@@ -866,5 +927,144 @@ mod tests {
         // Row 0 got marked dirty by the print of 'X'.
         let first_byte = unsafe { *ptr };
         assert_eq!(first_byte, slice[0]);
+    }
+
+    // --- Settings ▸ "Wrap long lines" — deferred autowrap (set_wrap) ---
+
+    fn ch_at(term: &Terminal, row: usize, col: usize) -> u32 {
+        term.grid().row(row).as_slice()[col].ch
+    }
+
+    #[test]
+    fn wrap_off_overstrikes_last_column() {
+        // Default (wrap off): filling past the last column overstrikes col 79,
+        // cursor never leaves it — the pre-existing VT52 clamp, unchanged.
+        let mut term = t();
+        term.feed(&vec![b'A'; 80]); // fill cols 0..=79
+        assert_eq!(term.cursor(), (0, 79));
+        term.feed(b"XY"); // two more printables
+        assert_eq!(term.cursor(), (0, 79), "cursor stays clamped at last col");
+        assert_eq!(ch_at(&term, 0, 79), b'Y' as u32, "last write overstrikes col 79");
+        // Nothing wrapped onto row 1.
+        assert_eq!(ch_at(&term, 1, 0), Cell::BLANK.ch);
+    }
+
+    #[test]
+    fn wrap_on_defers_then_advances_on_next_printable() {
+        let mut term = t();
+        term.set_wrap(true);
+        term.feed(&vec![b'A'; 80]); // fill row 0
+        // Deferred: the 80th char parks the cursor at (0,79); no advance yet.
+        assert_eq!(term.cursor(), (0, 79));
+        assert_eq!(ch_at(&term, 0, 79), b'A' as u32);
+        // The NEXT printable triggers the wrap to (1,0), then advances to (1,1).
+        term.feed(b"X");
+        assert_eq!(term.cursor(), (1, 1));
+        assert_eq!(ch_at(&term, 1, 0), b'X' as u32);
+    }
+
+    #[test]
+    fn wrap_on_full_line_then_crlf_makes_no_blank_line() {
+        // The core correctness point of deferred wrap: 80 chars + CR + LF must
+        // NOT insert a spurious blank line. The char after the CRLF lands on
+        // row 1 (not row 2 — which an immediate/eager wrap would produce).
+        let mut term = t();
+        term.set_wrap(true);
+        term.feed(&vec![b'A'; 80]); // latch armed at (0,79)
+        term.feed(b"\x0D"); // CR — clears the latch, col -> 0
+        term.feed(b"\x0A"); // LF — advances one row
+        assert_eq!(term.cursor(), (1, 0));
+        term.feed(b"B");
+        assert_eq!(term.cursor(), (1, 1));
+        assert_eq!(ch_at(&term, 1, 0), b'B' as u32, "B lands on row 1, not row 2");
+        assert_eq!(ch_at(&term, 2, 0), Cell::BLANK.ch, "no blank line inserted");
+    }
+
+    #[test]
+    fn wrap_on_at_bottom_row_scrolls() {
+        let mut term = t();
+        term.set_wrap(true);
+        term.feed(b"\x1BY\x37\x20"); // ESC Y -> (row 23, col 0)
+        assert_eq!(term.cursor(), (23, 0));
+        term.feed(&vec![b'A'; 80]); // fill the bottom row, latch armed at (23,79)
+        term.feed(b"X"); // wrap at the bottom must scroll, not overflow
+        assert_eq!(term.cursor(), (23, 1), "stays on the last visible row after scroll");
+        assert_eq!(ch_at(&term, 23, 0), b'X' as u32);
+        // The row of 'A's scrolled up into row 22.
+        assert_eq!(ch_at(&term, 22, 79), b'A' as u32);
+    }
+
+    #[test]
+    fn wrap_latch_cleared_by_cursor_move() {
+        // A cursor reposition between the last-col write and the next printable
+        // cancels the deferred wrap. ESC C (cursor right) at col 79 is a no-op
+        // move but still clears the latch, so the next char overstrikes col 79
+        // instead of wrapping.
+        let mut term = t();
+        term.set_wrap(true);
+        term.feed(&vec![b'A'; 80]); // latch armed at (0,79)
+        term.feed(b"\x1BC"); // ESC C — cursor_right (clamped, clears latch)
+        term.feed(b"X");
+        assert_eq!(term.cursor(), (0, 79), "no wrap — cursor stayed on row 0");
+        assert_eq!(ch_at(&term, 0, 79), b'X' as u32, "X overstrikes col 79");
+        assert_eq!(ch_at(&term, 1, 0), Cell::BLANK.ch, "nothing wrapped to row 1");
+    }
+
+    #[test]
+    fn wrap_latch_cleared_by_row_change() {
+        // The subtle case: a move that changes the ROW but leaves the column at
+        // 79 (ESC A / cursor_up) must still cancel the deferred wrap — the latch
+        // is a logical margin position, not just "col == last".
+        let mut term = t();
+        term.set_wrap(true);
+        term.feed(b"\x1BY\x25\x6F"); // ESC Y -> (row 5, col 79)
+        term.feed(&vec![b'A'; 1]); // one char at (5,79) fills the last col, latch armed
+        assert_eq!(term.cursor(), (5, 79));
+        term.feed(b"\x1BA"); // ESC A — cursor_up to (4,79), clears the latch
+        assert_eq!(term.cursor(), (4, 79));
+        term.feed(b"X");
+        // No wrap: X overstrikes (4,79); cursor did not drop to row 5.
+        assert_eq!(term.cursor(), (4, 79));
+        assert_eq!(ch_at(&term, 4, 79), b'X' as u32);
+    }
+
+    #[test]
+    fn wrap_latch_cleared_by_direct_address() {
+        // ESC Y (move_cursor) repositions absolutely and must clear the latch.
+        let mut term = t();
+        term.set_wrap(true);
+        term.feed(&vec![b'A'; 80]); // latch armed at (0,79)
+        term.feed(b"\x1BY\x2A\x2A"); // ESC Y -> (10, 10)
+        assert_eq!(term.cursor(), (10, 10));
+        term.feed(b"X");
+        // No wrap: X lands at (10,10) and advances to (10,11).
+        assert_eq!(term.cursor(), (10, 11));
+        assert_eq!(ch_at(&term, 10, 10), b'X' as u32);
+    }
+
+    #[test]
+    fn wrap_latch_survives_bel() {
+        // BEL does not reposition the cursor, so it must NOT clear the latch.
+        let mut term = t();
+        term.set_wrap(true);
+        term.feed(&vec![b'A'; 80]); // latch armed
+        term.feed(b"\x07"); // BEL
+        assert!(term.bell_pending());
+        term.feed(b"B"); // still wraps
+        assert_eq!(term.cursor(), (1, 1));
+        assert_eq!(ch_at(&term, 1, 0), b'B' as u32);
+    }
+
+    #[test]
+    fn set_wrap_false_clears_pending_latch() {
+        // Toggling wrap off mid-latch drops the armed wrap immediately.
+        let mut term = t();
+        term.set_wrap(true);
+        term.feed(&vec![b'A'; 80]); // latch armed at (0,79)
+        term.set_wrap(false);
+        term.feed(b"B");
+        assert_eq!(term.cursor(), (0, 79), "no wrap after wrap disabled");
+        assert_eq!(ch_at(&term, 0, 79), b'B' as u32, "B overstrikes col 79");
+        assert_eq!(ch_at(&term, 1, 0), Cell::BLANK.ch);
     }
 }

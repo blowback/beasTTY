@@ -105,10 +105,16 @@ export function scrollByPage(direction) {
 
 export function jumpToTop() {
     if (!termRef) return;
-    // D-05 — clamp to scrollback length minus visible_rows.
-    // term.snapshot_grid_at clamps internally per D-06; using a large bounded
-    // value here lets the Rust side do the clamp without us tracking total_len.
-    setOffset(Number.MAX_SAFE_INTEGER);
+    // D-05 — jump to the oldest retained row: offset = total_len - visible_rows.
+    setOffset(maxOffset());
+}
+
+// Largest in-range scroll offset: the viewport's top row sits on the oldest
+// retained row. Beyond this the render clamps but selection coords would not,
+// so setOffset caps here to keep display and copy in agreement.
+function maxOffset() {
+    if (!termRef) return 0;
+    return Math.max(0, termRef.total_len() - termRef.rows());
 }
 
 export function snapToBottom() {
@@ -164,8 +170,13 @@ export function dispose() {
 }
 
 function setOffset(next) {
-    // Clamp to >= 0; upper bound is enforced by term.snapshot_grid_at which clamps internally.
-    const clamped = Math.max(0, next);
+    // Clamp to [0, maxOffset]. The upper bound (total_len - visible_rows) keeps
+    // the offset in range so the RENDER (snapshot_grid_at, which clamps
+    // internally) and SELECTION (tail-relative row coords, which do NOT clamp)
+    // stay in agreement. An over-scrolled offset rendered the oldest screen but
+    // left selection coords out of range, so a scrolled-back copy read blank or
+    // mismatched rows.
+    const clamped = Math.max(0, Math.min(maxOffset(), next));
     if (clamped === offset) return;
     const wasScrolled = offset > 0;
     offset = clamped;

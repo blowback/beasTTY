@@ -36,11 +36,25 @@
 
     /* ==== CSS custom properties (UI-SPEC §Color chrome tokens) ==== */
     :root {
-      /* Clean-theme defaults; [data-theme="crt"] overrides below. */
+      /* Neutral shell chrome tokens (AD-9 / NFR-2). E7.1 — with #top-bar gone,
+         these base values are the SOLE source for --chrome-* everywhere; the old
+         [data-theme="crt"] override + the #menu-bar/#status-bar pins that fought it
+         are retired, so chrome renders identically across Console↔CRT with no pin. */
       --chrome-bg:     #1e242c;
       --chrome-fg:     #e4e8ee;
       --chrome-accent: #7fdbca;
       --chrome-border: rgba(255, 255, 255, 0.08);
+      /* Epic E1 Story E1.1 — neutral-shell tokens (DESIGN.md :7-18, verbatim
+         from the throwaway chrome mock). Reused by #menu-bar; NOT a new
+         palette (DESIGN.md:118 "reuse the existing :root tokens"). --chrome-muted
+         and --field-bg are theme-independent by design; the four --status-*
+         values are the discrete connection-dot states (never animated). */
+      --chrome-muted:  rgba(255, 255, 255, 0.6);
+      --field-bg:      #0f1419;
+      --status-green:  #33ff66;
+      --status-amber:  #e0b030;
+      --status-red:    #e04040;
+      --status-gray:   rgba(255, 255, 255, 0.4);
       /* Phase 12 Plan 12-06 (Gap 2 — UAT Test 7) — strong invalid tone. Used
          ONLY by the security-relevant auto-send command field per the user's
          locked design call (2026-05-09): "it's a serious matter so red is
@@ -56,11 +70,11 @@
       --phosphor-fg:   #33ff66;
       --phosphor-bg:   #0a0f0a;
     }
-    [data-theme="crt"] {
-      --chrome-bg:     #0a0a0a;
-      --chrome-fg:     var(--phosphor-fg);
-      --chrome-accent: var(--phosphor-fg);
-    }
+    /* Epic E7 Story E7.1 (AD-9) — the [data-theme="crt"] chrome-var override
+       retired with #top-bar. --chrome-* no longer flips with the terminal theme, so
+       the chrome (menu bar, dropdowns, modals, status bar, paste toast) renders
+       identically in CRT and Console. Only the terminal canvas + scanlines still
+       respond to [data-theme="crt"]. */
 
     /* ==== Page layout ==== */
     html, body {
@@ -73,36 +87,176 @@
       min-height: 100vh;
     }
 
-    /* ==== Top bar (UI-SPEC §Layout Contract) ==== */
-    #top-bar {
-      position: sticky; top: 0; z-index: 10;
-      display: flex; align-items: center; gap: 16px;
-      padding: 8px 16px;
+    /* ==== Menu bar shell (Epic E1 Story E1.1) — neutral modern chrome ==== */
+    /* AD-9 / NFR-2 / AC-5: renders IDENTICALLY across Console↔CRT. E7.1 — the
+       scoped --chrome-* pin retired with #top-bar's [data-theme="crt"] override
+       (there is nothing left to override, so the :root neutral values stand). No
+       theme selector, no phosphor var, no box-shadow (depth = tone + 1px hairlines). */
+    #menu-bar {
+      position: sticky; top: 0; z-index: 20;
+      /* <body> is a centering flex column (index.html:212), so a bare flex
+         child shrink-wraps and centres. Stretch to fill the cross axis so the
+         bar spans full width and the status region right-aligns (AC-1). */
+      align-self: stretch;
+      display: flex; align-items: center; gap: 2px;
+      height: 32px;
+      padding: 0 6px;
       background: var(--chrome-bg);
       border-bottom: 1px solid var(--chrome-border);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     }
-    #top-bar button {
-      font-family: inherit; font-size: 14px;
-      padding: 4px 8px;
-      background: transparent;
-      color: var(--chrome-fg);
+    #menu-bar .menu-group { position: relative; display: flex; align-items: center; }
+    #menu-bar .menu-title {
+      appearance: none; border: none; background: transparent;
+      font-family: inherit; font-size: 14px; color: var(--chrome-fg);
+      padding: 5px 10px; border-radius: 4px;
+      cursor: default; white-space: nowrap;
+    }
+    #menu-bar .menu-title:hover,
+    #menu-bar .menu-title[data-open="true"] {
+      background: var(--chrome-accent); color: var(--chrome-bg);
+    }
+    #menu-bar .menu-spacer { flex: 1; }
+    #menu-bar .menu-status {
+      display: flex; align-items: center; gap: 8px;
+      padding: 0 8px; color: var(--chrome-muted); font-size: 13px; white-space: nowrap;
+    }
+    /* Shared connection-dot (E2.1 AC-3, UX-DR3) — the single intentional circle in
+       the chrome (DESIGN.md:180). Discrete state colours, never animated; red reserved
+       for port-lost; disconnected uses the base --status-gray (no explicit rule). BOTH
+       #menu-conn-dot and #status-conn-dot carry .conn-dot, so the two dots that render
+       the SAME serial state can never diverge — one source for the state→colour map. */
+    .conn-dot {
+      width: 9px; height: 9px; flex: 0 0 9px;
+      border-radius: 50%;
+      background: var(--status-gray);
+    }
+    .conn-dot[data-state="connecting"],
+    .conn-dot[data-state="reconnecting"] { background: var(--status-amber); }
+    .conn-dot[data-state="connected"]    { background: var(--status-green); }
+    .conn-dot[data-state="port-lost"]    { background: var(--status-red); }
+
+    /* ==== Bottom status bar (Epic E4 Story E4.1) — new surface, fed never owned ==== */
+    /* AD-9 / NFR-2: renders IDENTICALLY across Console↔CRT. E7.1 — the scoped
+       --chrome-* pin retired with #top-bar's [data-theme="crt"] override (the :root
+       neutral values stand) — no phosphor var, no [data-theme] selector, no
+       box-shadow. --chrome-border/--chrome-muted and --status-* are theme-independent.
+       Layout: a flex child of the min-height:100vh body flex-column — align-self:stretch
+       gives full width (body is align-items:center), margin-top:auto pins it to the
+       bottom, position:sticky keeps it at the viewport bottom on scroll. Composition
+       mirrors the mockup .statusbar (26px, gap:16px, padding:0 12px, chrome-border top
+       hairline). z-index above the canvas. */
+    #status-bar {
+      position: sticky; bottom: 0;
+      align-self: stretch; width: 100%;
+      margin-top: auto;
+      box-sizing: border-box;
+      display: flex; align-items: center; gap: 16px;
+      height: 26px; flex: 0 0 26px;
+      padding: 0 12px;
+      background: var(--chrome-bg);
+      border-top: 1px solid var(--chrome-border);
+      color: var(--chrome-muted);
+      font-size: 12px;
+      z-index: 20;
+    }
+    /* Connection group: dot + device/baud line. The device text is brighter than
+       the bar's muted default (mockup .sb-device). */
+    #status-bar .sb-conn { display: flex; align-items: center; gap: 8px; }
+    #status-bar #port-status { color: var(--chrome-fg); }
+    /* E4.2 right group (mockup .sb-right) — build SHA + zoom, pinned to the right
+       edge (margin-left:auto). Both spans inherit the bar's muted default: no new
+       tokens, no accent, no [data-theme] branch (AD-9 neutral shell). */
+    #status-bar .sb-right { margin-left: auto; display: flex; gap: 18px; }
+    /* E4.3 recent-errors affordance (FR-28, UX-DR14) — a native <button> reset to
+       read as inline bar text (the bar's muted default), so it sits between the
+       connection group and the right group visually as a plain hint. Amber ONLY
+       while errors exist (data-has-errors="true") — amber = "action required"
+       (DESIGN.md), spent here just when there is something to see. No new tokens,
+       no [data-theme] branch (AD-9 neutral shell). The #status-bar gap:16px already
+       spaces it from its neighbours. */
+    #status-bar #status-errors {
+      appearance: none; -webkit-appearance: none;
+      background: none; border: 0; padding: 0; margin: 0;
+      font: inherit; color: var(--chrome-muted); cursor: pointer;
+    }
+    #status-bar #status-errors[data-has-errors="true"] { color: var(--status-amber); }
+    /* #status-conn-dot colours come from the shared .conn-dot rule set above (defined
+       alongside #menu-conn-dot) — UX-DR3 discrete colours, NO box-shadow (DESIGN.md
+       no-glow overrides the mockup), NO transition (the dot snaps). */
+    /* Dropdown panel — md 6px, 1px hairline, NO box-shadow (UX-DR5). Opens below
+       its own title because it is an absolutely-positioned child of the
+       position:relative .menu-group — so no inline left offset is ever set. */
+    #menu-bar .dropdown {
+      position: absolute; top: 100%; left: 0; margin-top: 1px;
+      min-width: 240px;
+      background: var(--chrome-bg);
       border: 1px solid var(--chrome-border);
-      cursor: pointer;
+      border-radius: 6px;
+      padding: 5px;
+      z-index: 30;
     }
-    #top-bar button:hover,
-    #top-bar button:focus-visible {
-      border-color: var(--chrome-accent);
-      outline: none;
+    #menu-bar .dropdown[hidden] { display: none; }
+    #menu-bar .menu-item {
+      appearance: none; border: none; background: transparent;
+      font-family: inherit; font-size: 14px; color: var(--chrome-fg);
+      display: flex; align-items: center; gap: 10px;
+      width: 100%; text-align: left;
+      padding: 6px 10px; border-radius: 4px;
+      cursor: default; white-space: nowrap;
     }
-    #phosphor-group {
-      display: flex; gap: 4px;
+    /* E2.2 — the [hidden] "Choose MicroBeast…" row: the explicit display:flex
+       above outranks the UA [hidden]{display:none} rule (same reason the
+       .dropdown / .submenu rules above re-declare it), so restore it here. */
+    #menu-bar .menu-item[hidden] { display: none; }
+    /* Highlight is attribute-driven ([data-focused]) + :hover — NOT :focus-visible.
+       Solid chrome-accent fill + chrome-bg text (spec beats the mock's tint). */
+    #menu-bar .menu-item:hover,
+    #menu-bar .menu-item[data-focused="true"] {
+      background: var(--chrome-accent); color: var(--chrome-bg);
     }
-    #phosphor-group[hidden] { display: none; }
-    #phosphor-group button[aria-pressed="true"] {
-      border-color: var(--chrome-accent);
-      background: var(--chrome-accent);
-      color: var(--chrome-bg);
+    #menu-bar .menu-item:hover .check,
+    #menu-bar .menu-item:hover .hint,
+    #menu-bar .menu-item:hover .caret,
+    #menu-bar .menu-item[data-focused="true"] .check,
+    #menu-bar .menu-item[data-focused="true"] .hint,
+    #menu-bar .menu-item[data-focused="true"] .caret { color: var(--chrome-bg); }
+    #menu-bar .menu-item[data-disabled="true"] { color: var(--chrome-muted); }
+    #menu-bar .menu-item[data-disabled="true"]:hover {
+      background: none; color: var(--chrome-muted);
     }
+    #menu-bar .menu-item .check { width: 14px; text-align: center; color: var(--chrome-accent); }
+    #menu-bar .menu-item .lbl { flex: 1; }
+    #menu-bar .menu-item .hint { color: var(--chrome-muted); font-size: 12px; }
+    #menu-bar .menu-item .caret { color: var(--chrome-muted); font-size: 12px; }
+    #menu-bar .menu-sep { height: 1px; background: var(--chrome-border); margin: 5px 8px; }
+
+    /* Epic E1 Story E1.4 — radio submenu (right-flyout). Token-safe (only
+       --chrome-*), no drop shadow (UX-DR5). .submenu-group anchors the panel to
+       its parent row; the panel sits above the parent dropdown (z 31 > 30). */
+    #menu-bar .submenu-group { position: relative; }
+    #menu-bar .submenu {
+      position: absolute; left: 100%; top: -5px;
+      min-width: 168px;
+      background: var(--chrome-bg);
+      border: 1px solid var(--chrome-border);
+      border-radius: 6px;
+      padding: 5px;
+      z-index: 31;
+    }
+    #menu-bar .submenu[hidden] { display: none; }
+
+    /* E1.2 — visually-hidden but still in the accessibility tree (clip idiom,
+       NOT display:none) for the #menu-bar-live aria-live announcer. No palette
+       tokens → theme-neutral. */
+    .sr-only {
+      position: absolute; width: 1px; height: 1px;
+      padding: 0; margin: -1px; overflow: hidden;
+      clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+    }
+
+    /* Epic E7 Story E7.1 — #top-bar CSS removed with the container (AD-7). Its
+       controls relocated to the menu/status bars + the centered #paste-toast. */
 
     /* ==== Terminal wrapper + overlays (UI-SPEC §Layout + D-13 focus) ==== */
     #terminal-wrapper {
@@ -222,27 +376,54 @@
       outline-offset: 2px;
     }
 
-    /* ==== Phase 11 Settings SLIDE sub-block form controls ==== */
-    /* Auto-send <input type="text"> + Compatibility mode <select> share the
-       Phase 5 #connection select idiom EXCEPT padding is normalized to 4px
-       (multiple of 4) per UI-SPEC §Spacing §Phase 5 legacy spacing — divergence
-       note. Phase 5 #connection select still uses legacy padding: 2px 4px. */
-    #settings-slide #slide-auto-send-input,
-    #settings-slide #slide-compat-select {
+    /* ==== Centered paste toast (Epic E7 Story E7.1 — FR-29 / AD-16 / UX-DR15) ==== */
+    /* Small transient chip CENTERED over the canvas (translate(-50%,-50%)) — a
+       distinct location from the top-right #slide-chip and the bottom-right
+       #scrollback-indicator. Neutral shell (AD-9 / NFR-2): var(--chrome-*) tokens
+       only, 1px hairline, NO [data-theme="crt"] branch (unlike #slide-chip above,
+       which the toast deliberately does NOT copy), NO box-shadow. */
+    #paste-toast {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      z-index: 5;
       font-family: inherit;
-      font-size: 13px;
+      font-size: 12px;
+      padding: 6px 10px;
       background: var(--chrome-bg);
       color: var(--chrome-fg);
       border: 1px solid var(--chrome-border);
-      padding: 4px;
+      border-radius: 4px;
+      cursor: default;
+      white-space: nowrap;
+      max-width: calc(100% - 16px);
     }
-    #settings-slide #slide-auto-send-input { width: 200px; }
-    #settings-slide #slide-auto-send-input:focus-visible,
-    #settings-slide #slide-compat-select:focus-visible {
-      border-color: var(--chrome-accent);
-      outline: none;
+    #paste-toast[hidden] { display: none; }
+    #paste-toast:focus-visible {
+      outline: 2px solid var(--chrome-accent);
+      outline-offset: 2px;
     }
-    /* Keyboard-only :focus-visible still applied to top-bar buttons (unchanged). */
+    #paste-toast button.paste-inline {
+      margin-left: 6px;
+      padding: 0 4px;
+      background: transparent;
+      color: inherit;
+      border: 1px solid currentColor;
+      border-radius: 2px;
+      font-family: inherit;
+      font-size: inherit;
+      cursor: pointer;
+    }
+    #paste-toast button.paste-inline[hidden] { display: none; }
+    #paste-toast button.paste-inline:focus-visible {
+      outline: 2px solid var(--chrome-accent);
+      outline-offset: 2px;
+    }
+
+    /* E3.4 — the Phase 11 #settings-slide form-control CSS (auto-send input + compat
+       select) was removed with the pane; those controls now inherit the shared
+       .chrome-modal .field select / input[type="text"] rules inside #slide-config-modal. */
     #terminal { display: block; }
 
     /* Bell overlay (RESEARCH §Pattern 7 + D-08 + Pitfall #8) */
@@ -268,22 +449,30 @@
     }
     [data-theme="crt"] #scanlines { display: block; }
 
-    /* ==== Debug details (D-15) ==== */
+    /* ==== In-page debug panel (D-15; E5.1 FR-23/AD-11) ==== */
+    /* The ONE persistent in-page chrome element. Toggled from Debug ▸ Show Debug
+       Panel (default OFF). Two rules deliver "completely invisible when off, zero
+       fixture churn" (E5.1 Q1): the native <summary> disclosure paints nothing (the
+       menu is the sole toggle), and when NOT [open] the whole container generates no
+       box — no triangle, no empty bordered panel. Visibility keys off the `open`
+       attribute, so setDebugPanelVisible (menu setter / applyPrefs) AND every existing
+       `el.open = true` test fixture reveal the widgets identically. DESIGN.md
+       debug-panel tokens: field-bg bg, chrome-fg text, 1px chrome-border, rounded/sm. */
+    #debug:not([open]) { display: none; }   /* off ⇒ zero on-screen furniture (AC-3/AC-4) */
+    #debug summary { display: none; }        /* native disclosure retired — menu is the sole toggle (AC-4) */
     #debug {
       margin: 16px auto; max-width: 90ch;
       padding: 8px 16px;
-      background: var(--chrome-bg);
+      background: var(--field-bg);
+      color: var(--chrome-fg);
       border: 1px solid var(--chrome-border);
+      border-radius: 4px;                   /* rounded/sm (DESIGN.md) */
       font-size: 12px;                      /* UI-SPEC Label */
-    }
-    #debug summary {
-      cursor: pointer; font-size: 14px;
-      padding: 4px 0;
     }
     #debug textarea {
       width: 100%; box-sizing: border-box;
       font-family: inherit; font-size: 12px;
-      background: #0f1419; color: #e4e8ee;
+      background: var(--field-bg); color: var(--chrome-fg);
       border: 1px solid var(--chrome-border);
       padding: 4px;
     }
@@ -296,93 +485,16 @@
       cursor: pointer;
     }
     #debug .hint {
-      color: rgba(255,255,255,0.6);
+      color: var(--chrome-muted);
       font-size: 12px;
       margin: 4px 0;
     }
-    #debug code { background: rgba(255,255,255,0.08); padding: 0 4px; border-radius: 2px; }
+    #debug code { background: var(--chrome-border); padding: 0 4px; border-radius: 2px; }
 
-    /* ==== Phase 6 Plan 06 (Wave 5) — Settings-pane new rows (D-15, D-34, D-35) ==== */
-    /* Verbatim from 06-UI-SPEC §"CSS additions" §"Settings-pane new rows". */
-    .settings-divider {
-      border: 0;
-      border-top: 1px solid var(--chrome-border);
-      margin: 16px 0 8px 0;
-    }
-    .settings-row {
-      margin: 8px 0;
-    }
-    .settings-row button {
-      font-family: inherit; font-size: 13px;
-      padding: 4px 8px;
-      background: transparent;
-      color: var(--chrome-fg);
-      border: 1px solid var(--chrome-border);
-      cursor: pointer;
-    }
-    .settings-row button:focus-visible {
-      border-color: var(--chrome-accent);
-      outline: none;
-    }
-    .settings-row button:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-    }
-
-    /* ==== Phase 10 — SLIDE recv-to-folder Settings row inline action ==== */
-    /* Single new rule: flex-wrap the [Choose folder…] button + state string
-       onto one row with 8px gap. The label + hint above/below inherit
-       existing #settings label and #settings .hint rules verbatim. */
-    .settings-row .settings-row-action {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      margin: 4px 0 0 24px;
-    }
-    .settings-row .settings-row-action .hint {
-      margin: 0;
-    }
-
-    /* ==== Settings details (Phase 4 D-13) — mirrors #debug rule ==== */
-    #settings {
-      margin: 16px auto; max-width: 90ch;
-      padding: 8px 16px;
-      background: var(--chrome-bg);
-      border: 1px solid var(--chrome-border);
-      font-size: 12px;
-    }
-    #settings summary {
-      cursor: pointer; font-size: 14px;
-      padding: 4px 0;
-    }
-    #settings label {
-      display: inline-flex; align-items: center; gap: 4px;
-      font-size: 13px;
-      cursor: pointer;
-    }
-    #settings fieldset {
-      margin: 8px 0;
-      padding: 8px;
-      border: 1px solid var(--chrome-border);
-      display: flex; flex-wrap: wrap; gap: 16px;
-    }
-    #settings legend {
-      font-size: 13px;
-      padding: 0 4px;
-    }
-    #settings .hint {
-      color: rgba(255,255,255,0.6);
-      font-size: 12px;
-      margin: 4px 0;
-    }
-    #settings details.reserved {
-      margin-top: 8px;
-      border: 1px solid var(--chrome-border);
-      padding: 4px 8px;
-    }
-    #settings details.reserved summary {
-      font-size: 13px;
-    }
+    /* Epic E7 Story E7.1 — the Settings-pane rows (.settings-row / .settings-divider)
+       and the whole <details id="settings"> CSS block removed with the pane (AD-7).
+       Local echo / Enter-key-sends / Auto connect / Reset all preferences /
+       Browser-reserved Ctrl are now menu- and modal-authoritative. */
 
     /* TX hex strip inside Debug pane (Phase 4 D-15) */
     #tx-strip {
@@ -398,83 +510,12 @@
       min-height: 1.4em;
     }
 
-    /* ==== Connect button in top-bar (Phase 5 D-01, RESEARCH Pattern 5) ==== */
-    #connect-button {
-      padding: 4px 10px;                          /* see Spacing Exceptions */
-      background: transparent;
-      color: var(--chrome-fg);
-      border: 1px solid var(--chrome-border);     /* default gray — state: disconnected */
-      cursor: pointer;
-      font-family: inherit; font-size: 14px;
-      /* No transition on border-color — state changes are discrete events; an
-         animation would make connecting-flicker feel like "loading..." UI. */
-    }
-    #connect-button[data-state="connecting"],
-    #connect-button[data-state="reconnecting"] { border-color: #e0b030; }  /* amber */
-    #connect-button[data-state="connected"]    { border-color: #33ff66; }  /* green — literal, NOT var(--phosphor-fg) */
-    #connect-button[data-state="port-lost"]    { border-color: #e04040; }  /* red */
-    #connect-button:focus-visible              { outline: 2px solid var(--chrome-accent); outline-offset: 2px; }
-    #connect-button:disabled                   { opacity: 0.5; cursor: not-allowed; }
+    /* Epic E7 Story E7.1 — #connect-button CSS removed with #top-bar; the Connect
+       surface is now the Connection menu row + status-bar dot (AD-7 / AD-15). */
 
-    /* ==== Connection details (Phase 5 D-06) — mirrors #settings / #debug ==== */
-    #connection {
-      margin: 16px auto; max-width: 90ch;
-      padding: 8px 16px;
-      background: var(--chrome-bg);
-      border: 1px solid var(--chrome-border);
-      font-size: 12px;
-    }
-    #connection summary {
-      cursor: pointer; font-size: 14px;
-      padding: 4px 0;
-    }
-    #connection fieldset {
-      margin: 8px 0;
-      padding: 8px;
-      border: 1px solid var(--chrome-border);
-      display: flex; flex-wrap: wrap; gap: 16px;
-    }
-    #connection legend {
-      font-size: 13px;
-      padding: 0 4px;
-    }
-    #connection label {
-      display: inline-flex; flex-direction: column; gap: 4px;
-      font-size: 13px;
-      cursor: pointer;
-    }
-    #connection select {
-      font-family: inherit; font-size: 13px;
-      background: var(--chrome-bg);
-      color: var(--chrome-fg);
-      border: 1px solid var(--chrome-border);
-      padding: 2px 4px;
-    }
-    #connection select:focus-visible {
-      border-color: var(--chrome-accent);
-      outline: none;
-    }
-    #connection button {
-      font-family: inherit; font-size: 13px;
-      padding: 4px 8px;
-      background: transparent;
-      color: var(--chrome-fg);
-      border: 1px solid var(--chrome-border);
-      cursor: pointer;
-    }
-    #connection button:focus-visible {
-      border-color: var(--chrome-accent);
-      outline: none;
-    }
-    #connection .hint {
-      color: rgba(255,255,255,0.6);
-      font-size: 12px;
-      margin: 4px 0;
-    }
-    #connection #port-status {
-      font-size: 12px;
-      margin: 4px 0;
-    }
+    /* Epic E7 Story E7.1 — <details id="connection"> CSS removed with the pane
+       (AD-7). #serial-reconnect-hint below stays — it now lives in
+       #serial-config-modal (E2.3). */
     /* Phase 5 D-08 — reconnect-required hint (UI-SPEC line 554). Amber to
        match the connecting/reconnecting border signal: "action required, but
        not an error". Hidden by default via [hidden] attribute on the span. */
@@ -486,60 +527,12 @@
     }
     #serial-reconnect-hint[hidden] { display: none; }
 
-    /* Paste progress row (Phase 5 Plan 09 — relocated to #top-bar to avoid
-       auto-expand lurch; Gap 2 fix, UAT Test 6). Rides the right edge of the
-       sticky top bar so paste status is visible without shifting the canvas
-       down. #top-bar is position:sticky;top:0 so a paste in flight never
-       displaces the terminal. */
-    #top-bar #paste-progress-row {
-      display: flex; align-items: center; gap: 8px;
-      margin-left: auto;             /* push to right edge — Connect/theme/phosphor stay left */
-    }
-    #top-bar #paste-progress-row[hidden] { display: none; }
-    #top-bar #paste-progress-text {
-      font-size: 12px;
-      color: var(--chrome-fg);
-      white-space: nowrap;           /* keep the progress text on one line in the bar */
-    }
-    #top-bar #paste-progress-row button {
-      font-family: inherit; font-size: 12px;
-      padding: 2px 8px;
-      background: transparent;
-      color: var(--chrome-fg);
-      border: 1px solid var(--chrome-border);
-      cursor: pointer;
-    }
-    #top-bar #paste-progress-row button:focus-visible {
-      border-color: var(--chrome-accent);
-      outline: none;
-    }
+    /* Epic E7 Story E7.1 — the #top-bar #paste-progress-row + large-paste confirm
+       CSS removed with #top-bar; paste progress + confirm now render on the
+       centered #paste-toast (styled above beside #slide-chip). */
 
-    /* Phase 6 Plan 04 — large-paste inline confirm chip (UI-SPEC §Large-paste inline confirm chip).
-       Reuses the existing #paste-progress-row layout; the confirm button only appears when paste
-       size is >= 4096 bytes. Mirrors the Phase 5 #paste-cancel sibling to keep visual rhythm. */
-    #top-bar #paste-progress-row #paste-confirm {
-      font-family: inherit; font-size: 12px;
-      padding: 4px 8px;
-      background: transparent;
-      color: var(--chrome-fg);
-      border: 1px solid var(--chrome-border);
-      cursor: pointer;
-    }
-    #top-bar #paste-progress-row #paste-confirm:focus-visible {
-      border-color: var(--chrome-accent);
-      outline: none;
-    }
-    #top-bar #paste-progress-row #paste-confirm[hidden] { display: none; }
-
-    /* Phase 6 Plan 05 (D-31) — Download log button disabled-state hint.
-       The base button rule (#connection button) already styles padding /
-       border / hover. Disabled state lowers opacity + flips cursor so the
-       "no bytes yet" gating is glanceable without competing with the rest
-       of the connection-pane chrome. */
-    #download-log-button:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-    }
+    /* Epic E7 Story E7.1 — #download-log-button CSS removed with <details
+       id="connection">; Download Session Log is now the File-menu row (AD-7). */
 
     /* Inline error log — fixed-height ring, newest-at-top */
     #error-log {
@@ -599,16 +592,9 @@
       font-size: 12px;
     }
 
-    /* ==== Phase 9 — Top-bar [↑ Send file] button ==== */
-    /* Inherits #top-bar button rules (padding, border, hover, focus-visible)
-       verbatim. Adds the :disabled rule because the disabled-with-suffix-label
-       pattern is new in Phase 9 — no existing top-bar button uses the disabled
-       attribute. */
-    #top-bar button:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-    }
-    #send-file-input { display: none !important; }   /* defense-in-depth: native [hidden] is enough; !important guards against future stylesheet drift */
+    /* Epic E7 Story E7.1 — the [↑ Send file] top-bar button + its #send-file-input
+       CSS removed with #top-bar; Send File… is now menu-authoritative and
+       file-source.js owns a programmatic (never-rendered) file input. */
 
     /* ==== Phase 9 — Drop-target overlay (D-03) ==== */
     /* Hidden by default. Visible when [data-drop-target] is set on
@@ -753,32 +739,21 @@
       cursor: not-allowed;
     }
 
-    /* ==== Phase 12 SLIDE-38 settings auto-send invalid state ==== */
-    /* Phase 12 Plan 12-06 (Gap 2 — UAT Test 7) — TWO fixes vs. Plan 12-03:
-       (1) SPECIFICITY BUMP — add [data-theme] + #settings-slide ancestors so
-           this rule (now 0,2,2,0) beats BOTH competing rules ON SPECIFICITY
-           ALONE — not on source-order:
-             - base #settings-slide #slide-auto-send-input (line 217):    (0,2,0,0)  LOSES
-             - focused #settings-slide ...:focus-visible (line 227):      (0,2,1,0)  LOSES
-             - this rule [data-theme] #settings-slide ...[data-invalid]:  (0,2,2,0)  WINS
-           [data-theme] is on <body> (line 768) so the input is always a
-           descendant — semantic match is identical to scoping without it,
-           but the [data-theme] attribute selector adds 0,1,0 of specificity.
-           WHY NOT JUST (0,2,1,0)? The :focus-visible rule at line 227 ties
-           at (0,2,1,0); the cascade falls back to source-order. A future
-           author moving rules around silently regresses focused-and-invalid.
-           (0,2,2,0) wins regardless of order — no source-order trap.
-       (2) RED TOKEN — switch from rgba(255,255,255,0.6) (muted) to
-           var(--chrome-invalid-strong) (= #e04040). DELIBERATE EXCEPTION
-           to the muted/destructive policy (12-UI-SPEC §D), locked by the
-           user 2026-05-09: "it's a serious matter so red is appropriate."
-           This control gates wire-bound auto-typed bytes, so the visual
-           cue is treated as security-relevant rather than UX-neutral.
-           Defense-in-depth ONLY — the wire-safety gate remains the
-           use-time check in slide.js readAutoSendCommandBytes (T-12-03
-           mitigation; the visual cue does NOT block savePrefs).
+    /* ==== Phase 12 SLIDE-38 auto-send invalid state (E3.4 re-scoped to the modal) ==== */
+    /* The auto-send input relocated from #settings-slide into #slide-config-modal (E3.4),
+       so the invalid-border rule is re-anchored on the modal id. Two ids (0,2,1,0) beat
+       BOTH competing shared rules on specificity ALONE — no source-order trap:
+         - base   .chrome-modal .field input[type="text"]              (0,0,3,1)  LOSES
+         - focused .chrome-modal .field input[type="text"]:focus-visible (0,0,4,1) LOSES
+       So invalid stays red even while the input is focused. The former [data-theme] +
+       #settings-slide specificity hack is no longer needed (the id anchor wins outright).
+       RED TOKEN (var(--chrome-invalid-strong) = #e04040) is a DELIBERATE exception to the
+       muted policy (12-UI-SPEC §D), locked by the user 2026-05-09: "it's a serious matter
+       so red is appropriate" — this control gates wire-bound auto-typed bytes, so the cue
+       is security-relevant. Defense-in-depth ONLY — the wire-safety gate remains the
+       use-time check in slide.js readAutoSendCommandBytes (the cue does NOT block savePrefs).
        Future authors: do NOT "fix" this back to muted — it is intentional. */
-    [data-theme] #settings-slide #slide-auto-send-input[data-invalid="true"] {
+    #slide-config-modal #slide-auto-send-input[data-invalid="true"] {
       border-color: var(--chrome-invalid-strong);
     }
     #slide-auto-send-row .validation-hint {
@@ -809,116 +784,752 @@
     #send-modal ul li.collision > .rename-list > span[aria-hidden="true"] {
       margin-right: 4px;
     }
+
+    /* ==== Neutral --chrome-* modal chrome — .chrome-modal (E3.3 review fix) ==== */
+    /* Shared by #serial-config-modal (E2.3) + #reserved-ctrl-modal (E3.3); was
+       duplicated per-#id. Neutral --chrome-* tokens (AD-9), NOT the legacy #connection
+       pane chrome. Mirrors the #send-modal conventions (header/body/footer, ::backdrop,
+       the :not([open]) display:none guard) but with rounded/lg (8px) corners and NO
+       box-shadow (the native ::backdrop scrim is the only elevation — UX-DR5), and a
+       scrollable .modal-body so long content never overflows the dialog. Author-class
+       specificity beats the UA `dialog:not([open]) { display:none }` rule, so — as with
+       #send-modal — restore the hidden state explicitly. Per-modal differences (max-width;
+       serial-config's form controls) stay under the #id blocks below. */
+    .chrome-modal:not([open]) {
+      display: none;
+    }
+    .chrome-modal[open] {
+      background: var(--chrome-bg);
+      color: var(--chrome-fg);
+      border: 1px solid var(--chrome-border);
+      border-radius: 8px;                  /* rounded/lg — DESIGN.md dialog corner */
+      padding: 16px 24px;
+      width: calc(100% - 32px);
+      max-height: 80vh;
+      display: flex;
+      flex-direction: column;
+      font-family: inherit;
+      font-size: 14px;
+      line-height: 1.4;
+      /* No box-shadow — the ::backdrop scrim is the sole elevation (UX-DR5). */
+    }
+    .chrome-modal::backdrop {
+      background: rgba(0, 0, 0, 0.65);
+    }
+    .chrome-modal header {
+      margin: 0 0 16px 0;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--chrome-border);
+    }
+    .chrome-modal h2 {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 500;                    /* DESIGN.md type role — labels/headings 500 */
+    }
+    /* Scrollable body — content flex-grows and scrolls rather than overflowing the
+       dialog when the viewport is short. Also the aligned-row flex column (E3.4 hoist
+       from #serial-config-modal — shared by the Serial Config + SLIDE modals; a body-
+       copy modal like #reserved-ctrl-modal has a single child so the gap is inert). */
+    .chrome-modal .modal-body {
+      overflow-y: auto;
+      flex: 1 1 auto;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .chrome-modal .hint {
+      color: var(--chrome-muted);
+      font-size: 12px;
+      margin: 4px 0;
+    }
+    .chrome-modal footer {
+      margin: 16px 0 0 0;
+      padding-top: 8px;
+      border-top: 1px solid var(--chrome-border);
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+    /* Footer buttons are secondary/bordered (DESIGN.md:194), rounded/md (6px).
+       E3.4 — the in-body Choose-folder button (#slide-config-modal .field-action
+       button) is the same secondary control, so it shares this base rule and only
+       overrides the size + :disabled state below. */
+    .chrome-modal footer button,
+    #slide-config-modal .field-action button {
+      font-family: inherit;
+      font-size: 14px;
+      padding: 4px 8px;
+      background: transparent;
+      color: var(--chrome-fg);
+      border: 1px solid var(--chrome-border);
+      border-radius: 6px;                  /* rounded/md */
+      cursor: pointer;
+    }
+    .chrome-modal footer button:hover,
+    .chrome-modal footer button:focus-visible,
+    #slide-config-modal .field-action button:hover,
+    #slide-config-modal .field-action button:focus-visible {
+      border-color: var(--chrome-accent);
+      outline: none;
+    }
+    /* Attribute-driven default-focus border (same rationale as #send-modal footer —
+       Chromium suppresses :focus-visible after a programmatic .focus() following a
+       pointer path; openModal sets [data-focused="true"] before .focus()). */
+    .chrome-modal [data-focused="true"] {
+      border-color: var(--chrome-accent);
+      outline: none;
+    }
+    .chrome-modal footer form {
+      margin: 0;
+    }
+
+    /* ==== Shared aligned-row form controls — .chrome-modal .field ==== */
+    /* Clean aligned rows (v1.1 polish — matches the key-screen-chrome.html mock):
+       muted label on the LEFT, control on the RIGHT (DESIGN.md:165 "labels sit …
+       beside their controls"), one setting per row, no fieldset box. Hoisted from
+       #serial-config-modal (E3.4 review-fix-#2 single-source) so the Serial Config +
+       SLIDE File Transfer modals share ONE definition; author-class specificity keeps
+       them scoped to .chrome-modal dialogs only. */
+    .chrome-modal .field {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;      /* label left, control right */
+      gap: 12px;
+    }
+    .chrome-modal .field > label {
+      color: var(--chrome-muted);
+      font-size: 13px;
+    }
+    .chrome-modal .field select,
+    .chrome-modal .field input[type="text"] {
+      min-width: 160px;
+      font-family: inherit; font-size: 13px;
+      background: var(--field-bg);         /* inputs sit on field-bg (DESIGN.md) */
+      color: var(--chrome-fg);
+      border: 1px solid var(--chrome-border);
+      border-radius: 4px;                  /* rounded/sm */
+      padding: 5px 8px;
+    }
+    .chrome-modal .field select:focus-visible,
+    .chrome-modal .field input[type="text"]:focus-visible {
+      border-color: var(--chrome-accent);
+      outline: none;
+    }
+    /* Checkbox rows pack left: [box] [label] [ⓘ]. The label is chrome-fg (an active
+       choice, not muted help text). */
+    .chrome-modal .field.check {
+      justify-content: flex-start;
+      gap: 8px;
+    }
+    .chrome-modal .field.check input {
+      accent-color: var(--chrome-accent);
+    }
+    .chrome-modal .field.check > label {
+      color: var(--chrome-fg);
+      font-size: 13px;
+      cursor: pointer;
+    }
+    /* ⓘ info affordance — the FULL explanation stays verbatim in the DOM inside
+       .field-tip (EXPERIENCE.md:112 "don't dumb down the hardware explanation" — the
+       SLIDE modal reuses the affordance for its folder-help + confirm-transfers help),
+       revealed on hover/focus so the modal body stays uncluttered. tabindex makes it
+       keyboard-reachable; the tip is not display:none-hidden from AT (it is in the note). */
+    .chrome-modal .field-info {
+      position: relative;
+      display: inline-flex;
+      cursor: help;
+      color: var(--chrome-muted);
+      font-size: 13px;
+      margin-left: auto;                   /* push the ⓘ to the row's right edge */
+    }
+    .chrome-modal .field-info:hover,
+    .chrome-modal .field-info:focus-visible {
+      color: var(--chrome-accent);
+      outline: none;
+    }
+    .chrome-modal .field-tip {
+      position: absolute;
+      right: 0;
+      bottom: calc(100% + 6px);            /* open UPWARD — the ⓘ rows sit near the modal
+                                              bottom, so a downward tip would overflow the
+                                              scrollable .modal-body and spawn a flickering
+                                              scrollbar; upward it sits over the rows above. */
+      z-index: 1;
+      width: 340px; max-width: 70vw;
+      background: var(--field-bg);
+      color: var(--chrome-fg);
+      border: 1px solid var(--chrome-border);
+      border-radius: 4px;
+      padding: 8px 10px;
+      font-size: 12px; line-height: 1.4;
+      pointer-events: none;                /* never intercept the rows it overlays */
+      display: none;
+    }
+    .chrome-modal .field-info:hover .field-tip,
+    .chrome-modal .field-info:focus .field-tip,
+    .chrome-modal .field-info:focus-within .field-tip {
+      display: block;
+    }
+    /* E3.4 — a ⓘ in the FIRST row of a modal body has the shared upward tip
+       (bottom: 100%) open into the scrollable .modal-body's clipped top edge, cutting
+       off the default-state guidance. Open the first row's tip downward instead —
+       there are rows below it, so no overflow/scrollbar flicker (the downward-overflow
+       concern only applies to ⓘ rows near the modal bottom). Position-derived (the
+       modal-body's first row), NOT pinned to a specific row id, so reordering the rows
+       or adding a new top row keeps whichever row is first correct. */
+    #slide-config-modal .modal-body > :first-child .field-tip {
+      bottom: auto;
+      top: calc(100% + 6px);
+    }
+
+    /* ==== Epic E2 Story E2.3 (FR-15) — #serial-config-modal specifics ==== */
+    /* Wider than a body-copy modal (form + error log). The aligned-row + ⓘ chrome is
+       now shared above; only the width + the recent-errors box remain serial-specific. */
+    #serial-config-modal[open] {
+      max-width: 60ch;                     /* body of aligned rows — narrower than the old form */
+    }
+    /* Recent-errors box — compact bordered panel (mock .errbox), replacing the stark
+       <pre> block. #error-log keeps its id (serial.js writes it) but drops pre chrome. */
+    #serial-config-modal .errbox {
+      background: var(--field-bg);
+      border: 1px solid var(--chrome-border);
+      border-radius: 4px;
+      padding: 8px 10px;
+      color: var(--chrome-muted);
+      font-size: 12px;
+    }
+    #serial-config-modal .errbox .lead {
+      color: var(--chrome-fg);
+      display: block;
+      margin-bottom: 4px;
+    }
+    #serial-config-modal #error-log {
+      margin: 0;
+      font-family: inherit;
+      font-size: 12px;
+      color: var(--chrome-muted);
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    /* The reconnect-required hint is amber ("action required", NOT muted help text).
+       It carries class="hint", so the shared `.chrome-modal .hint` rule (0,2,0) would
+       shadow the amber `#serial-reconnect-hint` colour (1,0,0). Restore amber with a
+       colour-only override at (2,0,0) — no display prop, so the [hidden] toggle still
+       hides it. */
+    #serial-config-modal #serial-reconnect-hint {
+      color: #e0b030;
+    }
+
+    /* ==== Epic E3 Story E3.3 (FR-21) — #reserved-ctrl-modal specifics ==== */
+    /* An info modal is body copy + Close — the only difference from the shared chrome
+       is a narrower max-width. */
+    #reserved-ctrl-modal[open] {
+      max-width: 70ch;                     /* body-copy modal — narrower than the config form */
+    }
+
+    /* ==== Epic E6 Story E6.1 (FR-24) — #keyboard-shortcuts-modal specifics ==== */
+    /* An info modal (shortcut reference): body copy + Close. Only a max-width + the
+       two-column shortcut-row layout are modal-specific; everything else inherits the
+       shared .chrome-modal chrome (no box-shadow; --chrome-* only; 8px corner). */
+    #keyboard-shortcuts-modal[open] {
+      max-width: 64ch;                     /* aligned two-column rows — narrower than the config form */
+    }
+    /* Group subhead — a muted, uppercase divider between shortcut clusters. The shared
+       .modal-body flex-column gap (12px) does the vertical spacing; trim the top gap so
+       a subhead hugs its group. */
+    #keyboard-shortcuts-modal .shortcut-group {
+      margin: 8px 0 0 0;
+      font-size: 11px;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--chrome-muted);
+    }
+    #keyboard-shortcuts-modal .shortcut-group:first-child {
+      margin-top: 0;
+    }
+    /* Aligned two-column row: key on the LEFT, action on the RIGHT (space-between,
+       mirroring the .chrome-modal .field family without the form-control styling). */
+    #keyboard-shortcuts-modal .shortcut-row {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    #keyboard-shortcuts-modal .shortcut-row kbd {
+      flex: 0 0 auto;
+      font-family: inherit;
+      font-size: 12px;
+      color: var(--chrome-fg);
+      background: var(--field-bg);
+      border: 1px solid var(--chrome-border);
+      border-radius: 4px;                  /* rounded/sm */
+      padding: 1px 6px;
+      white-space: nowrap;
+    }
+    #keyboard-shortcuts-modal .shortcut-row .act {
+      color: var(--chrome-muted);
+      font-size: 13px;
+      text-align: right;
+    }
+
+    /* ==== Epic E6 Story E6.2 (FR-25) — #about-modal specifics ==== */
+    /* An info modal (build + privacy): two aligned rows + three prose lines + Close.
+       Only a max-width + the aligned-row layout are modal-specific; everything else
+       inherits the shared .chrome-modal chrome (no box-shadow; --chrome-* only; 8px
+       corner; no [data-theme] branch). Narrower than the shortcut table (a couple of
+       rows + short lines). */
+    #about-modal[open] {
+      max-width: 56ch;
+    }
+    /* Aligned row: label on the LEFT, value on the RIGHT (space-between, mirroring
+       .shortcut-row without the form-control styling). */
+    #about-modal .about-row {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    #about-modal .about-row .lbl {
+      flex: 0 0 auto;
+      color: var(--chrome-muted);
+      font-size: 11px;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    #about-modal .about-row .val {
+      color: var(--chrome-fg);
+      font-size: 13px;
+      text-align: right;
+    }
+
+    /* ==== Epic E3 Story E3.4 (FR-20) — #slide-config-modal specifics ==== */
+    /* Same aligned-row family as the Serial Config modal (shared .chrome-modal .field
+       chrome above). Only the width + two compound-row layouts (the auto-send control
+       column and the recv-folder action sub-row) are modal-specific. */
+    #slide-config-modal[open] {
+      max-width: 60ch;                     /* aligned rows — matches #serial-config-modal */
+    }
+    /* Auto-send row: the control side stacks the input + its static hint + the (hidden)
+       validation hint in a right-aligned column, so top-align the label against it. */
+    #slide-config-modal #slide-auto-send-row {
+      align-items: flex-start;
+    }
+    #slide-config-modal .field-control {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 2px;
+    }
+    /* Recv-folder action sub-row: [Choose folder…] button + live status string, indented
+       under the checkbox line (replaces the retired .settings-row-action rule). */
+    #slide-config-modal .field-action {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 4px 0 0 24px;
+    }
+    #slide-config-modal .field-action .hint {
+      margin: 0;
+    }
+    /* Choose-folder button — reuses the shared secondary-button chrome (folded into
+       `.chrome-modal footer button` above); only the size + disabled state differ.
+       This override comes later at equal specificity, so font-size: 13px wins. */
+    #slide-config-modal .field-action button {
+      font-size: 13px;
+    }
+    #slide-config-modal .field-action button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;                 /* disabled (toggle off) dims like the legacy pane */
+    }
   </style>
 </head>
 <body data-theme="crt">
-  <!-- Top bar — Connect button (Phase 5 D-01) + theme toggle + phosphor radio-group (D-12). -->
-  <!-- Phase 5 Plan 09 (Gap 2 fix): #paste-progress-row was relocated here from
-       inside the Connection pane so a paste-in-flight does not auto-expand the
-       pane and shift the terminal canvas down ~250-330 px. The sticky #top-bar
-       rides the viewport top so paste-progress text is visible without
-       displacing the terminal. See amended D-17 in 05-CONTEXT.md and the
-       auto-expand rules table in 05-UI-SPEC.md. -->
-  <div id="top-bar">
-    <button id="connect-button" type="button" data-state="disconnected"
-            title="Connect to MicroBeast over Web Serial">Connect</button>
-    <!-- Phase 6 D-26 (Plan 06-05) — local clear-screen distinct from remote
-         ESC J. Plain click wipes visible 80x24; Shift+click also clears
-         scrollback (resize_scrollback(0)→10000). NO CSS additions — inherits
-         #top-bar button rules. Slot between Connect and theme-toggle per
-         06-UI-SPEC §Element ordering. -->
-    <button id="clear-button" type="button"
-            title="Clear visible screen (Shift+click also clears scrollback)">Clear</button>
-    <!-- Phase 9 D-01 — top-bar [↑ Send file] text button + adjacent hidden
-         multi-file <input> picker. Frequency-gradient ordering: connection-state
-         → visible-screen-action → file-action → display-toggle → display-config.
-         The ↑ is U+2191 UPWARDS ARROW (single char, chrome font fallback chain).
-         Slotted between #clear-button and #theme-toggle per UI-SPEC §Layout. -->
-    <button id="send-file-button" type="button"
-            title="Send file(s) to MicroBeast via SLIDE">↑ Send file</button>
-    <input id="send-file-input" type="file" multiple hidden>
-    <button id="theme-toggle" type="button" title="Toggle theme (Ctrl+Alt+T)">Clean</button>
-    <div id="phosphor-group" role="radiogroup" aria-label="Phosphor color">
-      <button type="button" data-phosphor="green" aria-pressed="true">Green</button>
-      <button type="button" data-phosphor="amber" aria-pressed="false">Amber</button>
-      <button type="button" data-phosphor="white" aria-pressed="false">White</button>
+  <!-- ============================================================= -->
+  <!-- Menu bar shell — Epic E1 Story E1.1 (menu-bar.js owns it).     -->
+  <!-- Epic E7 Story E7.1 — the E1→E6 migration is complete: #top-bar  -->
+  <!-- and the two <details> vestiges are gone, so the menu bar (+ the -->
+  <!-- status bar and #debug panel) is now the sole application chrome. -->
+  <!-- Positioning: each title+panel sits in a position:relative       -->
+  <!-- .menu-group so the panel opens below its own title via CSS —     -->
+  <!-- no inline left offsets (the mock's style="left:56px" is         -->
+  <!-- forbidden; state is expressed via [hidden] + data-* only).      -->
+  <!-- ============================================================= -->
+  <nav id="menu-bar" aria-label="Application menu">
+    <div class="menu-group">
+      <button id="menu-file" class="menu-title" type="button" aria-haspopup="true" aria-expanded="false">File</button>
+      <div id="dropdown-file" class="dropdown" role="menu" hidden>
+        <!-- E3.1 (FR-16, AC-1) — Send File… drives the SAME picker→#send-modal path
+             as the legacy #send-file-button, via the injected openSendPicker opt
+             (AD-3: menu-bar reaches file-source only through opts). data-action
+             routes the click through onItemClick's send-file branch → closeMenu()
+             + sendFileRef(). No ▸ caret (reserved for radio submenus, DESIGN
+             §Components); the trailing … signals "opens further UI". -->
+        <button id="menu-send-file-item" class="menu-item" type="button" role="menuitem"
+                data-variant="action" data-action="send-file">
+          <span class="check"></span><span class="lbl">Send File…</span>
+        </button>
+        <!-- E3.1 (FR-17, AC-4/AC-5) — Download Session Log. data-variant="action"
+             (the disabled state is now DYNAMIC, driven by data-disabled — mirroring
+             the phosphor submenu's live enable/disable). Starts disabled ("No bytes
+             received yet"); menu-bar's projectSessionLog flips it enabled once RX
+             bytes exist (open-time projection + the session-log onStateChange hook).
+             menu-bar drives the click through the download-log branch → closeMenu()
+             + downloadLogRef(). -->
+        <button id="menu-download-log-item" class="menu-item" type="button" role="menuitem"
+                data-variant="action" data-action="download-log"
+                data-disabled="true" aria-disabled="true" title="No bytes received yet">
+          <span class="check"></span><span class="lbl">Download Session Log</span>
+        </button>
+      </div>
     </div>
-    <div id="paste-progress-row" hidden>
-      <span id="paste-progress-text"></span>
-      <button id="paste-cancel" type="button">Cancel</button>
-      <button id="paste-confirm" type="button" hidden>Paste</button>
+
+    <div class="menu-group">
+      <button id="menu-connection" class="menu-title" type="button" aria-haspopup="true" aria-expanded="false">Connection</button>
+      <div id="dropdown-connection" class="dropdown" role="menu" hidden>
+        <!-- E2.1 (AD-15) — Connect/Disconnect single-writer item. menu-bar.js is
+             the sole writer of the .lbl text + data-state (via projectConnection);
+             data-action routes the click through onItemClick → toggleConnection. -->
+        <button id="menu-connect-item" class="menu-item" type="button" role="menuitem"
+                data-variant="action" data-action="connect-toggle" data-state="disconnected">
+          <span class="check"></span><span class="lbl">Connect</span>
+        </button>
+        <!-- E2.2 (FR-13) — Choose MicroBeast… drives the CP2102N-filtered picker.
+             Starts [hidden] (the ≤1-adapter default); menu-bar toggles presence
+             from the live granted-adapter count on each Connection-menu open. -->
+        <button id="menu-choose-microbeast-item" class="menu-item" type="button" role="menuitem"
+                data-variant="action" data-action="choose-microbeast" hidden>
+          <span class="check"></span><span class="lbl">Choose MicroBeast…</span>
+        </button>
+        <div class="menu-sep"></div>
+        <!-- E2.3 (FR-15) — Serial Configuration… opens the #serial-config-modal via
+             the injected openSerialConfig opt (AD-3: menu-bar reaches the modal only
+             through opts). data-action routes the click through onItemClick's
+             serial-config branch → closeMenu() + openSerialConfigRef(). No caret —
+             matches the Clear Scrollback… modal-opener convention. -->
+        <button id="menu-serial-config-item" class="menu-item" type="button" role="menuitem"
+                data-variant="action" data-action="serial-config">
+          <span class="check"></span><span class="lbl">Serial Configuration…</span>
+        </button>
+        <div class="menu-sep"></div>
+        <!-- E2.2 (FR-14, AD-4) — Auto-connect toggle. data-pref="autoConnect"
+             makes the generic checkable branch persist via savePrefs (reusable
+             seam for Settings ▸ Local echo / Enter-key-sends in E3). data-checked
+             starts "false" (the prefs.autoConnect default) and is re-derived from
+             prefs at wire-time / on open / on reset — never trusted as a literal. -->
+        <button id="menu-autoconnect-item" class="menu-item" type="button" role="menuitemcheckbox"
+                data-variant="checkable" data-pref="autoConnect" data-checked="false" aria-checked="false">
+          <span class="check"></span><span class="lbl">Auto-connect on load</span>
+        </button>
+      </div>
     </div>
-  </div>
 
-  <!-- Connection pane (Phase 5 D-06, D-07) — placement between top-bar and terminal. -->
-  <details id="connection">
-    <summary>Connection</summary>
-    <p id="port-status" class="hint" aria-live="polite">Not connected</p>
+    <div class="menu-group">
+      <button id="menu-view" class="menu-title" type="button" aria-haspopup="true" aria-expanded="false">View</button>
+      <div id="dropdown-view" class="dropdown" role="menu" hidden>
+        <!-- Epic E1 Story E1.4 — Theme radio submenu (Console (Clean) / CRT).
+             Parent row + right-flyout panel wrapped in .submenu-group so the
+             panel positions relative to the row. Default checked = CRT. -->
+        <div class="submenu-group">
+          <button class="menu-item" type="button" role="menuitem" data-variant="radio-submenu"
+                  data-submenu="theme" aria-haspopup="true" aria-expanded="false">
+            <span class="check"></span><span class="lbl">Theme</span><span class="caret">▸</span>
+          </button>
+          <div class="submenu" role="menu" data-submenu-panel="theme" aria-label="Theme" hidden>
+            <button class="menu-item" type="button" role="menuitemradio" data-value="clean"
+                    data-checked="false" aria-checked="false">
+              <span class="check"></span><span class="lbl">Console (Clean)</span>
+            </button>
+            <button class="menu-item" type="button" role="menuitemradio" data-value="crt"
+                    data-checked="true" aria-checked="true">
+              <span class="check">✓</span><span class="lbl">CRT</span>
+            </button>
+          </div>
+        </div>
+        <!-- Epic E1 Story E1.4 — Phosphor radio submenu (Green / Amber / White).
+             Shown-but-data-disabled off-CRT (AD-9), announced via #menu-bar-live.
+             Default checked = Green. -->
+        <div class="submenu-group">
+          <button class="menu-item" type="button" role="menuitem" data-variant="radio-submenu"
+                  data-submenu="phosphor" aria-haspopup="true" aria-expanded="false">
+            <span class="check"></span><span class="lbl">Phosphor</span><span class="caret">▸</span>
+          </button>
+          <div class="submenu" role="menu" data-submenu-panel="phosphor" aria-label="Phosphor color" hidden>
+            <button class="menu-item" type="button" role="menuitemradio" data-value="green"
+                    data-checked="true" aria-checked="true">
+              <span class="check">✓</span><span class="lbl">Green</span>
+            </button>
+            <button class="menu-item" type="button" role="menuitemradio" data-value="amber"
+                    data-checked="false" aria-checked="false">
+              <span class="check"></span><span class="lbl">Amber</span>
+            </button>
+            <button class="menu-item" type="button" role="menuitemradio" data-value="white"
+                    data-checked="false" aria-checked="false">
+              <span class="check"></span><span class="lbl">White</span>
+            </button>
+            <button class="menu-item" type="button" role="menuitemradio" data-value="blue"
+                    data-checked="false" aria-checked="false">
+              <span class="check"></span><span class="lbl">Blue (P7)</span>
+            </button>
+            <button class="menu-item" type="button" role="menuitemradio" data-value="red"
+                    data-checked="false" aria-checked="false">
+              <span class="check"></span><span class="lbl">Red</span>
+            </button>
+          </div>
+        </div>
+        <!-- Epic E1 Story E1.5 — Font radio submenu (Modern / VT52 ROM / Insigbyte
+             / You Squared / Cushion). Shown-but-data-disabled off-CRT (AD-9), like
+             Phosphor: the vector/Clean renderer ignores the bitmap font. Default
+             checked = Modern (pref default). data-value = atlas FONT_ID. -->
+        <div class="submenu-group">
+          <button class="menu-item" type="button" role="menuitem" data-variant="radio-submenu"
+                  data-submenu="font" aria-haspopup="true" aria-expanded="false">
+            <span class="check"></span><span class="lbl">Font</span><span class="caret">▸</span>
+          </button>
+          <div class="submenu" role="menu" data-submenu-panel="font" aria-label="Font" hidden>
+            <button class="menu-item" type="button" role="menuitemradio" data-value="modern"
+                    data-checked="true" aria-checked="true">
+              <span class="check">✓</span><span class="lbl">Modern (8×16)</span>
+            </button>
+            <button class="menu-item" type="button" role="menuitemradio" data-value="vt52"
+                    data-checked="false" aria-checked="false">
+              <span class="check"></span><span class="lbl">VT52 ROM (8×8)</span>
+            </button>
+            <button class="menu-item" type="button" role="menuitemradio" data-value="insigbyte"
+                    data-checked="false" aria-checked="false">
+              <span class="check"></span><span class="lbl">Insigbyte (8×8)</span>
+            </button>
+            <button class="menu-item" type="button" role="menuitemradio" data-value="insigbyte-bold"
+                    data-checked="false" aria-checked="false">
+              <span class="check"></span><span class="lbl">Insigbyte Bold (8×8)</span>
+            </button>
+            <button class="menu-item" type="button" role="menuitemradio" data-value="you-squared"
+                    data-checked="false" aria-checked="false">
+              <span class="check"></span><span class="lbl">You Squared (8×8)</span>
+            </button>
+            <button class="menu-item" type="button" role="menuitemradio" data-value="cushion"
+                    data-checked="false" aria-checked="false">
+              <span class="check"></span><span class="lbl">Cushion (8×8)</span>
+            </button>
+            <button class="menu-item" type="button" role="menuitemradio" data-value="chit"
+                    data-checked="false" aria-checked="false">
+              <span class="check"></span><span class="lbl">Chit (8×8)</span>
+            </button>
+            <button class="menu-item" type="button" role="menuitemradio" data-value="orbiter"
+                    data-checked="false" aria-checked="false">
+              <span class="check"></span><span class="lbl">Orbiter (8×8)</span>
+            </button>
+            <button class="menu-item" type="button" role="menuitemradio" data-value="patrol"
+                    data-checked="false" aria-checked="false">
+              <span class="check"></span><span class="lbl">Patrol (8×8)</span>
+            </button>
+            <button class="menu-item" type="button" role="menuitemradio" data-value="striker"
+                    data-checked="false" aria-checked="false">
+              <span class="check"></span><span class="lbl">Striker (8×8)</span>
+            </button>
+            <button class="menu-item" type="button" role="menuitemradio" data-value="zx-palm"
+                    data-checked="false" aria-checked="false">
+              <span class="check"></span><span class="lbl">ZX Palm (8×8)</span>
+            </button>
+          </div>
+        </div>
+        <div class="menu-sep"></div>
+        <!-- Epic E1 Story E1.5 — Zoom items. Each drives the SAME canvas.js
+             function the SACRED Ctrl+{=,-,0} chord calls (menu-bar.js), persists
+             fontZoom, clears the selection (D-19), and pushes the new level to the
+             status bar (imperative push, consumed by E4). -->
+        <button class="menu-item" type="button" role="menuitem" data-variant="action" data-action="zoom-in">
+          <span class="check"></span><span class="lbl">Zoom In</span><span class="hint">Ctrl+=</span>
+        </button>
+        <button class="menu-item" type="button" role="menuitem" data-variant="action" data-action="zoom-out">
+          <span class="check"></span><span class="lbl">Zoom Out</span><span class="hint">Ctrl+-</span>
+        </button>
+        <button class="menu-item" type="button" role="menuitem" data-variant="action" data-action="zoom-actual">
+          <span class="check"></span><span class="lbl">Actual Size</span><span class="hint">Ctrl+0</span>
+        </button>
+        <div class="menu-sep"></div>
+        <!-- Epic E1 Story E1.5 — Clear items (OQ1 resolved to View). Clear Screen
+             wipes the visible 80×24 (Shift+activate also clears scrollback, per the
+             incumbent #clear-button); Clear Scrollback… opens a deliberate-friction
+             confirm before flushing the history. Both drive the same clearScreen /
+             clearScrollback handlers relocated to menu-bar.js in E1.3. -->
+        <button class="menu-item" type="button" role="menuitem" data-variant="action" data-action="clear-screen"
+                title="Clear visible screen (Shift also clears scrollback)">
+          <span class="check"></span><span class="lbl">Clear Screen</span>
+        </button>
+        <button class="menu-item" type="button" role="menuitem" data-variant="action" data-action="clear-scrollback">
+          <span class="check"></span><span class="lbl">Clear Scrollback…</span>
+        </button>
+      </div>
+    </div>
 
-    <fieldset>
-      <legend>Serial configuration</legend>
-      <label for="serial-baud">Baud rate
-        <select id="serial-baud">
-          <option value="300">300</option>
-          <option value="1200">1200</option>
-          <option value="2400">2400</option>
-          <option value="4800">4800</option>
-          <option value="9600">9600</option>
-          <option value="19200" selected>19200</option>
-          <option value="38400">38400</option>
-          <option value="57600">57600</option>
-          <option value="115200">115200</option>
-        </select>
-      </label>
-      <label for="serial-databits">Data bits
-        <select id="serial-databits">
-          <option value="7">7</option>
-          <option value="8" selected>8</option>
-        </select>
-      </label>
-      <label for="serial-stopbits">Stop bits
-        <select id="serial-stopbits">
-          <option value="1" selected>1</option>
-          <option value="2">2</option>
-        </select>
-      </label>
-      <label for="serial-parity">Parity
-        <select id="serial-parity">
-          <option value="none" selected>None</option>
-          <option value="even">Even</option>
-          <option value="odd">Odd</option>
-        </select>
-      </label>
-      <label for="serial-flowctl">Flow control
-        <select id="serial-flowctl">
-          <option value="none" selected>None</option>
-          <option value="hardware">Hardware (RTS/CTS)</option>
-        </select>
-      </label>
-    </fieldset>
-    <span id="serial-reconnect-hint" class="hint" hidden></span>
-    <button id="serial-reset-preset" type="button">Reset to MicroBeast preset</button>
-    <label for="show-all-serial-devices">
-      <input type="checkbox" id="show-all-serial-devices">
-      Show all serial devices in picker
-    </label>
-    <p class="hint">Off by default — the picker only lists the Silicon Labs CP2102N (the chip on stock MicroBeast hardware). Turn this on if your MicroBeast uses a different USB-serial bridge (FTDI, CH340, CP2104) or you're connecting via a virtual COM port (USB-IP, Bluetooth-SPP, ser2net). Takes effect on the next Connect click.</p>
-    <label for="serial-assert-rts-on-connect-checkbox">
-      <input type="checkbox" id="serial-assert-rts-on-connect-checkbox" checked>
-      Assert RTS on connect
-    </label>
-    <p class="hint">On by default. The MicroBeast's Z80 UART uses host-side RTS as its CTS input for hardware auto-flow-control — without this, Z80→PC transmits (wakeup byte, ACKs, file data) are blocked at the Z80 UART. Turn this off if your hardware has RTS wired to a reset line instead. DTR is always de-asserted on connect (Pitfall #12 reset-pulse concern). Takes effect on the next Connect click.</p>
-    <!-- Phase 6 D-31 (Plan 06-05) — per-connection RX log download. Disabled
-         until the first byte arrives; tooltip cycles per session-log.js. -->
-    <button id="download-log-button" type="button" disabled
-            title="No bytes received yet">Download log</button>
-    <p class="hint">MicroBeast default is 19200 8N1, no flow control. Single-tab ownership is enforced by Chromium — close any other Beastty tab that holds this port first.</p>
+    <div class="menu-group">
+      <button id="menu-settings" class="menu-title" type="button" aria-haspopup="true" aria-expanded="false">Settings</button>
+      <div id="dropdown-settings" class="dropdown" role="menu" hidden>
+        <!-- Epic E3 Story E3.2 (FR-18, AD-4) — Local echo checkable. data-pref="localEcho"
+             drives the generic persist seam (savePrefs); the localEcho side-effect branch in
+             menu-bar.js also calls the injected setLocalEcho so the live keyboard.js echo path
+             takes effect immediately (persist ≠ apply). data-checked starts "false" (the
+             prefs.localEcho default) and is re-derived from prefs at wire-time / on open / on
+             reset — never trusted as a literal. -->
+        <button id="menu-local-echo-item" class="menu-item" type="button" role="menuitemcheckbox"
+                data-variant="checkable" data-pref="localEcho" data-checked="false" aria-checked="false">
+          <span class="check"></span><span class="lbl">Local echo</span>
+        </button>
+        <!-- Wrap long lines checkable. data-pref="wrapLongLines" drives the generic
+             persist seam (savePrefs); the wrapLongLines side-effect in menu-bar.js also
+             calls the injected setWrap (wasm core term.set_wrap) so deferred autowrap at
+             col 80 takes effect immediately (persist ≠ apply). data-checked starts "false"
+             (prefs default = last-column overstrike) and is re-derived from prefs at
+             wire-time / on open / on reset — never trusted as a literal. -->
+        <button id="menu-wrap-lines-item" class="menu-item" type="button" role="menuitemcheckbox"
+                data-variant="checkable" data-pref="wrapLongLines" data-checked="false" aria-checked="false">
+          <span class="check"></span><span class="lbl">Wrap long lines</span>
+        </button>
+        <!-- Strip ctrl codes from logs checkable. data-pref="stripCtrlLogs" drives the
+             generic persist seam (savePrefs); there is NO live side-effect — session-log.js
+             reads the pref at download-click time and writes a cleaned .txt transcript
+             (C0 controls + whole VT52 escape sequences removed, CR/LF kept). data-checked
+             starts "false" and is re-derived from prefs at wire-time / on open / on reset. -->
+        <button id="menu-strip-ctrl-logs-item" class="menu-item" type="button" role="menuitemcheckbox"
+                data-variant="checkable" data-pref="stripCtrlLogs" data-checked="false" aria-checked="false">
+          <span class="check"></span><span class="lbl">Strip ctrl codes from logs</span>
+        </button>
+        <!-- Epic E3 Story E3.2 (FR-19, AD-4) — Enter key sends radio submenu
+             (CR / LF / CRLF). Filled from the bare parent using the E1.4/E1.5
+             radio-submenu-group template (Theme/Font). data-value = the exact
+             CRLF_MODES id (cr/lf/crlf) setCrlfMode's validator accepts. Byte-
+             annotated labels match the coexisting legacy #crlf-* radios verbatim.
+             Default checked = CR (the prefs.crlfMode default); re-derived from
+             prefs on open / reset. No CRT gate (contrast Font) — always live. -->
+        <div class="submenu-group">
+          <button class="menu-item" type="button" role="menuitem" data-variant="radio-submenu"
+                  data-submenu="crlf" aria-haspopup="true" aria-expanded="false">
+            <span class="check"></span><span class="lbl">Enter key sends</span><span class="caret">▸</span>
+          </button>
+          <div class="submenu" role="menu" data-submenu-panel="crlf" aria-label="Enter key sends" hidden>
+            <button class="menu-item" type="button" role="menuitemradio" data-value="cr"
+                    data-checked="true" aria-checked="true">
+              <span class="check">✓</span><span class="lbl">CR (0x0D)</span>
+            </button>
+            <button class="menu-item" type="button" role="menuitemradio" data-value="lf"
+                    data-checked="false" aria-checked="false">
+              <span class="check"></span><span class="lbl">LF (0x0A)</span>
+            </button>
+            <button class="menu-item" type="button" role="menuitemradio" data-value="crlf"
+                    data-checked="false" aria-checked="false">
+              <span class="check"></span><span class="lbl">CRLF (0x0D 0x0A)</span>
+            </button>
+          </div>
+        </div>
+        <!-- Epic E3 Story E3.4 (FR-20, AD-8/AD-3) — SLIDE File Transfer… opens the
+             #slide-config-modal (SLIDE transfer controls relocated from the legacy
+             <details id="settings-slide"> pane). An action row: closeMenu() then the
+             injected openSlideConfig opener (mirrors Serial Configuration… / Browser-
+             reserved Ctrl combinations…). Grouped with the other settings (after Enter
+             key sends); info + reset stay last. Trailing … = "opens further UI". No ▸
+             caret — that is reserved for radio submenus. -->
+        <button id="menu-slide-config-item" class="menu-item" type="button" role="menuitem"
+                data-variant="action" data-action="slide-config">
+          <span class="check"></span><span class="lbl">SLIDE File Transfer…</span>
+        </button>
+        <div class="menu-sep"></div>
+        <!-- Epic E3 Story E3.3 (FR-21, AD-8/AD-3) — Browser-reserved Ctrl combinations…
+             opens the #reserved-ctrl-modal (verbatim copy relocated from the legacy
+             <details class="reserved"> pane). An action row: closeMenu() then the
+             injected openReservedCtrl opener (mirrors Connection ▸ Serial Configuration…).
+             Placed BEFORE Reset (EXPERIENCE.md order: info first, most-consequential
+             destructive action last). Trailing … = "opens further UI". -->
+        <button class="menu-item" type="button" role="menuitem"
+                data-variant="action" data-action="reserved-ctrl">
+          <span class="check"></span><span class="lbl">Browser-reserved Ctrl combinations…</span>
+        </button>
+        <div class="menu-sep"></div>
+        <!-- Epic E3 Story E3.3 (FR-22, AD-4/AD-14) — Reset all preferences. A THIRD
+             menu-item behaviour: an inline 2-click confirm run AGAINST THIS ROW's .lbl
+             (verbatim labels + 3s window from chrome.js:274-284), committing the injected
+             resetPrefs() on the second activation. Unlike a normal action row it stays
+             open on the first activation so the confirm prompt shows; it disarms on every
+             Settings-dropdown-hide path. data-action="reset-prefs" routes to its dedicated
+             onItemClick branch (NOT the runViewAction fallthrough). -->
+        <button id="menu-reset-prefs-item" class="menu-item" type="button" role="menuitem"
+                data-variant="action" data-action="reset-prefs">
+          <span class="check"></span><span class="lbl">Reset all preferences</span>
+        </button>
+      </div>
+    </div>
 
-    <p class="hint">Recent errors</p>
-    <pre id="error-log">(no recent errors)</pre>
+    <div class="menu-group">
+      <button id="menu-debug" class="menu-title" type="button" aria-haspopup="true" aria-expanded="false">Debug</button>
+      <div id="dropdown-debug" class="dropdown" role="menu" hidden>
+        <!-- Epic E5 Story E5.1 (FR-23, AD-11, AD-4) — Show Debug Panel checkable.
+             id + data-pref match the #menu-local-echo-item template: the generic
+             data-pref seam persists prefs.showDebugPanel, and the injected
+             setDebugPanelVisible setter applies it live (persist ≠ apply). Panel is
+             the in-page #debug container, shown/hidden via its `open` attribute.
+             data-checked starts "false" (the default) and is re-derived from prefs at
+             wire-time / on open / on reset — never trusted as a literal. -->
+        <button id="menu-debug-panel-item" class="menu-item" type="button" role="menuitemcheckbox"
+                data-variant="checkable" data-pref="showDebugPanel" data-checked="false" aria-checked="false">
+          <span class="check"></span><span class="lbl">Show Debug Panel</span>
+        </button>
+      </div>
+    </div>
 
-    <p class="hint">Connection details persist across reload for the same USB device. Serial config persists per the Settings → preferences blob.</p>
-  </details>
+    <div class="menu-group">
+      <button id="menu-help" class="menu-title" type="button" aria-haspopup="true" aria-expanded="false">Help</button>
+      <div id="dropdown-help" class="dropdown" role="menu" hidden>
+        <!-- Epic E6 Story E6.1 (FR-24, AD-8/AD-3) — Keyboard Shortcuts… opens the
+             #keyboard-shortcuts-modal via openModal. An action row: closeMenu() then the
+             injected openKeyboardShortcuts opener (mirrors Serial Configuration… /
+             Browser-reserved Ctrl combinations… / SLIDE File Transfer…). Trailing … =
+             "opens further UI"; no ▸ caret — that is reserved for radio submenus. -->
+        <button id="menu-keyboard-shortcuts-item" class="menu-item" type="button" role="menuitem"
+                data-variant="action" data-action="keyboard-shortcuts">
+          <span class="check"></span><span class="lbl">Keyboard Shortcuts…</span>
+        </button>
+        <!-- Epic E6 Story E6.2 (FR-25, AD-8/AD-3) — About Beastty… opens the #about-modal
+             via openModal. Action row: closeMenu() then the injected openAbout opener
+             (mirrors Keyboard Shortcuts… above). Trailing … = "opens further UI"; no ▸
+             caret — that is reserved for radio submenus. -->
+        <button id="menu-about-item" class="menu-item" type="button" role="menuitem"
+                data-variant="action" data-action="about">
+          <span class="check"></span><span class="lbl">About Beastty…</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="menu-spacer"></div>
+
+    <!-- Connection-status PLACEHOLDER (live wiring lands in E2/E4). The dot is
+         the single intentional circle in the chrome (DESIGN.md:180). -->
+    <div class="menu-status">
+      <span id="menu-conn-dot" class="conn-dot" aria-hidden="true"></span>
+      <span id="menu-conn-label">Not connected</span>
+    </div>
+
+    <!-- E1.2 — visually-hidden aria-live region owned by menu-bar.js. When
+         keyboard nav lands beside a disabled row, its title reason is written
+         here so assistive tech announces WHY the item is unavailable (AC-2).
+         sr-only (clip) not [hidden]/display:none so it stays in the a11y tree.
+         Token-safe: no palette, no [data-theme] branch. -->
+    <span id="menu-bar-live" class="sr-only" aria-live="polite" aria-atomic="true"></span>
+  </nav>
+
+  <!-- Epic E7 Story E7.1 (AD-7 / AD-16, e6 retro #1) — #top-bar removed. Its
+       controls all relocated in E1–E6 and now live on the menu bar / status bar:
+       Connect → Connection menu (menu-bar.js is the sole writer of the Connect
+       surfaces), Send File… → File menu (file-source.js owns the picker + gate),
+       and the paste-progress row + large-paste confirm → the centered
+       #paste-toast above (renderer/paste-toast.js). This deletion is the sweep's
+       last act — it is exactly what orphaned the paste row the toast rehomed. -->
+
+  <!-- Epic E7 Story E7.1 (AD-7) — <details id="connection"> removed. Its serial
+       config retired into #serial-config-modal (E2.3) and #port-status into the
+       status bar (E4.1); its last live control, #download-log-button, is superseded
+       by File ▸ Download Session Log (menu-authoritative, byte-gated). -->
 
   <!-- Terminal canvas + overlays. tabindex=0 on wrapper so keydown fires here. -->
   <div id="terminal-wrapper" tabindex="0">
@@ -936,7 +1547,7 @@
          #terminal-wrapper[data-drop-target="true"] CSS attribute idiom
          (mirrors [data-focused] / [data-scrolled-back]). aria-hidden=true
          per UI-SPEC §Accessibility — overlay is visual feedback only;
-         screen-reader path is the always-visible top-bar button. -->
+         the screen-reader path is the File ▸ Send File… menu item. -->
     <div id="drop-overlay" aria-hidden="true">
       <span id="drop-overlay-text">Drop file(s) to send via SLIDE</span>
     </div>
@@ -952,145 +1563,36 @@
             aria-label="SLIDE file transfer chip">
       <span id="slide-chip-text"></span>
     </button>
+    <!-- Epic E7 Story E7.1 (FR-29 / AD-16 / UX-DR15) — centered paste toast.
+         Rehomes the paste-progress + large-paste confirm orphaned by #top-bar's
+         removal into a transient chip (renderer/paste-toast.js, cloning
+         #slide-chip). Centered over the canvas (distinct from the top-right SLIDE
+         chip + bottom-right #scrollback-indicator). aria-live=polite +
+         aria-atomic=true so screen readers announce progress/confirm politely. -->
+    <div id="paste-toast" hidden
+         role="status" aria-live="polite" aria-atomic="true"
+         aria-label="Paste toast">
+      <span id="paste-toast-text"></span>
+      <button type="button" class="paste-inline" data-action="paste" hidden>[Paste]</button>
+      <button type="button" class="paste-inline" data-action="cancel" hidden>[Cancel]</button>
+    </div>
   </div>
 
-  <!-- Settings pane (Phase 4 D-13/D-14) — default-collapsed; local echo + CR/LF + reserved note. -->
-  <details id="settings">
-    <summary>Settings</summary>
-    <div id="font-row" class="settings-row">
-      <label for="font-select">CRT font</label>
-      <select id="font-select">
-        <option value="modern">Modern (8×16, hand-drawn)</option>
-        <option value="vt52">VT52 ROM (8×8, original DEC)</option>
-        <option value="insigbyte">Insigbyte (8×8)</option>
-        <option value="you-squared">You Squared (8×8)</option>
-        <option value="cushion">Cushion (8×8)</option>
-      </select>
-      <p class="hint">Bitmap glyph table used by the CRT theme. The VT52 ROM is the original DEC character set with the special-graphics block (ESC F / ESC G); Insigbyte is an 8×8 MicroBeast-adjacent face. Modern is the project default. Clean theme renders vector glyphs and ignores this setting.</p>
-    </div>
-
-    <label for="local-echo">
-      <input type="checkbox" id="local-echo">
-      Local echo
-    </label>
-    <p class="hint">Show typed characters on screen before they reach the host. Off by default; enable for bootloaders or self-test modes that don't echo.</p>
-
-    <fieldset>
-      <legend>Enter key sends</legend>
-      <label><input type="radio" name="crlf" id="crlf-cr" value="cr" checked> CR (0x0D)</label>
-      <label><input type="radio" name="crlf" id="crlf-lf" value="lf"> LF (0x0A)</label>
-      <label><input type="radio" name="crlf" id="crlf-crlf" value="crlf"> CRLF (0x0D 0x0A)</label>
-    </fieldset>
-    <p class="hint">CR (0x0D) matches every MicroBeast workload we've observed. Switch to CRLF if every line prints twice; LF if lines stack on top of each other.</p>
-
-    <details class="reserved">
-      <summary>Browser-reserved Ctrl combinations</summary>
-      <p class="hint">Ctrl+W, Ctrl+N, Ctrl+T are claimed by Chromium (close tab, new window, reopen closed tab) and cannot be intercepted by a web page. Use Ctrl+F4, Ctrl+Shift+N, or a different keybinding on the MicroBeast side if you need those control codes. Everything from Ctrl+A through Ctrl+Z (except W, N, T) is forwarded normally, as are Ctrl+@, Ctrl+[, Ctrl+\, Ctrl+], Ctrl+^, Ctrl+_.</p>
-    </details>
-
-    <!-- Phase 6 Plan 06 (Wave 5) — Settings pane new rows (D-15, D-34, D-35).
-         Verbatim DOM + copy from 06-UI-SPEC §"Layout Contract" §"Settings pane".
-         DOM order: Clear scrollback -> Auto connect on load -> Reset all preferences
-         (action-scope gradient: narrow -> wide; reset is most consequential, last). -->
-    <hr class="settings-divider" />
-    <div class="settings-row">
-      <button id="clear-scrollback-button" type="button" title="Clear all stored history (no shortcut — deliberate friction)">Clear scrollback</button>
-      <p class="hint">Wipes the 10,000-line history. Visible screen is unaffected. Snaps to live tail if you're scrolled up.</p>
-    </div>
-    <div class="settings-row">
-      <label for="auto-connect-checkbox">
-        <input type="checkbox" id="auto-connect-checkbox">
-        Auto connect on load
-      </label>
-      <p class="hint">When enabled, Beastty silently opens the previously-granted MicroBeast port on each page load. Off by default. On open failure, falls back to the standard "click Connect" flow with the failure logged.</p>
-    </div>
-    <div class="settings-row">
-      <button id="reset-prefs-button" type="button" title="Restore default theme, phosphor, font zoom, serial config, and toggles">Reset all preferences</button>
-      <p class="hint">Clears your saved preferences. Port permission and connection state are not affected.</p>
-    </div>
-
-    <!-- Phase 11 Plan 11-03 — SLIDE file-transfer sub-block (D-05).
-         Wraps the Phase 10 Save-to-folder row (carry-forward, MOVED into this
-         block from its top-level position; child IDs preserved verbatim so
-         wireSlideRecv element refs still resolve via document.getElementById)
-         + 3 new rows (auto-send command / show-summary / Compatibility mode).
-         Verbatim DOM + copy from 11-UI-SPEC §Layout Contract §Settings SLIDE
-         sub-block + §Copywriting Contract. <hr class="settings-divider" /> marks
-         the transition from the Phase 6 prefs block. Default-collapsed (no
-         `open` attribute) — daily-driver users never see SLIDE config rows. -->
-    <hr class="settings-divider" />
-    <details class="reserved" id="settings-slide">
-      <summary>SLIDE file transfer</summary>
-
-      <!-- Row 1 — Save-to-folder (Phase 10 carry-forward, MOVED into this block). -->
-      <div class="settings-row" id="slide-recv-folder-row">
-        <label for="slide-recv-to-folder-checkbox"
-               title="When enabled, files received via SLIDE land in a folder you pick. Otherwise they download to your browser's Downloads folder.">
-          <input type="checkbox" id="slide-recv-to-folder-checkbox">
-          Save received files to a folder
-        </label>
-        <div class="settings-row-action">
-          <button id="slide-recv-folder-button" type="button"
-                  title="Toggle the checkbox first">Choose folder…</button>
-          <span id="slide-recv-folder-status" class="hint">No folder selected</span>
-        </div>
-        <p class="hint" id="slide-recv-folder-help">
-          Received files land in your Downloads folder. Toggle this to pick a fixed destination.
-        </p>
-      </div>
-
-      <!-- Row 2 — Auto-send command (NEW Phase 11 — D-06; Phase 12 SLIDE-38
-           validation hint sub-row appended). -->
-      <div class="settings-row" id="slide-auto-send-row">
-        <label for="slide-auto-send-input">Auto-send command:</label>
-        <input type="text" id="slide-auto-send-input" value="B:SLIDE R"
-               autocomplete="off" spellcheck="false">
-        <div class="hint">\r appended automatically</div>
-        <!-- Phase 12 SLIDE-38 — validation hint, hidden by default. The use-time
-             gate in slide.js readAutoSendCommandBytes unhides this row when
-             SAFE_AUTO_SEND_RE.test(cmd) === false; the Settings input change
-             handler in main.js hides it again once the user fixes the value. -->
-        <div class="hint validation-hint" id="slide-auto-send-validation-hint" hidden>Auto-send command unsafe — disabled.</div>
-      </div>
-
-      <!-- Row 3 — Show summary checkbox (NEW Phase 11 — D-08 default ON). -->
-      <div class="settings-row" id="slide-show-summary-row">
-        <label>
-          <input type="checkbox" id="slide-show-summary" checked>
-          Show transfer summary chip
-        </label>
-      </div>
-
-      <!-- Row — Confirm file transfers (v1.1 polish 260513-grs Task 2; default ON).
-           When OFF, drops + picker selections start transferring immediately;
-           collisions auto-rename via the SLIDE-36 scheme. -->
-      <div class="settings-row" id="slide-confirm-transfers-row">
-        <label>
-          <input type="checkbox" id="slide-confirm-transfers-checkbox" checked>
-          Confirm file transfers
-        </label>
-        <p class="hint">When off, drops and picker selections begin transferring immediately. Filename collisions are auto-renamed.</p>
-      </div>
-
-      <!-- Row 4 — Compatibility mode (NEW Phase 11 — D-07). -->
-      <div class="settings-row" id="slide-compat-row">
-        <label for="slide-compat-select">Compatibility mode:</label>
-        <select id="slide-compat-select">
-          <option value="auto">Auto</option>
-          <option value="wakeup-required">Wakeup-required</option>
-          <option value="force-start">Force-start (legacy slide.com)</option>
-        </select>
-      </div>
-    </details>
-  </details>
+  <!-- Epic E7 Story E7.1 (AD-7) — <details id="settings"> removed wholesale. Every
+       control it held is now menu-authoritative: Local echo → Settings ▸ Local echo
+       (checkable); Enter-key-sends CR/LF/CRLF → Settings ▸ Enter key sends submenu
+       (live via keyboard.js setCrlfMode); Browser-reserved Ctrl combinations →
+       #reserved-ctrl-modal (E3.3); Auto connect on load → Connection ▸ Auto connect
+       (checkable); Reset all preferences → Settings ▸ Reset all preferences (its own
+       independent 2-click machine). Their legacy change/click wirings in
+       main.js/chrome.js were deleted with the DOM (E7.1 AC-2 — no boot null-throw). -->
 
   <!-- Debug harness (D-15) — retained Phase 2 SC-4 demonstration path. -->
   <details id="debug">
     <summary>Debug</summary>
-    <!-- Defect 00001 — build identifier. Populated by www/main.js from the
-         SHA scripts/build.sh stamps into pkg/build-info.js. Lets a user report
-         the exact build they are running regardless of version-number bumps. -->
-    <p class="hint">Build: <code id="build-sha">loading…</code></p>
+    <!-- E4.2 — the build identifier (formerly <code id="build-sha">) relocated to
+         the status bar's #status-build (its permanent home, + Help ▸ About/E6.2).
+         Build info does NOT live in the Debug menu (EXPERIENCE.md / E5.1 scope). -->
     <p class="hint">
       Paste raw bytes, or use <code>\xNN</code> escapes for control bytes
       (e.g., <code>\x1B</code> = ESC, <code>\x07</code> = BEL). Click <b>Feed</b>
@@ -1143,6 +1645,370 @@
       <button id="send-modal-refuse" type="button" value="refuse" hidden>Refuse batch</button>
     </footer>
   </dialog>
+
+  <!-- Epic E1 Story E1.5 (FR-11) — Clear Scrollback… deliberate-friction confirm.
+       Opened via the shared openModal helper (main.js) from View ▸ Clear Scrollback…
+       A native <form method="dialog"> closes with the button's value as returnValue
+       ('confirm' | 'cancel'); Esc/backdrop resolve '' → treated as cancel. Cancel is
+       default-focused so Enter is the safe choice on this destructive action. -->
+  <dialog id="clear-scrollback-confirm" aria-labelledby="clear-scrollback-confirm-title">
+    <header>
+      <h2 id="clear-scrollback-confirm-title">Clear scrollback?</h2>
+    </header>
+    <p>Wipes the 10,000-line history.</p>
+    <p class="hint">Visible screen is unaffected. Snaps to live tail if you're scrolled up.</p>
+    <form method="dialog">
+      <button id="clear-scrollback-confirm-ok" type="submit" value="confirm">Clear scrollback</button>
+      <button id="clear-scrollback-confirm-cancel" type="submit" value="cancel">Cancel</button>
+    </form>
+  </dialog>
+
+  <!-- Epic E2 Story E2.3 (FR-15) — Serial Configuration modal. Native <dialog>
+       opened via the shared openModal helper (main.js openSerialConfig) from
+       Connection ▸ Serial Configuration…. RELOCATION story: every control below
+       (ids, <option> sets, verbatim copy) moved verbatim out of the legacy
+       <details id="connection"> pane, so serial.js's injected serialConfigEls /
+       errorLogEl refs (read by element id) keep resolving unchanged. Styled on the
+       neutral --chrome-* tokens (AD-9). v1.1 polish (2026-07-03) — re-laid-out to the
+       clean aligned-row look from mockups/key-screen-chrome.html: label-left/control-right
+       .field rows (no fieldset box), and the two verbose hardware hints moved into ⓘ
+       hover/focus tooltips (.field-tip) so the FULL text stays verbatim in the DOM
+       (EXPERIENCE.md:112) without cluttering the body. Footer = Reset (secondary, in-place)
+       + Close (<form method="dialog"> → returnValue 'close', ignored by the caller). NO
+       in-modal Connect button (epic AC names only Reset + close; PRD Open Question 4).
+       #serial-reconnect-hint carries aria-live="polite" so it doubles as the modal's
+       status region (UX-DR11 a11y floor) — the "Config changed…" hint is exactly the
+       dynamic status a screen-reader user needs announced. -->
+  <dialog id="serial-config-modal" class="chrome-modal" aria-labelledby="serial-config-modal-title">
+    <header>
+      <h2 id="serial-config-modal-title">Serial Configuration</h2>
+    </header>
+    <div class="modal-body">
+      <!-- Aligned rows (v1.1 polish) — label left, control right; ids/option sets are
+           unchanged so serial.js's id-keyed refs keep resolving. -->
+      <div class="field">
+        <label for="serial-baud">Baud rate</label>
+        <select id="serial-baud">
+          <option value="300">300</option>
+          <option value="1200">1200</option>
+          <option value="2400">2400</option>
+          <option value="4800">4800</option>
+          <option value="9600">9600</option>
+          <option value="19200" selected>19200</option>
+          <option value="38400">38400</option>
+          <option value="57600">57600</option>
+          <option value="115200">115200</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="serial-databits">Data bits</label>
+        <select id="serial-databits">
+          <option value="7">7</option>
+          <option value="8" selected>8</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="serial-stopbits">Stop bits</label>
+        <select id="serial-stopbits">
+          <option value="1" selected>1</option>
+          <option value="2">2</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="serial-parity">Parity</label>
+        <select id="serial-parity">
+          <option value="none" selected>None</option>
+          <option value="even">Even</option>
+          <option value="odd">Odd</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="serial-flowctl">Flow control</label>
+        <select id="serial-flowctl">
+          <option value="none" selected>None</option>
+          <option value="hardware">Hardware (RTS/CTS)</option>
+        </select>
+      </div>
+
+      <span id="serial-reconnect-hint" class="hint" aria-live="polite" hidden></span>
+
+      <!-- Toggles: [box] [label] … [ⓘ]. The FULL hardware explanation lives verbatim
+           in .field-tip (EXPERIENCE.md:112 — never dumbed down), revealed on hover/focus
+           so the modal body stays uncluttered. -->
+      <div class="field check">
+        <input type="checkbox" id="serial-assert-rts-on-connect-checkbox" checked>
+        <label for="serial-assert-rts-on-connect-checkbox">Assert RTS on connect</label>
+        <span class="field-info" tabindex="0" role="note" aria-label="Why Beastty asserts RTS on connect">
+          <span aria-hidden="true">ⓘ</span>
+          <span class="field-tip">On by default. The MicroBeast's Z80 UART uses host-side RTS as its CTS input for hardware auto-flow-control — without this, Z80→PC transmits (wakeup byte, ACKs, file data) are blocked at the Z80 UART. Turn this off if your hardware has RTS wired to a reset line instead. DTR is always de-asserted on connect (Pitfall #12 reset-pulse concern). Takes effect on the next Connect click.</span>
+        </span>
+      </div>
+      <div class="field check">
+        <input type="checkbox" id="show-all-serial-devices">
+        <label for="show-all-serial-devices">Show all serial devices in picker</label>
+        <span class="field-info" tabindex="0" role="note" aria-label="About showing all serial devices">
+          <span aria-hidden="true">ⓘ</span>
+          <span class="field-tip">Off by default — the picker only lists the Silicon Labs CP2102N (the chip on stock MicroBeast hardware). Turn this on if your MicroBeast uses a different USB-serial bridge (FTDI, CH340, CP2104) or you're connecting via a virtual COM port (USB-IP, Bluetooth-SPP, ser2net). Takes effect on the next Connect click.</span>
+        </span>
+      </div>
+
+      <p class="hint">MicroBeast default is 19200 8N1, no flow control. Single-tab ownership is enforced by Chromium — close any other Beastty tab that holds this port first.</p>
+
+      <div class="errbox">
+        <span class="lead">Recent errors</span>
+        <pre id="error-log">(no recent errors)</pre>
+      </div>
+    </div>
+    <footer>
+      <!-- Reset is type="button" (NOT a method="dialog" submit) so it snaps the
+           selects to the MicroBeast preset in-place WITHOUT closing (AC-8). Secondary
+           bordered per DESIGN.md:194. Wired by serial.js (serialEls.resetBtn). -->
+      <button id="serial-reset-preset" type="button">Reset to MicroBeast defaults</button>
+      <!-- Close via native <form method="dialog"> submit → returnValue 'close'.
+           openModal resolves it; openSerialConfig ignores the value (nothing to
+           apply — config applies on the next Connect). Esc closes the same way. -->
+      <form method="dialog">
+        <button id="serial-config-close" value="close">Close</button>
+      </form>
+    </footer>
+  </dialog>
+
+  <!-- Epic E3 Story E3.3 (FR-21, AD-8/AD-9) — Browser-reserved Ctrl combinations
+       info modal. The verbatim paragraph relocated from the legacy
+       <details class="reserved"> pane into an openModal-driven <dialog>, re-styled
+       onto neutral --chrome-* tokens (no phosphor branch). A non-destructive info
+       modal: body copy + Close only, so initialFocus is the Close button (modal.js
+       returnValue policy #4 — no destructive default to guard). Opened from Settings ▸
+       Browser-reserved Ctrl combinations… (main.js openReservedCtrl, injected into
+       wireMenuBar). Reuses the #serial-config-modal conventions (the :not([open])
+       display guard, ::backdrop scrim, rounded/lg, NO box-shadow — UX-DR5). -->
+  <dialog id="reserved-ctrl-modal" class="chrome-modal" aria-labelledby="reserved-ctrl-modal-title">
+    <header>
+      <h2 id="reserved-ctrl-modal-title">Browser-reserved Ctrl combinations</h2>
+    </header>
+    <div class="modal-body">
+      <p class="hint">Ctrl+W, Ctrl+N, Ctrl+T are claimed by Chromium (close tab, new window, reopen closed tab) and cannot be intercepted by a web page. Use Ctrl+F4, Ctrl+Shift+N, or a different keybinding on the MicroBeast side if you need those control codes. Everything from Ctrl+A through Ctrl+Z (except W, N, T) is forwarded normally, as are Ctrl+@, Ctrl+[, Ctrl+\, Ctrl+], Ctrl+^, Ctrl+_.</p>
+    </div>
+    <footer>
+      <!-- Close via native <form method="dialog"> submit → returnValue 'close'.
+           openModal resolves it; openReservedCtrl ignores the value (info modal —
+           nothing to apply). Esc closes the same way. -->
+      <form method="dialog">
+        <button id="reserved-ctrl-close" value="close">Close</button>
+      </form>
+    </footer>
+  </dialog>
+
+  <!-- Epic E6 Story E6.1 (FR-24, AD-8/AD-9) — Keyboard Shortcuts info modal. A
+       fourth static-content <dialog> on the shared modal rails (clone of
+       #reserved-ctrl-modal above): a non-destructive INFO modal (aligned shortcut
+       rows + Close only), so initialFocus is the Close button (modal.js returnValue
+       policy #4 — no destructive default to guard). Opened from Help ▸ Keyboard
+       Shortcuts… (main.js openKeyboardShortcuts, injected into wireMenuBar). Reuses
+       the shared .chrome-modal chrome (::backdrop scrim, rounded/lg, NO box-shadow —
+       UX-DR5); only a max-width + the two-column .shortcut-row layout are modal-specific.
+
+       CONTENT SSOT: EXPERIENCE.md:180-192 (§Interaction Primitives — Keyboard shortcuts).
+       Combos are rendered code-accurate against their real handlers so a user reading
+       this reference learns the exact keys:
+         Ctrl+Alt+T  → renderer/chrome.js:127 chord → :55 toggleTheme (AD-13)
+         Ctrl+= / -  → renderer/chrome.js zoom chords → canvas.js zoomStep
+         Ctrl+0      → renderer/chrome.js → canvas.js resetZoom
+         Ctrl+Shift+C→ input/keyboard.js:248 copySelection  (bare Ctrl+C encodes 0x03)
+         Ctrl+Shift+V→ input/keyboard.js:256 pasteFromClipboard
+         Esc         → input/keyboard.js:208-242 cancel chain + menu-bar.js Esc-passthrough
+       The reserved-Ctrl combos are single-sourced in full at #reserved-ctrl-modal
+       (E3.3, index.html:1912); this modal lists the names + alternatives and points
+       there rather than transcribing the paragraph a third time (E6.1 Q3). -->
+  <dialog id="keyboard-shortcuts-modal" class="chrome-modal" aria-labelledby="keyboard-shortcuts-modal-title">
+    <header>
+      <h2 id="keyboard-shortcuts-modal-title">Keyboard Shortcuts</h2>
+    </header>
+    <!-- Body rendered by main.js projectShortcuts() from the www/input/shortcuts.js
+         registry on each open (code-review #7) — the SAME registry chrome.js/keyboard.js
+         match chords against, so the advertised chords can't drift from the live
+         handlers. Kept empty here; JS is the single writer (mirrors #about-modal's
+         dynamic build rows). -->
+    <div class="modal-body"></div>
+    <footer>
+      <!-- Close via native <form method="dialog"> submit → returnValue 'close'.
+           openModal resolves it; openKeyboardShortcuts ignores the value (info modal —
+           nothing to apply). Esc closes the same way. -->
+      <form method="dialog">
+        <button id="keyboard-shortcuts-close" value="close">Close</button>
+      </form>
+    </footer>
+  </dialog>
+
+  <!-- Epic E6 Story E6.2 (FR-25, UX-DR10, AD-8/AD-9/AD-3) — About Beastty modal.
+       A FIFTH static-content <dialog> on the shared modal rails, cloned from
+       #keyboard-shortcuts-modal above. Non-destructive INFO modal (body copy + Close),
+       so initialFocus = the Close button and the opener ignores returnValue (AD-8 #4).
+       The ONE wrinkle vs E6.1: the Build/Built value spans are DYNAMIC — main.js's
+       projectAboutBuild (makeModalOpener's onOpen 3rd arg) reads window.__buildInfo
+       at open time and fills #about-build-sha / #about-built-at. SSOTs: the build
+       stamp is window.__buildInfo (fed by main.js:499-511 — the SAME object #status-build
+       renders via status-bar.js:setBuild, so About and the bar never drift); the privacy
+       line is byte-identical to the polite-fail page (transport/serial.js:129); the
+       source is the FR-25-specified literal TBD; the Chromium note echoes the polite-fail
+       framing (transport/serial.js:124-125). -->
+  <dialog id="about-modal" class="chrome-modal" aria-labelledby="about-modal-title">
+    <header>
+      <h2 id="about-modal-title">About Beastty</h2>
+    </header>
+    <div class="modal-body">
+      <!-- Aligned build rows (label left / value right, mirroring .shortcut-row). The
+           value spans start empty; projectAboutBuild (main.js) fills them from
+           window.__buildInfo just before showModal — never bake a SHA into static HTML
+           (it is gitignored / regenerated per build). -->
+      <div class="about-row"><span class="lbl">Build</span><span id="about-build-sha" class="val"></span></div>
+      <div class="about-row"><span class="lbl">Built</span><span id="about-built-at" class="val"></span></div>
+      <!-- Source row: literal TBD placeholder (FR-25 / UX-DR10) — Ant sets the real URL
+           later. Plain text, NOT an <a href> (a dead href would be worse than a label). -->
+      <!-- E6.2: replace TBD with <a href="…"> when Ant sets the repo URL. -->
+      <div class="about-row"><span class="lbl">Source</span><span class="val">TBD</span></div>
+      <!-- Privacy line — VERBATIM from the polite-fail page (transport/serial.js:129),
+           intentional cross-surface duplication (no shared DOM node is possible — the
+           polite-fail page rewrites document.body before wasm loads on non-Chromium). -->
+      <p class="hint">No telemetry. No data leaves your browser.</p>
+      <!-- Chromium-requirement note — mirrors the polite-fail framing (serial.js:124-125). -->
+      <p class="hint">Requires a Chromium-based browser (Web Serial is a Chromium-only API).</p>
+    </div>
+    <footer>
+      <!-- Close via native <form method="dialog"> submit → returnValue 'close'.
+           openModal resolves it; openAbout ignores the value (info modal — nothing to
+           apply). Esc closes the same way. -->
+      <form method="dialog">
+        <button id="about-close" value="close">Close</button>
+      </form>
+    </footer>
+  </dialog>
+
+  <!-- Epic E3 Story E3.4 (FR-20, AD-8/AD-9) — SLIDE File Transfer modal. The SLIDE
+       transfer controls relocated VERBATIM (same ids / copy / option-sets) from the
+       legacy nested <details id="settings-slide"> pane into an openModal-driven
+       <dialog>, re-styled onto neutral --chrome-* tokens with the clean aligned-row
+       look (matches #serial-config-modal). Opened from Settings ▸ SLIDE File Transfer…
+       (main.js openSlideConfig, injected into wireMenuBar). Edits PREFERENCES only —
+       the SLIDE state machine (slide.js) / chip lifecycle (slide-chip.js) / recv module
+       (slide-recv.js) are untouched (AD-5); every control's boot-hydration + change
+       handler in main.js and wireSlideRecv's injected refs resolve unchanged after the
+       move (ids preserved). Non-destructive: Close/Esc only, NO Reset button. Reuses the
+       shared .chrome-modal chrome; NO box-shadow (::backdrop scrim is the sole elevation
+       — UX-DR5). The dynamic folder-help + the confirm-transfers help move into upward-
+       opening ⓘ .field-tip tooltips (Q4 default); the "\r appended automatically" static
+       hint AND the SLIDE-38 validation hint stay inline (the latter is JS live-toggled). -->
+  <dialog id="slide-config-modal" class="chrome-modal" aria-labelledby="slide-config-modal-title">
+    <header>
+      <h2 id="slide-config-modal-title">SLIDE File Transfer</h2>
+    </header>
+    <div class="modal-body">
+      <!-- Row 1 — Save received files to a folder (Phase 10 carry-forward). Child ids
+           preserved so wireSlideRecv's injected refs (rowEl/toggleEl/folderButtonEl/
+           statusEl/helpEl) resolve unchanged. The folder-help is DYNAMIC (wireSlideRecv
+           rewrites #slide-recv-folder-help.textContent between hintToggleOff/On) — it
+           lives in the ⓘ .field-tip; the always-visible #slide-recv-folder-status line
+           carries the live state and doubles as the modal's aria-live region (AC-7). -->
+      <div id="slide-recv-folder-row">
+        <div class="field check">
+          <input type="checkbox" id="slide-recv-to-folder-checkbox">
+          <label for="slide-recv-to-folder-checkbox"
+                 title="When enabled, files received via SLIDE land in a folder you pick. Otherwise they download to your browser's Downloads folder.">Save received files to a folder</label>
+          <span class="field-info" tabindex="0" role="note" aria-label="Where received files are saved">
+            <span aria-hidden="true">ⓘ</span>
+            <span class="field-tip" id="slide-recv-folder-help">Received files land in your Downloads folder. Toggle this to pick a fixed destination.</span>
+          </span>
+        </div>
+        <div class="field-action">
+          <button id="slide-recv-folder-button" type="button"
+                  title="Toggle the checkbox first">Choose folder…</button>
+          <span id="slide-recv-folder-status" class="hint" aria-live="polite">No folder selected</span>
+        </div>
+      </div>
+
+      <!-- Row 2 — Auto-send command (D-06). The static "\r appended automatically" hint
+           and the Phase 12 SLIDE-38 validation hint stay INLINE (the latter is unhidden
+           by slide.js readAutoSendCommandBytes / the main.js change handler — NOT a
+           tooltip). data-invalid / aria-invalid machinery preserved (load-bearing). -->
+      <div class="field" id="slide-auto-send-row">
+        <label for="slide-auto-send-input">Auto-send command:</label>
+        <div class="field-control">
+          <input type="text" id="slide-auto-send-input" value="B:SLIDE R"
+                 autocomplete="off" spellcheck="false">
+          <div class="hint">\r appended automatically</div>
+          <div class="hint validation-hint" id="slide-auto-send-validation-hint" hidden>Auto-send command unsafe — disabled.</div>
+        </div>
+      </div>
+
+      <!-- Row 3 — Show transfer summary chip (D-08 default ON). -->
+      <div class="field check" id="slide-show-summary-row">
+        <input type="checkbox" id="slide-show-summary" checked>
+        <label for="slide-show-summary">Show transfer summary chip</label>
+      </div>
+
+      <!-- Row 4 — Confirm file transfers (default ON). Verbose help → ⓘ .field-tip. -->
+      <div class="field check" id="slide-confirm-transfers-row">
+        <input type="checkbox" id="slide-confirm-transfers-checkbox" checked>
+        <label for="slide-confirm-transfers-checkbox">Confirm file transfers</label>
+        <span class="field-info" tabindex="0" role="note" aria-label="About confirming file transfers">
+          <span aria-hidden="true">ⓘ</span>
+          <span class="field-tip">When off, drops and picker selections begin transferring immediately. Filename collisions are auto-renamed.</span>
+        </span>
+      </div>
+
+      <!-- Row 5 — Compatibility mode (D-07). Verbatim <option value>s. -->
+      <div class="field" id="slide-compat-row">
+        <label for="slide-compat-select">Compatibility mode:</label>
+        <select id="slide-compat-select">
+          <option value="auto">Auto</option>
+          <option value="wakeup-required">Wakeup-required</option>
+          <option value="force-start">Force-start (legacy slide.com)</option>
+        </select>
+      </div>
+    </div>
+    <footer>
+      <!-- Close via native <form method="dialog"> submit → returnValue 'close'.
+           openModal resolves it; openSlideConfig ignores the value (prefs persist
+           immediately via each control's change handler). Esc closes the same way.
+           NO Reset button (Q2 default — SLIDE has no preset-reset analog). -->
+      <form method="dialog">
+        <button id="slide-config-close" value="close">Close</button>
+      </form>
+    </footer>
+  </dialog>
+
+  <!-- Bottom status bar (Epic E4 Story E4.1, FR-26) — the permanent home of the
+       connection readout. Fed by status-bar.js (subscribes to serial.js's state
+       machine + reads getPrefs().serial for baud/framing); holds no independent
+       truth (AD-6). #status-conn-dot is decorative (aria-hidden); #port-status is
+       the canonical aria-live connection region relocated out of #connection.
+       The E4.2 right group (build SHA + zoom) slots in here later — not built. -->
+  <footer id="status-bar">
+    <span class="sb-conn">
+      <span id="status-conn-dot" class="conn-dot" aria-hidden="true"></span>
+      <span id="port-status" class="hint" aria-live="polite">Not connected</span>
+    </span>
+    <!-- E4.3 recent-errors affordance (FR-28) — live error count + ▲ glyph, tinted
+         amber ONLY when count > 0, click opens the Serial Configuration modal (which
+         hosts #error-log) via the E2.3 openSerialConfig opener. status-bar.js is the
+         single writer (AD-6, fed never owned): fed the observer-less serial.js
+         errorLog via imperative push (setErrorCount, main.js closure) + a getter for
+         initial paint. A <button> for native keyboard activation + focusability;
+         retainFocus (AD-10) keeps a mouse click from stealing terminal focus (NFR-1).
+         Placeholder text avoids a layout flash before the initial paint. Positioned
+         BETWEEN .sb-conn and .sb-right so the row reads connection · errors · build/zoom. -->
+    <button type="button" id="status-errors">▲ 0 recent errors</button>
+    <!-- E4.2 right group (FR-27) — build SHA + live zoom, right-pinned, muted.
+         status-bar.js is the single writer of both (AD-6, fed never owned): build
+         via setBuild (main.js pushes on the build-info import resolve), zoom via
+         setZoom (main.js's pushZoom sink, both View items and the Ctrl chord).
+         Placeholder text avoids a layout flash before the first push / initial
+         paint. -->
+    <span class="sb-right">
+      <span id="status-build">build …</span>
+      <span id="status-zoom">zoom 1×</span>
+    </span>
+  </footer>
 
   <script type="module" src="./main.js"></script>
 </body>

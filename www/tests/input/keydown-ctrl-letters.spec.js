@@ -38,15 +38,16 @@ test.describe('INPUT-03 — Ctrl-letter → control byte', () => {
         await expect(page.locator('#tx-strip')).toHaveText('1B');
     });
 
-    test('Settings pane exposes browser-reserved Ctrl combinations note', async ({ page }) => {
+    test('Settings menu exposes the browser-reserved Ctrl combinations note', async ({ page }) => {
         await page.goto('/');
-        // Open Settings pane (default-collapsed) + inner reserved note (default-collapsed).
-        // Phase 11 added a second `<details class="reserved" id="settings-slide">` block,
-        // so we narrow the locator with :not(#settings-slide) to keep matching only the
-        // original browser-reserved-Ctrl note.
-        await page.locator('#settings').evaluate((el) => { el.open = true; });
-        await page.locator('#settings details.reserved:not(#settings-slide)').evaluate((el) => { el.open = true; });
-        const noteText = await page.locator('#settings details.reserved:not(#settings-slide) p.hint').textContent();
+        // E7.1 — the reserved-Ctrl copy lives in #reserved-ctrl-modal (E3.3), opened
+        // from Settings ▸ Browser-reserved Ctrl combinations… (the legacy
+        // <details class="reserved"> pane retired with <details id="settings">).
+        await page.waitForFunction(() => window.__menuBar && typeof window.__menuBar.open === 'function');
+        await page.evaluate(() => window.__menuBar.open('settings'));
+        await page.click('#dropdown-settings .menu-item[data-action="reserved-ctrl"]');
+        await expect(page.locator('#reserved-ctrl-modal')).toBeVisible();
+        const noteText = await page.locator('#reserved-ctrl-modal .modal-body .hint').textContent();
         expect(noteText).toContain('Ctrl+W, Ctrl+N, Ctrl+T are claimed by Chromium');
     });
 });

@@ -56,7 +56,7 @@ test.describe('PLAT-05/D-34 — Auto-connect on load', () => {
         });
         // Connect button must remain in the disconnected state — no silent open
         // is allowed when prefs.autoConnect=false (D-36 default).
-        await expect(page.locator('#connect-button')).toHaveAttribute('data-state', 'disconnected');
+        await expect(page.locator('#menu-connect-item')).toHaveAttribute('data-state', 'disconnected');
     });
 
     test('prefs.autoConnect=true + getPorts() match → silent connectMicroBeast() at boot', async ({ page }) => {
@@ -68,16 +68,18 @@ test.describe('PLAT-05/D-34 — Auto-connect on load', () => {
         // Auto-connect should drive the connect button to data-state="connected"
         // without a click. Use the existing #connect-button[data-state] state
         // machine signal as the reliable, race-free assertion.
-        await page.waitForSelector('#connect-button[data-state="connected"]', { timeout: 5000 });
+        await page.waitForSelector('#menu-connect-item[data-state="connected"]', { state: 'attached', timeout: 5000 });
     });
 
     test('prefs.autoConnect=true + getPorts() empty → log "auto-connect-failed", remain disconnected', async ({ page }) => {
         // No portPreset, no preGrantPort: getPorts() returns empty so lastPortRef
         // stays null and the auto-connect path takes the "no granted port" branch.
         await setupWithMock(page, { prefs: PREFS_AUTOCONNECT_ON });
-        await expect(page.locator('#connect-button')).toHaveAttribute('data-state', 'disconnected');
-        // appendErrorLog auto-expands the Connection pane (D-27); the error
-        // text must include the auto-connect-failed code.
+        await expect(page.locator('#menu-connect-item')).toHaveAttribute('data-state', 'disconnected');
+        // E2.3 (FR-15, AD-6) — #error-log lives in #serial-config-modal now and no
+        // longer auto-expands anything (the D-27 pane auto-open was removed). The log
+        // still populates the ring silently; toContainText reads its textContent even
+        // while the modal is closed, so this asserts the auto-connect-failed code lands.
         await expect(page.locator('#error-log')).toContainText('auto-connect-failed');
     });
 
@@ -88,7 +90,7 @@ test.describe('PLAT-05/D-34 — Auto-connect on load', () => {
             preGrantPort: true,
             forceOpenReject: 'simulated open failure',
         });
-        await expect(page.locator('#connect-button')).toHaveAttribute('data-state', 'disconnected');
+        await expect(page.locator('#menu-connect-item')).toHaveAttribute('data-state', 'disconnected');
         await expect(page.locator('#error-log')).toContainText('simulated open failure');
     });
 
@@ -104,7 +106,7 @@ test.describe('PLAT-05/D-34 — Auto-connect on load', () => {
         // 'disconnected' for some reason. Either way, the open() call site
         // must NOT have fired twice (the `state === 'disconnected'` race gate
         // is what prevents the second open).
-        await page.waitForSelector('#connect-button[data-state="connected"]', { timeout: 5000 });
+        await page.waitForSelector('#menu-connect-item[data-state="connected"]', { state: 'attached', timeout: 5000 });
         const openedTimes = await page.evaluate(() => window.__mockOpenCount || 0);
         // <= 1 covers both the auto-connect-only path and the user-click-only
         // path; > 1 would mean the race gate failed and we double-opened.

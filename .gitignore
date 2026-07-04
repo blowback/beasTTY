@@ -5,3 +5,25 @@ www/pkg/
 www/node_modules/
 www/playwright-report/
 www/test-results/
+
+# local tooling / defect captures — never commit
+.claude/skills/
+/test-results/
+
+# bmad tooling install + planning scratch
+# (implementation-artifacts story files stay tracked — see e1-*.md / sprint-status.yaml)
+/_bmad/
+/_bmad-output/planning-artifacts/
+
+# auto-generated brownfield project docs (hand-written docs/SLIDE-*.md stay tracked)
+/docs/api-contracts-core.md
+/docs/architecture-core.md
+/docs/architecture-www.md
+/docs/component-inventory-www.md
+/docs/deployment-guide.md
+/docs/development-guide.md
+/docs/index.md
+/docs/integration-architecture.md
+/docs/project-overview.md
+/docs/project-scan-report.json
+/docs/source-tree-analysis.md

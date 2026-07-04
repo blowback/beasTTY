@@ -149,8 +149,10 @@ test.describe('PREF-01/PREF-02/PLAT-05 — Preferences persistence', () => {
 
     test('localEcho persists across reload', async ({ page }) => {
         await setup(page);
-        await page.locator('#settings').evaluate((el) => el.open = true);
-        await page.locator('#local-echo').check();
+        // E7.1 — toggle via the Settings menu row (the #local-echo checkbox retired).
+        await page.evaluate(() => window.__menuBar.open('settings'));
+        await page.click('#dropdown-settings .menu-item[data-pref="localEcho"]');
+        await page.evaluate(() => window.__menuBar.close());
         await page.waitForTimeout(300);
         await page.reload();
         await setup(page);
@@ -159,10 +161,11 @@ test.describe('PREF-01/PREF-02/PLAT-05 — Preferences persistence', () => {
 
     test('crlfMode persists across reload', async ({ page }) => {
         await setup(page);
-        await page.locator('#settings').evaluate((el) => el.open = true);
-        // Drive the change handler; click is shadowed by the mousedown
-        // preventDefault sequence (Phase 4 D-16) so we use .check() directly.
-        await page.locator('#crlf-lf').check();
+        // E7.1 — set via the Settings ▸ Enter key sends submenu (the #crlf-* radios retired).
+        await page.evaluate(() => window.__menuBar.open('settings'));
+        await page.click('#dropdown-settings .menu-item[data-submenu="crlf"]');
+        await page.click('#dropdown-settings .submenu[data-submenu-panel="crlf"] .menu-item[data-value="lf"]');
+        await page.evaluate(() => window.__menuBar.close());
         await page.waitForTimeout(300);
         await page.reload();
         await setup(page);
@@ -180,39 +183,45 @@ test.describe('PREF-01/PREF-02/PLAT-05 — Preferences persistence', () => {
         expect(await page.evaluate(() => window.__prefs.getPrefs().fontZoom)).toBe(2);
     });
 
-    test('Reset prefs button: first click changes label to "Click again to confirm (3 s)"', async ({ page }) => {
+    // E7.1 — the reset 2-click confirm moved wholly to the Settings ▸ Reset all
+    // preferences menu row (the legacy #reset-prefs-button retired); same labels +
+    // 3 s window (shared confirm-toggle.js). Menu-driven idioms below.
+    const RESET_ROW = '#dropdown-settings .menu-item[data-action="reset-prefs"]';
+    const RESET_LBL = `${RESET_ROW} .lbl`;
+
+    test('Reset prefs row: first click changes label to "Click again to confirm (3 s)"', async ({ page }) => {
         await page.addInitScript(() => localStorage.removeItem('beastty.prefs'));
         await setup(page);
-        await page.locator('#settings').evaluate((el) => el.open = true);
-        await page.locator('#reset-prefs-button').click();
-        await expect(page.locator('#reset-prefs-button')).toHaveText('Click again to confirm (3 s)');
+        await page.evaluate(() => window.__menuBar.open('settings'));
+        await page.click(RESET_ROW);
+        await expect(page.locator(RESET_LBL)).toHaveText('Click again to confirm (3 s)');
     });
 
-    test('Reset prefs button: second click within 3s clears beastty.prefs and reloads defaults', async ({ page }) => {
+    test('Reset prefs row: second click within 3s clears beastty.prefs and reloads defaults', async ({ page }) => {
         await page.addInitScript(() => localStorage.removeItem('beastty.prefs'));
         await setup(page);
         // First customize prefs.
         await page.evaluate(() => window.__prefs.savePrefs({ theme: 'clean' }));
         await page.waitForTimeout(300);
         expect(await page.evaluate(() => localStorage.getItem('beastty.prefs'))).not.toBeNull();
-        await page.locator('#settings').evaluate((el) => el.open = true);
-        await page.locator('#reset-prefs-button').click();
-        await page.locator('#reset-prefs-button').click();
+        await page.evaluate(() => window.__menuBar.open('settings'));
+        await page.click(RESET_ROW);
+        await page.click(RESET_ROW);
         // Defaults reloaded in-place (no page reload — D-35).
         expect(await page.evaluate(() => window.__prefs.getPrefs().theme)).toBe('crt');
         expect(await page.evaluate(() => localStorage.getItem('beastty.prefs'))).toBeNull();
-        // Label restored.
-        await expect(page.locator('#reset-prefs-button')).toHaveText('Reset all preferences');
+        // Label restored to idle.
+        await expect(page.locator(RESET_LBL)).toHaveText('Reset all preferences');
     });
 
-    test('Reset prefs button: 3s timeout returns label to "Reset all preferences"', async ({ page }) => {
+    test('Reset prefs row: 3s timeout returns label to "Reset all preferences"', async ({ page }) => {
         await page.addInitScript(() => localStorage.removeItem('beastty.prefs'));
         await setup(page);
-        await page.locator('#settings').evaluate((el) => el.open = true);
-        await page.locator('#reset-prefs-button').click();
-        await expect(page.locator('#reset-prefs-button')).toHaveText('Click again to confirm (3 s)');
+        await page.evaluate(() => window.__menuBar.open('settings'));
+        await page.click(RESET_ROW);
+        await expect(page.locator(RESET_LBL)).toHaveText('Click again to confirm (3 s)');
         await page.waitForTimeout(3500);   // wait > 3 s
-        await expect(page.locator('#reset-prefs-button')).toHaveText('Reset all preferences');
+        await expect(page.locator(RESET_LBL)).toHaveText('Reset all preferences');
     });
 
     // Phase 6 Plan 06-09 (gap closure) — no-revert regression suite.
@@ -244,18 +253,50 @@ test.describe('PREF-01/PREF-02/PLAT-05 — Preferences persistence', () => {
 
     test('phosphor DOM state survives the 250ms debounce window — no race-revert @fast', async ({ page }) => {
         await setup(page);
-        // Click a phosphor button (real user interaction path) — Amber.
-        await page.locator('[data-phosphor="amber"]').click();
-        // Capture aria-pressed immediately after click (synchronous DOM update).
-        const pressedAfterClick = await page.locator('[data-phosphor="amber"]').getAttribute('aria-pressed');
-        expect(pressedAfterClick).toBe('true');
-        // Wait past the 250 ms debounce — applyPrefs would have fired pre-fix
-        // and (because cached state matches) would in this case be a no-op,
-        // BUT in the snapPreset analog it would have caused a revert. The
-        // structural fix makes this guarantee uniform across ALL DOM-mutating
-        // user actions.
+        await page.waitForFunction(() => window.__menuBar && typeof window.__menuBar.open === 'function');
+        // Epic E1 Story E1.4 — select Amber via View ▸ Phosphor (real user path).
+        const AMBER = '#dropdown-view .submenu[data-submenu-panel="phosphor"] .menu-item[data-value="amber"]';
+        await page.evaluate(() => window.__menuBar.open('view'));
+        await page.click('#dropdown-view .menu-item[data-submenu="phosphor"]');
+        await page.click(AMBER);
+        // aria-checked is the synchronous DOM update.
+        expect(await page.locator(AMBER).getAttribute('aria-checked')).toBe('true');
+        // Wait past the 250 ms debounce — flushPrefs does NOT fire subscribers
+        // (AD-4), so the menu radio state must not revert. Same guarantee the
+        // snapPreset fix pinned, now for the relocated phosphor control.
         await page.waitForTimeout(350);
-        const pressedAfterDebounce = await page.locator('[data-phosphor="amber"]').getAttribute('aria-pressed');
-        expect(pressedAfterDebounce).toBe('true');
+        expect(await page.locator(AMBER).getAttribute('aria-checked')).toBe('true');
+    });
+});
+
+// Epic E1 Story E1.3 (AC-5 / AD-14) — applyPrefs single-writer on reset.
+// applyPrefs re-applies defaults in-place on resetPrefs() (no reload): each
+// canvas setter fires from exactly one call site and the #top-bar/<details>
+// mirrors re-project to the default. This pins that in-place reset behaviour.
+test.describe('E1.3 AC-5 — applyPrefs re-applies defaults in-place on reset', () => {
+    test('resetPrefs() restores defaults in-place with no throw @fast', async ({ page }) => {
+        await page.addInitScript(() => localStorage.removeItem('beastty.prefs'));
+        await setup(page);
+        // Move state away from defaults, then reset.
+        await page.evaluate(() => {
+            window.__prefs.savePrefs({ theme: 'clean', phosphor: 'amber', fontZoom: 3 });
+        });
+        const threw = await page.evaluate(() => {
+            try { window.__prefs.resetPrefs(); return false; } catch (e) { return true; }
+        });
+        expect(threw).toBe(false);
+        // Defaults re-applied in-place (canvas single-writers fired).
+        await expect(page.locator('body')).toHaveAttribute('data-theme', 'crt');
+        expect(await page.evaluate(() => window.__prefs.getPrefs().theme)).toBe('crt');
+        expect(await page.evaluate(() => window.__prefs.getPrefs().phosphor)).toBe('green');
+        expect(await page.evaluate(() => window.__prefs.getPrefs().fontZoom)).toBe(1);
+        // Epic E1 Story E1.4 — projectPrefs re-projects the View ▸ Theme active
+        // radio to the default (CRT) on reset (replacing the retired #theme-toggle
+        // label mirror).
+        await page.evaluate(() => window.__menuBar.open('view'));
+        await expect(page.locator('#dropdown-view .submenu[data-submenu-panel="theme"] .menu-item[data-value="crt"]'))
+            .toHaveAttribute('aria-checked', 'true');
+        await expect(page.locator('#dropdown-view .submenu[data-submenu-panel="theme"] .menu-item[data-value="clean"]'))
+            .toHaveAttribute('aria-checked', 'false');
     });
 });

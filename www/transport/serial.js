@@ -1,7 +1,16 @@
 // Beastty Phase 5 — Web Serial transport (JS-only; no Rust bindings).
 //
-// Public API: renderPoliteFail, wireSerial, connectMicroBeast, disconnect,
-// getState, onStateChange, getWriter.
+// Public API: renderPoliteFail, wireSerial, connectMicroBeast, requestMicroBeastPort,
+// disconnect, getState, onStateChange, getWriter, toggleConnection, countMicroBeastAdapters.
+//
+// Epic E2 Story E2.1 (AD-15) — the connect-button DOM *projection* moved OUT of
+// this module. serial.js still owns the connection STATE MACHINE (state,
+// setState fan-out, onStateChange, getState) but no longer writes any Connect
+// DOM. menu-bar.js subscribes to onStateChange and is now the SOLE writer of the
+// Connect item / status dot / label. toggleConnection()
+// is the exported click action (its state-branch logic stays here — it reads the
+// internal `state`); the out-of-band "Choose MicroBeast…" prompt is surfaced via
+// the injected opts.signalConnectLabel signal, not a direct button write.
 //
 // Sources:
 //   - 05-CONTEXT.md D-01..D-42.
@@ -24,23 +33,24 @@ import { isSlideActive } from './slide-recv.js';
 // Live read of prefs.showAllSerialDevices at picker time. Cannot use the
 // boot-time `prefsRef` snapshot because savePrefs replaces the cached object —
 // prefsRef would still point at the original blob and miss subsequent toggles.
-import { getPrefs } from '../state/prefs.js';
+import { getPrefs, MICROBEAST_DEVICE_LABEL, formatFraming } from '../state/prefs.js';
 
 // Constants -----------------------------------------------------------------
 const VID_MICROBEAST = 0x10c4;   // D-02 — Silicon Labs (CP2102N)
 const PID_MICROBEAST = 0xea60;   // D-02 — CP2102N
+// D-02 — the single MicroBeast identity predicate over a SerialPort.getInfo() result.
+// getConnectionDevice() (device labelling) and countMicroBeastAdapters() (the "Choose
+// MicroBeast…" gate) both call it, so a second PID / loosened match is changed in ONE
+// place and can never drift between how a board is labelled and whether it counts.
+const isMicroBeast = (info) =>
+    !!info && info.usbVendorId === VID_MICROBEAST && info.usbProductId === PID_MICROBEAST;
 const PRESET_CONFIG = Object.freeze({
     baudRate: 19200, dataBits: 8, stopBits: 1, parity: 'none', flowControl: 'none',
 });
 const STORAGE_KEY = 'beastty.port.preset';   // D-31 — localStorage key for VID/PID persistence
 const ERROR_LOG_CAP = 5;                          // D-27 — ring-of-5 newest-first
-const BUTTON_LABELS = Object.freeze({
-    disconnected:  'Connect',
-    connecting:    'Connecting…',          // U+2026 ellipsis
-    connected:     'Disconnect',
-    reconnecting:  'Reconnecting…',        // U+2026 ellipsis
-    'port-lost':   'Reconnect',
-});
+// E2.1 (AD-15) — the Connect-button label map moved to menu-bar.js's
+// CONNECT_LABELS (the new sole writer). serial.js no longer projects any label.
 
 // Module-scope state — Wave 2+ populates these via connectMicroBeast/disconnect.
 let port = null;
@@ -60,9 +70,10 @@ let term = null;
 let sampleBellFn = null;
 let drainHostReplyFn = null;
 let requestFrameFn = null;
-let connectButton = null;
-let connectionPane = null;
-let portStatusEl = null;
+// E2.1 (AD-15) — injected signal for the out-of-band "Choose MicroBeast…" label
+// (the multi-adapter guard). menu-bar.js owns the actual DOM write; serial.js
+// only hands it the string. Null-guarded — a harness that omits it is inert.
+let signalConnectLabelFn = null;
 let errorLogEl = null;
 // Wave 3 (D-08) — serial-config form refs:
 //   { baud, dataBits, stopBits, parity, flowCtl, resetBtn, reconnectHintEl }
@@ -79,6 +90,24 @@ let sessionLogRef = null;
 // to persist user choices via the prefs.js debounce.
 let prefsRef = null;
 let savePrefsFn = null;
+// E4.1 fix (#3) — pushed to the status bar when the boot getPorts() scan finds an
+// already-granted MicroBeast, so a returning user sees the "…— click Connect"
+// affordance the relocated #port-status used to show (serial.js no longer owns
+// that DOM node — status-bar.js does).
+let onBootDeviceRecognizedFn = null;
+// E4.3 fix (FR-28) — fired at the end of appendErrorLog (after renderErrorLog) with
+// the current errorLog.length, so the status-bar recent-errors affordance updates
+// live on every error. Same imperative-push shape as onBootDeviceRecognizedFn:
+// serial.js owns the mutation, main.js's closure calls statusBar.setErrorCount.
+// Null-guarded — a harness that omits it is inert.
+let onErrorLogChangeFn = null;
+// E4.1 fix (#4) — the most-recent connect-TIME failure (open-failed / port-in-use /
+// auto-connect-failed). These land in state 'disconnected', whose dot is gray by
+// design (red is reserved for port-lost), so nothing visibly distinguished a failed
+// Connect from idle once the D-27 pane auto-expand was removed. The status bar reads
+// this via getLastConnectError() to surface the message in its readout. Cleared at
+// the start of every fresh connect attempt. NOT set for port-lost (already red).
+let lastConnectError = null;
 
 // --- Public API -----------------------------------------------------------
 
@@ -102,25 +131,27 @@ export function renderPoliteFail() {
 export async function wireSerial(opts) {
     const {
         term: termArg, sampleBell, drainHostReply, requestFrame,
-        connectButton: btn, connectionPane: pane,
-        portStatusEl: status, errorLogEl: log,
+        errorLogEl: log,   // E4.1 (#8) — portStatusEl opt removed: #port-status lives in status-bar.js now
+        signalConnectLabel,                  // E2.1 (AD-15) — "Choose MicroBeast…" out-of-band signal
         serialConfigEls,                     // Wave 3 (D-08) — form refs
         sessionLog,                          // Phase 6 Plan 05 — { reset, append }
         prefs,                               // Phase 6 Plan 06 (D-34) — auto-connect gate + form persist
         savePrefs,                           // Phase 6 Plan 06 — debounced persist on form change
+        onBootDeviceRecognized,              // E4.1 fix — fired when the boot getPorts() scan finds a granted MicroBeast
+        onErrorLogChange,                    // E4.3 (FR-28) — fired on every appendErrorLog with errorLog.length
     } = opts;
     term = termArg;
     sampleBellFn = sampleBell;
     drainHostReplyFn = drainHostReply;
     requestFrameFn = requestFrame;
-    connectButton = btn;
-    connectionPane = pane;
-    portStatusEl = status;
+    signalConnectLabelFn = signalConnectLabel || null;
     errorLogEl = log;
     serialEls = serialConfigEls || null;
     sessionLogRef = sessionLog || null;
     prefsRef = prefs || null;
     savePrefsFn = savePrefs || null;
+    onBootDeviceRecognizedFn = onBootDeviceRecognized || null;   // E4.1 fix (#3)
+    onErrorLogChangeFn = onErrorLogChange || null;               // E4.3 (FR-28)
 
     // D-26 — connect/disconnect listeners on navigator.serial (NOT port instances).
     // Registered ONCE at wireSerial boot time. Pitfall #11 — listening on a port
@@ -182,9 +213,10 @@ export async function wireSerial(opts) {
         });
         if (match) {
             lastPortRef = match;
-            if (portStatusEl) {
-                portStatusEl.textContent = 'MicroBeast (CP2102N 10c4:ea60) — click Connect';
-            }
+            // E4.1 fix (#3) — push the "device recognized, click Connect" cue to the
+            // status bar (the relocated home of #port-status); serial.js no longer
+            // writes any connection DOM (fix #8 removed the portStatusEl projection).
+            if (onBootDeviceRecognizedFn) onBootDeviceRecognizedFn();
         }
     } catch (err) {
         console.warn('[serial] getPorts restore skipped:', err);
@@ -223,12 +255,12 @@ export async function wireSerial(opts) {
                 lastConfig = cfg;
                 if (sessionLogRef) sessionLogRef.reset();   // D-29 — fresh per-connection buffer.
                 setState('connected');
-                updatePortStatusConnected();
                 runReadLoop(lastPortRef);
             } catch (err) {
                 // Pitfall 3 fall-back — log + standard "click Connect" path.
-                appendErrorLog('auto-connect-failed', `Auto-connect failed: ${err.message}`);
-                setState('disconnected');
+                lastConnectError = `Auto-connect failed: ${err.message}`;   // E4.1 fix (#4)
+                appendErrorLog('auto-connect-failed', lastConnectError);
+                setState('disconnected');   // status bar reads lastConnectError on this transition
             }
         } else if (!lastPortRef) {
             // No granted port found — user must click Connect to authorize.
@@ -239,9 +271,10 @@ export async function wireSerial(opts) {
         // handler owns the flow.
     }
 
-    // Connect button click handler — D-01 stateful toggle.
-    connectButton.addEventListener('click', onConnectButtonClick);
-    connectButton.addEventListener('mousedown', (e) => e.preventDefault());  // UI-SPEC §Focus retention line 575
+    // E2.1 (AD-15) — the Connect-button click/mousedown wiring moved to
+    // menu-bar.js (the new sole owner of every Connect surface). serial.js
+    // exports toggleConnection() so the relocated wiring drives the SAME
+    // state-branch logic without duplicating machine knowledge.
 
     // Phase 5 D-08 — serial-config form listeners (Wave 3).
     // UI-SPEC §"Connection pane form-control behaviors" — change a select and
@@ -277,14 +310,22 @@ export async function wireSerial(opts) {
             serialEls.resetBtn.addEventListener('click', () => snapPreset());
             // UI-SPEC §Focus retention line 576 — mousedown preventDefault keeps
             // #terminal-wrapper focused after clicking Reset.
+            // E2.3 (FR-15, Task 5) — Reset now lives in #serial-config-modal's footer.
+            // This preventDefault is harmless in a modal: it only suppresses mouse-focus
+            // on the button (keyboard Tab still reaches it, and the native focus trap
+            // keeps focus inside the dialog). Left as-is — no behavior change on click.
             serialEls.resetBtn.addEventListener('mousedown', (e) => e.preventDefault());
         }
     }
 
-    applyStateToButton();  // Set initial label + data-state=disconnected.
+    // E2.1 (AD-15) — no initial button paint here anymore. menu-bar.js does the
+    // initial disconnected paint via getConnectionState() at its own wire time.
 }
 
-async function onConnectButtonClick() {
+// E2.1 (AD-15) — exported so the relocated menu-bar wiring drives the SAME
+// D-01 stateful toggle. The state-branch logic stays here (it reads the internal
+// `state`); menu-bar.js owns only the DOM click that calls this.
+export async function toggleConnection() {
     // Transient states are click-inert (UI-SPEC §"Connect button pointer-events during transient states").
     if (state === 'connecting' || state === 'reconnecting') return;
 
@@ -347,8 +388,14 @@ function snapPreset() {
 // via serialConfigEls.reconnectHintEl; hidden attribute flips visibility.
 function showReconnectHint() {
     if (!serialEls || !serialEls.reconnectHintEl) return;
-    serialEls.reconnectHintEl.textContent = 'Config changed — Disconnect and Connect to apply';
+    // E2.3 (FR-15, UX-DR11) — #serial-reconnect-hint carries aria-live="polite" and
+    // doubles as the modal's status region. Un-hide FIRST so the live region is in
+    // the a11y tree, THEN mutate its text — a content change observed while the
+    // region is present is what a polite live region announces. Populating it while
+    // still [hidden] (out of the tree) and only then revealing it lands the text as
+    // initial state, which screen readers do not announce.
     serialEls.reconnectHintEl.hidden = false;
+    serialEls.reconnectHintEl.textContent = 'Config changed — Disconnect and Connect to apply';
 }
 function hideReconnectHint() {
     if (!serialEls || !serialEls.reconnectHintEl) return;
@@ -356,24 +403,38 @@ function hideReconnectHint() {
     serialEls.reconnectHintEl.textContent = '';
 }
 
-export async function connectMicroBeast(configOverride) {
+// D-02 — the filtered native picker. Narrows to the CP2102N MicroBeast bridge by
+// default; when the user opts in via Connection → "Show all serial devices" (e.g. a
+// MicroBeast clone on FTDI/CH340/CP2104, or a virtual COM port) it drops the filter
+// and shows every port. Read the pref live (getPrefs()) — a boot-time snapshot would
+// miss toggles. Throws on cancel / no-match (the caller maps that to a no-op).
+// Exported (E4 review fix) so chooseMicroBeast can pick the NEW port while user
+// activation is still fresh, BEFORE tearing the old one down — requestPort() needs
+// transient activation, open() does not, so the picker must never sit behind a
+// disconnect() that can stall on a wedged adapter.
+export async function requestMicroBeastPort() {
+    const livePrefs = getPrefs() || {};
+    const requestOpts = livePrefs.showAllSerialDevices
+        ? {}
+        : { filters: [{ usbVendorId: VID_MICROBEAST, usbProductId: PID_MICROBEAST }] };
+    return navigator.serial.requestPort(requestOpts);
+}
+
+// `preselectedPort` (E4 review fix) — when the caller has already run the picker
+// (chooseMicroBeast, to keep user activation fresh across a teardown), pass the port
+// here to skip requestPort() and go straight to open().
+export async function connectMicroBeast(configOverride, preselectedPort) {
+    lastConnectError = null;   // E4.1 fix (#4) — fresh attempt clears any prior failure cue
     setState('connecting');
-    let selectedPort;
-    try {
-        // D-02 — narrow the native picker to the CP2102N MicroBeast bridge by
-        // default. When the user opts in via Connection → "Show all serial
-        // devices" (e.g. MicroBeast clone using FTDI/CH340/CP2104, or virtual
-        // COM port), drop the filter and show every available port. Read the
-        // pref live (getPrefs()) — a boot-time snapshot would miss toggles.
-        const livePrefs = getPrefs() || {};
-        const requestOpts = livePrefs.showAllSerialDevices
-            ? {}
-            : { filters: [{ usbVendorId: VID_MICROBEAST, usbProductId: PID_MICROBEAST }] };
-        selectedPort = await navigator.serial.requestPort(requestOpts);
-    } catch (err) {
-        // User cancelled picker OR no-match rejection.
-        setState('disconnected');
-        return;
+    let selectedPort = preselectedPort;
+    if (!selectedPort) {
+        try {
+            selectedPort = await requestMicroBeastPort();
+        } catch (err) {
+            // User cancelled picker OR no-match rejection.
+            setState('disconnected');
+            return;
+        }
     }
 
     const config = configOverride || readFormConfig();
@@ -398,12 +459,13 @@ export async function connectMicroBeast(configOverride) {
         // distinct user-facing message (another Beastty tab owns the port).
         const msg = (err.message || '').toLowerCase();
         if (err.name === 'InvalidStateError' && (msg.includes('in use') || msg.includes('already open'))) {
-            appendErrorLog('port-in-use',
-                'MicroBeast is in use by another Beastty tab — close it to connect here.');
+            lastConnectError = 'MicroBeast is in use by another Beastty tab — close it to connect here.';
+            appendErrorLog('port-in-use', lastConnectError);
         } else {
-            appendErrorLog('open-failed', `Could not open port: ${err.message}`);
+            lastConnectError = `Could not open port: ${err.message}`;
+            appendErrorLog('open-failed', lastConnectError);
         }
-        setState('disconnected');
+        setState('disconnected');   // E4.1 fix (#4) — status bar reads lastConnectError on this transition
         return;
     }
 
@@ -416,8 +478,15 @@ export async function connectMicroBeast(configOverride) {
     lastConfig = config;
     persistVidPid(selectedPort);    // D-31 — Wave 4 implements; Wave 2 stubs it locally.
 
+    // E4.3 fix — a successful Connect resolves whatever the prior failures were, so
+    // clear the recent-error ring (and push 0 to the status-bar affordance). Without
+    // this the amber "▲ N recent errors" cue is monotonic: any transient error early
+    // in the session left it lit for the rest of the session even after reconnecting
+    // healthy. Clearing here mirrors the per-Connect sessionLogRef.reset() above — a
+    // fresh Connect is the session boundary, so the D-27 pane starts clean too.
+    clearErrorLog();
+
     setState('connected');
-    updatePortStatusConnected();
 
     // Fire the read loop (no await — runs until the reader is cancelled or port.readable=null).
     runReadLoop(selectedPort);
@@ -440,7 +509,6 @@ export async function disconnect() {
         shuttingDown = false;
     }
     setState('disconnected');
-    updatePortStatusDisconnected();
 }
 
 export function getState() { return state; }
@@ -454,6 +522,68 @@ export function onStateChange(fn) {
 }
 
 export function getWriter() { return writer; }
+
+// E4.1 fix (#2) — the framing the LIVE port was actually opened with (lastConfig,
+// a SerialPort.open() shape), formatted for the status-bar readout. The status bar
+// must not derive framing from getPrefs().serial: a mid-session serial-config change
+// persists to prefs immediately but only takes effect on the next open (the
+// "Disconnect and Connect to apply" hint), and a reconnect re-opens with lastConfig
+// — so a prefs-derived readout would misreport the real wire framing. Returns null
+// when nothing is open yet (never connected), letting the caller fall back.
+export function getActiveFraming() {
+    if (!lastConfig) return null;
+    // Shared pure formatter (prefs.js) — map the open-port schema (baudRate) onto
+    // its `baud` field so the live readout and status-bar's prefs-derived fallback
+    // format identically.
+    return formatFraming({
+        baud: lastConfig.baudRate,
+        dataBits: lastConfig.dataBits,
+        parity: lastConfig.parity,
+        stopBits: lastConfig.stopBits,
+    });
+}
+
+// E4.1 fix (#4) — the most-recent connect-time failure message (or null). The status
+// bar surfaces this in its readout so a failed Connect is visible again (the D-27
+// pane auto-expand was removed and the disconnected dot is gray by design).
+export function getLastConnectError() { return lastConnectError; }
+
+// E4.3 (FR-28) — the current recent-error count (0..ERROR_LOG_CAP), for the status
+// bar's recent-errors affordance. errorLog is observer-less, so the status bar reads
+// this getter for its initial paint (0 at boot — no connect attempt has run yet) and
+// is fed live updates via the injected onErrorLogChange push (see appendErrorLog).
+// status-bar.js cannot import serial.js (AD-3); main.js injects this as an opt.
+export function getRecentErrorCount() { return errorLog.length; }
+
+// E4.1 fix (#7) — the ACTUAL device label for the status-bar readout: the live open
+// port when connected, else the boot-scan match (lastPortRef) for the "click Connect"
+// cue. Returns the canonical MicroBeast string ONLY when the port's VID/PID actually
+// match — so a "Show all serial devices" connection to a non-CP2102N adapter reports
+// its real VID:PID instead of being mislabelled a MicroBeast. Null when nothing is
+// granted yet (the status bar falls back to its own literal). This is the single
+// authoritative source of the device string; status-bar.js keeps only a harness fallback.
+export function getConnectionDevice() {
+    const p = port || lastPortRef;
+    if (!p) return null;
+    let info;
+    try { info = p.getInfo(); } catch { return null; }
+    if (isMicroBeast(info)) {
+        return MICROBEAST_DEVICE_LABEL;   // shared literal (prefs.js) — single source with status-bar's fallback
+    }
+    const hex = (n) => (n == null ? '????' : n.toString(16).padStart(4, '0'));
+    return `Serial device (${hex(info.usbVendorId)}:${hex(info.usbProductId)})`;
+}
+
+// E2.2 (FR-13) — count the currently-granted CP2102N MicroBeast adapters via the
+// shared isMicroBeast() predicate (single source with getConnectionDevice's label).
+// menu-bar.js gates "Choose MicroBeast…" on count > 1 but cannot import serial
+// (AD-3), so main.js injects this as opts.getAdapterCount. No-throw: resolves to 0
+// if getPorts() rejects (never blocks / breaks the menu open).
+export async function countMicroBeastAdapters() {
+    let ports;
+    try { ports = await navigator.serial.getPorts(); } catch { return 0; }
+    return ports.filter((p) => isMicroBeast(p.getInfo())).length;
+}
 
 // --- Internals ------------------------------------------------------------
 
@@ -557,25 +687,16 @@ async function teardown({ deassertSignals = true } = {}) {
 // State machine helper (05-RESEARCH Pattern 5). Fires observers after every transition.
 function setState(s) {
     state = s;
-    applyStateToButton();
+    // E2.1 (AD-15) — no DOM projection here anymore; the observer fan-out is the
+    // ONLY side effect. menu-bar.js's projectConnection subscriber owns every
+    // Connect-surface write (label / dot / status).
     for (const fn of stateObservers) fn(s);
 }
 
-function applyStateToButton() {
-    if (!connectButton) return;
-    connectButton.dataset.state = state;
-    connectButton.textContent = BUTTON_LABELS[state] || BUTTON_LABELS.disconnected;
-}
-
-function updatePortStatusConnected() {
-    if (!portStatusEl) return;
-    // UI-SPEC line 164 — verbatim copy.
-    portStatusEl.textContent = 'MicroBeast (CP2102N 10c4:ea60) — 19200 8N1';
-}
-function updatePortStatusDisconnected() {
-    if (!portStatusEl) return;
-    portStatusEl.textContent = 'Not connected';
-}
+// E4.1 (#8) — updatePortStatusConnected/Disconnected removed: #port-status moved to
+// status-bar.js, which projects it off the same onStateChange truth. serial.js no
+// longer writes any connection DOM (the device/framing readout is served via the
+// getConnectionDevice/getActiveFraming getters instead).
 
 // Error log — D-27 ring-of-5 newest-first, `HH:MM:SS code: message` format.
 // Auto-expands the Connection pane on a new entry so the user sees it.
@@ -586,13 +707,30 @@ function appendErrorLog(code, message) {
     if (errorLog.length > ERROR_LOG_CAP) errorLog.length = ERROR_LOG_CAP;
     renderErrorLog();
     console.error('[serial]', `${ts} ${code}: ${message}`);
-    // D-27 auto-expand on error (KEPT, intentionally asymmetric with D-17).
-    // Plan 09 (Gap 2 fix) amended D-17 so paste progress does NOT auto-expand
-    // the Connection pane (progress rides the sticky #top-bar instead). D-27
-    // stays as-is because errors are rare + sticky + demand attention — the
-    // red border on Connect button is the primary signal; the pane-expand is
-    // a secondary pull-focus that is acceptable once per error.
-    if (connectionPane) connectionPane.open = true;
+    // E4.3 (FR-28, AD-6) — imperative push to the status-bar recent-errors affordance.
+    // Fired AFTER renderErrorLog so the #error-log and the count never disagree; the
+    // status bar holds no independent truth (this is its only feed besides the boot
+    // getRecentErrorCount read). Null-guarded — inert on a harness that omits the opt.
+    if (onErrorLogChangeFn) onErrorLogChangeFn(errorLog.length);
+    // E2.3 (FR-15, AD-6) — the old D-27 auto-expand of the Connection <details>
+    // pane on error is gone (that pane retired in E7.1). The #error-log now lives
+    // inside #serial-config-modal, and a modal must never showModal() itself on
+    // every error (an error while the user is elsewhere must not steal the top
+    // layer). Errors still populate #error-log (ring-of-5) and trip the red-border
+    // Connect signal (menu-bar.js, unchanged) — that stays the primary "something's
+    // wrong" cue. The DELIBERATE path to read the log is Connection ▸ Serial
+    // Configuration… or the E4 status-bar recent-errors affordance (same modal).
+}
+
+// E4.3 fix — empty the recent-error ring and notify the status-bar affordance (0).
+// Called on a successful Connect so the amber "action required" cue clears once the
+// underlying problem is resolved (fired AFTER renderErrorLog so the #error-log pane
+// and the pushed count never disagree — same ordering discipline as appendErrorLog).
+function clearErrorLog() {
+    if (errorLog.length === 0) return;   // idempotent — no spurious push when already clean
+    errorLog.length = 0;
+    renderErrorLog();
+    if (onErrorLogChangeFn) onErrorLogChangeFn(errorLog.length);
 }
 
 function renderErrorLog() {
@@ -677,7 +815,12 @@ async function onNavSerialConnect(ev) {
         target = matches.find((p) => p === lastPortRef);
         if (!target) {
             setState('port-lost');
-            if (connectButton) connectButton.textContent = 'Choose MicroBeast…';   // U+2026
+            // E2.1 (AD-15, AC-4) — the out-of-band "Choose MicroBeast…" label is
+            // not representable by the 5-state map; hand it to menu-bar.js (the
+            // sole writer) via the injected signal instead of writing the DOM here.
+            // Fires AFTER setState so it overrides the port-lost 'Reconnect' label
+            // the fan-out just projected (until the next setState re-projects). U+2026.
+            if (signalConnectLabelFn) signalConnectLabelFn('Choose MicroBeast…');
             appendErrorLog('multiple-adapters', 'Multiple CP2102N adapters connected — pick one');
             return;
         }
@@ -746,6 +889,5 @@ async function finishReconnect(target) {
     // so the read loop's first append finds an empty buffer and a current stamp.
     if (sessionLogRef) sessionLogRef.reset();
     setState('connected');
-    updatePortStatusConnected();
     runReadLoop(target);
 }

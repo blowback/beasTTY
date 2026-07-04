@@ -2,47 +2,63 @@
 import { test, expect } from '@playwright/test';
 
 test.describe('SC-5 — Focus retention on toolbar click', () => {
-    test('click #theme-toggle keeps #terminal-wrapper focused @fast', async ({ page }) => {
+    // Epic E1 Story E1.4 — theme/phosphor retired to View ▸ Theme / Phosphor.
+    // retainFocus on every submenu row keeps #terminal-wrapper focused (D-16/AD-10).
+    test('View ▸ Theme select keeps #terminal-wrapper focused @fast', async ({ page }) => {
         await page.goto('/');
+        await page.waitForFunction(() => window.__menuBar && typeof window.__menuBar.open === 'function');
         await page.locator('#terminal-wrapper').focus();
         await expect(page.locator('#terminal-wrapper')).toBeFocused();
 
-        await page.locator('#theme-toggle').click();
+        await page.evaluate(() => window.__menuBar.open('view'));
+        await page.click('#dropdown-view .menu-item[data-submenu="theme"]');
+        await page.click('#dropdown-view .submenu[data-submenu-panel="theme"] .menu-item[data-value="clean"]');
         await expect(page.locator('#terminal-wrapper')).toBeFocused();
-        // Confirm the click action fired (theme flipped).
+        // Confirm the action fired (theme flipped).
         await expect(page.locator('body')).toHaveAttribute('data-theme', 'clean');
     });
 
-    test('click each phosphor button keeps wrapper focused', async ({ page }) => {
+    test('View ▸ Phosphor selects keep wrapper focused', async ({ page }) => {
         await page.goto('/');
+        await page.waitForFunction(() => window.__menuBar && typeof window.__menuBar.open === 'function');
         await page.locator('#terminal-wrapper').focus();
 
+        const P = '#dropdown-view .submenu[data-submenu-panel="phosphor"]';
         for (const color of ['amber', 'white', 'green']) {
-            await page.locator(`[data-phosphor="${color}"]`).click();
+            await page.evaluate(() => window.__menuBar.open('view'));
+            await page.click('#dropdown-view .menu-item[data-submenu="phosphor"]');
+            await page.click(`${P} .menu-item[data-value="${color}"]`);
             await expect(page.locator('#terminal-wrapper')).toBeFocused();
-            await expect(page.locator(`[data-phosphor="${color}"]`)).toHaveAttribute('aria-pressed', 'true');
+            await expect(page.locator(`${P} .menu-item[data-value="${color}"]`)).toHaveAttribute('aria-checked', 'true');
         }
     });
 
-    test('click local-echo checkbox keeps wrapper focused + toggles state', async ({ page }) => {
+    // E7.1 — Local echo / Enter-key-sends are Settings-menu rows now (the
+    // <details id="settings"> checkbox + radios retired); retainFocus lives on the
+    // menu rows.
+    test('Settings ▸ Local echo row keeps wrapper focused + toggles state @fast', async ({ page }) => {
         await page.goto('/');
+        await page.waitForFunction(() => window.__menuBar && typeof window.__menuBar.open === 'function');
         await page.locator('#terminal-wrapper').focus();
-        await page.locator('#settings').evaluate((el) => { el.open = true; });
 
-        await page.locator('#local-echo').click();
+        await page.evaluate(() => window.__menuBar.open('settings'));
+        await page.click('#menu-local-echo-item');
         await expect(page.locator('#terminal-wrapper')).toBeFocused();
-        await expect(page.locator('#local-echo')).toBeChecked();
+        await expect(page.locator('#menu-local-echo-item')).toHaveAttribute('data-checked', 'true');
     });
 
-    test('click each CR/LF radio keeps wrapper focused + toggles state', async ({ page }) => {
+    test('Settings ▸ Enter key sends rows keep wrapper focused + toggle state', async ({ page }) => {
         await page.goto('/');
+        await page.waitForFunction(() => window.__menuBar && typeof window.__menuBar.open === 'function');
         await page.locator('#terminal-wrapper').focus();
-        await page.locator('#settings').evaluate((el) => { el.open = true; });
 
+        await page.evaluate(() => window.__menuBar.open('settings'));
+        await page.click('#dropdown-settings .menu-item[data-submenu="crlf"]');
+        const row = (v) => `#dropdown-settings .submenu[data-submenu-panel="crlf"] .menu-item[data-value="${v}"]`;
         for (const mode of ['lf', 'crlf', 'cr']) {
-            await page.locator(`#crlf-${mode}`).click();
+            await page.click(row(mode));
             await expect(page.locator('#terminal-wrapper')).toBeFocused();
-            await expect(page.locator(`#crlf-${mode}`)).toBeChecked();
+            await expect(page.locator(row(mode))).toHaveAttribute('data-checked', 'true');
         }
     });
 

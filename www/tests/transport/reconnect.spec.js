@@ -9,7 +9,6 @@ async function setup(page) {
     await page.goto('/');
     await page.locator('#terminal-wrapper').focus();
     await page.waitForFunction(() => document.getElementById('terminal').width > 0);
-    await page.locator('#connection').evaluate((el) => { el.open = true; });
 }
 
 test.describe('XPORT-06..08, XPORT-10 + SC-3 + D-03..D-05/D-24..D-26/D-30..D-31/D-36/D-37/D-42 — Reconnect', () => {
@@ -39,15 +38,17 @@ test.describe('XPORT-06..08, XPORT-10 + SC-3 + D-03..D-05/D-24..D-26/D-30..D-31/
             }, 10);
             setTimeout(() => clearInterval(poll), 3000);
         });
-        await page.locator('#connect-button').click();
-        await expect(page.locator('#connect-button')).toHaveAttribute('data-state', 'connected');
+        await page.evaluate(() => window.__menuBar.open('connection'));
+        await page.click('#menu-connect-item');
+        await expect(page.locator('#menu-connect-item')).toHaveAttribute('data-state', 'connected');
         await expect.poll(
             () => page.evaluate(() => Boolean(navigator.serial._grantedPorts[0]?.__wrapped)),
             { timeout: 2000 },
         ).toBe(true);
         // Click Disconnect.
-        await page.locator('#connect-button').click();
-        await expect(page.locator('#connect-button')).toHaveAttribute('data-state', 'disconnected');
+        await page.evaluate(() => window.__menuBar.open('connection'));
+        await page.click('#menu-connect-item');
+        await expect(page.locator('#menu-connect-item')).toHaveAttribute('data-state', 'disconnected');
         const order = await page.evaluate(() => window.__teardownOrder);
         // Pitfall #1 invariant: reader.cancel MUST precede the FIRST port.close.
         // (runReadLoop's safety-net close after the reader resolves done:true may
@@ -62,21 +63,23 @@ test.describe('XPORT-06..08, XPORT-10 + SC-3 + D-03..D-05/D-24..D-26/D-30..D-31/
 
     test('simulateUnplug transitions state to port-lost', async ({ page }) => {
         await setup(page);
-        await page.locator('#connect-button').click();
-        await expect(page.locator('#connect-button')).toHaveAttribute('data-state', 'connected');
+        await page.evaluate(() => window.__menuBar.open('connection'));
+        await page.click('#menu-connect-item');
+        await expect(page.locator('#menu-connect-item')).toHaveAttribute('data-state', 'connected');
         await page.evaluate(() => window.__simulateUnplug());
-        await expect(page.locator('#connect-button')).toHaveAttribute('data-state', 'port-lost');
-        await expect(page.locator('#connect-button')).toHaveText('Reconnect');
+        await expect(page.locator('#menu-connect-item')).toHaveAttribute('data-state', 'port-lost');
+        await expect(page.locator('#menu-connect-item .lbl')).toHaveText('Reconnect');
     });
 
     test('simulateReplug with matching VID/PID auto-reconnects silently', async ({ page }) => {
         await setup(page);
-        await page.locator('#connect-button').click();
-        await expect(page.locator('#connect-button')).toHaveAttribute('data-state', 'connected');
+        await page.evaluate(() => window.__menuBar.open('connection'));
+        await page.click('#menu-connect-item');
+        await expect(page.locator('#menu-connect-item')).toHaveAttribute('data-state', 'connected');
         await page.evaluate(() => window.__simulateUnplug());
-        await expect(page.locator('#connect-button')).toHaveAttribute('data-state', 'port-lost');
+        await expect(page.locator('#menu-connect-item')).toHaveAttribute('data-state', 'port-lost');
         await page.evaluate(() => window.__simulateReplug());
-        await expect(page.locator('#connect-button')).toHaveAttribute('data-state', 'connected');
+        await expect(page.locator('#menu-connect-item')).toHaveAttribute('data-state', 'connected');
         // D-24 silent: error log stays at empty state (or absent); no new entries.
         const logText = await page.locator('#error-log').textContent();
         expect(logText).toContain('no recent errors');
@@ -84,8 +87,9 @@ test.describe('XPORT-06..08, XPORT-10 + SC-3 + D-03..D-05/D-24..D-26/D-30..D-31/
 
     test('auto-reconnect retries once after 500ms on transient open fail', async ({ page }) => {
         await setup(page);
-        await page.locator('#connect-button').click();
-        await expect(page.locator('#connect-button')).toHaveAttribute('data-state', 'connected');
+        await page.evaluate(() => window.__menuBar.open('connection'));
+        await page.click('#menu-connect-item');
+        await expect(page.locator('#menu-connect-item')).toHaveAttribute('data-state', 'connected');
         // Arrange: make the next open() throw once, then succeed.
         await page.evaluate(() => {
             const port = navigator.serial._grantedPorts[0];
@@ -99,18 +103,19 @@ test.describe('XPORT-06..08, XPORT-10 + SC-3 + D-03..D-05/D-24..D-26/D-30..D-31/
             window.__openAttempts = () => count;
         });
         await page.evaluate(() => window.__simulateUnplug());
-        await expect(page.locator('#connect-button')).toHaveAttribute('data-state', 'port-lost');
+        await expect(page.locator('#menu-connect-item')).toHaveAttribute('data-state', 'port-lost');
         await page.evaluate(() => window.__simulateReplug());
         // Wait up to 2s for retry to land (retry delay is 500ms).
-        await expect(page.locator('#connect-button')).toHaveAttribute('data-state', 'connected', { timeout: 2000 });
+        await expect(page.locator('#menu-connect-item')).toHaveAttribute('data-state', 'connected', { timeout: 2000 });
         const attempts = await page.evaluate(() => window.__openAttempts());
         expect(attempts).toBeGreaterThanOrEqual(2);
     });
 
     test('reload with granted port stashes reference but does NOT auto-open', async ({ page }) => {
         await setup(page);
-        await page.locator('#connect-button').click();
-        await expect(page.locator('#connect-button')).toHaveAttribute('data-state', 'connected');
+        await page.evaluate(() => window.__menuBar.open('connection'));
+        await page.click('#menu-connect-item');
+        await expect(page.locator('#menu-connect-item')).toHaveAttribute('data-state', 'connected');
         // Task 1 wires persistVidPid on every successful open; verify it wrote.
         const preset = await page.evaluate(() => localStorage.getItem('beastty.port.preset'));
         expect(JSON.parse(preset)).toEqual({ usbVendorId: 0x10c4, usbProductId: 0xea60 });
@@ -119,8 +124,8 @@ test.describe('XPORT-06..08, XPORT-10 + SC-3 + D-03..D-05/D-24..D-26/D-30..D-31/
         await page.reload();
         await page.locator('#terminal-wrapper').focus();
         await page.waitForFunction(() => document.getElementById('terminal').width > 0);
-        await expect(page.locator('#connect-button')).toHaveAttribute('data-state', 'disconnected');
-        await expect(page.locator('#connect-button')).toHaveText('Connect');
+        await expect(page.locator('#menu-connect-item')).toHaveAttribute('data-state', 'disconnected');
+        await expect(page.locator('#menu-connect-item .lbl')).toHaveText('Connect');
     });
 
     test('connect/disconnect listeners registered on navigator.serial not port', async ({ page }) => {
@@ -129,21 +134,23 @@ test.describe('XPORT-06..08, XPORT-10 + SC-3 + D-03..D-05/D-24..D-26/D-30..D-31/
         // event on navigator.serial; if the listener were on the port instance
         // instead, the state transition would not fire. Passing this test is
         // proof the D-26 wiring is correct.
-        await page.locator('#connect-button').click();
-        await expect(page.locator('#connect-button')).toHaveAttribute('data-state', 'connected');
+        await page.evaluate(() => window.__menuBar.open('connection'));
+        await page.click('#menu-connect-item');
+        await expect(page.locator('#menu-connect-item')).toHaveAttribute('data-state', 'connected');
         await page.evaluate(() => window.__simulateUnplug());
-        await expect(page.locator('#connect-button')).toHaveAttribute('data-state', 'port-lost');
+        await expect(page.locator('#menu-connect-item')).toHaveAttribute('data-state', 'port-lost');
         // And the 'connect' listener round-trips back to connected.
         await page.evaluate(() => window.__simulateReplug());
-        await expect(page.locator('#connect-button')).toHaveAttribute('data-state', 'connected');
+        await expect(page.locator('#menu-connect-item')).toHaveAttribute('data-state', 'connected');
     });
 
     test('localStorage beastty.port.preset written after first open', async ({ page }) => {
         await setup(page);
         // Clear any carry-over value from a previous session.
         await page.evaluate(() => localStorage.removeItem('beastty.port.preset'));
-        await page.locator('#connect-button').click();
-        await expect(page.locator('#connect-button')).toHaveAttribute('data-state', 'connected');
+        await page.evaluate(() => window.__menuBar.open('connection'));
+        await page.click('#menu-connect-item');
+        await expect(page.locator('#menu-connect-item')).toHaveAttribute('data-state', 'connected');
         const stored = await page.evaluate(() => localStorage.getItem('beastty.port.preset'));
         expect(stored).not.toBeNull();
         expect(JSON.parse(stored)).toEqual({ usbVendorId: 0x10c4, usbProductId: 0xea60 });

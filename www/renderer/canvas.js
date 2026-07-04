@@ -87,8 +87,8 @@ export function markAllRowsDirty() {
 // read directly from snapshot_grid() — this is the common case. Rows in
 // scrollback (T >= visibleRows AND scrollback non-empty) require
 // snapshot_grid_at(T - (visibleRows - 1)) so the row at offset T lands at the
-// bottom of the snapshot. canvas.js's tick() re-snapshots on the next rAF, so
-// any in-test snapshot side effect is transient.
+// TOP of the snapshot (row 0). canvas.js's tick() re-snapshots on the next rAF,
+// so any in-test snapshot side effect is transient.
 export function readRowText(rowOffsetFromTail) {
     if (!term) return '';
     const cols = term.cols();
@@ -99,10 +99,19 @@ export function readRowText(rowOffsetFromTail) {
         term.snapshot_grid();
         viewportRow = (visibleRows - 1) - rowOffsetFromTail;
     } else {
-        // Row lives in scrollback above the visible window. Snapshot the
-        // window ending at this offset; the row lands at bottom (visibleRows-1).
+        // Row lives in scrollback above the visible window. snapshot_grid_at(k)
+        // places tail-offset k at the BOTTOM viewport row and k+(visibleRows-1)
+        // at the TOP; so passing k = T-(visibleRows-1) lands the desired
+        // tail-offset T at the TOP row (0). Its absolute index is total-1-T,
+        // which is always >= 0 for a valid T (<= total-1), so this never trips
+        // snapshot_grid_at's internal top clamp.
+        //
+        // BUG FIX: this previously read viewportRow = visibleRows-1 (the BOTTOM
+        // row), which is tail-offset T-(visibleRows-1) — roughly one screen more
+        // RECENT than intended. Copying a scrolled-back selection pasted lines
+        // from ~visibleRows below what was highlighted.
         term.snapshot_grid_at(rowOffsetFromTail - (visibleRows - 1));
-        viewportRow = visibleRows - 1;
+        viewportRow = 0;
     }
     reDeriveViews();
     if (gridView.byteLength !== term.grid_byte_len()) rebuildViews();
@@ -476,6 +485,12 @@ export async function bootRenderer(opts) {
 
 export function setTheme(name) {
     if (!(name in THEMES)) return;
+    // Epic E1 Story E1.4 (RENDER-04 / D-11) — body[data-theme] drives the CRT
+    // scanline CSS layer. Centralised here (single writer) so every caller —
+    // the Ctrl+Alt+T chord, the View ▸ Theme menu, and applyPrefs on boot/reset —
+    // gets it for free. Set BEFORE the same-value short-circuit below so it
+    // still fires on the boot no-op (setTheme('crt') when already crt).
+    if (typeof document !== 'undefined') document.body.setAttribute('data-theme', name);
     // Same-value short-circuit (REVIEW warning 3): clicking the already-active
     // theme button must NOT evict the atlas, mark every row dirty, re-prime
     // ASCII, or re-dispatch a rAF — the visible result would be an unnecessary
@@ -523,7 +538,9 @@ export function setPhosphor(color) {
 }
 
 export function zoomStep(delta) {
-    const z = Math.max(1, Math.min(4, activeZoom + delta));
+    // Half-step ladder 1, 1.5, 2, 2.5, 3× (callers pass ±0.5). 0.5 is exact in
+    // binary float, so the levels never drift and === short-circuits hold.
+    const z = Math.max(1, Math.min(3, activeZoom + delta));
     if (z === activeZoom) return;
     activeZoom = z;
     atlas.evict();
@@ -540,7 +557,11 @@ export function zoomStep(delta) {
 // Same clamp + side-effects as zoomStep; same-value short-circuit per the
 // chrome.js REVIEW warning 3 pattern (no atlas thrash on identity apply).
 export function setZoom(z) {
-    const clamped = Math.max(1, Math.min(4, z | 0));
+    // Snap to the nearest half-step then clamp to [1, 3] — a stored fontZoom is
+    // one of 1/1.5/2/2.5/3, but a legacy (pre-half-step) or hand-edited blob may
+    // carry an integer like 4; snapping + clamp keeps the ladder clean. (Was
+    // `z | 0`, which truncated 1.5 → 1 and is wrong now that halves are valid.)
+    const clamped = Math.max(1, Math.min(3, Math.round(z * 2) / 2));
     if (clamped === activeZoom) return;
     activeZoom = clamped;
     atlas.evict();

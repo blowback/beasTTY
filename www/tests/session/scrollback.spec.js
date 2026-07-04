@@ -18,6 +18,15 @@ async function setup(page) {
     await page.waitForFunction(() => document.getElementById('terminal').width > 0);
     // Wait for window.__scrollState to be exposed (main.js boot complete).
     await page.waitForFunction(() => typeof window.__scrollState === 'object' && window.__scrollState !== null);
+    // Feed 80 lines so there is REAL scrollback to navigate. The scroll offset
+    // is clamped to total_len - visible_rows (so display and selection agree),
+    // so these API-driven nav assertions need an actual history to move within
+    // (80 rows → maxOffset 56, comfortably above the largest scroll below).
+    await page.evaluate(() => {
+        const lines = Array.from({ length: 80 }, (_, i) => `line ${String(i).padStart(2, '0')}`).join('\n');
+        window.__term.feed(new TextEncoder().encode(lines));
+        window.__term.snapshot_grid();
+    });
 }
 
 test.describe('SESS-01 — Scrollback navigation', () => {
@@ -68,12 +77,11 @@ test.describe('SESS-01 — Scrollback navigation', () => {
         await setup(page);
         await page.locator('#terminal-wrapper').focus();
         await page.keyboard.press('Shift+Home');
-        // jumpToTop calls setOffset(MAX_SAFE_INTEGER); scroll-state clamps the
-        // result internally — it ends up at the largest representable offset
-        // since the wasm side does the actual clamping at snapshot time. Just
-        // assert non-zero (we are scrolled back) and that the data attribute
-        // is set.
+        // jumpToTop sets offset = maxOffset (total_len - visible_rows), the
+        // oldest retained row. With 80 rows fed that is 56.
         const offset = await page.evaluate(() => window.__scrollState.getOffset());
+        const expected = await page.evaluate(() => window.__term.total_len() - window.__term.rows());
+        expect(offset).toBe(expected);
         expect(offset).toBeGreaterThan(0);
         await expect(page.locator('#terminal-wrapper')).toHaveAttribute('data-scrolled-back', 'true');
     });
@@ -96,8 +104,12 @@ test.describe('SESS-01 — Scrollback navigation', () => {
         await setup(page);
         await page.evaluate(() => window.__scrollState.scrollByLines(20));
         const before = await page.evaluate(() => window.__scrollState.getOffset());
-        // Click the theme button — switches CRT → clean (or vice-versa).
-        await page.locator('#theme-toggle').click();
+        // Epic E1 Story E1.4 — theme now switches via View ▸ Theme (retired
+        // #theme-toggle). Menu path is focus-independent and drives the same
+        // setTheme; the scroll offset must survive it (D-13).
+        await page.evaluate(() => window.__menuBar.open('view'));
+        await page.click('#dropdown-view .menu-item[data-submenu="theme"]');
+        await page.click('#dropdown-view .submenu[data-submenu-panel="theme"] .menu-item[data-value="clean"]');
         const after = await page.evaluate(() => window.__scrollState.getOffset());
         expect(after).toBe(before);   // D-13 — viewport keeps offset
         await expect(page.locator('#terminal-wrapper')).toHaveAttribute('data-scrolled-back', 'true');
@@ -120,12 +132,13 @@ test.describe('SESS-01 — Scrollback navigation', () => {
 
     test('wheel listener attached to #terminal-wrapper, not document (D-12)', async ({ page }) => {
         await setup(page);
-        // A wheel event dispatched on #settings (a child of <body>, OUTSIDE
+        // A wheel event dispatched on #status-bar (a child of <body>, OUTSIDE
         // #terminal-wrapper) MUST NOT change scroll-state offset. The listener
         // is on the wrapper, so events from chrome panes never reach it.
-        await page.locator('#settings').evaluate((el) => { el.open = true; });
+        // E7.1 — was #settings, which retired with <details id="settings">; the
+        // status bar is an equivalent always-present out-of-wrapper element.
         const offsetBefore = await page.evaluate(() => window.__scrollState.getOffset());
-        await page.locator('#settings').dispatchEvent('wheel', {
+        await page.locator('#status-bar').dispatchEvent('wheel', {
             deltaY: -100,
             deltaMode: 1,
         });

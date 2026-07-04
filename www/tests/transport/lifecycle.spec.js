@@ -20,7 +20,6 @@ async function setup(page) {
     await page.goto('/');
     await page.locator('#terminal-wrapper').focus();
     await page.waitForFunction(() => document.getElementById('terminal').width > 0);
-    await page.locator('#connection').evaluate((el) => { el.open = true; });
 }
 
 test.describe('Gap 1 — beforeunload close-contract (reload hang regression)', () => {
@@ -30,8 +29,9 @@ test.describe('Gap 1 — beforeunload close-contract (reload hang regression)', 
         await page.evaluate(() => { window.__mockLockLog = []; });
 
         // Connect so a port/reader/writer actually exist.
-        await page.locator('#connect-button').click();
-        await expect(page.locator('#connect-button')).toHaveAttribute('data-state', 'connected');
+        await page.evaluate(() => window.__menuBar.open('connection'));
+        await page.click('#menu-connect-item');
+        await expect(page.locator('#menu-connect-item')).toHaveAttribute('data-state', 'connected');
 
         // Clear again — we only care about events AFTER beforeunload fires.
         await page.evaluate(() => { window.__mockLockLog = []; });
@@ -67,8 +67,9 @@ test.describe('Gap 1 — beforeunload close-contract (reload hang regression)', 
 
     test('shuttingDown guard prevents fresh reader re-acquisition during unload', async ({ page }) => {
         await setup(page);
-        await page.locator('#connect-button').click();
-        await expect(page.locator('#connect-button')).toHaveAttribute('data-state', 'connected');
+        await page.evaluate(() => window.__menuBar.open('connection'));
+        await page.click('#menu-connect-item');
+        await expect(page.locator('#menu-connect-item')).toHaveAttribute('data-state', 'connected');
 
         // Snapshot the reader identity BEFORE beforeunload.
         const readerBefore = await page.evaluate(() => {

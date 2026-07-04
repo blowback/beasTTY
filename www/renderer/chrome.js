@@ -12,21 +12,29 @@
 
 import {
     setTheme,
-    setPhosphor,
-    setFont,
     zoomStep,
     resetZoom,
     setFocus,
     getActiveTheme,
-    getActivePhosphor,
-    getActiveFont,
     getActiveZoom as getActiveZoomFn,
 } from './canvas.js';
-
-function labelFor(destinationThemeName) {
-    // The button label shows the theme the user will switch TO on click.
-    return destinationThemeName === 'crt' ? 'CRT' : 'Clean';
-}
+// Epic E0 Story E0.1 (AD-10) — shared focus-retention helper. Picks the right
+// branch (mousedown-preventDefault for buttons, change-restore for <select>)
+// so callers stop hand-writing either one.
+// E7.1 — chrome.js no longer wires any interactive control that needs focus
+// retention (the auto-connect + reset-prefs legacy controls retired with
+// <details id="settings">), so the retainFocus import is gone. The surviving
+// "show all serial devices" checkbox lives inside a focus-trapped modal (E2.3), so
+// it deliberately does not use retainFocus.
+// E7.1 — the reset 2-click confirm (labels + shared state machine) moved wholly to
+// menu-bar.js's Settings ▸ Reset all preferences row with the legacy
+// #reset-prefs-button's removal, so chrome.js no longer imports the reset labels or
+// confirm-toggle. (prefs.js RESET_PREFS_* + confirm-toggle.js are still the single
+// source — menu-bar.js imports them.)
+// E6.1 fix (code-review #7) — the theme + zoom chord predicates are single-sourced in
+// the shortcut registry that the Help ▸ Keyboard Shortcuts modal renders from, so the
+// chord this handler matches and the chord the modal advertises can never diverge.
+import { matchThemeToggle, matchZoomIn, matchZoomOut, matchZoomReset } from '../input/shortcuts.js';
 
 // Phase 11 Plan 11-04 D-13 / SLIDE-31 — module-scope refs for the
 // visibilitychange + pagehide CTRL_CAN best-effort branches. Set inside
@@ -37,51 +45,64 @@ let isSlideActiveRef = null;
 let cancelSlideRecvRef = null;
 let txSinkRef = null;
 
-function applyThemeSideEffects(newTheme, { themeButton, phosphorGroup }) {
-    // Body attribute drives scanline visibility via CSS (RENDER-04 / D-11).
-    document.body.setAttribute('data-theme', newTheme);
-    // Phosphor group is hidden in clean theme (D-12).
-    phosphorGroup.hidden = (newTheme !== 'crt');
-    // Bitmap font selector is CRT-only — clean theme renders vector glyphs.
-    const fontRow = document.getElementById('font-row');
-    if (fontRow) fontRow.hidden = (newTheme !== 'crt');
-    // Button label shows the OTHER theme name (UI-SPEC Copywriting).
-    const destination = (newTheme === 'crt') ? 'clean' : 'crt';
-    themeButton.textContent = labelFor(destination);
-}
+// Epic E1 Story E1.4 — the theme/phosphor CONTROLS retired to the View menu
+// (menu-bar.js owns them, AD-7), but the Ctrl+Alt+T chord STAYS here (AD-13).
+// toggleTheme is now the chord's only caller; it drives only the surviving
+// side-effects. onThemeChangeRef re-gates #font-row (the retired
+// applyThemeSideEffects used to); savePrefsRef persists the chord's theme
+// change (the retired button handler persisted — the chord path does now too).
+let onThemeChangeRef = null;
+let savePrefsRef = null;
+// Epic E1 Story E1.5 (FR-10 / AD-6) — the zoom chord feeds the (future) status
+// bar too, so the shortcut and the View ▸ Zoom items both push the new level.
+// Optional; a null ref no-ops the push (status bar lands in E4).
+let pushZoomRef = null;
 
-function applyPhosphorSideEffects(selectedColor, phosphorButtons) {
-    // Update aria-pressed on every phosphor button.
-    for (const btn of phosphorButtons) {
-        btn.setAttribute('aria-pressed', btn.dataset.phosphor === selectedColor ? 'true' : 'false');
-    }
-}
-
-function toggleTheme(ctx) {
+function toggleTheme() {
     const current = getActiveTheme().name;
     const destination = (current === 'crt') ? 'clean' : 'crt';
-    setTheme(destination);
-    applyThemeSideEffects(destination, ctx);
+    setTheme(destination);                        // E1.4 Task 1 — also sets body[data-theme]
+    // Persist BEFORE the shared post-theme hook: onThemeChange re-projects the View
+    // menu from getPrefs(), so the new theme must already be in the cached blob
+    // (AD-4, synchronous) or an open menu would re-project to the stale theme.
+    if (savePrefsRef) savePrefsRef({ theme: destination }); // persist the chord theme change
+    if (onThemeChangeRef) onThemeChangeRef();               // re-project an open View menu (reads getPrefs)
+}
+
+// Persist the chord's new zoom level and mirror it to the status bar — shared by the
+// three Ctrl+{=,-,0} handlers so the persist + AD-6 push are identical on every zoom
+// chord (was copy-pasted per branch). Reads the CLAMPED getActiveZoom() (canvas clamps
+// to [1,4]) so the persisted pref and the bar readout can never show an out-of-range
+// level. Both refs optional — a null ref no-ops that half.
+function pushZoomLevel() {
+    if (savePrefsRef) savePrefsRef({ fontZoom: getActiveZoomFn() });   // Phase 6 Plan 06 (PREF-01)
+    if (pushZoomRef) pushZoomRef(getActiveZoomFn());                   // E1.5 (AD-6) — status-bar push
 }
 
 export function wireChrome(opts) {
     const {
-        terminalWrapper, themeButton, phosphorButtons, phosphorGroup, bellOverlay, requestFrame,
-        // Phase 6 Plan 05 (Wave 4) — Clear button needs term + scrollState.
-        // scrollState is wired AFTER wireChrome in main.js (per RESEARCH
-        // §Architecture boot order); pass a getter thunk so the Clear handler
-        // resolves the live ref at click time, not at wireChrome time.
-        term: termArg,
-        getScrollState,
-        // Phase 6 Plan 06 (Wave 5) — pref persistence + Settings new rows.
-        // prefs:        starting blob (loadPrefs() result) — used for the Auto
-        //               connect checkbox's initial DOM state at boot.
-        // savePrefs:    debounced merge-and-persist; called on every theme /
-        //               phosphor / zoom / Auto-connect change.
-        // resetPrefs:   D-35 reset-all-preferences trigger.
+        terminalWrapper, bellOverlay, requestFrame,
+        // Epic E1 Story E1.3 (AD-13) — the two Clear buttons relocated to
+        // menu-bar.js, so `term` / `getScrollState` no longer arrive here.
+        // `requestFrame` STAYS: the visibilitychange catch-up repaint uses it.
+        // Epic E1 Story E1.4 (AD-13) — #theme-toggle / #phosphor-group retired to
+        // the View menu; only the Ctrl+Alt+T chord stays here. onThemeChange
+        // re-gates #font-row on the chord path (the retired applyThemeSideEffects
+        // used to).
+        onThemeChange,
+        // Epic E1 Story E1.5 (AD-6) — imperative zoom→status-bar push. The chord
+        // path pushes the new level so the status bar (E4) updates from the
+        // shortcut too; no-op stub until E4 wires the real bar.
+        pushZoom,
+        // Phase 6 Plan 06 (Wave 5) — pref persistence.
+        // prefs:        starting blob (loadPrefs() result) — used for the "show all
+        //               serial devices" checkbox's initial DOM state at boot.
+        // savePrefs:    debounced merge-and-persist; called on the Ctrl+Alt+T theme
+        //               chord / zoom / show-all-serial-devices change.
+        // E7.1 — resetPrefs opt dropped: the reset surface moved wholly to the
+        // Settings menu (the legacy #reset-prefs-button retired with <details>).
         prefs,
         savePrefs,
-        resetPrefs,
         // Phase 11 Plan 11-04 D-13 / SLIDE-31 — fire-and-forget CTRL_CAN
         // emission on hide / pagehide during active SLIDE session. All three
         // refs are optional; missing refs disable the branch (production
@@ -91,7 +112,6 @@ export function wireChrome(opts) {
         cancelSlideRecv,
         txSink,
     } = opts;
-    const ctx = { terminalWrapper, themeButton, phosphorButtons, phosphorGroup, bellOverlay };
 
     // Phase 11 Plan 11-04 D-13 — bind module-scope refs for the SLIDE
     // best-effort CTRL_CAN branch (visibilitychange + pagehide listeners
@@ -99,69 +119,24 @@ export function wireChrome(opts) {
     isSlideActiveRef = isSlideActive || null;
     cancelSlideRecvRef = cancelSlideRecv || null;
     txSinkRef = txSink || null;
+    // Epic E1 Story E1.4 — bind the chord's surviving side-effect refs
+    // (#font-row gate + theme persistence). Both optional (guarded at use).
+    onThemeChangeRef = onThemeChange || null;
+    savePrefsRef = savePrefs || null;
+    pushZoomRef = pushZoom || null;   // E1.5 (AD-6) — zoom status-bar push on the chord path
 
-    // Initial paint of chrome side-effects (reflects canvas.js default state).
-    applyThemeSideEffects(getActiveTheme().name, ctx);
-    applyPhosphorSideEffects(getActivePhosphor(), phosphorButtons);
+    // ==== Epic E1 Story E1.3 (AD-13) — Clear buttons relocated to menu-bar.js ====
+    // The #clear-button (top-bar) and #clear-scrollback-button (Settings) click
+    // handlers moved OUT of chrome.js this story. menu-bar.js is now their sole
+    // owner (clearScreen / clearScrollback), routing the same clear_visible /
+    // resize_scrollback(0)→(10000) / snapToBottom / requestFrame semantics. No
+    // behaviour changed — only the ownership. Do NOT re-wire them here.
 
-    // ==== Phase 6 Plan 05 (Wave 4) — Top-bar Clear button (D-26) ====
-    // Plain click wipes the visible 80x24 grid via the Rust direct-clear API
-    // (call site below is the single authoritative source) — NOT feeding
-    // \x1B\x4A. The remote VT52 state machine
-    // never sees a fabricated escape (T-06-05-03 mitigation; Plan 06-02 Test 4
-    // is the Rust-side gate). Shift+click ALSO clears scrollback by cycling
-    // resize_scrollback(0) → resize_scrollback(10000) (the Phase 1 D-12 default
-    // cap). Both flavours snap to the live tail (D-04 trigger) so the user
-    // doesn't end up reading an empty scrolled-back viewport.
-    const clearButton = document.getElementById('clear-button');
-    if (clearButton && termArg) {
-        clearButton.addEventListener('click', (e) => {
-            termArg.clear_visible();   // Phase 6 Plan 02 wasm forwarder — NOT \x1B\x4A.
-            if (e.shiftKey) {
-                // D-26 — Shift+click also wipes scrollback. Cycle through 0
-                // and back to the Phase 1 D-12 default cap (10000).
-                termArg.resize_scrollback(0);
-                termArg.resize_scrollback(10000);
-            }
-            const ss = getScrollState && getScrollState();
-            if (ss) ss.snapToBottom();   // D-04 trigger — clear is a snap-to-bottom action.
-            if (requestFrame) requestFrame();
-        });
-        // Phase 4 D-16 sacred — focus retention.
-        clearButton.addEventListener('mousedown', (e) => e.preventDefault());
-    }
-
-    // ==== Theme toggle button (click) ====
-    themeButton.addEventListener('click', () => {
-        toggleTheme(ctx);
-        // Phase 6 Plan 06 (PREF-01) — persist new theme. getActiveTheme().name
-        // reads the post-toggle value (toggleTheme already called setTheme above).
-        if (savePrefs) savePrefs({ theme: getActiveTheme().name });
-    });
-    // Phase 4 D-16 — focus retention: suppress native focus transfer on mouse
-    // click so #terminal-wrapper keeps focus. mousedown fires BEFORE focus
-    // move; preventDefault at this phase blocks it entirely. Click handler
-    // above still fires (click and mousedown are separate events).
-    // Keyboard activation (Tab-to-button + Space) is unaffected because
-    // mousedown does not fire on keyboard activation.
-    themeButton.addEventListener('mousedown', (e) => {
-        e.preventDefault();
-    });
-
-    // ==== Phosphor radio-group (click) ====
-    for (const btn of phosphorButtons) {
-        btn.addEventListener('click', () => {
-            const color = btn.dataset.phosphor;
-            if (color !== 'green' && color !== 'amber' && color !== 'white') return;
-            setPhosphor(color);
-            applyPhosphorSideEffects(color, phosphorButtons);
-            // Phase 6 Plan 06 (PREF-01) — persist phosphor choice.
-            if (savePrefs) savePrefs({ phosphor: color });
-        });
-        btn.addEventListener('mousedown', (e) => {
-            e.preventDefault();            // Phase 4 D-16 — focus retention.
-        });
-    }
+    // ==== Epic E1 Story E1.4 (AD-7) — theme/phosphor controls retired ====
+    // The #theme-toggle button click + #phosphor-group radio loop moved OUT of
+    // chrome.js this story. menu-bar.js (View ▸ Theme / Phosphor) is now their
+    // sole owner, calling the SAME setTheme / setPhosphor + savePrefs verbatim.
+    // Only the Ctrl+Alt+T chord below remains here (AD-13). Do NOT re-wire them.
 
     // ==== Keyboard shortcuts (keydown on wrapper — synchronous preventDefault) ====
     terminalWrapper.addEventListener('keydown', (e) => {
@@ -173,32 +148,32 @@ export function wireChrome(opts) {
         // from a web page — the Chromium default is a no-op on this chord.
         // Do NOT include e.shiftKey: Alt+Shift+T already maps to "pin tab" on
         // some Chromium builds, and we want the chord to work with exactly
-        // Ctrl+Alt+T (no extra modifier).
-        if (e.ctrlKey && e.altKey && !e.shiftKey && !e.metaKey && e.code === 'KeyT') {
+        // Ctrl+Alt+T (no extra modifier). Predicate lives in the shortcut registry.
+        if (matchThemeToggle(e)) {
             e.preventDefault();          // SYNCHRONOUS first — RESEARCH Pitfall #3.
-            toggleTheme(ctx);
+            toggleTheme();
             return;
         }
-        // Ctrl+{+, -, 0} — integer zoom (RENDER-09 / D-10).
-        if (e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey) {
-            if (e.code === 'Equal' || e.code === 'NumpadAdd') {
-                e.preventDefault();
-                zoomStep(+1);
-                if (savePrefs) savePrefs({ fontZoom: getActiveZoomFn() });   // Phase 6 Plan 06 (PREF-01)
-                return;
-            }
-            if (e.code === 'Minus' || e.code === 'NumpadSubtract') {
-                e.preventDefault();
-                zoomStep(-1);
-                if (savePrefs) savePrefs({ fontZoom: getActiveZoomFn() });   // Phase 6 Plan 06 (PREF-01)
-                return;
-            }
-            if (e.code === 'Digit0' || e.code === 'Numpad0') {
-                e.preventDefault();
-                resetZoom();
-                if (savePrefs) savePrefs({ fontZoom: getActiveZoomFn() });   // Phase 6 Plan 06 (PREF-01)
-                return;
-            }
+        // Ctrl+{+, -, 0} — half-step zoom 1..3× (RENDER-09 / D-10). Each registry
+        // predicate carries the full modifier guard, so the trio is three standalone
+        // checks (no shared outer `if`); the persist + status-bar push are identical.
+        if (matchZoomIn(e)) {
+            e.preventDefault();
+            zoomStep(+0.5);
+            pushZoomLevel();
+            return;
+        }
+        if (matchZoomOut(e)) {
+            e.preventDefault();
+            zoomStep(-0.5);
+            pushZoomLevel();
+            return;
+        }
+        if (matchZoomReset(e)) {
+            e.preventDefault();
+            resetZoom();
+            pushZoomLevel();
+            return;
         }
         // Any other key: Phase 4 will claim character-encoding keys here.
     });
@@ -269,54 +244,17 @@ export function wireChrome(opts) {
         }
     });
 
-    // ==== Phase 6 Plan 06 (Wave 5) — Settings 'Clear scrollback' button (D-15) ====
-    // Cycles term.resize_scrollback(0) -> term.resize_scrollback(10000) to flush
-    // the 10K-line ring buffer back to its Phase 1 D-12 default cap. Snaps to
-    // live tail (D-04 trigger) so a scrolled-up user does not end up reading
-    // an empty viewport. No keyboard shortcut — deliberate friction (D-15).
-    const clearScrollbackButton = document.getElementById('clear-scrollback-button');
-    if (clearScrollbackButton && termArg) {
-        clearScrollbackButton.addEventListener('click', () => {
-            termArg.resize_scrollback(0);
-            termArg.resize_scrollback(10000);
-            const ss = getScrollState && getScrollState();
-            if (ss) ss.snapToBottom();   // D-04 trigger.
-            if (requestFrame) requestFrame();
-        });
-        clearScrollbackButton.addEventListener('mousedown', (e) => e.preventDefault());
-    }
+    // ==== Epic E1 Story E1.5 (AD-7) — bitmap font selector retired ====
+    // The #font-select change handler moved OUT of chrome.js this story.
+    // menu-bar.js (View ▸ Font radio submenu) is now its sole owner, calling the
+    // SAME setFont + savePrefs verbatim, and — per AD-9 — showing the submenu
+    // disabled off-CRT instead of the old #font-row hide. Do NOT re-wire it here.
 
-    // ==== Bitmap font selector (CRT-only) ====
-    // Same-value short-circuit lives inside setFont; persists via savePrefs so
-    // the choice survives a reload. Initial DOM value mirrors the loaded blob
-    // so a fresh page reflects persisted state. Hidden in clean theme by
-    // applyThemeSideEffects above (vector rasteriser ignores font selection).
-    const fontSelect = document.getElementById('font-select');
-    if (fontSelect) {
-        fontSelect.value = (prefs && prefs.font) || getActiveFont();
-        fontSelect.addEventListener('change', (e) => {
-            setFont(e.target.value);
-            if (savePrefs) savePrefs({ font: e.target.value });
-            // Restore wrapper focus after the dropdown closes — Phase 4 D-16.
-            // <select> needs the native focus transfer to open its picker, so
-            // we cannot use the mousedown-preventDefault pattern that buttons
-            // and radios use; restore focus on change instead.
-            if (terminalWrapper) terminalWrapper.focus();
-        });
-    }
-
-    // ==== Phase 6 Plan 06 (Wave 5) — Auto connect checkbox (D-34) ====
-    // Toggle saves prefs.autoConnect; takes effect on NEXT page load (no
-    // immediate connect/disconnect on toggle). Initial DOM state mirrors the
-    // loaded blob so a fresh page always reflects persisted state.
-    const autoConnectCheckbox = document.getElementById('auto-connect-checkbox');
-    if (autoConnectCheckbox) {
-        autoConnectCheckbox.checked = !!(prefs && prefs.autoConnect);
-        autoConnectCheckbox.addEventListener('change', (e) => {
-            if (savePrefs) savePrefs({ autoConnect: e.target.checked });
-        });
-        autoConnectCheckbox.addEventListener('mousedown', (e) => e.preventDefault());
-    }
+    // ==== Epic E7 Story E7.1 (AD-7) — auto-connect checkbox wiring removed ====
+    // The legacy #auto-connect-checkbox retired with <details id="settings">.
+    // Connection ▸ Auto connect on load (menu-bar.js checkable) is now the sole
+    // surface; its handler already calls savePrefs({ autoConnect }). Removing this
+    // wiring (not merely null-guarding it) keeps boot from throwing on the absent node.
 
     // ==== "Show all serial devices" checkbox ====
     // When on, the Connect picker drops the CP2102N VID/PID filter so users
@@ -324,42 +262,26 @@ export function wireChrome(opts) {
     // ports can see their device. serial.js reads the live pref via getPrefs()
     // at requestPort time, so the checkbox takes effect on the next Connect
     // click without needing a reload.
+    // E2.3 (FR-15, Task 5) — this checkbox MOVED into #serial-config-modal. Inside a
+    // focus-trapped <dialog> the terminal is inert behind the scrim, so the AD-10
+    // retainFocus terminal-restore is both meaningless (keystrokes can't reach the Z80
+    // while the modal is open) and wrong (it fought the trap). Dropped — focus stays in
+    // the modal on the control until Close, where openModal's restoreTo returns it to
+    // #terminal-wrapper (NFR-1). The change→savePrefs wiring is unchanged (resolves by
+    // id regardless of the checkbox's new DOM home).
     const showAllSerialCheckbox = document.getElementById('show-all-serial-devices');
     if (showAllSerialCheckbox) {
         showAllSerialCheckbox.checked = !!(prefs && prefs.showAllSerialDevices);
         showAllSerialCheckbox.addEventListener('change', (e) => {
             if (savePrefs) savePrefs({ showAllSerialDevices: e.target.checked });
         });
-        showAllSerialCheckbox.addEventListener('mousedown', (e) => e.preventDefault());
     }
 
-    // ==== Phase 6 Plan 06 (Wave 5) — Reset prefs 2-click confirm (D-35) ====
-    // First click swaps label to "Click again to confirm (3 s)" and arms a
-    // 3-second timer that reverts. Second click within 3 s commits the reset:
-    // clears beastty.prefs, in-memory blob replaced with defaults,
-    // subscribers fire (applyPrefs in main.js re-applies defaults to chrome /
-    // canvas state in-place — NO page reload per D-35).
-    const resetPrefsButton = document.getElementById('reset-prefs-button');
-    const RESET_PREFS_IDLE_LABEL = 'Reset all preferences';
-    const RESET_PREFS_CONFIRM_LABEL = 'Click again to confirm (3 s)';
-    let resetPrefsConfirmTimer = null;
-    if (resetPrefsButton) {
-        resetPrefsButton.addEventListener('click', () => {
-            if (resetPrefsConfirmTimer === null) {
-                resetPrefsButton.textContent = RESET_PREFS_CONFIRM_LABEL;
-                resetPrefsConfirmTimer = setTimeout(() => {
-                    resetPrefsButton.textContent = RESET_PREFS_IDLE_LABEL;
-                    resetPrefsConfirmTimer = null;
-                }, 3000);
-            } else {
-                clearTimeout(resetPrefsConfirmTimer);
-                resetPrefsConfirmTimer = null;
-                if (resetPrefs) resetPrefs();
-                resetPrefsButton.textContent = RESET_PREFS_IDLE_LABEL;
-            }
-        });
-        resetPrefsButton.addEventListener('mousedown', (e) => e.preventDefault());
-    }
+    // ==== Epic E7 Story E7.1 (AD-7) — reset-prefs 2-click confirm removed ====
+    // The legacy #reset-prefs-button retired with <details id="settings">.
+    // Settings ▸ Reset all preferences (menu-bar.js) is a SEPARATE, independent
+    // 2-click machine (shared confirm-toggle.js + resetPrefs()) and remains the sole
+    // reset surface. Removing this wiring keeps boot from throwing on the absent node.
 
     // Auto-focus the wrapper at boot so cursor blinks and Ctrl+Shift+T works immediately.
     terminalWrapper.focus();

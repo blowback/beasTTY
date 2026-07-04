@@ -163,14 +163,15 @@ export function wireSlideRecv(opts) {
     // these no-op cleanly.
     if (toggleElRef) {
         toggleElRef.addEventListener('change', onToggleChange);
-        // Phase 4 D-16 + Phase 6 precedent — preventDefault on mousedown to
-        // retain terminal focus; rely on native click toggle (do NOT pre-flip
-        // in mousedown — Phase 4 P-04 Rule 1 fix precedent).
-        toggleElRef.addEventListener('mousedown', (e) => e.preventDefault());
+        // E3.4 — these controls now live inside the focus-trapped #slide-config-modal.
+        // The Phase 4 D-16 mousedown→preventDefault "retain terminal focus" affordance
+        // (written for the retired inline <details id="settings-slide"> pane) is dropped:
+        // inside a <dialog> the control should take focus on click like every other modal
+        // control, and openModal's restoreTo returns focus to the terminal on close. This
+        // mirrors the compat-select focus-restore the E3.4 diff removed in main.js.
     }
     if (folderButtonElRef) {
         folderButtonElRef.addEventListener('click', onFolderButtonClick);
-        folderButtonElRef.addEventListener('mousedown', (e) => e.preventDefault());
     }
     // Boot-time hydration: if toggle is on AND a handle is in IndexedDB,
     // re-request permission so state (c) or (d) is reflected on first paint.
@@ -249,10 +250,10 @@ async function onFolderButtonClick() {
             currentPermission = ask;
             renderSettingsRow();
             if (ask === 'granted') {
-                // State (d) → (c) on grant; no picker dialog.
-                if (wrapperElRef && typeof wrapperElRef.focus === 'function') {
-                    wrapperElRef.focus();
-                }
+                // State (d) → (c) on grant; no picker dialog. E3.4 — no terminal
+                // focus-restore here: this button lives inside the focus-trapped
+                // #slide-config-modal, so focus stays on it (openModal restoreTo
+                // returns focus to the terminal on modal close).
                 return;
             }
             // Still not granted — fall through to picker so the user can
@@ -268,7 +269,10 @@ async function onFolderButtonClick() {
 // pickFolder — showDirectoryPicker entry. Resolution → cache handle +
 // persist to IndexedDB + transition to state (c). Rejection (user
 // dismissed) → silent fall-back per CONTEXT D-04 (no console.error, no
-// state change). Always restores terminal focus on settle.
+// state change). E3.4 — no terminal focus-restore on settle: the folder
+// button lives inside the focus-trapped #slide-config-modal, so the native
+// picker returns focus to the button, and openModal restoreTo returns focus
+// to the terminal on modal close (mirrors the main.js compat-select change).
 async function pickFolder() {
     try {
         const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
@@ -286,12 +290,6 @@ async function pickFolder() {
             console.warn('[slide-recv] showDirectoryPicker failed:', e);
         }
         // No state change.
-    } finally {
-        // Restore daily-driver focus invariant per UI-SPEC §"Picker-dialog
-        // focus return".
-        if (wrapperElRef && typeof wrapperElRef.focus === 'function') {
-            wrapperElRef.focus();
-        }
     }
 }
 

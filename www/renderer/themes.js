@@ -8,7 +8,7 @@
 //   atlas.evict();
 //
 // Cell sizes are at 1× zoom (UI-SPEC §Spacing "exceptions" table).
-// Integer zoom multiplier is applied at canvas.js resizeToTheme time.
+// Zoom multiplier (half-steps 1..3×) is applied at canvas.js resizeToTheme time.
 //
 // Phosphor hex values sourced from UI-SPEC §Color + RESEARCH §Phosphor Palette.
 //   green: DEC VT220 P1 — DEFAULT (D-06)
@@ -58,6 +58,20 @@ export const THEMES = {
                 fg:     '#e8e8d8',
                 bg:     '#0a0a0a',
                 accent: '#e8e8d8',
+            },
+            // DEC PDP-1 vector-display blue — P7's blue flash component (the
+            // classic Type 30 CRT trace). Electric azure.
+            blue: {
+                fg:     '#4da6ff',
+                bg:     '#060912',
+                accent: '#4da6ff',
+            },
+            // Menacing deep red — HAL 9000 / Terminator HUD / submarine night-ops
+            // / Sinclair red LED. Blood-red glow on near-black.
+            red: {
+                fg:     '#ff1d1d',
+                bg:     '#0d0000',
+                accent: '#ff1d1d',
             },
         },
     },

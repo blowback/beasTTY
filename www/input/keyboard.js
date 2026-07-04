@@ -40,6 +40,10 @@ import {
     snapToBottom,
     jumpToTop,
 } from '../renderer/scroll-state.js';
+// E6.1 fix (code-review #7) — Ctrl+Shift+C / Ctrl+Shift+V predicates single-sourced in
+// the shortcut registry the Help ▸ Keyboard Shortcuts modal renders from, so the chords
+// this handler matches and the chords the modal advertises can never diverge.
+import { matchCopy, matchPaste } from './shortcuts.js';
 
 // D-04 — frozen KeyCode tag table (mirrors crates/beastty-core/src/key.rs:141-159).
 // Any drift silently produces wrong TX bytes; the Wave 3 Playwright suite
@@ -245,7 +249,7 @@ export function wireKeyboard(opts) {
         // 0x03 via the encode path below. Chromium reserves Ctrl+Shift+C for
         // DevTools inspector; the standard preventDefault mitigation suffices
         // when DevTools is closed (UAT confirms).
-        if (e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey && e.code === 'KeyC') {
+        if (matchCopy(e)) {
             e.preventDefault();
             copySelection();
             return;
@@ -253,7 +257,7 @@ export function wireKeyboard(opts) {
 
         // Phase 6 D-22 — Ctrl+Shift+V pastes. Ctrl+V (no Shift) still encodes
         // 0x16 (SYN) via the encode path below.
-        if (e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey && e.code === 'KeyV') {
+        if (matchPaste(e)) {
             e.preventDefault();
             pasteFromClipboard();
             return;

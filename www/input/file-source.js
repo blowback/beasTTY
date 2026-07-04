@@ -23,6 +23,11 @@
 // so the slideConfirmTransfers toggle takes effect on the very next picker /
 // drop without re-wiring or boot.
 import { getPrefs } from '../state/prefs.js';
+// Epic E0 Story E0.2 (AD-8) — the one shared open/close/focus primitive.
+// file-source.js is the proof caller: #send-modal is the only <dialog> today,
+// so this leaf import (mirroring chrome.js importing retainFocus from
+// ./focus.js) is what pins the openModal contract for the future config modals.
+import { openModal } from '../renderer/modal.js';
 
 // ===== CP/M validation constants (D-06) =====
 const CPM_INVALID_CHARS = new Set(['<','>',',',';',':','=','?','*','[',']']);
@@ -37,12 +42,25 @@ let cancelBtnRef = null;
 let sendBtnRef = null;
 
 let wrapperElRef = null;
-let topBarSendBtnRef = null;
-let topBarSendInputRef = null;
+// Epic E7 Story E7.1 (AD-7) — #send-file-button + #send-file-input retired with
+// #top-bar. file-source.js now OWNS the picker: a programmatic (never-rendered)
+// <input type="file"> created at wire time, triggered only via File ▸ Send File…
+// (openSendPicker). The send GATE is held as module state here (no button DOM to
+// hang .disabled/.title on); menu-bar's Send File… row reads it via getSendGate().
+let sendInputEl = null;
+let sendGateDisabled = true;                            // closed until a writer is registered
+let sendGateTitle = 'Connect to a serial port first';  // mirrored onto the menu row's tooltip
 let enterSendModeFn = null;
 let getSlideStateFn = null;
 let isWriterReadyFn = null;   // Phase 9 WR-03 — gate button on writer registration
 let slideChipRef = null;      // Phase 11 Plan 11-03 D-10 — chip flash on drop-during-active-session
+// E3.1 review fix (#6) — fired when the send gate flips, so the File ▸ Send File…
+// menu row can re-project WHILE the File menu is held open (the poll runs every
+// 200ms; without this the row only self-corrected on the next menu open, and a
+// stale-disabled row swallowed an otherwise-valid activation). Injected by main.js
+// as wireFileSource({ onSendGateChange }); mirrors session-log's onStateChange
+// hook. Optional + no-throw — a harness that omits it is inert.
+let onSendGateChangeFn = null;
 
 // Phase 12 SLIDE-36 — three new modal action buttons (collision-mode footer).
 let sendRenamedBtnRef = null;
@@ -59,8 +77,6 @@ let buttonStateInterval = null;
 export function wireFileSource(opts) {
     const {
         wrapperEl,        // #terminal-wrapper
-        sendBtn,          // #send-file-button
-        sendInput,        // #send-file-input
         modalEl,          // #send-modal <dialog>
         titleEl,          // #send-modal-title
         listEl,           // #send-modal-list
@@ -77,10 +93,10 @@ export function wireFileSource(opts) {
         modalRefuseBtn,        // #send-modal-refuse
         // Phase 12 SLIDE-12 — post-drop selection clear (injected; called from onDrop).
         clearSelectionFn,
+        // E3.1 review fix (#6) — notify on send-gate transitions (menu-row re-project).
+        onSendGateChange,
     } = opts;
     wrapperElRef = wrapperEl;
-    topBarSendBtnRef = sendBtn;
-    topBarSendInputRef = sendInput;
     modalElRef = modalEl;
     titleElRef = titleEl;
     listElRef = listEl;
@@ -91,28 +107,29 @@ export function wireFileSource(opts) {
     getSlideStateFn = getSlideState;
     isWriterReadyFn = isWriterReady ?? null;
     slideChipRef = slideChip || null;
+    onSendGateChangeFn = onSendGateChange || null;   // E3.1 review fix (#6)
     // Phase 12 SLIDE-36 / SLIDE-12.
     sendRenamedBtnRef   = modalSendRenamedBtn || null;
     firstOnlyBtnRef     = modalFirstOnlyBtn   || null;
     refuseBtnRef        = modalRefuseBtn      || null;
     clearSelectionFnRef = clearSelectionFn    || null;
 
-    // ===== Top-bar button click → open file picker =====
-    sendBtn.addEventListener('click', () => {
-        // Defense-in-depth: if button is disabled, the click event won't fire,
-        // but if a test or accessibility tool dispatches it programmatically,
-        // short-circuit.
-        if (sendBtn.disabled) return;
-        sendInput.click();
-    });
-    // Phase 4 D-16 sacred — focus retention on click (mirrors Phase 6 #clear-button).
-    sendBtn.addEventListener('mousedown', (e) => e.preventDefault());
-
+    // ===== Own the file picker (E7.1 — the retired #send-file-input) =====
+    // Created programmatically so it is never rendered chrome — the ONLY trigger
+    // is File ▸ Send File… → openSendPicker(). Re-created idempotently on a re-wire.
+    sendInputEl = document.createElement('input');
+    sendInputEl.id = 'send-file-input';   // stable handle for the picker (test-addressable)
+    sendInputEl.type = 'file';
+    sendInputEl.multiple = true;
+    sendInputEl.hidden = true;
+    // Attach off-screen so .click() reliably opens the native picker inside the
+    // menu-item click gesture (and so the Playwright suite can locate it).
+    document.body.appendChild(sendInputEl);
     // ===== File picker change → validate + show modal =====
-    sendInput.addEventListener('change', () => {
-        const files = Array.from(sendInput.files || []);
+    sendInputEl.addEventListener('change', () => {
+        const files = Array.from(sendInputEl.files || []);
         // Reset the input so re-selecting the same file later still fires change.
-        sendInput.value = '';
+        sendInputEl.value = '';
         if (files.length === 0) return;
         processFiles(files).catch((err) => {
             console.error('[file-source] processFiles (picker) failed:', err);
@@ -172,11 +189,38 @@ export function wireFileSource(opts) {
     // is set OR mode === 'send'. Re-enabled when mode returns to 'terminal'.
     // Poll every 200ms; cheap and event-loop-friendly.
     if (buttonStateInterval) clearInterval(buttonStateInterval);
-    buttonStateInterval = setInterval(updateButtonState, 200);
+    // Synchronous first pass BEFORE the interval so the gate reflects reality at wire
+    // time — not up to 200ms later. The menu row (projectSendFile, re-projected via
+    // onSendGateChange) and openSendPicker both read this state, so a boot-window
+    // interaction could slip through the gate. Idempotent: if the state already
+    // matches, updateSendGate is a no-op and fires no spurious onSendGateChange.
+    updateSendGate();
+    buttonStateInterval = setInterval(updateSendGate, 200);
 }
 
-function updateButtonState() {
-    if (!getSlideStateFn || !topBarSendBtnRef) return;
+// ===== Epic E3 Story E3.1 (FR-16, AC-1) — menu-path picker entry =====
+// File ▸ Send File… routes here (injected into wireMenuBar as opts.sendFile) so
+// menu-bar drives the picker→#send-modal path WITHOUT importing file-source
+// (AD-3 / relocation-strategy: inject-the-action). E7.1 — this is now the SOLE
+// picker trigger (#send-file-button retired). Honors the same disabled gate
+// (updateSendGate closes it while a SLIDE session is pending/active or no writer
+// is ready), so it is inert in exactly those states.
+export function openSendPicker() {
+    if (!sendInputEl) return;          // unwired harness — no-op
+    if (sendGateDisabled) return;      // same gate the top-bar button click used to enforce
+    sendInputEl.click();
+}
+
+// E7.1 — the send gate as module state (was carried on #send-file-button's live
+// .disabled/.title before #top-bar's removal). getSendGate() lets menu-bar's
+// Send File… row project the same disabled/tooltip feedback the button gave,
+// without any DOM coupling — read-at-use, no-throw.
+export function getSendGate() {
+    return { disabled: sendGateDisabled, title: sendGateTitle };
+}
+
+function updateSendGate() {
+    if (!getSlideStateFn) return;
     let st;
     try { st = getSlideStateFn(); } catch { return; }
     const isPending = !!st?.hasPendingSendSession;
@@ -191,33 +235,26 @@ function updateButtonState() {
     // accumulate auto-type bytes in the ring without reaching the wire.
     const writerReady = isWriterReadyFn ? !!isWriterReadyFn() : true;
     const shouldDisable = isPending || isSending || isReceiving || !writerReady;
-    if (shouldDisable && !topBarSendBtnRef.disabled) {
-        topBarSendBtnRef.disabled = true;
-        if (!writerReady && !isPending && !isSending && !isReceiving) {
-            // Pre-Connect state: distinguish from in-flight transfer label.
-            topBarSendBtnRef.textContent = '↑ Send file';
-            topBarSendBtnRef.title = 'Connect to a serial port first';
-        } else {
-            topBarSendBtnRef.textContent = '↑ Send file (sending…)';   // ellipsis = U+2026
-            topBarSendBtnRef.title = 'Transfer in progress — wait for completion';
-        }
-    } else if (!shouldDisable && topBarSendBtnRef.disabled) {
-        topBarSendBtnRef.disabled = false;
-        topBarSendBtnRef.textContent = '↑ Send file';
-        topBarSendBtnRef.title = 'Send file(s) to MicroBeast via SLIDE';
-    } else if (shouldDisable && topBarSendBtnRef.disabled) {
-        // Already-disabled — keep the title in sync if the reason changed
-        // (e.g. writer registered while a session was already active).
-        if (!writerReady && !isPending && !isSending && !isReceiving) {
-            if (topBarSendBtnRef.title !== 'Connect to a serial port first') {
-                topBarSendBtnRef.title = 'Connect to a serial port first';
-                topBarSendBtnRef.textContent = '↑ Send file';
-            }
-        } else if (topBarSendBtnRef.title !== 'Transfer in progress — wait for completion') {
-            topBarSendBtnRef.title = 'Transfer in progress — wait for completion';
-            topBarSendBtnRef.textContent = '↑ Send file (sending…)';
-        }
+    // Preserve the two distinct disabled-reason tooltips the button carried.
+    const nextTitle = !shouldDisable
+        ? 'Send file(s) to MicroBeast via SLIDE'
+        : ((!writerReady && !isPending && !isSending && !isReceiving)
+            ? 'Connect to a serial port first'
+            : 'Transfer in progress — wait for completion');
+    // Notify only on an actual change so the mirrored File ▸ Send File… row
+    // re-projects (its tooltip reads sendGateTitle) without spurious churn.
+    if (shouldDisable !== sendGateDisabled || nextTitle !== sendGateTitle) {
+        sendGateDisabled = shouldDisable;
+        sendGateTitle = nextTitle;
+        notifySendGate();
     }
+}
+
+// E3.1 review fix (#6) — no-throw notify of a send-gate transition (a failing
+// subscriber must never break the 200ms poll or leak an exception into it).
+function notifySendGate() {
+    if (!onSendGateChangeFn) return;
+    try { onSendGateChangeFn(); } catch { /* subscriber must not break the poll */ }
 }
 
 // ===== Drag-drop handlers (D-04 silent rejection at dragenter for non-file drags) =====
@@ -520,50 +557,25 @@ function showConfirmModal(rows, surviving, collisionRows) {
         if (refuseBtnRef)      refuseBtnRef.hidden      = true;
     }
 
-    return new Promise((resolve) => {
-        const onClose = () => {
-            modalElRef.removeEventListener('close', onClose);
-            // Phase 12 Plan 12-06 (Gap 1) — clear data-focused on every footer
-            // button so a stale attribute cannot paint a ghost indicator on a
-            // button that no longer has focus when the modal next opens.
-            if (sendRenamedBtnRef) sendRenamedBtnRef.setAttribute('data-focused', 'false');
-            if (cancelBtnRef)      cancelBtnRef.setAttribute('data-focused', 'false');
-            // Phase 12 UAT Niggle 2 — Send button is now the no-collision
-            // default focus target; clear its data-focused on close too so a
-            // stale attribute doesn't paint on next open.
-            if (sendBtnRef)        sendBtnRef.setAttribute('data-focused', 'false');
-            // Phase 12 SLIDE-36 — tagged returnValue (replaces Phase 9 boolean).
-            const action = modalElRef.returnValue || null;
-            // Focus restoration:
-            //   'send' | 'first-only' → terminal-wrapper (transfer is starting)
-            //   'refuse' | 'cancel' | falsy → top-bar Send-file button
-            if (action === 'send' || action === 'first-only') {
-                wrapperElRef?.focus();
-            } else {
-                topBarSendBtnRef?.focus();
-            }
-            resolve(action);
-        };
-        modalElRef.addEventListener('close', onClose);
-        modalElRef.showModal();
-        // Phase 12 UAT Niggle 2 — default-focus on Send button for the
-        // no-collision case (was Phase 9 Cancel-default Pitfall 2). Reading-
-        // order convention: primary action [Send N files] is leftmost AND
-        // default-focused so Enter triggers send. Collision-present mode
-        // continues to focus [Send N renamed] per Phase 12 SLIDE-36 D-03.
-        const initialFocusTarget = collisionsPresent
-            ? (sendRenamedBtnRef || cancelBtnRef)
-            : (sendBtnRef || cancelBtnRef);
-        if (initialFocusTarget) {
-            // Phase 12 Plan 12-06 (Gap 1 — UAT Test 5) — set data-focused="true"
-            // BEFORE .focus() so the index.html [data-focused="true"] CSS rule
-            // paints the border immediately. :focus-visible alone is suppressed
-            // by Chromium when the modal is opened via a pointer-initiated path.
-            // Mirrors the Phase 6 gap #7 pattern in chrome.js wireChrome.
-            initialFocusTarget.setAttribute('data-focused', 'true');
-            initialFocusTarget.focus();
-        }
-    });
+    // Epic E0 Story E0.2 (AD-8) — open/close/focus now lives in openModal. The
+    // caller keeps ONLY the two decisions that vary per dialog:
+    //   initialFocus — which footer button to light (data-focused + .focus()).
+    //     Phase 12 UAT Niggle 2: no-collision default is [Send N files] (leftmost
+    //     primary, so Enter sends); collision mode keeps [Send N renamed] per
+    //     SLIDE-36 D-03. openModal clears data-focused on exactly this element on
+    //     close (the old defensive clears of the other footer buttons are no
+    //     longer needed — the helper always clears the one it lit).
+    //   restoreTo — E7.1: the trigger is now the File ▸ Send File… menu item, which
+    //     closes on activation, so every outcome restores focus to #terminal-wrapper
+    //     (NFR-1 — keystrokes flow back to the Z80). The former top-bar-button
+    //     restore target retired with #top-bar.
+    // openModal resolves to the RAW returnValue ('' for Esc); processFiles' own
+    // `!action` guard maps '' → bail, preserving showConfirmModal's contract.
+    const initialFocus = collisionsPresent
+        ? (sendRenamedBtnRef || cancelBtnRef)
+        : (sendBtnRef || cancelBtnRef);
+    const restoreTo = () => wrapperElRef;
+    return openModal(modalElRef, { initialFocus, restoreTo });
 }
 
 function spanText(text, ariaHidden, className) {
@@ -712,11 +724,8 @@ export function packSendMetadata(files) {
 export function __resetForTests() {
     dragDepth = 0;
     if (wrapperElRef) wrapperElRef.removeAttribute('data-drop-target');
-    if (topBarSendBtnRef) {
-        topBarSendBtnRef.disabled = false;
-        topBarSendBtnRef.textContent = '↑ Send file';
-        topBarSendBtnRef.title = 'Send file(s) to MicroBeast via SLIDE';
-    }
+    sendGateDisabled = false;
+    sendGateTitle = 'Send file(s) to MicroBeast via SLIDE';
     if (modalElRef && modalElRef.open) modalElRef.close('cancel');
 }
 
@@ -725,7 +734,10 @@ export function __getStateForTests() {
         dragDepth,
         dropTargetActive: wrapperElRef?.hasAttribute('data-drop-target') ?? false,
         modalOpen: modalElRef?.open ?? false,
-        sendBtnDisabled: topBarSendBtnRef?.disabled ?? false,
-        sendBtnLabel: topBarSendBtnRef?.textContent ?? '',
+        // E7.1 — the send gate is module state now (was #send-file-button.disabled /
+        // .textContent). sendBtnLabel is kept in the shape for spec compatibility,
+        // surfacing the gate tooltip in lieu of the retired button's label.
+        sendBtnDisabled: sendGateDisabled,
+        sendBtnLabel: sendGateTitle,
     };
 }

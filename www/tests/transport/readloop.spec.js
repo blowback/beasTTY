@@ -9,13 +9,13 @@ async function setup(page) {
     await page.goto('/');
     await page.locator('#terminal-wrapper').focus();
     await page.waitForFunction(() => document.getElementById('terminal').width > 0);
-    await page.locator('#connection').evaluate((el) => { el.open = true; });
 }
 
 test.describe('XPORT-11 + SC-5 + D-35/D-38/D-39 — Read loop', () => {
     test('pushed bytes feed into term.feed and render on grid @fast', async ({ page }) => {
         await setup(page);
-        await page.locator('#connect-button').click();
+        await page.evaluate(() => window.__menuBar.open('connection'));
+        await page.click('#menu-connect-item');
         // Wait for the connect path + read loop to start (reader created).
         await expect.poll(
             () => page.evaluate(() => Boolean(navigator.serial._grantedPorts[0]?._reader)),
@@ -59,7 +59,8 @@ test.describe('XPORT-11 + SC-5 + D-35/D-38/D-39 — Read loop', () => {
             // Safety clear after 3s even if we never see a reader.
             setTimeout(() => clearInterval(poll), 3000);
         });
-        await page.locator('#connect-button').click();
+        await page.evaluate(() => window.__menuBar.open('connection'));
+        await page.click('#menu-connect-item');
         // Push a byte so the pending read() resolves and the loop issues another read().
         await expect.poll(
             () => page.evaluate(() => Boolean(navigator.serial._grantedPorts[0]?._reader?.__wrapped)),
@@ -78,8 +79,9 @@ test.describe('XPORT-11 + SC-5 + D-35/D-38/D-39 — Read loop', () => {
 
     test('visibilitychange !hidden triggers requestFrame catch-up', async ({ page }) => {
         await setup(page);
-        await page.locator('#connect-button').click();
-        await expect(page.locator('#connect-button')).toHaveAttribute('data-state', 'connected');
+        await page.evaluate(() => window.__menuBar.open('connection'));
+        await page.click('#menu-connect-item');
+        await expect(page.locator('#menu-connect-item')).toHaveAttribute('data-state', 'connected');
         // Simulate hidden → push bytes (they feed into term asynchronously) → visible.
         // The catch-up requestFrame should then wake the renderer; we verify via
         // the grid view that 'HI' is present at the first two cells.
@@ -103,13 +105,14 @@ test.describe('XPORT-11 + SC-5 + D-35/D-38/D-39 — Read loop', () => {
             });
         }, { timeout: 2000 }).toBe('HI');
         // State still connected (visibilitychange did not disrupt transport).
-        await expect(page.locator('#connect-button')).toHaveAttribute('data-state', 'connected');
+        await expect(page.locator('#menu-connect-item')).toHaveAttribute('data-state', 'connected');
     });
 
     test('read error transitions state to port-lost', async ({ page }) => {
         await setup(page);
-        await page.locator('#connect-button').click();
-        await expect(page.locator('#connect-button')).toHaveAttribute('data-state', 'connected');
+        await page.evaluate(() => window.__menuBar.open('connection'));
+        await page.click('#menu-connect-item');
+        await expect(page.locator('#menu-connect-item')).toHaveAttribute('data-state', 'connected');
         // Wait for reader to exist, then force the next read() to throw a
         // NetworkError (permission-revoke simulation — D-28).
         await expect.poll(
@@ -133,7 +136,7 @@ test.describe('XPORT-11 + SC-5 + D-35/D-38/D-39 — Read loop', () => {
             // throws NetworkError which handleReadError treats as permission-revoked.
             window.__mockReaderPush([0x00]);
         });
-        await expect(page.locator('#connect-button')).toHaveAttribute('data-state', 'port-lost', { timeout: 3000 });
+        await expect(page.locator('#menu-connect-item')).toHaveAttribute('data-state', 'port-lost', { timeout: 3000 });
         await expect(page.locator('#error-log')).toContainText('permission-revoked', { timeout: 2000 });
     });
 });

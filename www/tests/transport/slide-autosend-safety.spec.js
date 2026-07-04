@@ -33,13 +33,27 @@ async function setup(page) {
     await page.goto('/');
     await page.locator('#terminal-wrapper').focus();
     await page.waitForFunction(() => document.getElementById('terminal').width > 0);
-    await page.locator('#settings').evaluate((el) => { el.open = true; });
-    await page.locator('#settings-slide').evaluate((el) => { el.open = true; });
+    // E3.4 — setup stays modal-free: setupConnected() clicks the top-bar #connect-button,
+    // which native <dialog> showModal() would make inert. Tests that manipulate the
+    // auto-send INPUT call openSlideModal(page) explicitly (the input lives in
+    // #slide-config-modal now, not the removed <details id="settings-slide"> pane).
+}
+
+// E3.4 — open the SLIDE File Transfer modal (Settings ▸ SLIDE File Transfer…) so the
+// auto-send input + validation hint are in the top layer and interactable.
+async function openSlideModal(page) {
+    await page.waitForFunction(() => window.__menuBar
+        && typeof window.__menuBar.open === 'function'
+        && typeof window.__modal === 'object' && window.__modal !== null);
+    await page.evaluate(() => window.__menuBar.open('settings'));
+    await page.click('#dropdown-settings .menu-item[data-action="slide-config"]');
+    await page.locator('#slide-config-modal').waitFor({ state: 'visible' });
 }
 
 async function setupConnected(page) {
     await setup(page);
-    await page.locator('#connect-button').click();
+    await page.evaluate(() => window.__menuBar.open('connection'));
+    await page.click('#menu-connect-item');
     // Generous timeout — Playwright's 10-worker parallelism can starve
     // the wasm boot path on busy hardware (Phase 11 5s precedent — 8s
     // covers worst-case Chromium scheduling under heavy load).
@@ -101,6 +115,7 @@ for (const tc of UNSAFE_CASES) {
 
 test('SLIDE-38 — Settings input invalid value sets data-invalid attribute', async ({ page }) => {
     await setup(page);
+    await openSlideModal(page);
     // Type an unsafe value (semicolon injection) and dispatch the change
     // event. The Phase 12 Settings handler computes value + '\r' then
     // calls isAutoSendSafe; on failure it sets data-invalid + aria-invalid
@@ -115,6 +130,7 @@ test('SLIDE-38 — Settings input invalid value sets data-invalid attribute', as
 
 test('Phase 12 UAT Gap A — validation-hint sub-row appears on blur with unsafe value', async ({ page }) => {
     await setup(page);
+    await openSlideModal(page);
     // Hint starts hidden.
     await expect(page.locator('#slide-auto-send-validation-hint')).toBeHidden();
     // Type unsafe value, dispatch change (blur) — hint MUST become visible.
@@ -132,6 +148,7 @@ test('Phase 12 UAT Gap A — validation-hint sub-row appears on blur with unsafe
 
 test('SLIDE-38 — Settings input invalid value still persists to localStorage (save not blocked)', async ({ page }) => {
     await setup(page);
+    await openSlideModal(page);
     // Same unsafe value — the SAVE must still happen even though the input
     // is visually marked invalid (UI-SPEC §Anti-Patterns: save-time
     // validation forbidden; use-time hard gate is the wire-safety boundary).
@@ -222,6 +239,7 @@ test('SLIDE-38 — first-use confirmation chip surfaces for non-default value', 
 
 test('SLIDE-38 — confirmation flag re-arms when user changes auto-send command', async ({ page }) => {
     await setup(page);
+    await openSlideModal(page);
     // Initial change — Settings handler writes slideAutoSendCommandConfirmed
     // = '' (re-armed) alongside the new command.
     await page.locator('#slide-auto-send-input').fill('A:SLIDE R');
@@ -274,6 +292,7 @@ test('SLIDE-38 — confirmation flag re-arms when user changes auto-send command
 
 test('Plan 12-06 — Settings input invalid value paints red border (specificity + token fix)', async ({ page }) => {
     await setup(page);
+    await openSlideModal(page);
     await page.locator('#slide-auto-send-input').fill('B:RM *.* ; SLIDE R');
     await page.locator('#slide-auto-send-input').dispatchEvent('change');
     // Wait for the data-invalid attribute write (existing contract).
@@ -380,6 +399,7 @@ test('Phase 12 UAT Gap B — savePrefs(slideAutoSendCommandConfirmed) re-arms fi
 
 test('Plan 12-06 — Settings input safe value returns border to base muted token', async ({ page }) => {
     await setup(page);
+    await openSlideModal(page);
     // Warm-up: type unsafe → assert red (sanity), then type safe → assert
     // border returns to base. This pins the round-trip so a future
     // regression that pins data-invalid="true" permanently surfaces.

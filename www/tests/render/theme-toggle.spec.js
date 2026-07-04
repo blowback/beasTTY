@@ -1,25 +1,67 @@
 // Phase 3 Plan 04 — RENDER-06 / RENDER-07 — Theme toggle.
-// Covers both click-based theme toggle (button) and keyboard shortcut
-// Ctrl+Shift+T, plus the UI-SPEC copywriting contract (button label shows
-// destination theme name).
+// Epic E1 Story E1.4 — the incumbent #theme-toggle button retired to the View
+// menu (View ▸ Theme radio submenu). These oracles are RETARGETED onto the menu
+// path; the Ctrl+Alt+T chord assertion STAYS (the chord lives in chrome.js,
+// AD-13). Downstream effect asserted: body[data-theme] scanline attribute +
+// persistence across reload + the active radio's ✓ check glyph.
 import { test, expect } from '@playwright/test';
 
-test.describe('RENDER-06 / RENDER-07 — Theme toggle', () => {
-  test('click on #theme-toggle swaps body[data-theme] @fast', async ({ page }) => {
-    await page.goto('/');
+async function ready(page) {
+  await page.goto('/');
+  await page.waitForFunction(
+    () => window.__menuBar && typeof window.__menuBar.__getStateForTests === 'function',
+  );
+}
+
+// Open View ▸ Theme and select a value (clean | crt) via the menu path. Opens
+// the View menu through the API (deterministic — a radio select keeps the menu
+// open, so re-clicking the title would toggle it shut) then exercises the real
+// click path for the submenu parent + radio.
+async function selectTheme(page, value) {
+  await page.evaluate(() => window.__menuBar.open('view'));
+  await page.click('#dropdown-view .menu-item[data-submenu="theme"]');
+  await page.click(`#dropdown-view .submenu[data-submenu-panel="theme"] .menu-item[data-value="${value}"]`);
+}
+
+test.describe('RENDER-06 / RENDER-07 — Theme via View ▸ Theme (E1.4)', () => {
+  test('selecting a theme swaps body[data-theme] @fast', async ({ page }) => {
+    await ready(page);
     await expect(page.locator('body')).toHaveAttribute('data-theme', 'crt');
 
-    await page.click('#theme-toggle');
+    await selectTheme(page, 'clean');
     await expect(page.locator('body')).toHaveAttribute('data-theme', 'clean');
 
-    await page.click('#theme-toggle');
+    await selectTheme(page, 'crt');
     await expect(page.locator('body')).toHaveAttribute('data-theme', 'crt');
   });
 
-  test('Ctrl+Alt+T toggles theme — gap #4 remap @fast', async ({ page }) => {
+  test('theme choice persists across reload @fast', async ({ page }) => {
+    await ready(page);
+    await selectTheme(page, 'clean');
+    await expect(page.locator('body')).toHaveAttribute('data-theme', 'clean');
+
+    // beforeunload flushes the debounced savePrefs; reload reads it back.
+    await page.reload();
+    await expect(page.locator('body')).toHaveAttribute('data-theme', 'clean');
+  });
+
+  test('active theme radio carries the ✓ check glyph @fast', async ({ page }) => {
+    await ready(page);
+    await selectTheme(page, 'clean');
+    // The chosen radio shows ✓ (chrome-accent); its sibling is blank.
+    const cleanCheck = page.locator('#dropdown-view .submenu[data-submenu-panel="theme"] .menu-item[data-value="clean"] .check');
+    const crtCheck = page.locator('#dropdown-view .submenu[data-submenu-panel="theme"] .menu-item[data-value="crt"] .check');
+    await expect(cleanCheck).toHaveText('✓');
+    await expect(crtCheck).toHaveText('');
+    // aria-checked stays in lockstep with the glyph.
+    await expect(page.locator('#dropdown-view .submenu[data-submenu-panel="theme"] .menu-item[data-value="clean"]'))
+      .toHaveAttribute('aria-checked', 'true');
+  });
+
+  test('Ctrl+Alt+T toggles theme — chord stays in chrome.js (AD-13) @fast', async ({ page }) => {
     // Plan 03-06 remapped from Ctrl+Shift+T (Chromium-reserved for reopen-tab)
-    // to Ctrl+Alt+T (GNOME/i3 open-terminal chord; hookable).
-    await page.goto('/');
+    // to Ctrl+Alt+T (GNOME/i3 open-terminal chord; hookable). E1.4 keeps it here.
+    await ready(page);
     await page.locator('#terminal-wrapper').focus();
     await expect(page.locator('body')).toHaveAttribute('data-theme', 'crt');
 
@@ -30,8 +72,17 @@ test.describe('RENDER-06 / RENDER-07 — Theme toggle', () => {
     await expect(page.locator('body')).toHaveAttribute('data-theme', 'crt');
   });
 
+  test('Ctrl+Alt+T theme change persists across reload (chord persistence) @fast', async ({ page }) => {
+    await ready(page);
+    await page.locator('#terminal-wrapper').focus();
+    await page.keyboard.press('Control+Alt+KeyT');
+    await expect(page.locator('body')).toHaveAttribute('data-theme', 'clean');
+    await page.reload();
+    await expect(page.locator('body')).toHaveAttribute('data-theme', 'clean');
+  });
+
   test('Ctrl+Shift+T does NOT toggle theme (chord released back to Chromium) — gap #4', async ({ page }) => {
-    await page.goto('/');
+    await ready(page);
     await page.locator('#terminal-wrapper').focus();
     await expect(page.locator('body')).toHaveAttribute('data-theme', 'crt');
 
@@ -41,25 +92,16 @@ test.describe('RENDER-06 / RENDER-07 — Theme toggle', () => {
     await page.waitForTimeout(100);
     await expect(page.locator('body')).toHaveAttribute('data-theme', 'crt');
   });
-
-  test('theme-toggle button label shows destination theme name', async ({ page }) => {
-    await page.goto('/');
-    // CRT active → label shows destination "Clean" (UI-SPEC Copywriting Contract).
-    await expect(page.locator('#theme-toggle')).toHaveText('Clean');
-
-    await page.click('#theme-toggle');
-    await expect(page.locator('#theme-toggle')).toHaveText('CRT');
-  });
 });
 
 test.describe('Gap #3 (UAT Test 5) — Theme switch preserves canvas content', () => {
   test('glyphs painted before theme switch are still painted after — gap #3', async ({ page }) => {
     // Plan 03-05 Task 1 adds markAllRowsDirty() after atlas.evict() in
     // setTheme. Pre-fix the dirty-row optimisation left the canvas blank
-    // after every theme swap because the evicted atlas had no cached tiles
-    // AND no row was marked dirty to trigger a repaint.
+    // after every theme swap. E1.4 drives the switch via the Ctrl+Alt+T chord.
     await page.goto('/');
     await page.waitForFunction(() => document.getElementById('terminal').width > 0);
+    await page.waitForFunction(() => window.__menuBar && typeof window.__menuBar.open === 'function');
     await page.locator('#terminal-wrapper').focus();
 
     // Feed glyphs.
@@ -80,9 +122,12 @@ test.describe('Gap #3 (UAT Test 5) — Theme switch preserves canvas content', (
     });
     expect(crtGlyphsVisible).toBe(true);
 
-    // Switch to clean theme. Wait enough rAF ticks for the theme swap
-    // repaint to complete.
-    await page.click('#theme-toggle');
+    // Switch to clean theme via View ▸ Theme (focus-independent — clicking #feed
+    // above moved focus off #terminal-wrapper, so the chord path would not fire).
+    // Wait enough rAF ticks for the theme swap repaint to complete.
+    await page.evaluate(() => window.__menuBar.open('view'));
+    await page.click('#dropdown-view .menu-item[data-submenu="theme"]');
+    await page.click('#dropdown-view .submenu[data-submenu-panel="theme"] .menu-item[data-value="clean"]');
     await page.waitForTimeout(250);
 
     // Verify glyphs still painted (clean theme uses #e4e8ee on #0f1419 — RGB

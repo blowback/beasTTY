@@ -136,6 +136,12 @@ mod wasm_boundary {
             self.inner.cols()
         }
 
+        /// Total retained rows (visible + scrollback). JS clamps the scroll
+        /// offset to `total_len - rows` so selection coords never over-scroll.
+        pub fn total_len(&self) -> u32 {
+            self.inner.total_len()
+        }
+
         pub fn clear_dirty(&mut self) {
             self.inner.clear_dirty();
         }
@@ -162,6 +168,13 @@ mod wasm_boundary {
 
         pub fn resize_scrollback(&mut self, new_cap: usize) {
             self.inner.resize_scrollback(new_cap);
+        }
+
+        /// Settings ▸ "Wrap long lines" — enable/disable deferred autowrap at
+        /// the right margin. Injected from JS (main.js `applyPrefs` +
+        /// menu-bar toggle). Off by default; VT52 overstrikes the last column.
+        pub fn set_wrap(&mut self, on: bool) {
+            self.inner.set_wrap(on);
         }
 
         /// Phase 6 D-26 — direct grid mutation, NOT feeding ESC J. Parser

@@ -24,8 +24,14 @@
 import { BITMAP_FONT } from './bitmap-font.js';
 import { VT52_ROM_FONT } from './vt52-rom-font.js';
 import { INSIGBYTE_FONT } from './insigbyte-font.js';
+import { INSIGBYTE_BOLD_FONT } from './insigbyte-bold-font.js';
 import { YOU_SQUARED_FONT } from './you-squared-font.js';
 import { CUSHION_FONT } from './cushion-font.js';
+import { CHIT_FONT } from './chit-font.js';
+import { ORBITER_FONT } from './orbiter-font.js';
+import { PATROL_FONT } from './patrol-font.js';
+import { STRIKER_FONT } from './striker-font.js';
+import { ZX_PALM_FONT } from './zx-palm-font.js';
 
 // Font registry: id → 2048-byte glyph table (128 chars × 16 rows).
 // Adding a font: import its Uint8Array and register it here. No other change
@@ -34,8 +40,14 @@ const FONTS = Object.freeze({
     'modern':      BITMAP_FONT,       // hand-drawn 8×16, project default (Phase 3 D-01)
     'vt52':        VT52_ROM_FONT,     // original DEC VT52 character ROM, expanded to 16-row footprint
     'insigbyte':   INSIGBYTE_FONT,    // Insigbyte 8×8, MicroBeast-adjacent
+    'insigbyte-bold': INSIGBYTE_BOLD_FONT, // Insigbyte Bold 8×8, MicroBeast-adjacent
     'you-squared': YOU_SQUARED_FONT,  // You Squared 8×8, MicroBeast-adjacent
     'cushion':     CUSHION_FONT,      // Cushion 8×8, MicroBeast-adjacent
+    'chit':        CHIT_FONT,         // Chit 8×8, MicroBeast-adjacent
+    'orbiter':     ORBITER_FONT,      // Orbiter 8×8, MicroBeast-adjacent
+    'patrol':      PATROL_FONT,       // Patrol 8×8, MicroBeast-adjacent
+    'striker':     STRIKER_FONT,      // Striker 8×8, MicroBeast-adjacent
+    'zx-palm':     ZX_PALM_FONT,      // ZX Palm 8×8, MicroBeast-adjacent
 });
 
 export const FONT_IDS = Object.freeze(Object.keys(FONTS));
