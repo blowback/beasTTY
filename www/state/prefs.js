@@ -29,6 +29,11 @@ const DEFAULTS = Object.freeze({
                                  //   the VT52 last-column overstrike. First pref that reaches the
                                  //   core; applied by main.js applyPrefs. CURRENT_VERSION NOT bumped
                                  //   (defensive spread-merge, same precedent as showDebugPanel below).
+    stripCtrlLogs: false,        // Settings ▸ Strip ctrl codes from logs — when ON, a downloaded
+                                 //   session log has C0 control bytes + whole VT52 escape sequences
+                                 //   removed (CR/LF kept) for a readable transcript. Read at
+                                 //   download time by session-log.js; no live apply. CURRENT_VERSION
+                                 //   NOT bumped (defensive spread-merge, same precedent as above).
     autoConnect: false,
     showDebugPanel: false,       // E5.1 (FR-23, AD-11) — Debug ▸ Show Debug Panel checkable, default OFF.
                                  //   New boolean rides the defensive spread-merge; CURRENT_VERSION NOT bumped

@@ -169,6 +169,7 @@ let crlfPanelEl = null;            // [data-submenu-panel="crlf"] — active rad
 // this module projects from prefs.wrapLongLines.
 let setWrapRef = null;
 let wrapLinesItemEl = null;        // #menu-wrap-lines-item — checkable, derived from prefs.wrapLongLines
+let stripCtrlItemEl = null;        // #menu-strip-ctrl-logs-item — checkable, derived from prefs.stripCtrlLogs
 
 // E5.1 (FR-23, AD-3/AD-11) — Debug ▸ Show Debug Panel injected seam. Like localEcho,
 // showDebugPanel has a LIVE effect (show/hide the in-page #debug panel), so the menu
@@ -195,6 +196,7 @@ const CHECKABLE_PREF_EFFECTS = {
     localEcho:      { apply: (next) => setLocalEchoRef?.(next) },
     wrapLongLines:  { apply: (next) => setWrapRef?.(next) },                  // core term.set_wrap (persist ≠ apply)
     showDebugPanel: { apply: (next) => setDebugPanelVisibleRef?.(next) },
+    stripCtrlLogs:  {},                                                       // read at log-download time — no live setter, no pane mirror
 };
 
 // E3.3 (FR-21/FR-22, AD-3) — Settings-menu injected seams. resetPrefsRef is the
@@ -482,6 +484,11 @@ export function wireMenuBar(opts = {}) {
     // so the glyph is correct BEFORE the first Settings-menu open.
     wrapLinesItemEl = document.getElementById('menu-wrap-lines-item');
     projectWrapLines();
+
+    // Settings ▸ Strip ctrl codes from logs — same by-id discovery + initial paint
+    // from prefs so the glyph is correct BEFORE the first Settings-menu open.
+    stripCtrlItemEl = document.getElementById('menu-strip-ctrl-logs-item');
+    projectStripCtrl();
 
     // E5.1 (AC-3) — discover the Debug ▸ Show Debug Panel row and take its initial
     // paint from prefs so the glyph is correct BEFORE the first Debug-menu open (never
@@ -1130,6 +1137,7 @@ function projectMenuOnOpen() {
     if (openMenu === 'settings') {
         projectLocalEcho();
         projectWrapLines();
+        projectStripCtrl();
         const p = getPrefs();
         if (crlfPanelEl && p && p.crlfMode) setRadioChecked(crlfPanelEl, p.crlfMode);
     }
@@ -1162,6 +1170,10 @@ function projectWrapLines(prefs)   { projectCheckable(wrapLinesItemEl, 'wrapLong
 // siblings: derives only the ROW glyph/aria from prefs.showDebugPanel, never the panel
 // node (applyPrefs is the panel's single writer on reset/boot — AC-6).
 function projectDebugPanel(prefs) { projectCheckable(debugPanelItemEl, 'showDebugPanel', prefs); }
+// Settings ▸ Strip ctrl codes from logs row projector. Same contract as the
+// siblings: derives only the ROW glyph/aria from prefs.stripCtrlLogs. There is
+// no live apply — session-log.js reads the pref at download-click time.
+function projectStripCtrl(prefs) { projectCheckable(stripCtrlItemEl, 'stripCtrlLogs', prefs); }
 
 // E3.1 (FR-17, AC-4/AC-5) — project the Download Session Log row from the live RX
 // byte count at USE-TIME. Modeled on syncSubmenuDisabled but INVERSE polarity:
@@ -1373,6 +1385,7 @@ export function projectPrefs(prefs) {
     // that single-writer job on reset — AC-6).
     projectLocalEcho(p);
     projectWrapLines(p); // Settings ▸ Wrap long lines — resetPrefs() restores the unchecked default row
+    projectStripCtrl(p); // Settings ▸ Strip ctrl codes from logs — resetPrefs() restores the unchecked default row
     if (crlfPanelEl && p.crlfMode) setRadioChecked(crlfPanelEl, p.crlfMode);
     // E5.1 (AC-3/AC-6) — re-project the Debug ▸ Show Debug Panel row from p.showDebugPanel
     // so resetPrefs() (AD-14) restores the unchecked default in the menu DOM. Placed

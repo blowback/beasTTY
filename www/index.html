@@ -1388,6 +1388,15 @@
                 data-variant="checkable" data-pref="wrapLongLines" data-checked="false" aria-checked="false">
           <span class="check"></span><span class="lbl">Wrap long lines</span>
         </button>
+        <!-- Strip ctrl codes from logs checkable. data-pref="stripCtrlLogs" drives the
+             generic persist seam (savePrefs); there is NO live side-effect — session-log.js
+             reads the pref at download-click time and writes a cleaned .txt transcript
+             (C0 controls + whole VT52 escape sequences removed, CR/LF kept). data-checked
+             starts "false" and is re-derived from prefs at wire-time / on open / on reset. -->
+        <button id="menu-strip-ctrl-logs-item" class="menu-item" type="button" role="menuitemcheckbox"
+                data-variant="checkable" data-pref="stripCtrlLogs" data-checked="false" aria-checked="false">
+          <span class="check"></span><span class="lbl">Strip ctrl codes from logs</span>
+        </button>
         <!-- Epic E3 Story E3.2 (FR-19, AD-4) — Enter key sends radio submenu
              (CR / LF / CRLF). Filled from the bare parent using the E1.4/E1.5
              radio-submenu-group template (Theme/Font). data-value = the exact

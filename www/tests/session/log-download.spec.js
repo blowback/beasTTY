@@ -142,6 +142,71 @@ test.describe('SESS-04/SESS-05 — Session log download', () => {
     // E3.1 (AC-5) — File ▸ Download Session Log drives the SAME download() as the
     // legacy #download-log-button. The legacy-button cases above stay green
     // (session-log is the sole writer of that button); this adds the menu path.
+    // --- Settings ▸ Strip ctrl codes from logs ---------------------------------
+    // When enabled, download() writes a cleaned, readable transcript: C0 control
+    // bytes + whole VT52 escape sequences removed, CR/LF kept; filename becomes
+    // .txt. read live at download-click time (persist-only pref, no live apply).
+    async function connectAndPush(page, bytes) {
+        await page.evaluate(() => window.__menuBar.open('connection'));
+        await page.click('#menu-connect-item');
+        await page.waitForSelector('#menu-connect-item[data-state="connected"]', { state: 'attached' });
+        await page.evaluate((b) => window.__mockReaderPush(new Uint8Array(b)), Array.from(bytes));
+        await page.waitForFunction((n) => window.__sessionLog.getCurrentBytes() === n, bytes.length);
+    }
+    async function readDownload(page) {
+        const dl = page.waitForEvent('download');
+        await downloadViaMenu(page);
+        const download = await dl;
+        const stream = await download.createReadStream();
+        const chunks = [];
+        for await (const chunk of stream) chunks.push(chunk);
+        return { name: download.suggestedFilename(), body: Buffer.concat(chunks) };
+    }
+
+    // ESC Y ! 0 | "B>dir" | CRLF | ESC K | BEL | "FOO" | NUL | CRLF | ESC Y A B | "done"
+    // The two ESC Y sequences prove the parameter bytes (! 0 and the PRINTABLE A B)
+    // are consumed with the sequence, not left behind as text.
+    const MIXED = [
+        0x1B, 0x59, 0x21, 0x30,
+        0x42, 0x3E, 0x64, 0x69, 0x72,
+        0x0D, 0x0A,
+        0x1B, 0x4B,
+        0x07,
+        0x46, 0x4F, 0x4F,
+        0x00,
+        0x0D, 0x0A,
+        0x1B, 0x59, 0x41, 0x42,
+        0x64, 0x6F, 0x6E, 0x65,
+    ];
+
+    test('strip ON: removes control codes + VT52 escapes, keeps CR/LF, writes .txt @fast', async ({ page }) => {
+        await setup(page);
+        await page.evaluate(() => window.__prefs.savePrefs({ stripCtrlLogs: true }));
+        await connectAndPush(page, MIXED);
+        const { name, body } = await readDownload(page);
+        expect(name).toMatch(/^beastty-\d{8}-\d{6}\.txt$/);
+        expect(body.toString()).toBe('B>dir\r\nFOO\r\ndone');
+    });
+
+    test('strip OFF (default): raw bytes preserved verbatim, writes .bin @fast', async ({ page }) => {
+        await setup(page);
+        await connectAndPush(page, MIXED);
+        const { name, body } = await readDownload(page);
+        expect(name).toMatch(/^beastty-\d{8}-\d{6}\.bin$/);
+        expect(Array.from(body)).toEqual(MIXED);   // untouched control bytes + escapes
+    });
+
+    test('toggling the Settings row affects the NEXT download (read live at click) @fast', async ({ page }) => {
+        await setup(page);
+        await connectAndPush(page, MIXED);
+        // Toggle the pref ON via the real Settings menu row, then download.
+        await page.evaluate(() => window.__menuBar.open('settings'));
+        await page.click('#menu-strip-ctrl-logs-item');
+        const { name, body } = await readDownload(page);
+        expect(name).toMatch(/\.txt$/);
+        expect(body.toString()).toBe('B>dir\r\nFOO\r\ndone');
+    });
+
     test('File ▸ Download Session Log downloads the .bin via the menu path @fast', async ({ page }) => {
         await setup(page);
         await page.evaluate(() => window.__menuBar.open('connection'));

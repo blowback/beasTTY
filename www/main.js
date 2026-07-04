@@ -862,6 +862,9 @@ window.__pasteToast = {
 // downloadButton opt is passed; the File-menu row is the sole download surface.
 wireSessionLog({
     onStateChange: () => menuBar.projectSessionLog?.(),
+    // Settings ▸ Strip ctrl codes from logs — read live at download-click time
+    // (persist-only pref; no live apply, so no applyPrefs fan-out needed).
+    getStripCtrl: () => !!getPrefs()?.stripCtrlLogs,
 });
 // Test introspection — Playwright drives append/reset/download via the spec
 // to assert per-connection lifecycle without touching real Web Serial.

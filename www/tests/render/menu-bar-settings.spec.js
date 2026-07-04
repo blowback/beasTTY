@@ -259,3 +259,40 @@ test.describe('Settings ▸ Wrap long lines', () => {
     expect(await fillLineAndReadCursor(page, 81)).toBe(packedCursor(0, 79));
   });
 });
+
+// Settings ▸ Strip ctrl codes from logs — a persist-only checkable (like autoConnect):
+// no live side-effect, read at log-download time by session-log.js. Here we cover the
+// menu-row contract (persist + glyph lockstep + stays-open + focus + reset); the
+// actual byte-stripping is proven end-to-end in session/log-download.spec.js.
+const STRIP = '#dropdown-settings .menu-item[data-pref="stripCtrlLogs"]';
+
+test.describe('Settings ▸ Strip ctrl codes from logs', () => {
+  test('toggle persists, flips glyph in lockstep, keeps menu open, retains focus @fast', async ({ page }) => {
+    await ready(page);
+    await page.locator('#terminal-wrapper').focus();
+
+    await page.evaluate(() => window.__menuBar.open('settings'));
+    const row = page.locator(STRIP);
+    await expect(row).toHaveAttribute('data-checked', 'false');
+    await expect(row.locator('.check')).toHaveText('');
+
+    await row.click();
+
+    await expect(row).toHaveAttribute('data-checked', 'true');
+    await expect(row).toHaveAttribute('aria-checked', 'true');
+    await expect(row.locator('.check')).toHaveText('✓');
+    expect(await page.evaluate(() => window.__menuBar.getOpenMenu())).toBe('settings');
+    expect(await page.evaluate(() => window.__prefs.getPrefs().stripCtrlLogs)).toBe(true);
+    expect(await page.evaluate(() => document.activeElement && document.activeElement.id)).toBe('terminal-wrapper');
+  });
+
+  test('reset re-projects the row to the OFF default @fast', async ({ page }) => {
+    await ready(page);
+    await page.evaluate(() => window.__menuBar.open('settings'));
+    await page.locator(STRIP).click();
+    await expect(page.locator(STRIP)).toHaveAttribute('data-checked', 'true');
+    await page.evaluate(() => window.__prefs.resetPrefs());
+    await expect(page.locator(STRIP)).toHaveAttribute('data-checked', 'false');
+    expect(await page.evaluate(() => window.__prefs.getPrefs().stripCtrlLogs)).toBe(false);
+  });
+});
