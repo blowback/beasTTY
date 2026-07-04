@@ -59,8 +59,8 @@ export const THEMES = {
                 bg:     '#0a0a0a',
                 accent: '#e8e8d8',
             },
-            // DEC PDP-1 vector-display blue (labelled "P39" per request; the
-            // classic Type 30 CRT trace is really P7's blue flash). Electric azure.
+            // DEC PDP-1 vector-display blue — P7's blue flash component (the
+            // classic Type 30 CRT trace). Electric azure.
             blue: {
                 fg:     '#4da6ff',
                 bg:     '#060912',
