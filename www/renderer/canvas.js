@@ -87,8 +87,8 @@ export function markAllRowsDirty() {
 // read directly from snapshot_grid() — this is the common case. Rows in
 // scrollback (T >= visibleRows AND scrollback non-empty) require
 // snapshot_grid_at(T - (visibleRows - 1)) so the row at offset T lands at the
-// bottom of the snapshot. canvas.js's tick() re-snapshots on the next rAF, so
-// any in-test snapshot side effect is transient.
+// TOP of the snapshot (row 0). canvas.js's tick() re-snapshots on the next rAF,
+// so any in-test snapshot side effect is transient.
 export function readRowText(rowOffsetFromTail) {
     if (!term) return '';
     const cols = term.cols();
@@ -99,10 +99,19 @@ export function readRowText(rowOffsetFromTail) {
         term.snapshot_grid();
         viewportRow = (visibleRows - 1) - rowOffsetFromTail;
     } else {
-        // Row lives in scrollback above the visible window. Snapshot the
-        // window ending at this offset; the row lands at bottom (visibleRows-1).
+        // Row lives in scrollback above the visible window. snapshot_grid_at(k)
+        // places tail-offset k at the BOTTOM viewport row and k+(visibleRows-1)
+        // at the TOP; so passing k = T-(visibleRows-1) lands the desired
+        // tail-offset T at the TOP row (0). Its absolute index is total-1-T,
+        // which is always >= 0 for a valid T (<= total-1), so this never trips
+        // snapshot_grid_at's internal top clamp.
+        //
+        // BUG FIX: this previously read viewportRow = visibleRows-1 (the BOTTOM
+        // row), which is tail-offset T-(visibleRows-1) — roughly one screen more
+        // RECENT than intended. Copying a scrolled-back selection pasted lines
+        // from ~visibleRows below what was highlighted.
         term.snapshot_grid_at(rowOffsetFromTail - (visibleRows - 1));
-        viewportRow = visibleRows - 1;
+        viewportRow = 0;
     }
     reDeriveViews();
     if (gridView.byteLength !== term.grid_byte_len()) rebuildViews();
