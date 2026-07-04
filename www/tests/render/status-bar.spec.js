@@ -229,9 +229,9 @@ test.describe('E4.2 AC-3 — zoom readout, live, single writer, both input paths
     await ready(page);
     await expect(page.locator(ZOOM)).toHaveText('zoom 1×');
     await clickZoom(page, 'zoom-in');
-    await expect(page.locator(ZOOM)).toHaveText('zoom 2×');
+    await expect(page.locator(ZOOM)).toHaveText('zoom 1.5×');
     // The E1.5 bookkeeping is preserved (view-font-zoom-clear.spec.js depends on it).
-    expect(await page.evaluate(() => window.__zoomPush.last)).toBe(2);
+    expect(await page.evaluate(() => window.__zoomPush.last)).toBe(1.5);
     await clickZoom(page, 'zoom-actual');
     await expect(page.locator(ZOOM)).toHaveText('zoom 1×');
   });
@@ -240,8 +240,8 @@ test.describe('E4.2 AC-3 — zoom readout, live, single writer, both input paths
     await ready(page);
     await expect(page.locator(ZOOM)).toHaveText('zoom 1×');
     await page.keyboard.press('Control+Equal');
-    await expect(page.locator(ZOOM)).toHaveText('zoom 2×');
-    expect(await page.evaluate(() => window.__zoomPush.last)).toBe(2);
+    await expect(page.locator(ZOOM)).toHaveText('zoom 1.5×');
+    expect(await page.evaluate(() => window.__zoomPush.last)).toBe(1.5);
   });
 });
 

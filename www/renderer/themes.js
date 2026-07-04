@@ -8,7 +8,7 @@
 //   atlas.evict();
 //
 // Cell sizes are at 1× zoom (UI-SPEC §Spacing "exceptions" table).
-// Integer zoom multiplier is applied at canvas.js resizeToTheme time.
+// Zoom multiplier (half-steps 1..3×) is applied at canvas.js resizeToTheme time.
 //
 // Phosphor hex values sourced from UI-SPEC §Color + RESEARCH §Phosphor Palette.
 //   green: DEC VT220 P1 — DEFAULT (D-06)

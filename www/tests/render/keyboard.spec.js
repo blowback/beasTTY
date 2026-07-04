@@ -50,7 +50,7 @@ test.describe('Keyboard shortcuts @fast', () => {
     const zoomed = await page.evaluate(() =>
       parseFloat(document.getElementById('terminal').style.width),
     );
-    expect(zoomed).toBe(base * 2);
+    expect(zoomed).toBe(base * 1.5);   // one half-step
 
     await page.keyboard.press('Control+Minus');
     await page.waitForTimeout(60);

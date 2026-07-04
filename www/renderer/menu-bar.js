@@ -1043,8 +1043,8 @@ function applyZoom(mutate) {
 // opt wired (a bare test harness) it falls back to a direct wipe.
 function runViewAction(action, ev) {
     switch (action) {
-        case 'zoom-in':     applyZoom(() => zoomStep(+1)); closeMenu(); return;
-        case 'zoom-out':    applyZoom(() => zoomStep(-1)); closeMenu(); return;
+        case 'zoom-in':     applyZoom(() => zoomStep(+0.5)); closeMenu(); return;
+        case 'zoom-out':    applyZoom(() => zoomStep(-0.5)); closeMenu(); return;
         case 'zoom-actual': applyZoom(() => resetZoom());  closeMenu(); return;
         case 'clear-screen':
             clearScreen({ alsoScrollback: !!(ev && ev.shiftKey) });   // Shift → also scrollback (D-26)

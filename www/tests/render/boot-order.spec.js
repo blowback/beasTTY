@@ -47,7 +47,7 @@ test.describe('E1.3 AC-3 — chords reach chrome.js first (menu-bar never swallo
 
     await page.keyboard.press('Control+Equal');
     await page.waitForTimeout(60);
-    expect(await cssWidth(page)).toBe(base * 2);
+    expect(await cssWidth(page)).toBe(base * 1.5);   // one half-step
   });
 
   test('a chord wins even while a menu is OPEN — chrome.js claims it first @fast', async ({ page }) => {

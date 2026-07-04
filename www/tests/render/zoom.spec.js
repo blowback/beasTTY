@@ -1,5 +1,5 @@
-// Phase 3 Plan 04 — RENDER-09 — Integer zoom via Ctrl +/-/0.
-// zoomStep clamps to [1, 4]. canvas.style.width is in CSS px (cellW * 80 * zoom).
+// Phase 3 Plan 04 — RENDER-09 — Half-step zoom via Ctrl +/-/0.
+// zoomStep clamps to [1, 3] in 0.5 steps. canvas.style.width is CSS px (cellW * 80 * zoom).
 import { test, expect } from '@playwright/test';
 
 async function cssWidth(page) {
@@ -9,7 +9,7 @@ async function cssWidth(page) {
   });
 }
 
-test.describe('RENDER-09 — Integer zoom via Ctrl +/-/0', () => {
+test.describe('RENDER-09 — Half-step zoom via Ctrl +/-/0', () => {
   test('Ctrl+Equal zooms in; Ctrl+Minus zooms out; Ctrl+Digit0 resets @fast', async ({ page }) => {
     await page.goto('/');
     await page.locator('#terminal-wrapper').focus();
@@ -19,34 +19,36 @@ test.describe('RENDER-09 — Integer zoom via Ctrl +/-/0', () => {
     const base = await cssWidth(page);
     expect(base).toBe(1280);
 
+    // Half-step ladder: 1 → 1.5 → 2 → 1.5 → 1.
     await page.keyboard.press('Control+Equal');
     await page.waitForTimeout(60);
-    expect(await cssWidth(page)).toBe(base * 2);
+    expect(await cssWidth(page)).toBe(base * 1.5);
 
     await page.keyboard.press('Control+Equal');
     await page.waitForTimeout(60);
-    expect(await cssWidth(page)).toBe(base * 3);
+    expect(await cssWidth(page)).toBe(base * 2);
 
     await page.keyboard.press('Control+Minus');
     await page.waitForTimeout(60);
-    expect(await cssWidth(page)).toBe(base * 2);
+    expect(await cssWidth(page)).toBe(base * 1.5);
 
     await page.keyboard.press('Control+Digit0');
     await page.waitForTimeout(60);
     expect(await cssWidth(page)).toBe(base);
   });
 
-  test('zoom clamps at 4× (Ctrl+Equal past max is a no-op)', async ({ page }) => {
+  test('zoom clamps at 3× (Ctrl+Equal past max is a no-op)', async ({ page }) => {
     await page.goto('/');
     await page.locator('#terminal-wrapper').focus();
     await page.waitForFunction(() => document.getElementById('terminal').width > 0);
     const base = await cssWidth(page);
 
+    // 1 → 1.5 → 2 → 2.5 → 3 → (clamp) → 3; six presses lands and holds at 3×.
     for (let i = 0; i < 6; i++) {
       await page.keyboard.press('Control+Equal');
     }
     await page.waitForTimeout(60);
-    expect(await cssWidth(page)).toBe(base * 4);
+    expect(await cssWidth(page)).toBe(base * 3);
   });
 
   test('zoom clamps at 1× (Ctrl+Minus below floor is a no-op)', async ({ page }) => {
@@ -65,7 +67,7 @@ test.describe('RENDER-09 — Integer zoom via Ctrl +/-/0', () => {
 });
 
 test.describe('Gap #6 (UAT Test 8) — Zoom preserves canvas content', () => {
-  test('glyphs painted at 1× are still painted after Ctrl+= zoom to 2× — gap #6', async ({ page }) => {
+  test('glyphs painted at 1× are still painted after Ctrl+= zoom to 1.5× — gap #6', async ({ page }) => {
     // Plan 03-05 Task 1 adds markAllRowsDirty() in zoomStep + resetZoom.
     // Pre-fix zoom resized the canvas, evicted the atlas, and re-primed the
     // cache — but paintRow only ran for dirty rows (all zero after the wasm
@@ -100,7 +102,7 @@ test.describe('Gap #6 (UAT Test 8) — Zoom preserves canvas content', () => {
     const after = await page.evaluate(() => {
       const c = document.getElementById('terminal');
       const ctx = c.getContext('2d');
-      // At 2× zoom + DPR 2, canvas.width doubles — sample first row (128 px tall).
+      // At 1.5× zoom + DPR 2, canvas.width grows — sample first row (128 px tall).
       const img = ctx.getImageData(0, 0, Math.min(c.width, 1280), 128);
       for (let i = 0; i < img.data.length; i += 4) {
         if (img.data[i + 1] > 60) return true;

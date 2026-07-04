@@ -529,7 +529,9 @@ export function setPhosphor(color) {
 }
 
 export function zoomStep(delta) {
-    const z = Math.max(1, Math.min(4, activeZoom + delta));
+    // Half-step ladder 1, 1.5, 2, 2.5, 3× (callers pass ±0.5). 0.5 is exact in
+    // binary float, so the levels never drift and === short-circuits hold.
+    const z = Math.max(1, Math.min(3, activeZoom + delta));
     if (z === activeZoom) return;
     activeZoom = z;
     atlas.evict();
@@ -546,7 +548,11 @@ export function zoomStep(delta) {
 // Same clamp + side-effects as zoomStep; same-value short-circuit per the
 // chrome.js REVIEW warning 3 pattern (no atlas thrash on identity apply).
 export function setZoom(z) {
-    const clamped = Math.max(1, Math.min(4, z | 0));
+    // Snap to the nearest half-step then clamp to [1, 3] — a stored fontZoom is
+    // one of 1/1.5/2/2.5/3, but a legacy (pre-half-step) or hand-edited blob may
+    // carry an integer like 4; snapping + clamp keeps the ladder clean. (Was
+    // `z | 0`, which truncated 1.5 → 1 and is wrong now that halves are valid.)
+    const clamped = Math.max(1, Math.min(3, Math.round(z * 2) / 2));
     if (clamped === activeZoom) return;
     activeZoom = clamped;
     atlas.evict();

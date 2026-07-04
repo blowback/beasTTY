@@ -128,16 +128,16 @@ test.describe('E1.5 AC-2 — Font CRT-gating (disabled, announced, live)', () =>
 test.describe('E1.5 AC-3 — View ▸ Zoom items', () => {
   const width = (page) => page.evaluate(() => parseFloat(document.getElementById('terminal').style.width));
 
-  test('Zoom In / Out / Actual Size change zoom in integer steps @fast', async ({ page }) => {
+  test('Zoom In / Out / Actual Size change zoom in half steps @fast', async ({ page }) => {
     await ready(page);
     const base = await width(page);
     expect(base).toBe(1280);                   // CRT 1×: cellW 16 × 80 cols
     await clickAction(page, 'zoom-in');  await page.waitForTimeout(60);
-    expect(await width(page)).toBe(base * 2);
+    expect(await width(page)).toBe(base * 1.5);
     await clickAction(page, 'zoom-in');  await page.waitForTimeout(60);
-    expect(await width(page)).toBe(base * 3);
-    await clickAction(page, 'zoom-out'); await page.waitForTimeout(60);
     expect(await width(page)).toBe(base * 2);
+    await clickAction(page, 'zoom-out'); await page.waitForTimeout(60);
+    expect(await width(page)).toBe(base * 1.5);
     await clickAction(page, 'zoom-actual'); await page.waitForTimeout(60);
     expect(await width(page)).toBe(base);
     // Persisted + pushed to the (E4) status-bar hook.
@@ -145,12 +145,12 @@ test.describe('E1.5 AC-3 — View ▸ Zoom items', () => {
     expect(await page.evaluate(() => window.__zoomPush.last)).toBe(1);
   });
 
-  test('menu zoom clamps at 4× and 1× (matches the chord) @fast', async ({ page }) => {
+  test('menu zoom clamps at 3× and 1× (matches the chord) @fast', async ({ page }) => {
     await ready(page);
     const base = await width(page);
     for (let i = 0; i < 6; i++) { await clickAction(page, 'zoom-in'); }
     await page.waitForTimeout(60);
-    expect(await width(page)).toBe(base * 4);
+    expect(await width(page)).toBe(base * 3);
     for (let i = 0; i < 6; i++) { await clickAction(page, 'zoom-out'); }
     await page.waitForTimeout(60);
     expect(await width(page)).toBe(base);
@@ -162,7 +162,7 @@ test.describe('E1.5 AC-3 — View ▸ Zoom items', () => {
     await page.keyboard.press('Control+Equal');
     await page.waitForTimeout(60);
     expect(await page.evaluate(() => window.__zoomPush.count)).toBeGreaterThan(before);
-    expect(await page.evaluate(() => window.__zoomPush.last)).toBe(2);
+    expect(await page.evaluate(() => window.__zoomPush.last)).toBe(1.5);
   });
 
   test('D-19 — a menu Zoom clears an active selection @fast', async ({ page }) => {

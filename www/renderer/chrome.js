@@ -154,18 +154,18 @@ export function wireChrome(opts) {
             toggleTheme();
             return;
         }
-        // Ctrl+{+, -, 0} — integer zoom (RENDER-09 / D-10). Each registry predicate
-        // carries the full modifier guard, so the trio is three standalone checks (no
-        // shared outer `if`); the persist + status-bar push are identical per branch.
+        // Ctrl+{+, -, 0} — half-step zoom 1..3× (RENDER-09 / D-10). Each registry
+        // predicate carries the full modifier guard, so the trio is three standalone
+        // checks (no shared outer `if`); the persist + status-bar push are identical.
         if (matchZoomIn(e)) {
             e.preventDefault();
-            zoomStep(+1);
+            zoomStep(+0.5);
             pushZoomLevel();
             return;
         }
         if (matchZoomOut(e)) {
             e.preventDefault();
-            zoomStep(-1);
+            zoomStep(-0.5);
             pushZoomLevel();
             return;
         }
