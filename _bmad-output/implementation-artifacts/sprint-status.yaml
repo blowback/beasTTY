@@ -46,7 +46,7 @@
 #   E1 is the backbone and must land before the other menu/modal epics.
 
 generated: 2026-07-01
-last_updated: 2026-07-04  # E6.1 Keyboard Shortcuts modal → done (code review: E6.1 clean; 4 adjacent E3/E4 findings fixed; suite green)
+last_updated: 2026-07-04  # E6.2 About Beastty modal → done (whole-branch code-review: 8 findings fixed incl. #7 shortcut registry, 2 refuted, #10 deferred; 355 passed / 1 skipped)
 # retrospective action items (surface open ones during sprint status)
 action_items:
   - epic: "e0"
@@ -200,7 +200,7 @@ development_status:
   # ── Epic E6 · Help Menu (depends on: E0, E1) ──
   epic-e6: in-progress
   e6-1-keyboard-shortcuts-modal: done
-  e6-2-about-beastty-modal: backlog
+  e6-2-about-beastty-modal: done
   epic-e6-retrospective: optional
 
   # ── Epic E7 · Paste Toast (depends on: E0) ──
