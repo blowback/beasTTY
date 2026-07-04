@@ -18,6 +18,15 @@ async function setup(page) {
     await page.waitForFunction(() => document.getElementById('terminal').width > 0);
     // Wait for window.__scrollState to be exposed (main.js boot complete).
     await page.waitForFunction(() => typeof window.__scrollState === 'object' && window.__scrollState !== null);
+    // Feed 80 lines so there is REAL scrollback to navigate. The scroll offset
+    // is clamped to total_len - visible_rows (so display and selection agree),
+    // so these API-driven nav assertions need an actual history to move within
+    // (80 rows → maxOffset 56, comfortably above the largest scroll below).
+    await page.evaluate(() => {
+        const lines = Array.from({ length: 80 }, (_, i) => `line ${String(i).padStart(2, '0')}`).join('\n');
+        window.__term.feed(new TextEncoder().encode(lines));
+        window.__term.snapshot_grid();
+    });
 }
 
 test.describe('SESS-01 — Scrollback navigation', () => {
@@ -68,12 +77,11 @@ test.describe('SESS-01 — Scrollback navigation', () => {
         await setup(page);
         await page.locator('#terminal-wrapper').focus();
         await page.keyboard.press('Shift+Home');
-        // jumpToTop calls setOffset(MAX_SAFE_INTEGER); scroll-state clamps the
-        // result internally — it ends up at the largest representable offset
-        // since the wasm side does the actual clamping at snapshot time. Just
-        // assert non-zero (we are scrolled back) and that the data attribute
-        // is set.
+        // jumpToTop sets offset = maxOffset (total_len - visible_rows), the
+        // oldest retained row. With 80 rows fed that is 56.
         const offset = await page.evaluate(() => window.__scrollState.getOffset());
+        const expected = await page.evaluate(() => window.__term.total_len() - window.__term.rows());
+        expect(offset).toBe(expected);
         expect(offset).toBeGreaterThan(0);
         await expect(page.locator('#terminal-wrapper')).toHaveAttribute('data-scrolled-back', 'true');
     });

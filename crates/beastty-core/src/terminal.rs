@@ -143,6 +143,13 @@ impl Terminal {
     pub fn cols(&self) -> u32 {
         self.scrollback.cols() as u32
     }
+    /// Total retained rows (visible window + scrollback history). JS uses this
+    /// to clamp the scroll offset so display and selection agree (a scroll
+    /// offset above `total_len - rows` would over-scroll: the render clamps
+    /// internally but selection coords would not, diverging the two).
+    pub fn total_len(&self) -> u32 {
+        self.scrollback.total_len() as u32
+    }
     pub fn bell_pending(&self) -> bool {
         self.bell_pending
     }

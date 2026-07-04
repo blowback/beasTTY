@@ -136,6 +136,12 @@ mod wasm_boundary {
             self.inner.cols()
         }
 
+        /// Total retained rows (visible + scrollback). JS clamps the scroll
+        /// offset to `total_len - rows` so selection coords never over-scroll.
+        pub fn total_len(&self) -> u32 {
+            self.inner.total_len()
+        }
+
         pub fn clear_dirty(&mut self) {
             self.inner.clear_dirty();
         }

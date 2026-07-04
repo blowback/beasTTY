@@ -82,6 +82,12 @@ test.describe('SESS-02 — Selection', () => {
 
     test('selection clears on post-drag scroll', async ({ page }) => {
         await setup(page);
+        // Real scrollback so scrollByLines(5) actually moves (the offset is
+        // clamped to total_len - visible_rows; with no history it would no-op).
+        await page.evaluate(() => {
+            window.__term.feed(new TextEncoder().encode(Array.from({ length: 40 }, (_, i) => `x${i}`).join('\n')));
+            window.__term.snapshot_grid();
+        });
         const { cellW, cellH } = await getCellSize(page);
         const canvas = page.locator('#terminal');
         const box = await canvas.boundingBox();
@@ -267,5 +273,14 @@ test.describe('SESS-02 — Selection', () => {
         // mapping is monotonic and correctly spaced across the whole viewport.
         const bottom = await tripleClick(23);
         expect(bottom.rows[0]).toBe('ROW-29');
+
+        // Over-scroll must CLAMP (total 60 - 24 rows → maxOffset 36) rather than
+        // run the offset out of range. At max scroll the top row is the oldest
+        // retained line ROW-00, and copy still matches display (no blank rows —
+        // the pre-clamp bug over-scrolled and copied blank/mismatched lines).
+        await page.evaluate(() => window.__scrollState.scrollByLines(1000));
+        expect(await page.evaluate(() => window.__scrollState.getOffset())).toBe(36);
+        const oldest = await tripleClick(0);
+        expect(oldest.rows[0]).toBe('ROW-00');
     });
 });
