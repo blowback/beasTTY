@@ -67,6 +67,7 @@ export function wireCommandHistory(opts) {
         getHistory,
         commit,
         clear,
+        trimToCap,
         dispose,
         __getStateForTests,
         __resetForTests,
@@ -135,6 +136,15 @@ function commitMirror() {
 
 // --- History store (AC-3, AC-5, AC-6) -------------------------------------
 
+// Clamp the size cap to a positive integer: a corrupt/hand-edited blob (or a bad
+// Settings input yielding NaN/""/negative) must not mis-truncate from the tail or
+// wipe the store. Falls back to the default. Shared by commit() and trimToCap() so
+// the corruption-defense rule lives in one place.
+function capOf(p) {
+    return Number.isInteger(p.commandHistorySize) && p.commandHistorySize > 0
+        ? p.commandHistorySize : DEFAULTS.commandHistorySize;
+}
+
 // The shared dedup + cap + persist path. E8.2's overlay reuses this for its
 // Enter-send so a recalled-and-sent command re-sorts to newest identically.
 // Read prefs fresh (AD-4 — never cache the ref across savePrefs).
@@ -146,12 +156,8 @@ function commit(str) {
     // is removed then re-inserted at the head, so it MOVES to newest (never a
     // duplicate). Then the size cap drops the oldest tail entries (AC-5).
     let next = [str, ...existing.filter((c) => c !== str)];
-    // Clamp the cap to a positive integer: a corrupt/hand-edited blob (or a
-    // future E8.3 Settings input yielding NaN/""/negative) must not mis-truncate
-    // from the tail or wipe the store on every commit. Fall back to the default.
-    const cap = Number.isInteger(p.commandHistorySize) && p.commandHistorySize > 0
-        ? p.commandHistorySize : DEFAULTS.commandHistorySize;
-    next = next.slice(0, cap);
+    // Cap drops the oldest tail entries (AC-5); capOf() clamps a corrupt cap.
+    next = next.slice(0, capOf(p));
     savePrefs({ commandHistory: next });   // debounced localStorage flush (FR-21)
 }
 
@@ -171,6 +177,19 @@ function getHistory() {
 
 // E8.3 — clear all history.
 function clear() { savePrefs({ commandHistory: [] }); }
+
+// E8.3 (AC-3) — trim the store to the current commandHistorySize immediately.
+// Called when a Settings size preset is selected (not just at next commit), so
+// dropping the excess is visible right away. Read prefs fresh (AD-4) and clamp via
+// the shared capOf(). Store is newest-first, so slice(0, cap) keeps the newest and
+// drops the oldest tail; a no-op when already within the cap.
+function trimToCap() {
+    const p = getPrefs();
+    if (!p) return;   // crash-safe degrade
+    const history = Array.isArray(p.commandHistory) ? p.commandHistory : [];
+    const cap = capOf(p);
+    if (history.length > cap) savePrefs({ commandHistory: history.slice(0, cap) });
+}
 
 // wireXxx shape parity (AD-2). No listeners/subscriptions to tear down; the
 // transient mirror is dropped so a disposed engine holds no line state.

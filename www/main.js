@@ -235,6 +235,21 @@ function confirmClearScrollback() {
         restoreTo: terminalWrapper,
     }).then((rv) => rv === 'confirm');
 }
+// Epic E8 Story E8.3 (FR-21, UX-DR3, AD-3) — Clear command history deliberate-friction
+// confirm, mirroring confirmClearScrollback. menu-bar.js owns the wipe (the injected
+// clearCommandHistory thunk → engine clear()); main.js owns the modal so modal.js stays
+// out of menu-bar's import set (AD-3). Cancel is default-focused (Enter is the safe
+// choice on a destructive action); focus restores to the terminal on close. Resolves
+// true ONLY when the user confirms ('confirm' returnValue); Esc/backdrop → '' → false.
+const clearCmdHistoryConfirmEl = document.getElementById('clear-cmd-history-confirm');
+function confirmClearCommandHistory() {
+    if (!clearCmdHistoryConfirmEl) return Promise.resolve(true);   // no markup — don't break the feature
+    const cancelBtn = document.getElementById('clear-cmd-history-confirm-cancel');
+    return openModal(clearCmdHistoryConfirmEl, {
+        initialFocus: cancelBtn,
+        restoreTo: terminalWrapper,
+    }).then((rv) => rv === 'confirm');
+}
 // Epic E2 Story E2.3 (FR-15, AD-8, AD-3) — Serial Configuration modal opener,
 // injected into wireMenuBar (menu-bar.js must not import modal.js/serial.js). The
 // controls inside #serial-config-modal are the SAME id-keyed elements serial.js
@@ -459,6 +474,15 @@ const menuBar = wireMenuBar({
     // deliberate-friction confirm before the wipe (main.js owns the modal, AD-3).
     pushZoom,
     confirmClearScrollback,
+    // Epic E8 Story E8.3 (FR-19/FR-20/FR-21, AD-3/AD-5) — Settings ▸ Command history
+    // injected dependencies. confirmClearCommandHistory is the modal confirm (main.js owns openModal).
+    // clearCommandHistory / trimCommandHistory MUST be thunks: wireMenuBar runs here,
+    // ~130 lines BEFORE `const commandHistory = wireCommandHistory({})` (:608), so a bare
+    // commandHistory.clear reference would throw (TDZ). The thunks only dereference on
+    // click, long after boot. Engine owns the store (AD-5); menu-bar never reshapes it.
+    confirmClearCommandHistory,
+    clearCommandHistory: () => commandHistory.clear(),
+    trimCommandHistory: () => commandHistory.trimToCap(),
     // Epic E2 Story E2.3 (FR-15, AD-3/AD-8) — Connection ▸ Serial Configuration…
     // opens the #serial-config-modal. main.js owns openModal (modal.js stays out of
     // menu-bar's import set), so the opener is injected like confirmClearScrollback.

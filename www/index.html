@@ -1529,6 +1529,58 @@
             </button>
           </div>
         </div>
+        <div class="menu-sep"></div>
+        <!-- Epic E8 Story E8.3 (FR-19, AD-4/AD-7/AD-9) — Command history checkable.
+             data-pref="commandHistoryEnabled" drives the generic persist path (savePrefs);
+             there is NO live setter — command-history.js's capture path and the recall
+             overlay's trigger both read getPrefs() at use-time, so the toggle takes effect
+             on the next keystroke. data-checked starts "true" (the prefs default, contrast
+             Local echo above) and is re-derived from prefs at wire-time / on open / on
+             reset — never trusted as a literal. Toggling off keeps the stored history;
+             only capture/trigger stop. -->
+        <button id="menu-command-history-item" class="menu-item" type="button" role="menuitemcheckbox"
+                data-variant="checkable" data-pref="commandHistoryEnabled" data-checked="true" aria-checked="true">
+          <span class="check">✓</span><span class="lbl">Command history</span>
+        </button>
+        <!-- Command history size radio submenu (50/100/200/500). Filled from the
+             E1.4/E1.5/E3.2 radio-submenu-group template (Enter key sends above).
+             data-value = the integer cap; selection persists commandHistorySize and
+             trims the store immediately (menu-bar.js onRadioSelect cmdhistory-size
+             branch). Default checked = 100 (the prefs.commandHistorySize default);
+             re-derived from prefs on open / reset. -->
+        <div class="submenu-group">
+          <button class="menu-item" type="button" role="menuitem" data-variant="radio-submenu"
+                  data-submenu="cmdhistory-size" aria-haspopup="true" aria-expanded="false">
+            <span class="check"></span><span class="lbl">Command history size</span><span class="caret">▸</span>
+          </button>
+          <div class="submenu" role="menu" data-submenu-panel="cmdhistory-size" aria-label="Command history size" hidden>
+            <button class="menu-item" type="button" role="menuitemradio" data-value="50"
+                    data-checked="false" aria-checked="false">
+              <span class="check"></span><span class="lbl">50</span>
+            </button>
+            <button class="menu-item" type="button" role="menuitemradio" data-value="100"
+                    data-checked="true" aria-checked="true">
+              <span class="check">✓</span><span class="lbl">100</span>
+            </button>
+            <button class="menu-item" type="button" role="menuitemradio" data-value="200"
+                    data-checked="false" aria-checked="false">
+              <span class="check"></span><span class="lbl">200</span>
+            </button>
+            <button class="menu-item" type="button" role="menuitemradio" data-value="500"
+                    data-checked="false" aria-checked="false">
+              <span class="check"></span><span class="lbl">500</span>
+            </button>
+          </div>
+        </div>
+        <!-- Clear command history… action row. closeMenu() then the injected
+             confirmClearCommandHistory opener (modal confirm, mirrors View ▸ Clear
+             Scrollback…); on 'confirm' it runs the injected clearCommandHistory.
+             Trailing … = "opens further UI". No ▸ caret — reserved for radio submenus. -->
+        <button id="menu-clear-cmd-history-item" class="menu-item" type="button" role="menuitem"
+                data-variant="action" data-action="clear-cmd-history">
+          <span class="check"></span><span class="lbl">Clear command history…</span>
+        </button>
+        <div class="menu-sep"></div>
         <!-- Epic E3 Story E3.4 (FR-20, AD-8/AD-3) — SLIDE File Transfer… opens the
              #slide-config-modal (SLIDE transfer controls relocated from the legacy
              <details id="settings-slide"> pane). An action row: closeMenu() then the
@@ -1792,6 +1844,22 @@
     <form method="dialog">
       <button id="clear-scrollback-confirm-ok" type="submit" value="confirm">Clear scrollback</button>
       <button id="clear-scrollback-confirm-cancel" type="submit" value="cancel">Cancel</button>
+    </form>
+  </dialog>
+
+  <!-- Epic E8 Story E8.3 (FR-21, UX-DR3) — Clear command history deliberate-friction
+       confirm. Same shape as #clear-scrollback-confirm: opened via the shared openModal
+       helper (main.js confirmClearCommandHistory) from Settings ▸ Clear command history….
+       Cancel is default-focused so Enter is the safe choice on this destructive action;
+       Esc/backdrop resolve '' → treated as cancel. Only 'confirm' empties the store. -->
+  <dialog id="clear-cmd-history-confirm" aria-labelledby="clear-cmd-history-confirm-title">
+    <header>
+      <h2 id="clear-cmd-history-confirm-title">Clear command history?</h2>
+    </header>
+    <p>This can't be undone.</p>
+    <form method="dialog">
+      <button id="clear-cmd-history-confirm-ok" type="submit" value="confirm">Clear command history</button>
+      <button id="clear-cmd-history-confirm-cancel" type="submit" value="cancel">Cancel</button>
     </form>
   </dialog>
 
