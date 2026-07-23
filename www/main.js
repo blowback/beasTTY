@@ -76,7 +76,7 @@ import { wireStatusBar } from './renderer/status-bar.js';
 import { wirePullPane } from './renderer/pull-pane.js';
 import { wireScrollState } from './renderer/scroll-state.js';
 import { wireSelection } from './input/selection.js';
-import { wireKeyboard, setLocalEcho, setCrlfMode, getLocalEcho, getCrlfMode } from './input/keyboard.js';
+import { wireKeyboard, setLocalEcho, setCrlfMode, getLocalEcho, getCrlfMode, CRLF_MODES } from './input/keyboard.js';
 import {
     registerTxObserver,
     formatHexStrip,
@@ -86,6 +86,7 @@ import {
     writeSlideFrame,
     writeSlideFrameAwaitable,
     isWriterReady,                         // Phase 9 WR-03 — top-bar button gate
+    pushTxBytes,                           // E9 S9.2 — pull-pane confirm injects the SLIDE S command
 } from './input/tx-sink.js';
 // E2.1 (AD-15, AD-3) — serial reaches menu-bar ONLY via wireMenuBar opts (like
 // term/getScrollState), never a direct menu-bar import. main.js is the composition
@@ -113,6 +114,8 @@ import {
     openSendPicker,                                          // E3.1 (FR-16) — File ▸ Send File… picker entry (injected into wireMenuBar)
     getSendGate,                                             // E7.1 — send-gate reader for the Send File… menu row
     computeRenameScheme as fileSourceComputeRenameScheme,   // Phase 12 SLIDE-36 — pure helper for Playwright tests
+    validateCpmFilename,                                     // E9 S9.2 — pull-pane token validation (the ONLY validators)
+    truncateCpm83,                                           // E9 S9.2 — pull-pane 8.3 idempotence check
     __resetForTests as __fileSourceResetForTests,
     __getStateForTests as __fileSourceGetStateForTests,
 } from './input/file-source.js';
@@ -587,9 +590,43 @@ window.__statusBar = statusBar;   // Playwright hook (mirrors window.__menuBar)
 // timer, manual ↻); still no drop/pull (S9.2 / S9.3).
 const pullPane = wirePullPane({
     paneEl: document.getElementById('pull-pane'),
-    idb: { getRecvDirHandle, setRecvDirHandle },
+    // Choosing a folder from the pane states the user's intent: pulled files
+    // land THERE (the pane's own first-run copy promises it). slide-recv only
+    // writes to the folder when prefs.slideRecvToFolder is on (default OFF,
+    // Phase 10 D-02) — without this flip a pane-bound folder still saves pulls
+    // via the anchor-download fallback and onFileLanded never refreshes the
+    // pane. Mutate the live prefs object (slide-recv holds it) AND savePrefs
+    // the partial (cached blob is a different object after any save).
+    idb: {
+        getRecvDirHandle,
+        setRecvDirHandle: async (handle) => {
+            await setRecvDirHandle(handle);
+            prefs.slideRecvToFolder = true;
+            savePrefs({ slideRecvToFolder: true });
+            const cb = document.getElementById('slide-recv-to-folder-checkbox');
+            if (cb) cb.checked = true;
+        },
+    },
     retainFocus,
     terminalWrapper,
+    // S9.2 (FR-4/5/7/11, AD-3) — selection→SLIDE S compose/inject deps. The two
+    // filename functions are the ONLY validators (no local rules in the pane).
+    // The suspension predicate must cover BOTH transfer directions: slide-recv's
+    // isSlideActive sees only recv sessions (send sessions never hand slide-recv
+    // a slideRef — slide.js enterSendModeInternal), so wire ownership covers
+    // send. Without it, a confirm during a send session is silently dropped by
+    // tx-sink's owner check and the review closes as if transmitted.
+    // isWriterReady mirrors WR-03 (the top-bar send button): confirm refuses
+    // before a port is connected instead of writing bytes only the diagnostics
+    // ring will ever see. getEnterBytes reads the CR/LF pref live at confirm
+    // time (same live-read as keyboard Enter and paste-pump), so a Settings
+    // change mid-session is honored.
+    validateCpmFilename,
+    truncateCpm83,
+    pushTxBytes,
+    isSlideActive: () => isSlideActive() || getWireOwner() === 'slide',
+    isWriterReady,
+    getEnterBytes: () => CRLF_MODES[getCrlfMode()],
 });
 window.__pullPane = pullPane;   // Playwright hook (mirrors window.__statusBar)
 

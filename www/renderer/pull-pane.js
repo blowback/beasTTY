@@ -9,9 +9,14 @@
 // Scope: S9.1a shell (first-run / permission / empty / list views) PLUS the S9.1b
 // refresh layer — the four triggers (transfer-done / window focus / ~60s timer /
 // manual ↻) all funnelled through one guarded triggerRefresh, plus FR-10 diff-render
-// (unchanged enumeration → zero DOM churn; new arrivals marked fresh). Still NO
-// drop/compose/pull (S9.2/S9.3) and NO reverse drag (S9.4). The ~60s timer +
-// window-focus listener are set up in wirePullPane and torn down in dispose().
+// (unchanged enumeration → zero DOM churn; new arrivals marked fresh) — PLUS the
+// S9.2 selection→SLIDE S layer: beginReview(text) tokenizes a selection string,
+// validates each token against the injected CP/M helpers, composes the SLIDE S
+// command, and opens the in-pane review sub-state (confirm → one pushTxBytes of
+// command + Enter terminator, refused while a SLIDE session is active or no
+// serial writer is registered; cancel → nothing). Still NO drop gesture (S9.3)
+// and NO reverse drag (S9.4). The ~60s timer + window-focus listener are set up
+// in wirePullPane and torn down in dispose().
 //
 // Direct-import allowlist (AD-3): this module direct-imports NOTHING from other
 // app modules — every dependency (idb, retainFocus, the DOM root, the
@@ -38,7 +43,14 @@
 // view: 'first-run' | 'permission' | 'empty' | 'list'. (The narrow-window 'rail'
 // is a CSS container-query presentation of whichever content view is current — it
 // is not a JS state, so it composes with every bound state; see index.html.)
-let state = { folderName: null, permission: 'prompt', files: [], view: 'first-run' };
+//
+// review (S9.2) is a FLAG stored beside view, not a fifth view value: refresh
+// paths keep mutating list state underneath (they never write state.review), so
+// a background refresh can never evict an open review mid-decision. render()
+// prefers it for the data-view projection; the review's own DOM is painted once
+// by beginReview (renderReview), never by refresh-triggered render() calls.
+// Shape: null | { command: string|null, tokens: [{raw, name, ok, reason}], validCount }.
+let state = { folderName: null, permission: 'prompt', files: [], view: 'first-run', review: null };
 
 // The bound directory handle (SLIDE-recv's recv_directory). Not persisted here
 // beyond the idb.setRecvDirHandle write on the first-run pick.
@@ -57,18 +69,40 @@ let epoch = 0;
 let idbRef = null;
 let retainFocusRef = null;
 let wrapperRef = null;          // #terminal-wrapper — retainFocus restore target
+// S9.2 compose/inject deps — the two filename functions are the ONLY validators
+// (no local filename rules in this module); getEnterBytes is a main.js closure
+// over CRLF_MODES[getCrlfMode()] read live at confirm time; isWriterReady is
+// tx-sink's WR-03 predicate (confirm refuses before a port is connected). All
+// are called unguarded: a missing injection is a mis-wired composition root and
+// must fail loudly, not degrade (e.g. silently sending a command with no Enter
+// terminator).
+let validateRef = null, truncateRef = null, pushTxBytesRef = null,
+    isSlideActiveRef = null, isWriterReadyRef = null, getEnterBytesRef = null;
+
+// Test override for the injected isSlideActive (null = use the injected one).
+// Mirrors the __setDirHandleForTests approach to unhostable browser state.
+let slideActiveOverride = null;
 
 // DOM refs derived from the injected #pull-pane root in wire.
-let paneRootEl = null, cardEl = null, fnameEl = null, capEl = null, countEl = null,
-    listEl = null, blankEl = null, blankMsgEl = null,
-    chooseBtn = null, grantBtn = null, footEl = null, badgeEl = null, refreshBtn = null;
+let paneRootEl = null, cardEl = null, fnameEl = null, capEl = null, capLabelEl = null,
+    countEl = null, listEl = null, blankEl = null, blankMsgEl = null,
+    chooseBtn = null, grantBtn = null, footEl = null, badgeEl = null, refreshBtn = null,
+    reviewEl = null, cmdlineEl = null, cmdTextEl = null, nothingEl = null,
+    tokListEl = null, actionsEl = null, cancelBtn = null, confirmBtn = null;
 
 // Verbatim microcopy (EXPERIENCE.md — do NOT paraphrase).
 const COPY = {
     firstRun: 'No folder chosen. Pulled files land here.',
     permission: 'Permission needed to read this folder.',
     empty: 'Empty — pulled files will appear here.',
+    boundCaption: 'Local folder',
+    reviewCaption: 'Review — pull to this folder',
 };
+
+// Verbatim skip reason for tokens that fail the 8.3 idempotence check
+// (EXPERIENCE.md:133 / mockup pull-pane.html:282 — do NOT paraphrase). Tokens
+// rejected by validateCpmFilename surface its specific reason instead.
+const REASON_83 = 'Not a CP/M 8.3 name (name ≤8, ext ≤3, uppercase). v1 only pulls 8.3 names.';
 
 const FSA_OPTS = { mode: 'readwrite' };
 
@@ -92,12 +126,19 @@ let freshNames = new Set();
 function resetDiffBaseline() { lastSnapshot = null; freshNames = new Set(); }
 
 export function wirePullPane(opts) {
-    ({ paneEl: paneRootEl, idb: idbRef, retainFocus: retainFocusRef, terminalWrapper: wrapperRef } = opts);
+    ({
+        paneEl: paneRootEl, idb: idbRef, retainFocus: retainFocusRef, terminalWrapper: wrapperRef,
+        // S9.2 (AC-7) — compose/inject deps arrive here from main.js, never imported.
+        validateCpmFilename: validateRef, truncateCpm83: truncateRef,
+        pushTxBytes: pushTxBytesRef, isSlideActive: isSlideActiveRef,
+        isWriterReady: isWriterReadyRef, getEnterBytes: getEnterBytesRef,
+    } = opts);
 
     // Derive child refs from the injected root (no cross-module document reach).
     cardEl = paneRootEl.querySelector('.pp-card');
     fnameEl = paneRootEl.querySelector('#pull-pane-fname');
     capEl = paneRootEl.querySelector('#pull-pane-cap');
+    capLabelEl = paneRootEl.querySelector('#pull-pane-cap-label');
     countEl = paneRootEl.querySelector('#pull-pane-count');
     listEl = paneRootEl.querySelector('#pull-pane-list');
     blankEl = paneRootEl.querySelector('#pull-pane-blank');
@@ -107,6 +148,14 @@ export function wirePullPane(opts) {
     footEl = paneRootEl.querySelector('#pull-pane-foot');
     badgeEl = paneRootEl.querySelector('#pull-pane-badge');
     refreshBtn = paneRootEl.querySelector('#pull-pane-refresh');
+    reviewEl = paneRootEl.querySelector('#pull-pane-review');
+    cmdlineEl = paneRootEl.querySelector('#pull-pane-cmdline');
+    cmdTextEl = paneRootEl.querySelector('#pull-pane-cmdtext');
+    nothingEl = paneRootEl.querySelector('#pull-pane-nothing');
+    tokListEl = paneRootEl.querySelector('#pull-pane-toklist');
+    actionsEl = paneRootEl.querySelector('#pull-pane-actions');
+    cancelBtn = paneRootEl.querySelector('#pull-pane-cancel');
+    confirmBtn = paneRootEl.querySelector('#pull-pane-confirm');
 
     // AD-10 — every interactive control retains #terminal-wrapper focus. All are
     // buttons (the mousedown→preventDefault branch, restoreTarget unused for that
@@ -115,6 +164,9 @@ export function wirePullPane(opts) {
     if (grantBtn) { retainFocusRef(grantBtn, wrapperRef); grantBtn.addEventListener('click', onGrant); }
     // Manual ↻ (EXPERIENCE.md:254) — same guarded path as the other triggers.
     if (refreshBtn) { retainFocusRef(refreshBtn, wrapperRef); refreshBtn.addEventListener('click', triggerRefresh); }
+    // S9.2 review actions — same retainFocus wiring as choose/grant (AD-10).
+    if (cancelBtn) { retainFocusRef(cancelBtn, wrapperRef); cancelBtn.addEventListener('click', onReviewCancel); }
+    if (confirmBtn) { retainFocusRef(confirmBtn, wrapperRef); confirmBtn.addEventListener('click', onReviewConfirm); }
 
     // FR-8 triggers: the ~60s timer + window focus. Both route through the one
     // guarded triggerRefresh; the transfer-done trigger arrives via refresh() from
@@ -135,10 +187,12 @@ export function wirePullPane(opts) {
     return {
         render,
         refresh: triggerRefresh,   // FR-8a transfer-done trigger (main.js onFileLanded).
+        beginReview,               // S9.2 entry point (S9.3's drop handler calls it next).
         dispose,
         __getStateForTests,
         __resetForTests,
         __setDirHandleForTests,
+        __setSlideActiveForTests,  // S9.2 NFR-4 — overrides the injected isSlideActive.
         __timerTickForTests,       // NFR-4 — runs the guarded tick body awaitably.
     };
 }
@@ -313,33 +367,176 @@ function setFirstRun() {
     render();
 }
 
+// ====== S9.2 — selection → SLIDE S compose + in-pane review (FR-4/5/7/11) ======
+
+// The session predicate, test-overridable. Checked at beginReview AND
+// re-checked at confirm — a transfer that started while the review sat open
+// must not have keystrokes injected under it (SLIDE owns the wire). The
+// injected predicate (main.js) covers BOTH directions: slide-recv's
+// isSlideActive for recv sessions plus tx-sink wire ownership for send
+// sessions, which slide-recv never sees. tx-sink's own silent drop when the
+// wire owner is 'slide' (tx-sink.js:50) remains a backstop, not the mechanism.
+function slideActiveNow() {
+    if (slideActiveOverride !== null) return slideActiveOverride;
+    return isSlideActiveRef();
+}
+
+// composeFromText — pure: selection text → { tokens, validCount, command|null }.
+// Split on whitespace/newlines, order preserved, empty tokens dropped. A token
+// is valid iff it passes the injected validateCpmFilename AND truncateCpm83
+// returns it unchanged (idempotence, NOT truncation: on pull the command must
+// request the exact name the device has — truncating LONGNAME.TEXT to
+// LONGNAME.TEX would silently request a different file. Because truncateCpm83
+// uppercases, this also rejects lowercase tokens, which are prose in a CP/M
+// listing, not filenames). Exact-duplicate valid tokens collapse to the first
+// occurrence. command is 'SLIDE S ' + names joined by single spaces, or null
+// when nothing is valid (no code path may transmit a bare 'SLIDE S' — FR-7).
+function composeFromText(text) {
+    const tokens = [];
+    const names = [];
+    const seen = new Set();
+    for (const raw of text.split(/\s+/)) {
+        if (raw.length === 0) continue;
+        const v = validateRef(raw);
+        if (!v.ok) { tokens.push({ raw, name: raw, ok: false, reason: v.reason }); continue; }
+        if (truncateRef(raw) !== raw) { tokens.push({ raw, name: raw, ok: false, reason: REASON_83 }); continue; }
+        if (seen.has(raw)) continue;   // duplicate valid name — first occurrence wins
+        seen.add(raw);
+        names.push(raw);
+        tokens.push({ raw, name: raw, ok: true, reason: null });
+    }
+    return {
+        tokens,
+        validCount: names.length,
+        command: names.length > 0 ? `SLIDE S ${names.join(' ')}` : null,
+    };
+}
+
+// beginReview — the S9.2 public entry point (tests now, S9.3's drop handler
+// next). Opens the review even with zero tokens (a prose-only drop still needs
+// something to show — the zero-valid message). Returns false (no-op) while a
+// SLIDE session is active (FR-11). Review entry does NOT bump the epoch (it
+// enumerates nothing, and cancelling an in-flight refresh would be needless)
+// and does NOT touch lastSnapshot/freshNames.
+export function beginReview(text) {
+    if (slideActiveNow()) return false;
+    state.review = composeFromText(String(text ?? ''));
+    renderReview();
+    render();
+    return true;
+}
+
+// renderReview — paints the review's own DOM (command line, token rows, the
+// zero-valid message, the confirm label). Called ONLY from beginReview, so
+// refresh-triggered render() calls never repaint an open review (AC-3).
+function renderReview() {
+    const rv = state.review;
+    if (!rv || !reviewEl) return;
+    if (cmdTextEl) cmdTextEl.textContent = rv.command || '';
+    if (cmdlineEl) cmdlineEl.hidden = !rv.command;
+    if (nothingEl) nothingEl.hidden = rv.validCount > 0;
+    if (tokListEl) {
+        const frag = document.createDocumentFragment();
+        for (const t of rv.tokens) {
+            const row = document.createElement('div');
+            row.className = t.ok ? 'pp-tok ok' : 'pp-tok skip';
+            const mk = document.createElement('span');
+            mk.className = 'mk';
+            mk.textContent = t.ok ? '✓' : '✗';
+            const nm = document.createElement('span');
+            nm.className = 'nm';
+            nm.textContent = t.name;
+            row.append(mk, nm);
+            if (!t.ok) {
+                const why = document.createElement('span');
+                why.className = 'why';
+                why.append('skipped ');
+                const info = document.createElement('span');
+                info.className = 'pp-info';
+                info.textContent = 'ⓘ';
+                info.title = t.reason;
+                why.append(info);
+                row.append(why);
+            }
+            frag.append(row);
+        }
+        tokListEl.replaceChildren(frag);
+    }
+    if (confirmBtn) {
+        confirmBtn.textContent = `Pull ${pluralFiles(rv.validCount)}`;
+        confirmBtn.disabled = rv.validCount === 0;
+    }
+}
+
+// Confirm — re-check the session predicate (refuse + stay open if a transfer
+// started meanwhile) and writer readiness (refuse + stay open with no port —
+// WR-03: otherwise the bytes land only in the diagnostics ring and the review
+// closes as if the pull fired), then ONE pushTxBytes of command + Enter
+// terminator. One combined push matters: two pushes could straddle a
+// wire-owner flip and send half a command. getEnterBytes reads the CR/LF pref
+// at confirm time, so a Settings change mid-session is honored (same live-read
+// as keyboard Enter).
+function onReviewConfirm() {
+    const rv = state.review;
+    if (!rv || !rv.command) return;          // zero-valid — button is disabled anyway
+    if (slideActiveNow()) return;            // FR-11 — refuse; review stays open
+    if (!isWriterReadyRef()) return;         // no port — refuse; connect, then confirm
+    const cmd = new TextEncoder().encode(rv.command);
+    const enter = getEnterBytesRef();
+    const bytes = new Uint8Array(cmd.length + enter.length);
+    bytes.set(cmd, 0);
+    bytes.set(enter, cmd.length);
+    pushTxBytesRef(bytes);
+    exitReview();
+}
+
+function onReviewCancel() { exitReview(); }   // transmits nothing (FR-5)
+
+// Exit — clear the flag and re-render: the underlying content view re-projects,
+// picking up any refresh that landed while the review was open.
+function exitReview() {
+    state.review = null;
+    render();
+}
+
 // ====== Render (projects state via data-view / [hidden] only — no inline styles) ======
 
 function render() {
     if (!cardEl) return;
     const { view, files, folderName } = state;
-    cardEl.setAttribute('data-view', view);
+    // S9.2 — an open review wins the data-view projection; the content view
+    // underneath stays live (refresh keeps mutating it) and re-projects on exit.
+    const reviewing = !!state.review;
+    cardEl.setAttribute('data-view', reviewing ? 'review' : view);
 
     // Header — bound states show the folder name; first-run shows the generic label.
     if (fnameEl) fnameEl.textContent = folderName || 'Pull pane';
 
     const bound = view === 'empty' || view === 'list';   // folder bound + readable
 
-    // Caption + counts.
-    if (capEl) capEl.hidden = !bound;
-    if (countEl) countEl.textContent = pluralFiles(files.length);
+    // Caption + counts. Review forces the caption visible with the review
+    // caption and hides the file count (mockup Frame C).
+    if (capEl) capEl.hidden = reviewing ? false : !bound;
+    if (capLabelEl) capLabelEl.textContent = reviewing ? COPY.reviewCaption : COPY.boundCaption;
+    if (countEl) {
+        countEl.hidden = reviewing;
+        countEl.textContent = pluralFiles(files.length);
+    }
     if (badgeEl) badgeEl.textContent = String(files.length);
 
-    // File list.
+    // File list. While reviewing, leave the list DOM entirely alone (hidden but
+    // untouched — zero churn); the exit render repaints it from current state.
     if (listEl) {
-        listEl.hidden = view !== 'list';
-        if (view === 'list') renderRows(files);
-        else listEl.replaceChildren();
+        listEl.hidden = reviewing || view !== 'list';
+        if (!reviewing) {
+            if (view === 'list') renderRows(files);
+            else listEl.replaceChildren();
+        }
     }
 
     // Blank state (first-run | permission | empty) — one message + one control.
     const blankView = view === 'first-run' || view === 'permission' || view === 'empty';
-    if (blankEl) blankEl.hidden = !blankView;
+    if (blankEl) blankEl.hidden = reviewing || !blankView;
     if (blankMsgEl) {
         if (view === 'first-run') blankMsgEl.textContent = COPY.firstRun;
         else if (view === 'permission') blankMsgEl.textContent = COPY.permission;
@@ -348,8 +545,13 @@ function render() {
     if (chooseBtn) chooseBtn.hidden = view !== 'first-run';
     if (grantBtn) grantBtn.hidden = view !== 'permission';
 
-    // Footer hint — only once a folder is bound + readable.
-    if (footEl) footEl.hidden = !bound;
+    // Footer hint — only once a folder is bound + readable (never during review).
+    if (footEl) footEl.hidden = reviewing || !bound;
+
+    // Review body + actions — content is painted by renderReview at beginReview
+    // time; render() only projects visibility (AC-3: refresh never repaints it).
+    if (reviewEl) reviewEl.hidden = !reviewing;
+    if (actionsEl) actionsEl.hidden = !reviewing;
 }
 
 function renderRows(files) {
@@ -400,6 +602,13 @@ export function __getStateForTests() {
         view: state.view,
         fileCount: state.files.length,
         files: state.files.map((f) => ({ ...f })),
+        review: state.review
+            ? {
+                command: state.review.command,
+                validCount: state.review.validCount,
+                tokens: state.review.tokens.map((t) => ({ ...t })),
+            }
+            : null,
     };
 }
 
@@ -407,8 +616,16 @@ export function __resetForTests() {
     ++epoch;   // invalidate any boot-time bindFromIdb still in flight
     resetDiffBaseline();
     dirHandle = null;
-    state = { folderName: null, permission: 'prompt', files: [], view: 'first-run' };
+    slideActiveOverride = null;
+    state = { folderName: null, permission: 'prompt', files: [], view: 'first-run', review: null };
     render();
+}
+
+// S9.2 test hook — override the injected isSlideActive (true/false), null (or
+// undefined) restores the injected predicate. Cheaper and more deterministic
+// than standing up a real SLIDE recv session in a headless run.
+export function __setSlideActiveForTests(v) {
+    slideActiveOverride = (v === null || v === undefined) ? null : !!v;
 }
 
 // Test hook — inject a fake directory handle and run the real query→enumerate
@@ -426,6 +643,8 @@ export function dispose() {
     if (chooseBtn) chooseBtn.removeEventListener('click', onChoose);
     if (grantBtn) grantBtn.removeEventListener('click', onGrant);
     if (refreshBtn) refreshBtn.removeEventListener('click', triggerRefresh);
+    if (cancelBtn) cancelBtn.removeEventListener('click', onReviewCancel);
+    if (confirmBtn) confirmBtn.removeEventListener('click', onReviewConfirm);
     if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
     window.removeEventListener('focus', triggerRefresh);
 }

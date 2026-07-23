@@ -338,3 +338,217 @@ test.describe('E9 S9.1b — pull pane: refresh triggers, guards, diff-render', (
         expect(await page.evaluate(() => document.activeElement.id)).toBe('terminal-wrapper');
     });
 });
+
+// ── S9.2 — selection → SLIDE S: tokenize/validate/compose + in-pane review ──
+// beginReview(text) is the public entry point (S9.3's drop handler calls it next).
+// Byte capture goes through the tx-sink ESM singleton: resetTx() → confirm →
+// formatHexStrip read back as bytes; registerTxObserver counts pushes (one
+// combined command+terminator push is part of the contract — AC-4).
+test.describe('E9 S9.2 — pull pane: selection → SLIDE S review', () => {
+    test.beforeEach(async ({ page }) => { await setup(page); });
+
+    const TOOLTIP_83 = 'Not a CP/M 8.3 name (name ≤8, ext ≤3, uppercase). v1 only pulls 8.3 names.';
+    const view = (page) => page.locator(CARD).getAttribute('data-view');
+    const reviewState = (page) => page.evaluate(() => window.__pullPane.__getStateForTests().review);
+
+    // Register the push counter AFTER resetTx (resetTx itself notifies observers).
+    // Also registers a stub writer: confirm refuses without a connected port
+    // (WR-03), so the transmit specs need one to reach the push path.
+    async function armTxCapture(page) {
+        await page.evaluate(async () => {
+            const tx = await import('/input/tx-sink.js');
+            tx.resetTx();
+            tx.registerWriter({ write: async () => {} });
+            window.__txPushes = 0;
+            tx.registerTxObserver(() => { window.__txPushes++; });
+        });
+    }
+    const txPushes = (page) => page.evaluate(() => window.__txPushes);
+    const ringBytes = (page) => page.evaluate(async () => {
+        const tx = await import('/input/tx-sink.js');
+        const hex = tx.formatHexStrip(1024);
+        return hex ? hex.split(' ').map((p) => parseInt(p, 16)) : [];
+    });
+    // Restore global state touched by the capture so later specs see reality.
+    const disarmTxCapture = (page) => page.evaluate(async () => {
+        const tx = await import('/input/tx-sink.js');
+        tx.unregisterWriter();
+        tx.resetTx();
+        delete window.__txPushes;
+    });
+    const ascii = (s) => [...s].map((c) => c.charCodeAt(0));
+
+    test('classification: valid / lowercase / over-length / invalid-char / duplicate → rows + composed command @fast', async ({ page }) => {
+        const ok = await page.evaluate(() =>
+            window.__pullPane.beginReview('GAME.COM notes.txt TOOLONGNAME.TXT BAD:NM GAME.COM DUMP.BIN'));
+        expect(ok).toBe(true);
+        expect(await view(page)).toBe('review');
+        const rv = await reviewState(page);
+        expect(rv.command).toBe('SLIDE S GAME.COM DUMP.BIN');
+        expect(rv.validCount).toBe(2);
+        // 5 rows — the exact-duplicate GAME.COM collapsed into the first occurrence.
+        await expect(page.locator('#pull-pane-toklist .pp-tok')).toHaveCount(5);
+        await expect(page.locator('#pull-pane-toklist .pp-tok.ok .nm')).toHaveText(['GAME.COM', 'DUMP.BIN']);
+        const skipped = page.locator('#pull-pane-toklist .pp-tok.skip');
+        await expect(skipped.locator('.nm')).toHaveText(['notes.txt', 'TOOLONGNAME.TXT', 'BAD:NM']);
+        await expect(skipped.nth(0).locator('.why')).toHaveText(/skipped/);
+        // 8.3-shape failures carry the verbatim tooltip; validator failures surface its reason.
+        expect(await skipped.nth(0).locator('.pp-info').getAttribute('title')).toBe(TOOLTIP_83);
+        expect(await skipped.nth(1).locator('.pp-info').getAttribute('title')).toBe(TOOLTIP_83);
+        expect(await skipped.nth(2).locator('.pp-info').getAttribute('title')).toContain(':');
+        // Composed line with the mint › prefix; confirm counts valid names; caption swaps.
+        await expect(page.locator('#pull-pane-cmdtext')).toHaveText('SLIDE S GAME.COM DUMP.BIN');
+        await expect(page.locator('#pull-pane-confirm')).toHaveText('Pull 2 files');
+        await expect(page.locator('#pull-pane-confirm')).toBeEnabled();
+        await expect(page.locator('#pull-pane-cap-label')).toHaveText('Review — pull to this folder');
+    });
+
+    test('confirm pushes exactly the command + CR terminator in ONE push (cr mode) @fast', async ({ page }) => {
+        await armTxCapture(page);
+        await page.evaluate(() => window.__pullPane.beginReview('GAME.COM DUMP.BIN'));
+        await page.locator('#pull-pane-confirm').click();
+        expect(await txPushes(page)).toBe(1);
+        expect(await ringBytes(page)).toEqual(ascii('SLIDE S GAME.COM DUMP.BIN').concat([0x0D]));
+        // Review exits back to the content view.
+        expect(await view(page)).not.toBe('review');
+        expect(await reviewState(page)).toBe(null);
+        await disarmTxCapture(page);
+    });
+
+    test('confirm reads Settings ▸ Enter key sends at confirm time (crlf → 0D 0A) @fast', async ({ page }) => {
+        await armTxCapture(page);
+        await page.evaluate(async () => (await import('/input/keyboard.js')).setCrlfMode('crlf'));
+        await page.evaluate(() => window.__pullPane.beginReview('GAME.COM'));
+        await page.locator('#pull-pane-confirm').click();
+        expect(await ringBytes(page)).toEqual(ascii('SLIDE S GAME.COM').concat([0x0D, 0x0A]));
+        await page.evaluate(async () => (await import('/input/keyboard.js')).setCrlfMode('cr'));
+        await disarmTxCapture(page);
+    });
+
+    test('cancel transmits nothing and restores the content view + caption @fast', async ({ page }) => {
+        await bindFake(page, {
+            name: 'MicroBeastPull', permission: 'granted',
+            files: [{ name: 'GAME.COM', size: 12000 }],
+        });
+        await armTxCapture(page);
+        await page.evaluate(() => window.__pullPane.beginReview('GAME.COM'));
+        expect(await view(page)).toBe('review');
+        await expect(page.locator('#pull-pane-confirm')).toHaveText('Pull 1 file');
+        await page.locator('#pull-pane-cancel').click();
+        expect(await txPushes(page)).toBe(0);
+        expect(await ringBytes(page)).toEqual([]);
+        expect(await view(page)).toBe('list');
+        expect(await reviewState(page)).toBe(null);
+        await expect(page.locator('#pull-pane-cap-label')).toHaveText('Local folder');
+        await disarmTxCapture(page);
+    });
+
+    test('zero valid names: message + disabled [Pull…] — no bare SLIDE S possible @fast', async ({ page }) => {
+        await armTxCapture(page);
+        await page.evaluate(() => window.__pullPane.beginReview('read this prose notes.txt'));
+        expect(await view(page)).toBe('review');
+        const rv = await reviewState(page);
+        expect(rv.command).toBe(null);
+        expect(rv.validCount).toBe(0);
+        await expect(page.locator('#pull-pane-nothing')).toBeVisible();
+        await expect(page.locator('#pull-pane-nothing'))
+            .toHaveText('Nothing to pull — no CP/M 8.3 names in the selection.');
+        await expect(page.locator('#pull-pane-cmdline')).toBeHidden();
+        await expect(page.locator('#pull-pane-confirm')).toBeDisabled();
+        // Skipped tokens still render as rows (flagged, never silent — FR-7).
+        await expect(page.locator('#pull-pane-toklist .pp-tok.skip')).toHaveCount(4);
+        // Belt-and-braces: a programmatic click on the disabled button pushes nothing.
+        await page.evaluate(() => document.getElementById('pull-pane-confirm').click());
+        expect(await txPushes(page)).toBe(0);
+        await disarmTxCapture(page);
+    });
+
+    test('empty/whitespace selection still opens review with the zero-valid message @fast', async ({ page }) => {
+        expect(await page.evaluate(() => window.__pullPane.beginReview('   \n  '))).toBe(true);
+        expect(await view(page)).toBe('review');
+        await expect(page.locator('#pull-pane-toklist .pp-tok')).toHaveCount(0);
+        await expect(page.locator('#pull-pane-nothing')).toBeVisible();
+        await expect(page.locator('#pull-pane-confirm')).toBeDisabled();
+    });
+
+    test('suspension (FR-11): active SLIDE refuses beginReview AND refuses confirm @fast', async ({ page }) => {
+        await armTxCapture(page);
+        // beginReview refused while a SLIDE session is active.
+        await page.evaluate(() => window.__pullPane.__setSlideActiveForTests(true));
+        expect(await page.evaluate(() => window.__pullPane.beginReview('GAME.COM'))).toBe(false);
+        expect(await view(page)).not.toBe('review');
+        expect(await reviewState(page)).toBe(null);
+        // Open review while idle, THEN a transfer starts → confirm re-checks and refuses.
+        await page.evaluate(() => window.__pullPane.__setSlideActiveForTests(null));
+        await page.evaluate(() => window.__pullPane.beginReview('GAME.COM'));
+        await page.evaluate(() => window.__pullPane.__setSlideActiveForTests(true));
+        await page.locator('#pull-pane-confirm').click();
+        expect(await txPushes(page)).toBe(0);
+        expect(await view(page)).toBe('review');   // stays open for a later confirm
+        await page.evaluate(() => window.__pullPane.__setSlideActiveForTests(null));
+        await disarmTxCapture(page);
+    });
+
+    test('suspension covers SEND sessions: wire owner slide refuses beginReview AND confirm @fast', async ({ page }) => {
+        await armTxCapture(page);
+        // slide-recv never sees a slideRef in send sessions, so the injected
+        // predicate also checks tx-sink wire ownership (the send-mode signal).
+        await page.evaluate(() => window.__txSink.setWireOwner('slide'));
+        expect(await page.evaluate(() => window.__pullPane.beginReview('GAME.COM'))).toBe(false);
+        expect(await reviewState(page)).toBe(null);
+        // Open review while idle, THEN a send session takes the wire → confirm refuses.
+        await page.evaluate(() => window.__txSink.setWireOwner('terminal'));
+        await page.evaluate(() => window.__pullPane.beginReview('GAME.COM'));
+        await page.evaluate(() => window.__txSink.setWireOwner('slide'));
+        await page.locator('#pull-pane-confirm').click();
+        expect(await txPushes(page)).toBe(0);
+        expect(await view(page)).toBe('review');   // stays open for a later confirm
+        await page.evaluate(() => window.__txSink.setWireOwner('terminal'));
+        await disarmTxCapture(page);
+    });
+
+    test('confirm refuses with no serial port connected (WR-03) — review stays open @fast', async ({ page }) => {
+        await armTxCapture(page);
+        // Simulate the disconnected state the mock writer papered over.
+        await page.evaluate(async () => (await import('/input/tx-sink.js')).unregisterWriter());
+        await page.evaluate(() => window.__pullPane.beginReview('GAME.COM'));
+        await page.locator('#pull-pane-confirm').click();
+        expect(await txPushes(page)).toBe(0);
+        expect(await ringBytes(page)).toEqual([]);
+        expect(await view(page)).toBe('review');   // connect, then confirm again
+        await disarmTxCapture(page);
+    });
+
+    test('a background refresh updates the list underneath without evicting the review @fast', async ({ page }) => {
+        const base = [{ name: 'A.COM', size: 10 }];
+        await bindFake(page, { name: 'MicroBeastPull', permission: 'granted', files: base });
+        await page.evaluate(() => window.__pullPane.beginReview('GAME.COM'));
+        expect(await view(page)).toBe('review');
+        // Tag a review row to prove node identity survives the refresh render.
+        await page.evaluate(() => { document.querySelector('#pull-pane-toklist .pp-tok').dataset.tag = 'keepme'; });
+        await page.evaluate((b) => {
+            window.__ppFake.__setFiles([...b, { name: 'NEW.BIN', size: 42 }]);
+            return window.__pullPane.__timerTickForTests();
+        }, base);
+        // Still reviewing; review DOM untouched; the underlying list state moved on.
+        expect(await view(page)).toBe('review');
+        expect(await page.evaluate(() => document.querySelector('#pull-pane-toklist .pp-tok').dataset.tag)).toBe('keepme');
+        expect(await page.evaluate(() => window.__pullPane.__getStateForTests().fileCount)).toBe(2);
+        // Exiting review lands on the refreshed list.
+        await page.locator('#pull-pane-cancel').click();
+        expect(await view(page)).toBe('list');
+        await expect(page.locator('#pull-pane-list .pp-row')).toHaveCount(2);
+    });
+
+    test('focus retention (AD-10): Cancel and [Pull N files] keep #terminal-wrapper focus @fast', async ({ page }) => {
+        await armTxCapture(page);
+        await page.locator('#terminal-wrapper').focus();
+        await page.evaluate(() => window.__pullPane.beginReview('GAME.COM'));
+        await page.locator('#pull-pane-cancel').click();
+        expect(await page.evaluate(() => document.activeElement.id)).toBe('terminal-wrapper');
+        await page.evaluate(() => window.__pullPane.beginReview('GAME.COM'));
+        await page.locator('#pull-pane-confirm').click();
+        expect(await page.evaluate(() => document.activeElement.id)).toBe('terminal-wrapper');
+        await disarmTxCapture(page);
+    });
+});

@@ -535,6 +535,63 @@
     }
     .pp-foot[hidden] { display: none; }
 
+    /* S9.2 — in-pane review sub-state (FR-5). Mockup pull-pane.html:112-141
+       translated to shipped tokens: --chrome-* plus the theme-independent
+       --field-bg the mockup's command row uses. Skipped rows are muted +
+       struck through, NEVER red (--chrome-invalid-strong is reserved —
+       DESIGN.md colour rules). No [data-theme] branch (AD-9). */
+    .pp-review {
+      flex: 1; min-height: 0;
+      overflow: auto;
+      padding: 10px 11px;
+      display: flex; flex-direction: column; gap: 10px;
+    }
+    .pp-review[hidden] { display: none; }
+    .pp-cmdline {
+      background: var(--field-bg);
+      border: 1px solid var(--chrome-border);
+      border-radius: 4px;
+      padding: 9px 11px;
+      color: var(--chrome-fg);
+      white-space: nowrap; overflow-x: auto;
+    }
+    .pp-cmdline[hidden] { display: none; }
+    .pp-cmdline .pp-pr { color: var(--chrome-accent); margin-right: 6px; }
+    .pp-nothing { color: var(--chrome-muted); font-size: 12px; line-height: 1.5; }
+    .pp-nothing[hidden] { display: none; }
+    .pp-toklist { display: flex; flex-direction: column; gap: 5px; }
+    .pp-tok { display: flex; align-items: center; gap: 9px; font-size: 13px; color: var(--chrome-fg); }
+    .pp-tok .mk { width: 14px; text-align: center; }
+    .pp-tok.ok .mk { color: var(--chrome-accent); }
+    .pp-tok.skip { color: var(--chrome-muted); }
+    .pp-tok.skip .nm { text-decoration: line-through; }
+    .pp-tok .why {
+      margin-left: auto;
+      display: flex; align-items: center; gap: 5px;
+      color: var(--chrome-muted); font-size: 12px;
+    }
+    .pp-info {
+      display: inline-flex; width: 14px; height: 14px;
+      border: 1px solid var(--chrome-border); border-radius: 50%;
+      align-items: center; justify-content: center;
+      font-size: 10px; color: var(--chrome-muted);
+    }
+    .pp-actions {
+      display: flex; justify-content: flex-end; gap: 8px;
+      padding: 10px 11px;
+      border-top: 1px solid var(--chrome-border);
+    }
+    .pp-actions[hidden] { display: none; }
+    .pp-btn-primary {
+      background: var(--chrome-accent); color: var(--chrome-bg);
+      border-color: transparent; font-weight: 600;
+    }
+    .pp-btn-primary:disabled {
+      background: transparent; color: var(--chrome-muted);
+      border-color: var(--chrome-border);
+      cursor: default;
+    }
+
     /* Narrow-window fallback rail — hidden by default; the container query below
        swaps card↔rail when the pane is squeezed. The rail costs no terminal
        columns (it lives in the same gutter flex item, floored at 30px). */
@@ -1745,10 +1802,20 @@
                 title="Refreshes on transfer-done, window focus, and ~60s">↻</button>
       </div>
       <div class="pp-cap" id="pull-pane-cap" hidden>
-        <span>Local folder</span><span id="pull-pane-count">0 files</span>
+        <span id="pull-pane-cap-label">Local folder</span><span id="pull-pane-count">0 files</span>
       </div>
       <!-- File list (view=list). Rows are injected by pull-pane.js. -->
       <div class="pp-list" id="pull-pane-list" hidden></div>
+      <!-- S9.2 in-pane review sub-state (view=review — FR-5; no modal, no scrim,
+           canvas stays live). pull-pane.js paints the command line + token rows
+           once at beginReview(); render() only projects visibility, so a
+           background refresh never repaints the review. Zero valid names swaps
+           the command row for the message node and disables [Pull…]. -->
+      <div class="pp-review" id="pull-pane-review" hidden>
+        <div class="pp-cmdline" id="pull-pane-cmdline" hidden><span class="pp-pr">›</span><span id="pull-pane-cmdtext"></span></div>
+        <div class="pp-nothing" id="pull-pane-nothing" hidden>Nothing to pull — no CP/M 8.3 names in the selection.</div>
+        <div class="pp-toklist" id="pull-pane-toklist"></div>
+      </div>
       <!-- Blank state (view=first-run|permission|empty): one message + one
            optional control. pull-pane.js sets the message text + which button
            shows via [hidden]. -->
@@ -1756,6 +1823,11 @@
         <div class="pp-blank-msg" id="pull-pane-blank-msg">No folder chosen. Pulled files land here.</div>
         <button type="button" class="pp-btn" id="pull-pane-choose">Choose folder…</button>
         <button type="button" class="pp-btn" id="pull-pane-grant" hidden>Grant access</button>
+      </div>
+      <!-- S9.2 review actions footer (view=review only). -->
+      <div class="pp-actions" id="pull-pane-actions" hidden>
+        <button type="button" class="pp-btn" id="pull-pane-cancel">Cancel</button>
+        <button type="button" class="pp-btn pp-btn-primary" id="pull-pane-confirm">Pull 0 files</button>
       </div>
       <!-- Footer hint (shown once a folder is bound + readable). -->
       <div class="pp-foot" id="pull-pane-foot" hidden>Drag a filename selection here to pull</div>
