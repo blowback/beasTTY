@@ -6,10 +6,12 @@
 // (AD-1/AD-2): module-scope state + wirePullPane(opts) → API + a private render()
 // projecting state via data-view / [hidden] only + dispose() + the test hooks.
 //
-// Scope (S9.1a): the SHELL only. NO refresh machinery (the three triggers / the
-// ~60s timer guard / diff-render → S9.1b), NO drop/compose/pull (S9.2/S9.3), NO
-// reverse drag (S9.4). render() is factored so S9.1b can call refresh() on a
-// trigger, but nothing here schedules a timer or listens for focus/visibility.
+// Scope: S9.1a shell (first-run / permission / empty / list views) PLUS the S9.1b
+// refresh layer — the four triggers (transfer-done / window focus / ~60s timer /
+// manual ↻) all funnelled through one guarded triggerRefresh, plus FR-10 diff-render
+// (unchanged enumeration → zero DOM churn; new arrivals marked fresh). Still NO
+// drop/compose/pull (S9.2/S9.3) and NO reverse drag (S9.4). The ~60s timer +
+// window-focus listener are set up in wirePullPane and torn down in dispose().
 //
 // Direct-import allowlist (AD-3): this module direct-imports NOTHING from other
 // app modules — every dependency (idb, retainFocus, the DOM root, the
@@ -43,7 +45,7 @@ let state = { folderName: null, permission: 'prompt', files: [], view: 'first-ru
 let dirHandle = null;
 
 // Async epoch. Every entry point that starts a new intent (bindFromIdb/refresh,
-// onChoose, onGrant, the test seam, reset) bumps this and captures its value;
+// onChoose, onGrant, the test hook, reset) bumps this and captures its value;
 // after each await it re-checks before committing to state/render, so a slow
 // in-flight read (e.g. an S9.1b refresh() overlapping a folder pick) can never
 // clobber a newer result. Callers pass their captured handle down explicitly so
@@ -59,7 +61,7 @@ let wrapperRef = null;          // #terminal-wrapper — retainFocus restore tar
 // DOM refs derived from the injected #pull-pane root in wire.
 let paneRootEl = null, cardEl = null, fnameEl = null, capEl = null, countEl = null,
     listEl = null, blankEl = null, blankMsgEl = null,
-    chooseBtn = null, grantBtn = null, footEl = null, badgeEl = null;
+    chooseBtn = null, grantBtn = null, footEl = null, badgeEl = null, refreshBtn = null;
 
 // Verbatim microcopy (EXPERIENCE.md — do NOT paraphrase).
 const COPY = {
@@ -69,6 +71,25 @@ const COPY = {
 };
 
 const FSA_OPTS = { mode: 'readwrite' };
+
+// ====== S9.1b refresh machinery (FR-8/9/10) ======
+
+// The ~60s repeating trigger (FR-8c). Chromium throttles hidden-tab intervals,
+// and the tick's own guard skips work while hidden/ungranted — no visibilitychange
+// listener needed. Started in wirePullPane, cleared in dispose.
+const REFRESH_INTERVAL_MS = 60_000;
+let refreshTimer = null;
+
+// FR-10 diff-render bookkeeping. lastSnapshot is the [{name,size}] (name-asc) of
+// the list currently on screen; a re-enumeration equal to it performs ZERO list
+// DOM mutation. freshNames is the set added by the latest content-changing refresh
+// (they sort to the top with the mint marker). Both reset on every NEW-folder /
+// grant / bind intent (so the first enumeration after bind marks nothing fresh),
+// but NOT on a trigger — that is what lets a trigger detect arrivals.
+let lastSnapshot = null;
+let freshNames = new Set();
+
+function resetDiffBaseline() { lastSnapshot = null; freshNames = new Set(); }
 
 export function wirePullPane(opts) {
     ({ paneEl: paneRootEl, idb: idbRef, retainFocus: retainFocusRef, terminalWrapper: wrapperRef } = opts);
@@ -85,12 +106,26 @@ export function wirePullPane(opts) {
     grantBtn = paneRootEl.querySelector('#pull-pane-grant');
     footEl = paneRootEl.querySelector('#pull-pane-foot');
     badgeEl = paneRootEl.querySelector('#pull-pane-badge');
+    refreshBtn = paneRootEl.querySelector('#pull-pane-refresh');
 
-    // AD-10 — every interactive control retains #terminal-wrapper focus. Both are
+    // AD-10 — every interactive control retains #terminal-wrapper focus. All are
     // buttons (the mousedown→preventDefault branch, restoreTarget unused for that
     // branch) but the wrapper is passed for explicitness + forward-compat.
     if (chooseBtn) { retainFocusRef(chooseBtn, wrapperRef); chooseBtn.addEventListener('click', onChoose); }
     if (grantBtn) { retainFocusRef(grantBtn, wrapperRef); grantBtn.addEventListener('click', onGrant); }
+    // Manual ↻ (EXPERIENCE.md:254) — same guarded path as the other triggers.
+    if (refreshBtn) { retainFocusRef(refreshBtn, wrapperRef); refreshBtn.addEventListener('click', triggerRefresh); }
+
+    // FR-8 triggers: the ~60s timer + window focus. Both route through the one
+    // guarded triggerRefresh; the transfer-done trigger arrives via refresh() from
+    // slide-recv's onFileLanded. (chrome.js owns document listeners; the pane owns
+    // its own like slide-chip owns its interval.) Tear down any prior wiring first
+    // (retainFocus is already idempotent via its WeakSet) so a re-wire — hot reload
+    // or a second wirePullPane — never stacks a duplicate timer + focus listener.
+    if (refreshTimer) clearInterval(refreshTimer);
+    window.removeEventListener('focus', triggerRefresh);
+    refreshTimer = setInterval(triggerRefresh, REFRESH_INTERVAL_MS);
+    window.addEventListener('focus', triggerRefresh);
 
     // Paint first-run synchronously (no flash of a blank pane) …
     render();
@@ -99,17 +134,40 @@ export function wirePullPane(opts) {
 
     return {
         render,
-        refresh: bindFromIdb,   // S9.1b calls this on a trigger; nothing schedules it here.
+        refresh: triggerRefresh,   // FR-8a transfer-done trigger (main.js onFileLanded).
         dispose,
         __getStateForTests,
         __resetForTests,
         __setDirHandleForTests,
+        __timerTickForTests,       // NFR-4 — runs the guarded tick body awaitably.
     };
 }
+
+// triggerRefresh — the ONE guarded refresh path shared by all four triggers
+// (transfer-done / window focus / ~60s timer / manual ↻). While the tab is hidden
+// we do nothing at all (FR-9): no IDB re-read, no queryPermission, no enumeration —
+// a backgrounded tab is not a user waiting on a fresh list. When visible: no bound
+// handle yet → a cheap IDB re-read (also surfaces a folder bound through SLIDE-recv's
+// own picker within a tick — the shared recv_directory key). Otherwise skip silently
+// while permission isn't granted (never prompts — no user gesture, FR-9), else
+// re-enumerate the CURRENT handle under a fresh epoch so an overlapping slow read
+// can never clobber a newer result (NFR-2).
+async function triggerRefresh() {
+    if (document.hidden) return;
+    if (!dirHandle) { await bindFromIdb(); return; }
+    if (state.permission !== 'granted') return;
+    const gen = ++epoch;
+    await enumerateAndRender(dirHandle, gen);
+}
+
+// Test hook — runs the guarded timer-tick body (the exact triggerRefresh path a
+// ~60s tick would run), awaitable so specs can assert enumeration / guard skips.
+function __timerTickForTests() { return triggerRefresh(); }
 
 // bindFromIdb — read SLIDE-recv's persisted handle; null → first-run, else evaluate.
 async function bindFromIdb() {
     const gen = ++epoch;
+    resetDiffBaseline();   // a (re)bind is a fresh baseline — nothing is "fresh"
     let handle = null;
     try {
         if (idbRef && typeof idbRef.getRecvDirHandle === 'function') {
@@ -171,15 +229,42 @@ async function enumerateAndRender(handle, gen) {
     }
     if (gen !== epoch) return;   // a newer intent superseded this enumeration
     files.sort((a, b) => a.name.localeCompare(b.name));
+
+    // FR-10 diff-render. Unchanged (same names + sizes as the on-screen list) →
+    // ZERO list DOM mutation: no rebuild, no flicker, no scroll reset, markers
+    // untouched. Just keep state truthful and return before render().
+    const prevSnap = lastSnapshot;
+    if (prevSnap && snapshotsEqual(prevSnap, files)) {
+        state.files = files;
+        return;
+    }
+    // Changed → files present now but absent from the previous snapshot are fresh
+    // (they sort to the top with the mint marker). No previous snapshot = the
+    // first enumeration after bind/choose/grant → nothing is fresh.
+    const prevNames = prevSnap ? new Set(prevSnap.map((p) => p.name)) : null;
+    freshNames = prevNames
+        ? new Set(files.filter((f) => !prevNames.has(f.name)).map((f) => f.name))
+        : new Set();
+    lastSnapshot = files.map((f) => ({ name: f.name, size: f.size }));
     state.files = files;
     state.view = files.length === 0 ? 'empty' : 'list';
     render();
+}
+
+// Snapshot equality — both arrays are name-asc; compare names + sizes positionally.
+function snapshotsEqual(a, b) {
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) {
+        if (a[i].name !== b[i].name || a[i].size !== b[i].size) return false;
+    }
+    return true;
 }
 
 // First-run [Choose folder…] — showDirectoryPicker → persist as recv_directory
 // (the shared key) → enumerate. AbortError (user dismissed) is swallowed (D-04).
 async function onChoose() {
     const gen = ++epoch;
+    resetDiffBaseline();   // new folder → first enumeration marks nothing fresh
     let handle = null;
     try {
         handle = await window.showDirectoryPicker(FSA_OPTS);
@@ -206,6 +291,7 @@ async function onGrant() {
     const handle = dirHandle;
     if (!handle) return;
     const gen = ++epoch;
+    resetDiffBaseline();   // first enumeration after grant marks nothing fresh
     let perm = 'prompt';
     try {
         perm = await handle.requestPermission(FSA_OPTS);
@@ -267,10 +353,22 @@ function render() {
 }
 
 function renderRows(files) {
+    // Fresh-first ordering (Flow 7): freshly-arrived names float to the top, then
+    // the rest. `files` is already name-asc, so this stable partition preserves
+    // name order within each group.
+    const fresh = [], rest = [];
+    for (const f of files) (freshNames.has(f.name) ? fresh : rest).push(f);
+    const ordered = fresh.concat(rest);
+
+    // FR-10 changed-case: capture scroll before the rebuild, restore it after, so
+    // a refresh that adds files never yanks the user's scroll position.
+    const prevScroll = listEl.scrollTop;
     const frag = document.createDocumentFragment();
-    for (const f of files) {
+    for (const f of ordered) {
         const row = document.createElement('div');
-        row.className = 'pp-row';
+        // Visual state via class only (never inline styles). Fresh rows get the
+        // mint left-marker + hover-row accent treatment (index.html, --chrome-*).
+        row.className = freshNames.has(f.name) ? 'pp-row fresh' : 'pp-row';
         const nm = document.createElement('span');
         nm.className = 'pp-nm';
         nm.textContent = f.name;
@@ -281,6 +379,7 @@ function renderRows(files) {
         frag.append(row);
     }
     listEl.replaceChildren(frag);
+    listEl.scrollTop = prevScroll;
 }
 
 // Byte formatter — mirrors slide-chip.js formatBytes (12 KB / 820 B / 1.2 MB).
@@ -306,17 +405,19 @@ export function __getStateForTests() {
 
 export function __resetForTests() {
     ++epoch;   // invalidate any boot-time bindFromIdb still in flight
+    resetDiffBaseline();
     dirHandle = null;
     state = { folderName: null, permission: 'prompt', files: [], view: 'first-run' };
     render();
 }
 
-// Test seam — inject a fake directory handle and run the real query→enumerate
+// Test hook — inject a fake directory handle and run the real query→enumerate
 // path. showDirectoryPicker / permission prompts can't run headless, so tests
 // build an in-page fake handle ({ name, queryPermission, requestPermission,
 // entries }) and drive deterministic states through here.
 export async function __setDirHandleForTests(handle) {
     const gen = ++epoch;
+    resetDiffBaseline();   // binding a fresh handle → first enumeration none-fresh
     dirHandle = handle;
     await evaluateHandle(handle, gen);
 }
@@ -324,4 +425,7 @@ export async function __setDirHandleForTests(handle) {
 export function dispose() {
     if (chooseBtn) chooseBtn.removeEventListener('click', onChoose);
     if (grantBtn) grantBtn.removeEventListener('click', onGrant);
+    if (refreshBtn) refreshBtn.removeEventListener('click', triggerRefresh);
+    if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
+    window.removeEventListener('focus', triggerRefresh);
 }

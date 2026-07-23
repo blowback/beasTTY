@@ -469,7 +469,14 @@
       flex: 1; min-width: 0;
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
-    .pp-head .pp-refresh { color: var(--chrome-muted); font-size: 14px; cursor: default; }
+    /* ↻ manual refresh — a real button (S9.1b) reset to the glyph's look. */
+    .pp-head .pp-refresh {
+      background: none; border: 0; padding: 0; margin: 0;
+      color: var(--chrome-muted); font: inherit; font-size: 14px; line-height: 1;
+      cursor: pointer;
+    }
+    .pp-head .pp-refresh:hover { color: var(--chrome-fg); }
+    .pp-head .pp-refresh:focus-visible { outline: 2px solid var(--chrome-accent); outline-offset: 2px; border-radius: 3px; }
     .pp-cap {
       display: flex; align-items: center; justify-content: space-between;
       padding: 5px 11px;
@@ -496,6 +503,14 @@
     .pp-row .pp-nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
     .pp-row .pp-sz { color: var(--chrome-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
     .pp-row:hover .pp-sz { color: var(--chrome-bg); }
+    /* Fresh files (S9.1b, FR-10 / Flow 7): thin mint left-marker + the shipped
+       hover-row accent treatment — never a new colour (--chrome-* only, AD-9). */
+    .pp-row.fresh { position: relative; background: var(--chrome-accent); color: var(--chrome-bg); }
+    .pp-row.fresh .pp-sz { color: var(--chrome-bg); }
+    .pp-row.fresh::before {
+      content: ""; position: absolute; left: 0; top: 4px; bottom: 4px;
+      width: 2px; background: var(--chrome-accent); border-radius: 2px;
+    }
     .pp-blank {
       flex: 1;
       display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -1716,16 +1731,18 @@
   <!-- beside the canvas. State is expressed via data-view on          -->
   <!-- .pp-card + [hidden] on the sub-containers ONLY (no inline       -->
   <!-- styles). --chrome-* tokens only — identical across CRT↔Console. -->
-  <!-- The ↻ glyph is an INERT placeholder in S9.1a (the three refresh -->
-  <!-- triggers are S9.1b). Narrow-window fallback: a container query   -->
+  <!-- The ↻ is a real manual-refresh button (S9.1b) sharing the same  -->
+  <!-- guarded path as the timer/focus/transfer-done triggers.          -->
+  <!-- Narrow-window fallback: a container query                        -->
   <!-- swaps the card for the .pp-rail file-count badge (AC-2).        -->
   <!-- ============================================================= -->
   <aside id="pull-pane" aria-label="Local folder pull pane">
     <div class="pp-card" data-view="first-run">
       <div class="pp-head">
         <span class="pp-fname" id="pull-pane-fname">Pull pane</span>
-        <span class="pp-refresh" aria-hidden="true"
-              title="Refreshes on transfer-done, window focus, and ~60s">↻</span>
+        <button type="button" class="pp-refresh" id="pull-pane-refresh"
+                aria-label="Refresh file list"
+                title="Refreshes on transfer-done, window focus, and ~60s">↻</button>
       </div>
       <div class="pp-cap" id="pull-pane-cap" hidden>
         <span>Local folder</span><span id="pull-pane-count">0 files</span>

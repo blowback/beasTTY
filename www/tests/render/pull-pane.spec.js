@@ -3,7 +3,7 @@
 // Clones the paste-toast.spec.js shape: boot-race guard on the window.__pullPane
 // hook, __resetForTests in beforeEach, @fast where no serial is needed. FSA picker
 // and permission prompts can't run headless, so deterministic states are driven
-// through the __setDirHandleForTests seam with an in-page fake directory handle
+// through the __setDirHandleForTests hook with an in-page fake directory handle
 // (the story's "settable test seam" — Testing standards / Dev Notes).
 //
 // Covers: first-run, bound+listed, permission-needed, empty, the zero-terminal-
@@ -22,21 +22,30 @@ const BLANK_MSG = '#pull-pane-blank-msg';
 // governs queryPermission; `grantsTo` is what requestPermission resolves to;
 // `names` are the files entries() yields (plus one sub-directory, which the
 // one-level enumeration must skip).
+//
+// S9.1b additions: `enumCount` increments on every enumeration (so guard tests can
+// assert "the tick did NOT enumerate"), and `__setFiles(next)` mutates the file
+// set so a refresh can be driven from unchanged → changed.
 const FAKE_HANDLE_FACTORY = `
   (function makeFakeHandle({ name, permission, grantsTo, files }) {
-    return {
+    let curFiles = files.slice();
+    const handle = {
       name,
       kind: 'directory',
+      enumCount: 0,
+      __setFiles(next) { curFiles = next.slice(); },
       async queryPermission() { return permission; },
       async requestPermission() { return grantsTo || permission; },
       async *entries() {
-        for (const f of files) {
+        handle.enumCount++;
+        for (const f of curFiles) {
           yield [f.name, { kind: 'file', async getFile() { return { size: f.size }; } }];
         }
         // A sub-directory the v1 one-level enumeration must skip.
         yield ['SUBDIR', { kind: 'directory' }];
       },
     };
+    return handle;
   })
 `;
 
@@ -51,13 +60,21 @@ async function setup(page) {
     await page.evaluate(() => window.__pullPane.__resetForTests());
 }
 
-// Drive a bound state via the test seam with an in-page fake handle.
+// Drive a bound state via the test hook with an in-page fake handle. The handle
+// is stashed on window.__ppFake so S9.1b tests can read enumCount / mutate files.
 async function bindFake(page, opts) {
     await page.evaluate(async ({ factory, o }) => {
         // eslint-disable-next-line no-eval
         const makeFakeHandle = eval(factory);
-        await window.__pullPane.__setDirHandleForTests(makeFakeHandle(o));
+        window.__ppFake = makeFakeHandle(o);
+        await window.__pullPane.__setDirHandleForTests(window.__ppFake);
     }, { factory: FAKE_HANDLE_FACTORY, o: opts });
+}
+
+// N files that overflow the pane list so scrollTop is meaningful. Names are
+// zero-padded so name-asc order is stable and predictable.
+function manyFiles(n) {
+    return Array.from({ length: n }, (_, i) => ({ name: `F${String(i).padStart(2, '0')}.COM`, size: 1000 + i }));
 }
 
 test.describe('E9 S9.1a — pull pane: content states', () => {
@@ -174,5 +191,150 @@ test.describe('E9 S9.1a — pull pane: layout, shell, focus (AC-1/2/7)', () => {
         await expect(page.locator(CARD)).toBeHidden();
         await expect(page.locator('#pull-pane .pp-rail')).toBeVisible();
         await expect(page.locator('#pull-pane-badge')).toHaveText('3');
+    });
+});
+
+// ── S9.1b — refresh triggers (FR-8), timer guards (FR-9), diff-render (FR-10) ──
+test.describe('E9 S9.1b — pull pane: refresh triggers, guards, diff-render', () => {
+    test.beforeEach(async ({ page }) => { await setup(page); });
+
+    const enumCount = (page) => page.evaluate(() => window.__ppFake.enumCount);
+    const scrollTop = (page) => page.evaluate(() => document.getElementById('pull-pane-list').scrollTop);
+    const oneFile = [{ name: 'A.COM', size: 10 }];
+
+    test('focus trigger: window focus re-enumerates the bound folder @fast', async ({ page }) => {
+        await bindFake(page, { name: 'MicroBeastPull', permission: 'granted', files: oneFile });
+        const before = await enumCount(page);   // 1 (the bind enumeration)
+        await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+        // The focus handler runs triggerRefresh fire-and-forget; wait for the re-read.
+        await expect.poll(() => enumCount(page)).toBe(before + 1);
+    });
+
+    test('timer tick: re-enumerates the bound folder @fast', async ({ page }) => {
+        await bindFake(page, { name: 'MicroBeastPull', permission: 'granted', files: oneFile });
+        const before = await enumCount(page);
+        await page.evaluate(() => window.__pullPane.__timerTickForTests());
+        expect(await enumCount(page)).toBe(before + 1);
+    });
+
+    test('permission guard: tick with a "prompt" handle does not enumerate or prompt @fast', async ({ page }) => {
+        const errors = [];
+        page.on('pageerror', (e) => errors.push(String(e)));
+        await bindFake(page, { name: 'MicroBeastPull', permission: 'prompt', grantsTo: 'granted', files: oneFile });
+        expect(await page.evaluate(() => window.__pullPane.__getStateForTests().view)).toBe('permission');
+        const before = await enumCount(page);   // 0 — permission-needed never enumerated
+        await page.evaluate(() => window.__pullPane.__timerTickForTests());
+        // Silent skip: no enumeration, no view change, no error.
+        expect(await enumCount(page)).toBe(before);
+        expect(await page.evaluate(() => window.__pullPane.__getStateForTests().view)).toBe('permission');
+        expect(errors).toEqual([]);
+    });
+
+    test('hidden guard: tick while document.hidden skips; visible tick resumes @fast', async ({ page }) => {
+        await bindFake(page, { name: 'MicroBeastPull', permission: 'granted', files: oneFile });
+        const before = await enumCount(page);   // 1
+        // Stub document.hidden = true, then tick → guarded skip.
+        await page.evaluate(() => {
+            Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
+            return window.__pullPane.__timerTickForTests();
+        });
+        expect(await enumCount(page)).toBe(before);
+        // Flip visible and tick again → re-enumerates. Restore reality afterwards.
+        await page.evaluate(() => {
+            Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
+            return window.__pullPane.__timerTickForTests();
+        });
+        expect(await enumCount(page)).toBe(before + 1);
+        await page.evaluate(() => { delete document.hidden; });
+    });
+
+    test('unchanged refresh: identical contents → zero DOM churn, scroll preserved (UX-DR4) @fast', async ({ page }) => {
+        await bindFake(page, { name: 'MicroBeastPull', permission: 'granted', files: manyFiles(60) });
+        await expect(page.locator('#pull-pane-list .pp-row')).toHaveCount(60);
+        // Bound the list height (the pane otherwise grows and the page scrolls, not
+        // the list) so scrollTop is a real internal offset, then scroll + tag the
+        // 6th row so we can prove node identity survives.
+        await page.evaluate(() => {
+            const list = document.getElementById('pull-pane-list');
+            list.style.maxHeight = '300px';
+            list.scrollTop = 200;
+            list.querySelectorAll('.pp-row')[5].dataset.tag = 'keepme';
+        });
+        const scrollBefore = await scrollTop(page);
+        expect(scrollBefore).toBeGreaterThan(0);
+        const enumBefore = await enumCount(page);
+        // Tick with identical contents — the guard passes (it DID enumerate) …
+        await page.evaluate(() => window.__pullPane.__timerTickForTests());
+        expect(await enumCount(page)).toBe(enumBefore + 1);
+        // … but the diff skipped the render: tagged node still present, still 6th,
+        // and the scroll position is untouched.
+        expect(await page.evaluate(() => !!document.querySelector('#pull-pane-list .pp-row[data-tag="keepme"]'))).toBe(true);
+        expect(await page.evaluate(() => document.querySelectorAll('#pull-pane-list .pp-row')[5].dataset.tag)).toBe('keepme');
+        expect(await scrollTop(page)).toBe(scrollBefore);
+    });
+
+    test('changed refresh: new file mints fresh at the top, scroll + count updated @fast', async ({ page }) => {
+        const base = manyFiles(40);
+        await bindFake(page, { name: 'MicroBeastPull', permission: 'granted', files: base });
+        await expect(page.locator('#pull-pane-list .pp-row')).toHaveCount(40);
+        // Bound the list height so scrollTop is a real internal offset (see the
+        // unchanged-refresh test for why the pane otherwise grows unbounded).
+        await page.evaluate(() => {
+            const list = document.getElementById('pull-pane-list');
+            list.style.maxHeight = '300px';
+            list.scrollTop = 150;
+        });
+        const scrollBefore = await scrollTop(page);
+        expect(scrollBefore).toBeGreaterThan(0);
+        // Add a file whose name sorts to the MIDDLE — so it can only be on top by
+        // virtue of being fresh, not by alphabetical order.
+        await page.evaluate((b) => {
+            window.__ppFake.__setFiles([...b, { name: 'F19B.COM', size: 4096 }]);
+            return window.__pullPane.__timerTickForTests();
+        }, base);
+        await expect(page.locator('#pull-pane-list .pp-row')).toHaveCount(41);
+        const first = page.locator('#pull-pane-list .pp-row').first();
+        await expect(first).toHaveClass(/\bfresh\b/);
+        await expect(first.locator('.pp-nm')).toHaveText('F19B.COM');
+        // Exactly the one arrival is fresh; count/badge updated; scroll preserved.
+        await expect(page.locator('#pull-pane-list .pp-row.fresh')).toHaveCount(1);
+        await expect(page.locator('#pull-pane-count')).toHaveText('41 files');
+        await expect(page.locator('#pull-pane-badge')).toHaveText('41');
+        expect(await scrollTop(page)).toBe(scrollBefore);
+    });
+
+    test('fresh markers are replaced by the next content-changing refresh @fast', async ({ page }) => {
+        const base = manyFiles(5);
+        await bindFake(page, { name: 'MicroBeastPull', permission: 'granted', files: base });
+        // First arrival → ONE.COM fresh.
+        await page.evaluate((b) => {
+            window.__ppFake.__setFiles([...b, { name: 'ONE.COM', size: 100 }]);
+            return window.__pullPane.__timerTickForTests();
+        }, base);
+        await expect(page.locator('#pull-pane-list .pp-row.fresh')).toHaveCount(1);
+        // Second arrival → TWO.COM fresh, ONE.COM no longer fresh (set replaced).
+        await page.evaluate((b) => {
+            window.__ppFake.__setFiles([...b, { name: 'ONE.COM', size: 100 }, { name: 'TWO.COM', size: 200 }]);
+            return window.__pullPane.__timerTickForTests();
+        }, base);
+        await expect(page.locator('#pull-pane-list .pp-row.fresh')).toHaveCount(1);
+        await expect(page.locator('#pull-pane-list .pp-row.fresh .pp-nm')).toHaveText('TWO.COM');
+    });
+
+    test('refresh() API (the transfer-done trigger) re-enumerates the bound folder @fast', async ({ page }) => {
+        // main.js's onFileLanded calls pullPane.refresh(); prove that path re-reads.
+        await bindFake(page, { name: 'MicroBeastPull', permission: 'granted', files: oneFile });
+        const before = await enumCount(page);
+        await page.evaluate(() => window.__pullPane.refresh());
+        expect(await enumCount(page)).toBe(before + 1);
+    });
+
+    test('manual ↻ button refreshes and keeps #terminal-wrapper focus (AD-10) @fast', async ({ page }) => {
+        await bindFake(page, { name: 'MicroBeastPull', permission: 'granted', files: oneFile });
+        await page.locator('#terminal-wrapper').focus();
+        const before = await enumCount(page);
+        await page.locator('#pull-pane-refresh').click();
+        await expect.poll(() => enumCount(page)).toBe(before + 1);
+        expect(await page.evaluate(() => document.activeElement.id)).toBe('terminal-wrapper');
     });
 });

@@ -105,6 +105,7 @@ let toggleElRef = null;
 let folderButtonElRef = null;
 let statusElRef = null;
 let helpElRef = null;
+let onFileLandedRef = null;        // S9.1b FR-8a — pull-pane refresh after a folder write lands
 
 let currentFile = null;            // { name, totalBytes, chunks: Uint8Array[], bytesDone }
 let inflightDownloads = [];        // Promise[] for cancel-time settle (Plan 10-03)
@@ -158,6 +159,11 @@ export function wireSlideRecv(opts) {
     // When null (boot before Plan 11-02 wireSlideChip lands or test harness),
     // chip transitions silently no-op via the optional-chained call sites.
     slideChipRef = opts.slideChip || null;
+    // S9.1b FR-8a — optional transfer-done callback. Fired (fire-and-forget,
+    // try/catch-wrapped) once a folder write has fully landed, i.e. the file is
+    // enumerable by the pull pane. Null in tests / boot before wiring. JS-shell
+    // only — no Rust/wasm/protocol touch (NFR-1).
+    onFileLandedRef = opts.onFileLanded || null;
     // Plan 10-04 — Settings DOM event wiring + initial render + boot-time
     // permission re-request. When DOM refs are null (Plan 10-02 callsite),
     // these no-op cleanly.
@@ -504,6 +510,10 @@ async function assembleAndDownload(file) {
         try {
             await downloadToFolder(file.name, blob);
             lastDownloadAt = Date.now();
+            // S9.1b FR-8a — the file is now on disk and enumerable; nudge the pull
+            // pane. Fire-and-forget + guarded so a pane failure never disturbs the
+            // transfer. Only here (folder success) — the anchor path has no folder.
+            if (onFileLandedRef) { try { onFileLandedRef(); } catch { /* pane refresh is best-effort */ } }
             return;
         } catch (e) {
             console.warn('[slide-recv] downloadToFolder failed; falling back to anchor:', e);

@@ -46,7 +46,7 @@
 #   E1 is the backbone and must land before the other menu/modal epics.
 
 generated: 2026-07-01
-last_updated: 2026-07-23  # E9 S9.1a → done (pull-pane shell implemented + tested + reviewed; async epoch guard added). E9 planned; epic-e9 → in-progress. E0–E7 unchanged (complete); E8 not yet planned.
+last_updated: 2026-07-23  # E9 S9.1b → done (refresh triggers/guards/diff-render; code-review --fix pass: 5 findings fixed, suite green). S9.1a done. Next: S9.2 selection-to-SLIDE. E0–E7 complete; E8 not yet planned.
 # retrospective action items (surface open ones during sprint status)
 action_items:
   - epic: "e0"
@@ -230,7 +230,7 @@ development_status:
   # Dependency order: S9.1a → S9.1b → S9.2 → S9.3 → S9.4 (optional). E8 Command History is a separate, not-yet-planned milestone.
   epic-e9: in-progress
   e9-1a-pull-pane-shell-fsa-folder-view: done
-  e9-1b-live-refresh-triggers-guards-diff-render: backlog
+  e9-1b-live-refresh-triggers-guards-diff-render: done
   e9-2-selection-to-slide-s-in-pane-review: backlog
   e9-3-drop-to-pull-fire-land-refresh: backlog
   e9-4-reverse-drag-pane-to-terminal: backlog   # optional — may be cut from v1

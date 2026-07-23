@@ -583,7 +583,8 @@ window.__statusBar = statusBar;   // Playwright hook (mirrors window.__menuBar)
 // nothing from other app modules — idb (get/setRecvDirHandle, the SLIDE-recv shared
 // recv_directory key — AD-11), the shared retainFocus helper (AD-10), the #pull-pane
 // DOM root, and the terminal-wrapper focus-restore target all arrive here as opts.
-// S9.1a is the shell only: no refresh triggers, no drop/pull (S9.1b / S9.2 / S9.3).
+// Includes S9.1b refresh (transfer-done via onFileLanded below, window focus, ~60s
+// timer, manual ↻); still no drop/pull (S9.2 / S9.3).
 const pullPane = wirePullPane({
     paneEl: document.getElementById('pull-pane'),
     idb: { getRecvDirHandle, setRecvDirHandle },
@@ -989,6 +990,9 @@ wireSlideRecv({
     // chunk to trigger maybeExitRecvMode).
     dispatcherForceExit: dispatcherForceExitRecvMode,
     slideChip: slideChipApi,         // Phase 11 D-14 — chip handle for slidePumpOnPortLost
+    // E9 S9.1b FR-8a — refresh the pull pane once a pulled file lands in the folder.
+    // wirePullPane ran earlier in boot (above), so pullPane.refresh exists here.
+    onFileLanded: () => { try { pullPane.refresh(); } catch { /* pane best-effort */ } },
 });
 
 // Phase 11 Plan 11-03 — resolve the thunk-holder now that cancelSlideRecv's
