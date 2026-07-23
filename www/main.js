@@ -77,6 +77,7 @@ import { wireScrollState } from './renderer/scroll-state.js';
 import { wireSelection } from './input/selection.js';
 import { wireKeyboard, setLocalEcho, setCrlfMode, getLocalEcho, getCrlfMode } from './input/keyboard.js';
 import { wireCommandHistory } from './input/command-history.js';   // E8.1 — command capture engine
+import { wireCommandHistoryOverlay } from './renderer/command-history.js';   // E8.2 — recall overlay
 import {
     registerTxObserver,
     formatHexStrip,
@@ -86,6 +87,7 @@ import {
     writeSlideFrame,
     writeSlideFrameAwaitable,
     isWriterReady,                         // Phase 9 WR-03 — top-bar button gate
+    pushTxBytes,                           // E8.2 — the recall overlay's Enter-send emission
 } from './input/tx-sink.js';
 // E2.1 (AD-15, AD-3) — serial reaches menu-bar ONLY via wireMenuBar opts (like
 // term/getScrollState), never a direct menu-bar import. main.js is the composition
@@ -376,6 +378,9 @@ const serialReconnectHint = document.getElementById('serial-reconnect-hint');
 const pasteToastEl        = document.getElementById('paste-toast');
 const pasteToastTextEl    = document.getElementById('paste-toast-text');
 const pasteTestBtn        = document.getElementById('paste-test');
+// Epic E8 Story E8.2 — the command-history recall overlay element (sibling of the
+// #paste-toast / #slide-chip transient-overlay cluster inside #terminal-wrapper).
+const commandHistoryOverlayEl = document.getElementById('command-history-overlay');
 // Phase 6 Plan 05 (Wave 4) — E7.1 — the #download-log-button retired with
 // <details id="connection">; File ▸ Download Session Log is the sole trigger now
 // (session-log.js null-guards a missing downloadButton).
@@ -587,6 +592,27 @@ window.__statusBar = statusBar;   // Playwright hook (mirrors window.__menuBar)
 // and the Settings surfaces (E8.3) build on the API this exposes.
 const commandHistory = wireCommandHistory({});
 window.__commandHistory = commandHistory;   // Playwright hook (mirrors window.__statusBar)
+
+// ---- Epic E8 Story E8.2 (FR-7..18, AD-9/10/12) — wire the recall overlay ----
+// The VISIBLE half of command history: a floating overlay that opens on ↑/↓ at an
+// empty prompt, filters/navigates/edits, and Enter-sends. Wired in the AD-12 slot
+// — AFTER the E8.1 engine (above) and BEFORE wireKeyboard (below) — so its
+// #terminal-wrapper keydown listener registers before keyboard.js's and its
+// preventDefault wins via the defaultPrevented short-circuit (same reason
+// wireMenuBar precedes wireKeyboard). The engine API (isLineEmpty/getHistory/
+// commit) is injected per AD-3 (never re-imported); pushTxBytes is the overlay's
+// SOLE wire emission (E8's only emitter), getCrlfMode supplies the terminator.
+const commandHistoryOverlay = wireCommandHistoryOverlay({
+    overlayEl: commandHistoryOverlayEl,
+    terminalWrapper,
+    isLineEmpty: commandHistory.isLineEmpty,
+    getHistory: commandHistory.getHistory,
+    commit: commandHistory.commit,
+    pushTxBytes,
+    getCrlfMode,
+    getWireOwner,   // E8.2 — suspend the ↑/↓ trigger while a SLIDE transfer owns the wire
+});
+window.__commandHistoryOverlay = commandHistoryOverlay;   // Playwright hook (mirrors window.__commandHistory)
 
 // E4.2 (FR-27, AD-6) — route the build stamp into the status bar's #status-build
 // (its permanent home, alongside Help ▸ About/E6.2 — no longer the Debug pane).
@@ -1153,7 +1179,10 @@ window.__slideRecv = {
 // Phase 9 WR-03 — isWriterReady exported so the top-bar button gate logic
 // is observable from Playwright (file-source.spec.js asserts the disabled
 // state across the connect lifecycle).
-window.__txSink = { setWireOwner, getWireOwner, writeSlideFrame, writeSlideFrameAwaitable, isWriterReady };
+// E8.2 — formatHexStrip + resetTx exposed so the recall-overlay spec can assert
+// the exact TX bytes the Enter-send emits (and that editing leaves the ring
+// unchanged) by reading the sink directly, without a wasm-heavy serial connect.
+window.__txSink = { setWireOwner, getWireOwner, writeSlideFrame, writeSlideFrameAwaitable, isWriterReady, formatHexStrip, resetTx };
 
 // Phase 9 Plan 03 — wire file-source AFTER wireSlideDispatcher so file-source's
 // injected `enterSendMode` reaches the already-wired dispatcher. file-source

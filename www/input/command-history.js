@@ -36,12 +36,6 @@ const BYTE_BS     = 0x08;   // Backspace (and Ctrl-H, which the wire treats iden
 const BYTE_CTRL_U = 0x15;   // Ctrl-U → clear line
 const BYTE_CTRL_X = 0x18;   // Ctrl-X → clear line
 
-// KEY_TAG.Char = 0 (keyboard.js:52). A printable keystroke packs as
-// `KEY_TAG.Char | (byte << 8)`, so its low byte (the tag) is 0. Mirrored here as
-// a constant rather than imported — AD-3 keeps this module's imports to
-// prefs + tx-sink, and the value is frozen alongside the encoder byte table.
-const CHAR_TAG = 0;
-
 // Modifier bit layout (keyboard.js packModifiers / key.rs:165-168).
 const MOD_CTRL = 0b0001;
 const MOD_ALT  = 0b0100;
@@ -92,7 +86,7 @@ function capture(info) {
     if (!p || p.commandHistoryEnabled === false) return;
     if (getWireOwner() === 'slide') return;
 
-    const { e, code, mods, bytes, wasEnter } = info;
+    const { mods, bytes, wasEnter } = info;
 
     // AC-1 — Enter is the terminator regardless of crlfMode; commit + reset.
     if (wasEnter) { commitMirror(); return; }
@@ -112,16 +106,19 @@ function capture(info) {
         return;
     }
 
-    // AC-1/AC-2 — a printable single character appends. Guard: Char tag (low byte
-    // of code is 0), no Ctrl/Alt/Meta held (Shift is fine — it produces the shifted
-    // char), a single-char e.key, and an encoded byte in the printable ASCII range
-    // 0x20–0x7E. Everything else (arrows, Esc, Tab, function keys, other Ctrl
-    // combos) leaves the mirror unchanged.
-    if ((code & 0xFF) === CHAR_TAG
-        && (mods & (MOD_CTRL | MOD_ALT | MOD_META)) === 0
-        && e && typeof e.key === 'string' && e.key.length === 1
+    // AC-1/AC-2 — a printable keystroke appends the WIRE byte itself. Guard: no
+    // Ctrl/Alt/Meta held (Shift is fine — it produced the shifted byte) and the
+    // emitted byte lands in the printable ASCII range 0x20–0x7E. Mirroring the byte
+    // that reached the MicroBeast (bytes[0]) rather than the KEY_TAG or e.key so
+    // numeric-keypad keys stay in sync: key.rs encodes them to real printable bytes
+    // ('0'-'9', ',', '-', '.') off e.code regardless of NumLock, so e.key can read
+    // 'End'/'Insert'/'\0' while '1' is what was actually sent. Without this, a
+    // command typed on the keypad (e.g. `GOTO 100`) would desync from the wire.
+    // Everything else (arrows, Esc, Tab, function keys, other Ctrl combos) leaves
+    // the mirror unchanged; the Keypad Enter terminator is the wasEnter branch above.
+    if ((mods & (MOD_CTRL | MOD_ALT | MOD_META)) === 0
         && b0 >= 0x20 && b0 <= 0x7E) {
-        mirror += e.key;
+        mirror += String.fromCharCode(b0);
     }
     // else: no-op — fancier in-line editing is explicitly not tracked (FR-2). A
     // rare cosmetic mismatch never affects the wire.

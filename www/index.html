@@ -421,6 +421,111 @@
       outline-offset: 2px;
     }
 
+    /* Epic E8 Story E8.2 — command-history recall overlay (renderer/command-history.js).
+       Floating panel anchored above the input prompt (bottom-left) over the LIVE,
+       undimmed canvas — chip-like, no scrim. Neutral shell (AD-9 / NFR-2):
+       var(--chrome-*)/--field-bg/--ui-font tokens only, 1px hairline, NO
+       [data-theme="crt"] branch, NO drop shadow (DESIGN.md beats the mockup). Two
+       deliberate divergences from the mockup, per the story's Task 1 corrections:
+         (1) selected row = SOLID mint (var(--chrome-accent) bg + var(--chrome-bg)
+             text), matching the real .menu-item selection — NOT the mockup's .14
+             tint; the .mark flips to var(--chrome-bg) when selected.
+         (2) NO box-shadow (mockup shipped 0 12px 40px). */
+    #command-history-overlay.ch-panel {
+      position: absolute;
+      left: 12px;
+      bottom: 12px;
+      z-index: 6;                              /* above #scrollback-indicator/#paste-toast (z:5) */
+      width: 412px;
+      max-width: calc(100% - 24px);
+      background: var(--chrome-bg);
+      border: 1px solid var(--chrome-border);
+      border-radius: 6px;
+      overflow: hidden;
+      font: 13px/1.4 var(--ui-font);
+      color: var(--chrome-fg);
+      cursor: default;
+    }
+    #command-history-overlay[hidden] { display: none; }
+    #command-history-overlay .ch-cap {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 7px 11px;
+      border-bottom: 1px solid var(--chrome-border);
+      color: var(--chrome-muted);
+      font-size: 12px;
+    }
+    #command-history-overlay .ch-count { color: var(--chrome-muted); }
+    #command-history-overlay .ch-list {
+      display: flex; flex-direction: column;
+      padding: 5px;
+      max-height: 196px;
+      overflow: auto;
+    }
+    #command-history-overlay .ch-row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 5px 10px;
+      border-radius: 4px;
+      color: var(--chrome-fg);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    #command-history-overlay .ch-row .mark {
+      color: var(--chrome-accent);
+      font-weight: 600;
+      visibility: hidden;                      /* only the selected row shows the › marker */
+    }
+    #command-history-overlay .ch-row .ch-row-txt {
+      flex: 1; overflow: hidden; text-overflow: ellipsis;
+    }
+    /* CORRECTION 1 — solid-mint selection (matches #menu-bar .menu-item, beats the
+       mockup's .14 tint); flip the marker + text to chrome-bg like .menu-item does. */
+    #command-history-overlay .ch-row.sel {
+      background: var(--chrome-accent);
+      color: var(--chrome-bg);
+    }
+    #command-history-overlay .ch-row.sel .mark {
+      color: var(--chrome-bg);
+      visibility: visible;
+    }
+    #command-history-overlay .ch-empty {
+      padding: 14px 12px;
+      color: var(--chrome-muted);
+      font-size: 12px;
+      text-align: center;
+    }
+    #command-history-overlay .ch-entry {
+      display: flex; align-items: center; gap: 8px;
+      padding: 9px 11px;
+      background: var(--field-bg);
+      border-top: 1px solid var(--chrome-border);
+    }
+    #command-history-overlay .ch-entry .pr { color: var(--chrome-accent); }
+    #command-history-overlay .ch-txt {
+      flex: 1;
+      color: var(--chrome-fg);
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    /* The fake caret — a solid block matching the terminal cursor idiom. */
+    #command-history-overlay .ch-txt .cur {
+      display: inline-block;
+      width: 8px; height: 1.05em;
+      background: var(--chrome-fg);
+      vertical-align: -2px;
+      margin-left: 1px;
+    }
+    /* Placeholder state (empty edit line): muted text + muted caret. */
+    #command-history-overlay .ch-entry.ch-placeholder .ch-txt { color: var(--chrome-muted); }
+    #command-history-overlay .ch-entry.ch-placeholder .ch-txt .cur { background: var(--chrome-muted); }
+    #command-history-overlay .ch-legend {
+      display: flex; gap: 8px; flex-wrap: wrap;
+      padding: 7px 11px;
+      border-top: 1px solid var(--chrome-border);
+      color: var(--chrome-muted);
+      font-size: 11.5px;
+    }
+    #command-history-overlay .ch-legend b { color: var(--chrome-fg); font-weight: 600; }
+    #command-history-overlay .ch-legend .ch-sep { color: var(--chrome-muted); }
+
     /* E3.4 — the Phase 11 #settings-slide form-control CSS (auto-send input + compat
        select) was removed with the pane; those controls now inherit the shared
        .chrome-modal .field select / input[type="text"] rules inside #slide-config-modal. */
@@ -1575,6 +1680,33 @@
       <span id="paste-toast-text"></span>
       <button type="button" class="paste-inline" data-action="paste" hidden>[Paste]</button>
       <button type="button" class="paste-inline" data-action="cancel" hidden>[Cancel]</button>
+    </div>
+    <!-- Epic E8 Story E8.2 (FR-7…18 / AD-9/10/12) — command-history recall overlay.
+         A PASSIVE visual layer with a FAKE caret (.ch-txt div + .cur span, never a
+         real <input>) so #terminal-wrapper keeps focus and keyboard.js's
+         interception model holds — renderer/command-history.js registers one
+         keydown listener on the wrapper BEFORE wireKeyboard and preventDefaults to
+         short-circuit the encode path (NFR-2 is structural). Neutral chrome only
+         (AD-9): var(--chrome-*) tokens, NO [data-theme="crt"] branch, NO drop
+         shadow (DESIGN.md wins over the mockup on both the solid-mint highlight
+         and the no-shadow rule). role=combobox/listbox/option + aria-live caption
+         (a11y best-effort — focus stays on the wrapper, so the live caption is the
+         dependable AT signal). -->
+    <div id="command-history-overlay" class="ch-panel" hidden
+         role="dialog" aria-label="Command history recall">
+      <div class="ch-cap">
+        <span>Command history</span>
+        <span class="ch-count" aria-live="polite"></span>
+      </div>
+      <div class="ch-list" id="ch-listbox" role="listbox" aria-label="Command history"></div>
+      <div class="ch-entry">
+        <span class="pr" aria-hidden="true">&gt;</span>
+        <span class="ch-txt" role="combobox" aria-expanded="true"
+              aria-controls="ch-listbox" aria-activedescendant=""></span>
+      </div>
+      <div class="ch-legend" aria-hidden="true">
+        <span><b>Tab</b> select</span><span class="ch-sep">·</span><span><b>↑↓</b> move</span><span class="ch-sep">·</span><span><b>←→</b> edit</span><span class="ch-sep">·</span><span><b>Enter</b> send</span><span class="ch-sep">·</span><span><b>Esc</b> cancel</span>
+      </div>
     </div>
   </div>
 

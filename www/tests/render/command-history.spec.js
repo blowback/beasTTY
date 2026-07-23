@@ -102,6 +102,22 @@ test.describe('E8.1 AC-1 — line mirror reconstructs + commits on Enter', () =>
     expect(await history(page)).toEqual(['DIR']);
     expect((await state(page)).mirror).toBe('');
   });
+
+  test('numeric-keypad digits reach the mirror (Keypad* tag, not Char) @fast', async ({ page }) => {
+    await ready(page);
+    await page.waitForFunction(() => document.getElementById('terminal').width > 0);
+    // Numpad keys encode to '0'-'9' off e.code (key.rs KeypadDigit) — a Keypad* tag,
+    // not Char, and e.key reads 'End'/'Insert' under NumLock-off (Playwright's
+    // default). The mirror must key off the wire byte or it desyncs from what was
+    // actually sent: `GOTO 100` typed with the keypad must NOT store as `GOTO `.
+    await page.keyboard.type('GOTO ');
+    await page.keyboard.press('Numpad1');
+    await page.keyboard.press('Numpad0');
+    await page.keyboard.press('Numpad0');
+    expect((await state(page)).mirror).toBe('GOTO 100');
+    await page.keyboard.press('Enter');
+    expect(await history(page)).toEqual(['GOTO 100']);
+  });
 });
 
 // ============================================================================

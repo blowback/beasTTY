@@ -46,7 +46,7 @@
 #   E1 is the backbone and must land before the other menu/modal epics.
 
 generated: 2026-07-01
-last_updated: 2026-07-23  # E8.1 command capture engine done (review → done); code review applied two hardening fixes (size-cap clamp, getHistory defensive copy). Epic E8 in-progress (E8.2/E8.3 backlog). Prior: milestone Command History added; E0–E7 (ui-rethink) all done, action items closed; milestone ui-rethink complete (2026-07-04).
+last_updated: 2026-07-23  # E8.2 recall-overlay code-reviewed → done: 5 fixes applied (keypad-digit capture desync, Shift+Arrow trigger leak, SLIDE-transfer phantom commit, modified-chord misread, IME guard) + keypad regression test; 37-test command-history suite green. E8.1 command capture engine done. Epic E8 in-progress (E8.3 backlog). Prior: milestone Command History added; E0–E7 (ui-rethink) all done, action items closed; milestone ui-rethink complete (2026-07-04).
 # retrospective action items (surface open ones during sprint status)
 action_items: []  # ui-rethink (E0–E7) items all resolved & cleared 2026-07-23; retros append new ones here
 project: beastty
@@ -112,6 +112,6 @@ development_status:
   # Story order E8.1 → E8.2 → E8.3, each standalone (default-on ⇒ E8.1+E8.2 work before E8.3).
   epic-e8: in-progress
   e8-1-command-capture-engine-line-mirror-history-store: done
-  e8-2-recall-overlay-trigger-filter-edit-send: backlog
+  e8-2-recall-overlay-trigger-filter-edit-send: done
   e8-3-settings-surfaces-enable-size-clear: backlog
   epic-e8-retrospective: optional
