@@ -1,5 +1,5 @@
 # generated: 2026-07-01
-# last_updated: 2026-07-01
+# last_updated: 2026-07-22
 # project: beastty
 # project_key: NOKEY
 # tracking_system: file-system
@@ -46,7 +46,7 @@
 #   E1 is the backbone and must land before the other menu/modal epics.
 
 generated: 2026-07-01
-last_updated: 2026-07-04  # E7.1 done — paste toast + dual-chrome formal sweep + whole-branch review; epic-e7 done; five-epic carry (e1#5/e2#4/e3#4/e4#4/e5#2 + e6#1/#2/#3/#4) closed. Milestone ui-rethink complete.
+last_updated: 2026-07-23  # E8.1 command capture engine done (review → done); code review applied two hardening fixes (size-cap clamp, getHistory defensive copy). Epic E8 in-progress (E8.2/E8.3 backlog). Prior: milestone Command History added; E0–E7 (ui-rethink) all done, action items closed; milestone ui-rethink complete (2026-07-04).
 # retrospective action items (surface open ones during sprint status)
 action_items:
   - epic: "e0"
@@ -136,7 +136,7 @@ action_items:
   - epic: "e4"
     action: "Watch the status-bar setter surface: the imperative-push API grew a writer per E4 story (setConnectionInfo/setBuild/setZoom/setErrorCount). Before adding more, confirm the fed-never-owned contract still holds and the module isn't becoming a setter grab-bag."
     owner: "Amelia"
-    status: open   # 2026-07-04 (E5 retro) — E5 didn't touch status-bar.js; standing watch carries into E6
+    status: done   # 2026-07-04 (E7 retro) — contract held for the full milestone: E6 shrank the surface (dead setConnectionInfo deleted); E7 touched status-bar.js only to prune a stale "until E7" comment, added no setter (setters remain setBuild/setZoom/setErrorCount). Milestone complete; watch closed.
   - epic: "e5"
     action: "Ratify retries:1 as the permanent flake policy at the source: add a one-line comment in playwright.config.js recording the decision (accept chromium-transport + retries:1; no per-story --workers=1 re-diagnosis) so it is never re-litigated. Closes E2 #3."
     owner: "Amelia"
@@ -222,4 +222,12 @@ development_status:
   # ── Epic E7 · Paste Toast (depends on: E0) ──
   epic-e7: done
   e7-1-paste-progress-large-paste-confirm-toast: done
-  epic-e7-retrospective: optional
+  epic-e7-retrospective: done
+
+  # ── Epic E8 · Command History (NEW milestone; depends on: finished E0–E7 chrome) ──
+  # Story order E8.1 → E8.2 → E8.3, each standalone (default-on ⇒ E8.1+E8.2 work before E8.3).
+  epic-e8: in-progress
+  e8-1-command-capture-engine-line-mirror-history-store: done
+  e8-2-recall-overlay-trigger-filter-edit-send: backlog
+  e8-3-settings-surfaces-enable-size-clear: backlog
+  epic-e8-retrospective: optional

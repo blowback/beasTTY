@@ -76,6 +76,7 @@ import { wireStatusBar } from './renderer/status-bar.js';
 import { wireScrollState } from './renderer/scroll-state.js';
 import { wireSelection } from './input/selection.js';
 import { wireKeyboard, setLocalEcho, setCrlfMode, getLocalEcho, getCrlfMode } from './input/keyboard.js';
+import { wireCommandHistory } from './input/command-history.js';   // E8.1 — command capture engine
 import {
     registerTxObserver,
     formatHexStrip,
@@ -575,6 +576,18 @@ const statusBar = wireStatusBar({
 });
 window.__statusBar = statusBar;   // Playwright hook (mirrors window.__menuBar)
 
+// ---- Epic E8 Story E8.1 (FR-1..6/20/21, AD-12) — wire the command capture engine ----
+// The invisible command-history engine: a JS-shell line mirror that reconstructs
+// the typed line from outbound keystrokes and a prefs-persisted store it commits
+// to on Enter. Observation-only (NFR-2 — never emits a byte). Slotted in the
+// AD-12 gap AFTER wireStatusBar and BEFORE wireKeyboard so its .capture method
+// exists to pass into wireKeyboard below. No injected deps: enable/size/store are
+// read fresh from getPrefs() at use-time and the SLIDE gate from getWireOwner()
+// (both direct imports in the engine, AD-3/AD-4/AD-5). The recall overlay (E8.2)
+// and the Settings surfaces (E8.3) build on the API this exposes.
+const commandHistory = wireCommandHistory({});
+window.__commandHistory = commandHistory;   // Playwright hook (mirrors window.__statusBar)
+
 // E4.2 (FR-27, AD-6) — route the build stamp into the status bar's #status-build
 // (its permanent home, alongside Help ▸ About/E6.2 — no longer the Debug pane).
 // build-info.js is emitted by scripts/build.sh into pkg/ (gitignored, regenerated
@@ -797,6 +810,7 @@ wireKeyboard({
     sampleBell,
     drainHostReply,
     requestFrame,
+    captureHistory: commandHistory.capture,   // E8.1 — typed-keystroke feed (observation-only)
 });
 
 // Phase 5 Wave 5 — wire paste-pump's local-echo feed path (D-22). MUST be

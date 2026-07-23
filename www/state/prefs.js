@@ -55,6 +55,16 @@ const DEFAULTS = Object.freeze({
         // button uses). CURRENT_VERSION NOT bumped per Phase 6 D-32 defensive
         // merge (older blobs missing this field receive `true` via the
         // loadPrefs spread fill).
+    commandHistoryEnabled: true,   // E8.1 (FR-6, NFR-3) — Command History capture engine on/off.
+                                   //   When false, command-history.js's capture path early-returns
+                                   //   (inert; no line mirror, no store writes). Toggle lands in E8.3
+                                   //   Settings. CURRENT_VERSION NOT bumped per D-32 defensive merge.
+    commandHistorySize: 100,       // E8.1 (FR-20) — max distinct commands retained; oldest (tail)
+                                   //   dropped on overflow. Read fresh at commit-time so an E8.3 change
+                                   //   applies on the next Enter. CURRENT_VERSION NOT bumped.
+    commandHistory: [],            // E8.1 (FR-21) — persisted command store, newest-first. Top-level
+                                   //   array so the defensive spread-merge replaces it wholesale (not the
+                                   //   nested-object merge path). CURRENT_VERSION NOT bumped.
     serialAssertRtsOnConnect: true,
         // Phase 12.1 Plan 12-08 — gates connect-time setSignals.requestToSend
         // (true = assert RTS on every port.open(); false = de-assert RTS as
