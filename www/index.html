@@ -616,6 +616,111 @@
       color: var(--chrome-muted); font-size: 11px; letter-spacing: 0.12em;
     }
 
+    /* Epic E8 Story E8.2 — command-history recall overlay (renderer/command-history.js).
+       Floating panel anchored above the input prompt (bottom-left) over the LIVE,
+       undimmed canvas — chip-like, no scrim. Neutral shell (AD-9 / NFR-2):
+       var(--chrome-*)/--field-bg/--ui-font tokens only, 1px hairline, NO
+       [data-theme="crt"] branch, NO drop shadow (DESIGN.md beats the mockup). Two
+       deliberate divergences from the mockup, per the story's Task 1 corrections:
+         (1) selected row = SOLID mint (var(--chrome-accent) bg + var(--chrome-bg)
+             text), matching the real .menu-item selection — NOT the mockup's .14
+             tint; the .mark flips to var(--chrome-bg) when selected.
+         (2) NO box-shadow (mockup shipped 0 12px 40px). */
+    #command-history-overlay.ch-panel {
+      position: absolute;
+      left: 12px;
+      bottom: 12px;
+      z-index: 6;                              /* above #scrollback-indicator/#paste-toast (z:5) */
+      width: 412px;
+      max-width: calc(100% - 24px);
+      background: var(--chrome-bg);
+      border: 1px solid var(--chrome-border);
+      border-radius: 6px;
+      overflow: hidden;
+      font: 13px/1.4 var(--ui-font);
+      color: var(--chrome-fg);
+      cursor: default;
+    }
+    #command-history-overlay[hidden] { display: none; }
+    #command-history-overlay .ch-cap {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 7px 11px;
+      border-bottom: 1px solid var(--chrome-border);
+      color: var(--chrome-muted);
+      font-size: 12px;
+    }
+    #command-history-overlay .ch-count { color: var(--chrome-muted); }
+    #command-history-overlay .ch-list {
+      display: flex; flex-direction: column;
+      padding: 5px;
+      max-height: 196px;
+      overflow: auto;
+    }
+    #command-history-overlay .ch-row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 5px 10px;
+      border-radius: 4px;
+      color: var(--chrome-fg);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    #command-history-overlay .ch-row .mark {
+      color: var(--chrome-accent);
+      font-weight: 600;
+      visibility: hidden;                      /* only the selected row shows the › marker */
+    }
+    #command-history-overlay .ch-row .ch-row-txt {
+      flex: 1; overflow: hidden; text-overflow: ellipsis;
+    }
+    /* CORRECTION 1 — solid-mint selection (matches #menu-bar .menu-item, beats the
+       mockup's .14 tint); flip the marker + text to chrome-bg like .menu-item does. */
+    #command-history-overlay .ch-row.sel {
+      background: var(--chrome-accent);
+      color: var(--chrome-bg);
+    }
+    #command-history-overlay .ch-row.sel .mark {
+      color: var(--chrome-bg);
+      visibility: visible;
+    }
+    #command-history-overlay .ch-empty {
+      padding: 14px 12px;
+      color: var(--chrome-muted);
+      font-size: 12px;
+      text-align: center;
+    }
+    #command-history-overlay .ch-entry {
+      display: flex; align-items: center; gap: 8px;
+      padding: 9px 11px;
+      background: var(--field-bg);
+      border-top: 1px solid var(--chrome-border);
+    }
+    #command-history-overlay .ch-entry .pr { color: var(--chrome-accent); }
+    #command-history-overlay .ch-txt {
+      flex: 1;
+      color: var(--chrome-fg);
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    /* The fake caret — a solid block matching the terminal cursor idiom. */
+    #command-history-overlay .ch-txt .cur {
+      display: inline-block;
+      width: 8px; height: 1.05em;
+      background: var(--chrome-fg);
+      vertical-align: -2px;
+      margin-left: 1px;
+    }
+    /* Placeholder state (empty edit line): muted text + muted caret. */
+    #command-history-overlay .ch-entry.ch-placeholder .ch-txt { color: var(--chrome-muted); }
+    #command-history-overlay .ch-entry.ch-placeholder .ch-txt .cur { background: var(--chrome-muted); }
+    #command-history-overlay .ch-legend {
+      display: flex; gap: 8px; flex-wrap: wrap;
+      padding: 7px 11px;
+      border-top: 1px solid var(--chrome-border);
+      color: var(--chrome-muted);
+      font-size: 11.5px;
+    }
+    #command-history-overlay .ch-legend b { color: var(--chrome-fg); font-weight: 600; }
+    #command-history-overlay .ch-legend .ch-sep { color: var(--chrome-muted); }
+
     /* E3.4 — the Phase 11 #settings-slide form-control CSS (auto-send input + compat
        select) was removed with the pane; those controls now inherit the shared
        .chrome-modal .field select / input[type="text"] rules inside #slide-config-modal. */
@@ -1619,6 +1724,58 @@
             </button>
           </div>
         </div>
+        <div class="menu-sep"></div>
+        <!-- Epic E8 Story E8.3 (FR-19, AD-4/AD-7/AD-9) — Command history checkable.
+             data-pref="commandHistoryEnabled" drives the generic persist path (savePrefs);
+             there is NO live setter — command-history.js's capture path and the recall
+             overlay's trigger both read getPrefs() at use-time, so the toggle takes effect
+             on the next keystroke. data-checked starts "true" (the prefs default, contrast
+             Local echo above) and is re-derived from prefs at wire-time / on open / on
+             reset — never trusted as a literal. Toggling off keeps the stored history;
+             only capture/trigger stop. -->
+        <button id="menu-command-history-item" class="menu-item" type="button" role="menuitemcheckbox"
+                data-variant="checkable" data-pref="commandHistoryEnabled" data-checked="true" aria-checked="true">
+          <span class="check">✓</span><span class="lbl">Command history</span>
+        </button>
+        <!-- Command history size radio submenu (50/100/200/500). Filled from the
+             E1.4/E1.5/E3.2 radio-submenu-group template (Enter key sends above).
+             data-value = the integer cap; selection persists commandHistorySize and
+             trims the store immediately (menu-bar.js onRadioSelect cmdhistory-size
+             branch). Default checked = 100 (the prefs.commandHistorySize default);
+             re-derived from prefs on open / reset. -->
+        <div class="submenu-group">
+          <button class="menu-item" type="button" role="menuitem" data-variant="radio-submenu"
+                  data-submenu="cmdhistory-size" aria-haspopup="true" aria-expanded="false">
+            <span class="check"></span><span class="lbl">Command history size</span><span class="caret">▸</span>
+          </button>
+          <div class="submenu" role="menu" data-submenu-panel="cmdhistory-size" aria-label="Command history size" hidden>
+            <button class="menu-item" type="button" role="menuitemradio" data-value="50"
+                    data-checked="false" aria-checked="false">
+              <span class="check"></span><span class="lbl">50</span>
+            </button>
+            <button class="menu-item" type="button" role="menuitemradio" data-value="100"
+                    data-checked="true" aria-checked="true">
+              <span class="check">✓</span><span class="lbl">100</span>
+            </button>
+            <button class="menu-item" type="button" role="menuitemradio" data-value="200"
+                    data-checked="false" aria-checked="false">
+              <span class="check"></span><span class="lbl">200</span>
+            </button>
+            <button class="menu-item" type="button" role="menuitemradio" data-value="500"
+                    data-checked="false" aria-checked="false">
+              <span class="check"></span><span class="lbl">500</span>
+            </button>
+          </div>
+        </div>
+        <!-- Clear command history… action row. closeMenu() then the injected
+             confirmClearCommandHistory opener (modal confirm, mirrors View ▸ Clear
+             Scrollback…); on 'confirm' it runs the injected clearCommandHistory.
+             Trailing … = "opens further UI". No ▸ caret — reserved for radio submenus. -->
+        <button id="menu-clear-cmd-history-item" class="menu-item" type="button" role="menuitem"
+                data-variant="action" data-action="clear-cmd-history">
+          <span class="check"></span><span class="lbl">Clear command history…</span>
+        </button>
+        <div class="menu-sep"></div>
         <!-- Epic E3 Story E3.4 (FR-20, AD-8/AD-3) — SLIDE File Transfer… opens the
              #slide-config-modal (SLIDE transfer controls relocated from the legacy
              <details id="settings-slide"> pane). An action row: closeMenu() then the
@@ -1779,6 +1936,33 @@
       <button type="button" class="paste-inline" data-action="paste" hidden>[Paste]</button>
       <button type="button" class="paste-inline" data-action="cancel" hidden>[Cancel]</button>
     </div>
+    <!-- Epic E8 Story E8.2 (FR-7…18 / AD-9/10/12) — command-history recall overlay.
+         A PASSIVE visual layer with a FAKE caret (.ch-txt div + .cur span, never a
+         real <input>) so #terminal-wrapper keeps focus and keyboard.js's
+         interception model holds — renderer/command-history.js registers one
+         keydown listener on the wrapper BEFORE wireKeyboard and preventDefaults to
+         short-circuit the encode path (NFR-2 is structural). Neutral chrome only
+         (AD-9): var(--chrome-*) tokens, NO [data-theme="crt"] branch, NO drop
+         shadow (DESIGN.md wins over the mockup on both the solid-mint highlight
+         and the no-shadow rule). role=combobox/listbox/option + aria-live caption
+         (a11y best-effort — focus stays on the wrapper, so the live caption is the
+         dependable AT signal). -->
+    <div id="command-history-overlay" class="ch-panel" hidden
+         role="dialog" aria-label="Command history recall">
+      <div class="ch-cap">
+        <span>Command history</span>
+        <span class="ch-count" aria-live="polite"></span>
+      </div>
+      <div class="ch-list" id="ch-listbox" role="listbox" aria-label="Command history"></div>
+      <div class="ch-entry">
+        <span class="pr" aria-hidden="true">&gt;</span>
+        <span class="ch-txt" role="combobox" aria-expanded="true"
+              aria-controls="ch-listbox" aria-activedescendant=""></span>
+      </div>
+      <div class="ch-legend" aria-hidden="true">
+        <span><b>Tab</b> select</span><span class="ch-sep">·</span><span><b>↑↓</b> move</span><span class="ch-sep">·</span><span><b>←→</b> edit</span><span class="ch-sep">·</span><span><b>Enter</b> send</span><span class="ch-sep">·</span><span><b>Esc</b> cancel</span>
+      </div>
+    </div>
   </div>
 
   <!-- ============================================================= -->
@@ -1923,6 +2107,22 @@
     <form method="dialog">
       <button id="clear-scrollback-confirm-ok" type="submit" value="confirm">Clear scrollback</button>
       <button id="clear-scrollback-confirm-cancel" type="submit" value="cancel">Cancel</button>
+    </form>
+  </dialog>
+
+  <!-- Epic E8 Story E8.3 (FR-21, UX-DR3) — Clear command history deliberate-friction
+       confirm. Same shape as #clear-scrollback-confirm: opened via the shared openModal
+       helper (main.js confirmClearCommandHistory) from Settings ▸ Clear command history….
+       Cancel is default-focused so Enter is the safe choice on this destructive action;
+       Esc/backdrop resolve '' → treated as cancel. Only 'confirm' empties the store. -->
+  <dialog id="clear-cmd-history-confirm" aria-labelledby="clear-cmd-history-confirm-title">
+    <header>
+      <h2 id="clear-cmd-history-confirm-title">Clear command history?</h2>
+    </header>
+    <p>This can't be undone.</p>
+    <form method="dialog">
+      <button id="clear-cmd-history-confirm-ok" type="submit" value="confirm">Clear command history</button>
+      <button id="clear-cmd-history-confirm-cancel" type="submit" value="cancel">Cancel</button>
     </form>
   </dialog>
 

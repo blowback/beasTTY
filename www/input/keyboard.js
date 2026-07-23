@@ -88,6 +88,11 @@ let termRef = null;
 let sampleBellFn = null;
 let drainHostReplyFn = null;
 let requestFrameFn = null;
+// E8.1 (FR-1, NFR-2) — optional command-history capture hook. Fed each TYPED
+// keystroke from the forwardBytes choke point below (observation-only; the
+// engine never emits a byte). Null when unwired, so the keydown path — and the
+// full test suite — behaves byte-for-byte as before if it is not injected.
+let captureHistoryFn = null;
 
 // --- Public setters/getters ----------------------------------------------
 
@@ -171,11 +176,13 @@ export function wireKeyboard(opts) {
         sampleBell,
         drainHostReply,
         requestFrame,
+        captureHistory,        // E8.1 — optional; command-history.js capture(info)
     } = opts;
     termRef = term;
     sampleBellFn = sampleBell;
     drainHostReplyFn = drainHostReply;
     requestFrameFn = requestFrame;
+    captureHistoryFn = captureHistory || null;
 
     // --- Composition (IME) listeners — D-06 -----------------------------
     terminalWrapper.addEventListener('compositionstart', () => {
@@ -295,6 +302,15 @@ export function wireKeyboard(opts) {
 
         const wasEnter = (code === KEY_TAG.Enter) || (code === KEY_TAG.KeypadEnter);
         forwardBytes(bytes, wasEnter);
+
+        // E8.1 (FR-1, NFR-2) — feed the typed keystroke to the command-history
+        // engine AFTER the wire byte is forwarded. Additive + observation-only:
+        // it inspects e/code/mods/bytes/wasEnter (all in scope here — the reason
+        // the call lives in the handler, not inside forwardBytes which only sees
+        // bytes/wasEnter) and never touches the encode/forward/local-echo path.
+        // Paste never reaches here (paste-pump.js → pushTxBytes), so this hook is
+        // typed-only for free. Null-guarded so wiring stays optional.
+        if (captureHistoryFn) captureHistoryFn({ e, code, mods, bytes, wasEnter });
     });
 }
 

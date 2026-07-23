@@ -124,6 +124,15 @@ let clearSelectionRef = null;
 // owns the modal (openModal) so modal.js stays out of menu-bar's import set (AD-3).
 let pushZoomRef = null;
 let confirmClearScrollbackRef = null;
+// E8.3 (FR-19/FR-20/FR-21, AD-3) — Settings ▸ Command history injected dependencies.
+// confirmClearCommandHistoryRef runs the deliberate-friction confirm for
+// Clear command history… (mirrors confirmClearScrollbackRef); clearCommandHistoryRef
+// / trimCommandHistoryRef are the engine's clear() / trimToCap() (AD-5 — the engine
+// owns the store, menu-bar never reshapes prefs.commandHistory). All three arrive as
+// opts because menu-bar may import neither modal.js nor input/command-history.js (AD-3).
+let confirmClearCommandHistoryRef = null;
+let clearCommandHistoryRef = null;
+let trimCommandHistoryRef = null;
 // E2.3 (FR-15, AD-3) — Connection ▸ Serial Configuration… opener. main.js owns the
 // modal (openModal); this is the injected zero-arg opener (returns the openModal
 // promise, ignored here). Optional: a harness that omits it leaves the click inert.
@@ -161,6 +170,9 @@ let setLocalEchoRef = null;
 let setCrlfModeRef = null;
 let localEchoItemEl = null;        // #menu-local-echo-item — checkable, derived from prefs.localEcho
 let crlfPanelEl = null;            // [data-submenu-panel="crlf"] — active radio derived from prefs.crlfMode
+// E8.3 (FR-19/FR-20) — the two Command-history rows this module projects.
+let commandHistoryItemEl = null;   // #menu-command-history-item — checkable, derived from prefs.commandHistoryEnabled
+let cmdHistorySizePanelEl = null;  // [data-submenu-panel="cmdhistory-size"] — active radio derived from prefs.commandHistorySize
 
 // Settings ▸ Wrap long lines injected seam. setWrapRef is the wasm core's
 // term.set_wrap (injected as a closure by main.js — menu-bar may NOT import the
@@ -197,6 +209,7 @@ const CHECKABLE_PREF_EFFECTS = {
     wrapLongLines:  { apply: (next) => setWrapRef?.(next) },                  // core term.set_wrap (persist ≠ apply)
     showDebugPanel: { apply: (next) => setDebugPanelVisibleRef?.(next) },
     stripCtrlLogs:  {},                                                       // read at log-download time — no live setter, no pane mirror
+    commandHistoryEnabled: {},                                               // E8.3 — engine reads getPrefs() at use-time; no live setter, no pane mirror
 };
 
 // E3.3 (FR-21/FR-22, AD-3) — Settings-menu injected seams. resetPrefsRef is the
@@ -339,6 +352,13 @@ export function wireMenuBar(opts = {}) {
     // unconfirmed (guarded at each call site).
     pushZoomRef = opts.pushZoom || null;
     confirmClearScrollbackRef = opts.confirmClearScrollback || null;
+    // E8.3 (FR-19/FR-20/FR-21, AD-3) — Command-history injected dependencies. confirmClearCommandHistory
+    // mirrors confirmClearScrollback; clearCommandHistory / trimCommandHistory are engine
+    // thunks (main.js injects them as closures — the engine is wired AFTER wireMenuBar, so
+    // bare refs would TDZ). All optional: a harness omitting them leaves the click inert.
+    confirmClearCommandHistoryRef = opts.confirmClearCommandHistory || null;
+    clearCommandHistoryRef = opts.clearCommandHistory || null;
+    trimCommandHistoryRef = opts.trimCommandHistory || null;
     openSerialConfigRef = opts.openSerialConfig || null;   // E2.3 (FR-15, AD-3)
     // E3.1 (FR-16/FR-17, AD-3) — File-menu seams. All optional: a harness that
     // omits sendFile / downloadSessionLog leaves the row's click inert; one that
@@ -489,6 +509,13 @@ export function wireMenuBar(opts = {}) {
     // from prefs so the glyph is correct BEFORE the first Settings-menu open.
     stripCtrlItemEl = document.getElementById('menu-strip-ctrl-logs-item');
     projectStripCtrl();
+
+    // E8.3 (AC-1/AC-5) — discover the Command-history rows and take their initial
+    // paint from prefs so the toggle glyph + size radio are correct BEFORE the first
+    // Settings-menu open (never trust the HTML data-checked literals).
+    commandHistoryItemEl = document.getElementById('menu-command-history-item');
+    cmdHistorySizePanelEl = document.querySelector('.submenu[data-submenu-panel="cmdhistory-size"]');
+    projectCommandHistory();   // toggle glyph + size radio, both derived from prefs
 
     // E5.1 (AC-3) — discover the Debug ▸ Show Debug Panel row and take its initial
     // paint from prefs so the glyph is correct BEFORE the first Debug-menu open (never
@@ -815,6 +842,19 @@ function onRadioSelect(panel, item) {
         setCrlfModeRef?.(value);
         savePrefs({ crlfMode: value });          // AD-4 — persist
         setRadioChecked(panel, value);
+    } else if (group === 'cmdhistory-size') {
+        // E8.3 (AC-3) — Command-history size preset. data-value is a string; the pref
+        // is a number, so convert + validate (positive integer) before persisting.
+        // Persist FIRST so trimToCap()'s fresh getPrefs() sees the new cap, then trim
+        // the store immediately (AD-4: savePrefs patches the in-memory blob synchronously;
+        // only the localStorage flush is debounced). No live setter (the engine reads the
+        // cap at commit-time), NOT a D-19 selection-clear trigger, no CRT restriction.
+        const size = Number(value);
+        if (Number.isInteger(size) && size > 0) {
+            savePrefs({ commandHistorySize: size });   // AD-4 — persist
+            trimCommandHistoryRef?.();                  // AD-5 — engine drops the oldest beyond the new cap
+            setRadioChecked(panel, value);
+        }
     }
 }
 
@@ -1065,6 +1105,19 @@ function runViewAction(action, ev) {
                 clearScrollback();                   // no confirm wired (harness) — direct
             }
             return;
+        case 'clear-cmd-history':
+            // E8.3 (AC-4) — mirror clear-scrollback: close the dropdown first (so it
+            // isn't left open under the dialog), then run the deliberate-friction confirm
+            // and empty the store only on confirm. Engine owns the wipe (AD-5) via the
+            // injected thunk; with no confirm opt wired (a bare harness) it falls back to
+            // a direct clear.
+            closeMenu();
+            if (confirmClearCommandHistoryRef) {
+                confirmClearCommandHistoryRef().then((ok) => { if (ok) clearCommandHistoryRef?.(); });
+            } else {
+                clearCommandHistoryRef?.();          // no confirm wired (harness) — direct
+            }
+            return;
         default:
             closeMenu();
             return;
@@ -1138,6 +1191,7 @@ function projectMenuOnOpen() {
         projectLocalEcho();
         projectWrapLines();
         projectStripCtrl();
+        projectCommandHistory();   // toggle glyph + size radio
         const p = getPrefs();
         if (crlfPanelEl && p && p.crlfMode) setRadioChecked(crlfPanelEl, p.crlfMode);
     }
@@ -1174,6 +1228,16 @@ function projectDebugPanel(prefs) { projectCheckable(debugPanelItemEl, 'showDebu
 // siblings: derives only the ROW glyph/aria from prefs.stripCtrlLogs. There is
 // no live apply — session-log.js reads the pref at download-click time.
 function projectStripCtrl(prefs) { projectCheckable(stripCtrlItemEl, 'stripCtrlLogs', prefs); }
+// E8.3 (AC-1/AC-5) — Settings ▸ Command history projector: the enable-toggle glyph
+// (via the shared projectCheckable) AND the size radio, re-derived together from
+// prefs at USE-TIME. No live apply — the engine reads the prefs at use-time. String()
+// because setRadioChecked compares data-value strings. One projector for the whole
+// surface so the three call sites (wire-time, menu-open, reset) never drift.
+function projectCommandHistory(prefs) {
+    projectCheckable(commandHistoryItemEl, 'commandHistoryEnabled', prefs);
+    const p = prefs || getPrefs();
+    if (cmdHistorySizePanelEl && p && p.commandHistorySize) setRadioChecked(cmdHistorySizePanelEl, String(p.commandHistorySize));
+}
 
 // E3.1 (FR-17, AC-4/AC-5) — project the Download Session Log row from the live RX
 // byte count at USE-TIME. Modeled on syncSubmenuDisabled but INVERSE polarity:
@@ -1387,6 +1451,11 @@ export function projectPrefs(prefs) {
     projectWrapLines(p); // Settings ▸ Wrap long lines — resetPrefs() restores the unchecked default row
     projectStripCtrl(p); // Settings ▸ Strip ctrl codes from logs — resetPrefs() restores the unchecked default row
     if (crlfPanelEl && p.crlfMode) setRadioChecked(crlfPanelEl, p.crlfMode);
+    // E8.3 (AC-5) — re-project the Settings ▸ Command history toggle + size radio so
+    // resetPrefs() (AD-14) restores the defaults (enabled checked, size 100) in the menu
+    // DOM. This IS the reset story — no bespoke reset handler. Placed before the View
+    // guard so a View-less harness still gets the reset re-projection.
+    projectCommandHistory(p);
     // E5.1 (AC-3/AC-6) — re-project the Debug ▸ Show Debug Panel row from p.showDebugPanel
     // so resetPrefs() (AD-14) restores the unchecked default in the menu DOM. Placed
     // BEFORE the View-dropdown guard (E2.2/E3.2 placement precedent) so a View-less
