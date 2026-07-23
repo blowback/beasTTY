@@ -444,9 +444,16 @@
       min-width: 30px;                      /* collapse floor = the rail */
       align-self: stretch;                  /* match the canvas height beside it */
       margin: 16px 16px 16px 0;
-      container-type: inline-size;          /* width source for the narrow-window query */
+      /* size (not inline-size) containment: the pane's CONTENT must never set
+         its height, or a long file/review list inflates the #stage flex row
+         past the canvas and scrolls the whole window. With containment the
+         stage row stays canvas-height, align-self:stretch (above) gives the
+         pane that height, and .pp-list/.pp-review scroll internally. Inline
+         axis doubles as the width source for the narrow-window query. */
+      container-type: size;
       display: flex;
       min-height: 0;
+      position: relative;                   /* S9.3 — anchor for the bloom overlay card */
     }
     .pp-card {
       flex: 1;
@@ -535,6 +542,21 @@
     }
     .pp-foot[hidden] { display: none; }
 
+    /* S9.3 — drop-target affordance (UX-DR3). Mockup pull-pane.html:103-108
+       with the literal rgba translated to the shipped color-mix tint pattern
+       (index.html [data-scrolled-back] precedent) — --chrome-* only, identical
+       CRT↔Console (AD-9). Classes set by pull-pane.js setDropAffordance. */
+    .pp-card.drop {
+      border-color: var(--chrome-accent);
+      box-shadow: inset 0 0 0 1px var(--chrome-accent);
+    }
+    .pp-foot.drop-active {
+      color: var(--chrome-accent);
+      border-top-color: var(--chrome-accent);
+      background: color-mix(in srgb, var(--chrome-accent) 10%, transparent);
+      font-weight: 600;
+    }
+
     /* S9.2 — in-pane review sub-state (FR-5). Mockup pull-pane.html:112-141
        translated to shipped tokens: --chrome-* plus the theme-independent
        --field-bg the mockup's command row uses. Skipped rows are muted +
@@ -542,12 +564,16 @@
        DESIGN.md colour rules). No [data-theme] branch (AD-9). */
     .pp-review {
       flex: 1; min-height: 0;
-      overflow: auto;
       padding: 10px 11px;
       display: flex; flex-direction: column; gap: 10px;
     }
     .pp-review[hidden] { display: none; }
     .pp-cmdline {
+      /* flex-shrink:0 — its overflow-x:auto zeroes the automatic minimum
+         height, so without this a long token list squeezes the command row
+         down to just its horizontal scrollbar. The command being sent must
+         stay visible; the TOKEN LIST below is the scroll region. */
+      flex-shrink: 0;
       background: var(--field-bg);
       border: 1px solid var(--chrome-border);
       border-radius: 4px;
@@ -557,9 +583,13 @@
     }
     .pp-cmdline[hidden] { display: none; }
     .pp-cmdline .pp-pr { color: var(--chrome-accent); margin-right: 6px; }
-    .pp-nothing { color: var(--chrome-muted); font-size: 12px; line-height: 1.5; }
+    .pp-nothing { flex-shrink: 0; color: var(--chrome-muted); font-size: 12px; line-height: 1.5; }
     .pp-nothing[hidden] { display: none; }
-    .pp-toklist { display: flex; flex-direction: column; gap: 5px; }
+    .pp-toklist {
+      flex: 1; min-height: 0;
+      overflow-y: auto;
+      display: flex; flex-direction: column; gap: 5px;
+    }
     .pp-tok { display: flex; align-items: center; gap: 9px; font-size: 13px; color: var(--chrome-fg); }
     .pp-tok .mk { width: 14px; text-align: center; }
     .pp-tok.ok .mk { color: var(--chrome-accent); }
@@ -606,6 +636,23 @@
         border: 1px solid var(--chrome-border);
         border-radius: 6px;
       }
+    }
+    /* S9.3 — rail bloom (FR-2). Overlay, NOT reflow: #pull-pane keeps its 30px
+       flow slot (NFR-5 — the canvas never moves during bloom); the card paints
+       position:absolute above the stage. The pane stays 30px wide
+       (container-type: inline-size), so the @container hide rule above STILL
+       matches during bloom — this attribute+class selector (0,2,0) out-ranking
+       the container rule's .pp-card (0,1,0) is the mechanism, not an accident.
+       z-index 8: above the canvas-level chips/overlays (z:5-6), below the
+       menu-bar layers (z:20+) and native <dialog> top layer. */
+    #pull-pane[data-bloom] .pp-card {
+      display: flex;
+      position: absolute;
+      top: 0;
+      right: 0;
+      width: 312px;
+      height: 100%;
+      z-index: 8;
     }
     .pp-rail .pp-badge {
       background: var(--chrome-accent); color: var(--chrome-bg);
@@ -2016,9 +2063,10 @@
       <!-- Footer hint (shown once a folder is bound + readable). -->
       <div class="pp-foot" id="pull-pane-foot" hidden>Drag a filename selection here to pull</div>
     </div>
-    <!-- Narrow-window fallback rail (container query). Bloom-open on click/drag
-         is structurally stubbed here (S9.2/S9.3 finish the interaction). -->
-    <div class="pp-rail" title="Pull folder">
+    <!-- Narrow-window fallback rail (container query). S9.3: click or a
+         terminal-selection drag blooms the card open as an overlay
+         (data-bloom on #pull-pane — pull-pane.js setBloom). -->
+    <div class="pp-rail" title="Click or drag a selection here to open the pull pane">
       <span class="pp-badge" id="pull-pane-badge">0</span>
       <span class="pp-vlabel">PULL FOLDER</span>
     </div>

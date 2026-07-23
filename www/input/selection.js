@@ -1,7 +1,7 @@
 // Beastty Phase 6 Plan 04 (Wave 3) — pointer drag-select state machine.
 //
 // Public API: wireSelection, getActiveRange, getSelection, clearSelection,
-//             isDragging, cancelDrag, onSelectionChange.
+//             isDragging, cancelDrag, onSelectionChange, onSelectionDragState.
 //
 // Sources:
 //   - 06-CONTEXT.md D-16..D-20.
@@ -26,7 +26,19 @@ let lastClickCol = -1;
 let lastClickRow = -1;
 let clickCount = 0;
 
+// S9.3 (E9 FR-4) — drag-origination state. A pointerdown INSIDE the committed
+// selection arms a native HTML5 drag instead of restarting selection. The text
+// is read at dragstart: both D-19 clear triggers (wrapper blur, scroll) are
+// suppressed while a drag is pending/active, so the selection is guaranteed
+// alive until then — and a plain click-to-deselect never pays for a
+// getSelection() walk it would only throw away.
+let dragPending = false;      // origination branch entered; dragstart not yet fired
+let dragActive = false;       // native drag in flight (dragstart fired, dragend pending)
+let dragText = '';            // selection text stashed at dragstart
+let dragImageEl = null;       // persistent 1×1 transparent setDragImage target
+
 const selectionObservers = [];
+const selectionDragObservers = [];
 
 // --- Injected deps -------------------------------------------------------
 
@@ -55,20 +67,41 @@ export function wireSelection(opts) {
     canvas.addEventListener('pointerdown', onPointerDown);
     canvas.addEventListener('pointermove', onPointerMove);
     canvas.addEventListener('pointerup', onPointerUp);
+    canvas.addEventListener('pointercancel', onPointerCancel);
     canvas.addEventListener('lostpointercapture', onLostPointerCapture);
+    // S9.3 — native drag hooks for the origination branch in onPointerDown.
+    canvas.addEventListener('dragstart', onDragStart);
+    canvas.addEventListener('dragend', onDragEnd);
+
+    // S9.3 — persistent 1×1 transparent drag-image target. Without it the
+    // default drag image for a canvas-originated drag is the rendered canvas —
+    // an 80×24 screenshot glued to the cursor. Must be in the DOM and rendered
+    // (Chromium ignores display:none / detached elements), so park it off-screen.
+    if (!dragImageEl) {
+        dragImageEl = document.createElement('div');
+        dragImageEl.style.cssText = 'position:fixed;top:-10px;left:-10px;width:1px;height:1px;opacity:0;pointer-events:none;';
+        document.body.appendChild(dragImageEl);
+    }
 
     // D-19 — selection clears on any scroll AFTER the drag completes.
     // While dragging, the auto-scroll branch in onPointerMove still extends
     // the selection naturally (the scroll handler fires inside the drag).
+    // S9.3: also skipped while a selection drag is pending/active — a wheel
+    // notch between arming and dragstart must not destroy the drag's payload
+    // (mirrors the blur guard below).
     unsubscribeScroll = scrollState.onChange(() => {
-        if (!dragging && (anchor || focusEnd)) {
+        if (!dragging && !dragPending && !dragActive && (anchor || focusEnd)) {
             clearSelection();
         }
     });
 
-    // D-19 — selection clears on focus loss on #terminal-wrapper.
+    // D-19 — selection clears on focus loss on #terminal-wrapper. S9.3: skipped
+    // while a selection drag is pending/active — the origination branch skips
+    // preventDefault, so the mousedown itself blurs the wrapper, and clearing
+    // here would destroy the drag's own payload before dragstart fires.
     if (terminalWrapper) {
         terminalWrapper.addEventListener('blur', () => {
+            if (dragPending || dragActive) return;
             if (anchor || focusEnd) clearSelection();
         });
     }
@@ -80,6 +113,7 @@ export function wireSelection(opts) {
         isDragging,
         cancelDrag,
         onSelectionChange,
+        onSelectionDragState,
         dispose,
     };
 }
@@ -108,6 +142,44 @@ function pxToCellWithScrollOffset(ev) {
     };
 }
 
+// --- Endpoint normalization (shared) --------------------------------------
+
+// Normalize anchor/focusEnd into {start, end}: start is the older row (larger
+// rowOffsetFromTail), or the smaller col on the same row. Single source for
+// isCellInSelection, getActiveRange, and getSelection — the three must agree
+// or the drag hit-test diverges from the rendered highlight.
+function normalizedEndpoints() {
+    if (!anchor || !focusEnd) return null;
+    const a = anchor;
+    const f = focusEnd;
+    const aIsStart = (a.rowOffsetFromTail > f.rowOffsetFromTail)
+                  || (a.rowOffsetFromTail === f.rowOffsetFromTail && a.col <= f.col);
+    return { start: aIsStart ? a : f, end: aIsStart ? f : a };
+}
+
+// --- S9.3 drag-origination hit test --------------------------------------
+
+// Is `at` inside the committed selection? Tests against the walked-range
+// semantics: middle rows count full-width, end rows clip at start.col/end.col
+// (same-row: min/max cols).
+function isCellInSelection(at) {
+    const range = normalizedEndpoints();
+    if (!range) return false;
+    const { start, end } = range;
+    // Rows walk top (older, larger offset) → bottom (newer, smaller offset).
+    if (at.rowOffsetFromTail > start.rowOffsetFromTail
+            || at.rowOffsetFromTail < end.rowOffsetFromTail) {
+        return false;
+    }
+    if (start.rowOffsetFromTail === end.rowOffsetFromTail) {
+        return at.col >= Math.min(start.col, end.col)
+            && at.col <= Math.max(start.col, end.col);
+    }
+    if (at.rowOffsetFromTail === start.rowOffsetFromTail) return at.col >= start.col;
+    if (at.rowOffsetFromTail === end.rowOffsetFromTail) return at.col <= end.col;
+    return true;   // middle rows count full-width
+}
+
 // --- Pointer event handlers ----------------------------------------------
 
 function onPointerDown(ev) {
@@ -119,17 +191,39 @@ function onPointerDown(ev) {
     if (canvasRef.parentElement?.getAttribute('data-drop-target') === 'true') {
         return;
     }
+
+    const at = pxToCellWithScrollOffset(ev);
+    const now = (typeof performance !== 'undefined') ? performance.now() : Date.now();
+
+    // S9.3 — a previous origination press that never got a canvas pointerup
+    // (released off-canvas below the drag threshold, or pointercancel missed)
+    // must not leak into this gesture: disarm before branching.
+    if (dragPending && !dragActive) disarmDrag();
+
+    // S9.3 — drag-origination branch: pointerdown INSIDE the committed selection
+    // arms a native HTML5 drag instead of restarting selection. Deliberately NO
+    // preventDefault (it would suppress the compatibility mouse events the drag
+    // machinery hangs off) and NO setPointerCapture (capture routes events to the
+    // canvas and kills the drag operation). No anchor reset — the selection is
+    // the drag payload. A pointerdown continuing a multi-click sequence (same
+    // 400ms/same-cell window the click counter uses) is NOT origination: the
+    // 3rd click of a triple-click lands inside the word the 2nd click selected,
+    // and must still select the line.
+    const continuesMultiClick = now - lastClickTs < 400
+            && lastClickRow === at.rowOffsetFromTail
+            && lastClickCol === at.col;
+    if (!continuesMultiClick && anchor && focusEnd && isCellInSelection(at)) {
+        dragPending = true;
+        canvasRef.draggable = true;
+        return;
+    }
+
     ev.preventDefault();
     try { canvasRef.setPointerCapture(ev.pointerId); } catch { /* ignore */ }
     dragging = true;
 
-    const at = pxToCellWithScrollOffset(ev);
-
     // Click-count detection (window: 400 ms AND same cell).
-    const now = (typeof performance !== 'undefined') ? performance.now() : Date.now();
-    if (now - lastClickTs < 400
-            && lastClickRow === at.rowOffsetFromTail
-            && lastClickCol === at.col) {
+    if (continuesMultiClick) {
         clickCount += 1;
     } else {
         clickCount = 1;
@@ -167,6 +261,25 @@ function onPointerMove(ev) {
 }
 
 function onPointerUp(ev) {
+    // S9.3 — armed drag but no dragstart fired: this was a plain click inside
+    // the selection. Deselect (the existing single-click-clears behavior
+    // extended to this branch) and disarm. The click counter is seeded as a
+    // single click, exactly as the pre-S9.3 restart-selection path did — so
+    // double-clicking a word inside an existing selection still word-selects
+    // on the second click.
+    if (dragPending && !dragActive) {
+        disarmDrag();
+        const at = pxToCellWithScrollOffset(ev);
+        clickCount = 1;
+        lastClickTs = (typeof performance !== 'undefined') ? performance.now() : Date.now();
+        lastClickRow = at.rowOffsetFromTail;
+        lastClickCol = at.col;
+        anchor = null;
+        focusEnd = null;
+        notifySelectionChange();
+        if (requestFrameFn) requestFrameFn();
+        return;
+    }
     dragging = false;
     if (anchor && focusEnd
             && anchor.rowOffsetFromTail === focusEnd.rowOffsetFromTail
@@ -180,9 +293,61 @@ function onPointerUp(ev) {
     }
 }
 
+function onPointerCancel() {
+    // S9.3 — the browser reclaimed the gesture (touch scroll, pen palm-reject)
+    // after the origination branch armed: disarm so the stale flags don't
+    // suppress D-19 or hijack the next gesture's pointerup.
+    if (dragPending && !dragActive) disarmDrag();
+    dragging = false;
+}
+
 function onLostPointerCapture() {
     dragging = false;
     // Selection persists until D-19 trigger.
+}
+
+// --- S9.3 native drag handlers -------------------------------------------
+
+// Clear the origination-arm state (pending flag, payload stash, draggable).
+function disarmDrag() {
+    dragPending = false;
+    dragText = '';
+    if (canvasRef) canvasRef.draggable = false;
+}
+
+function onDragStart(ev) {
+    // A drag not armed by the origination branch is a stray (e.g. a leftover
+    // draggable attribute) — abort it.
+    if (!dragPending) {
+        ev.preventDefault();
+        return;
+    }
+    // Read the payload now — the D-19 blur/scroll guards kept the selection
+    // alive since the arming pointerdown, and reading here (once per real
+    // drag) spares every click-to-deselect the full getSelection() row walk.
+    const sel = getSelection();
+    dragText = sel ? sel.rows.join('\n') : '';
+    if (!dragText) {
+        ev.preventDefault();
+        return;
+    }
+    ev.dataTransfer.setData('text/plain', dragText);
+    ev.dataTransfer.effectAllowed = 'copy';
+    if (dragImageEl) {
+        try { ev.dataTransfer.setDragImage(dragImageEl, 0, 0); } catch { /* ignore */ }
+    }
+    dragActive = true;
+    notifySelectionDrag({ active: true, text: dragText });
+}
+
+function onDragEnd() {
+    disarmDrag();
+    dragActive = false;
+    // D-19 — the wrapper lost focus at the origination mousedown and the blur
+    // guard swallowed that clear to protect the payload; the drag is over now,
+    // so re-establish the invariant (no highlight without focus).
+    clearSelection();
+    notifySelectionDrag({ active: false });
 }
 
 // --- Word / line selection helpers ---------------------------------------
@@ -229,16 +394,13 @@ function safeReadRowText(rowOffsetFromTail) {
 // --- Public exports ------------------------------------------------------
 
 export function getActiveRange() {
-    if (!anchor || !focusEnd) return null;
-    // Normalize so start is the older row (larger offset) or smaller col on
-    // the same row. Iteration walks newest → oldest? We choose start = older
-    // (larger rowOffsetFromTail) so cells iterate top-to-bottom in the viewport.
+    const range = normalizedEndpoints();
+    if (!range) return null;
+    // start is the older row (larger offset) so cells iterate top-to-bottom
+    // in the viewport.
+    const { start, end } = range;
     const a = anchor;
     const f = focusEnd;
-    const aIsStart = (a.rowOffsetFromTail > f.rowOffsetFromTail)
-                  || (a.rowOffsetFromTail === f.rowOffsetFromTail && a.col <= f.col);
-    const start = aIsStart ? a : f;
-    const end = aIsStart ? f : a;
     const cols = termRef.cols();
     const visibleRows = termRef.rows();
     const offset = scrollStateRef.getOffset();
@@ -267,15 +429,11 @@ export function getActiveRange() {
 }
 
 export function getSelection() {
-    if (!anchor || !focusEnd) return null;
+    const range = normalizedEndpoints();
+    if (!range) return null;
     // Decode each row of the selection per D-23: trim trailing whitespace per
     // line; \n line endings are joined by the caller (clipboard.js).
-    const a = anchor;
-    const f = focusEnd;
-    const aIsStart = (a.rowOffsetFromTail > f.rowOffsetFromTail)
-                  || (a.rowOffsetFromTail === f.rowOffsetFromTail && a.col <= f.col);
-    const start = aIsStart ? a : f;
-    const end = aIsStart ? f : a;
+    const { start, end } = range;
     const cols = termRef.cols();
     const rows = [];
     for (let row = start.rowOffsetFromTail; row >= end.rowOffsetFromTail; row -= 1) {
@@ -325,15 +483,41 @@ export function onSelectionChange(fn) {
     };
 }
 
+// S9.3 — drag-state observer: {active: true, text} on dragstart, {active: false}
+// on dragend. Carries the stashed text because onSelectionChange observers only
+// receive {hasSelection} (and the selection may already be blur-cleared by the
+// time a consumer wants the payload).
+export function onSelectionDragState(fn) {
+    selectionDragObservers.push(fn);
+    return () => {
+        const i = selectionDragObservers.indexOf(fn);
+        if (i >= 0) selectionDragObservers.splice(i, 1);
+    };
+}
+
 export function dispose() {
     if (unsubscribeScroll) {
         try { unsubscribeScroll(); } catch { /* ignore */ }
         unsubscribeScroll = null;
     }
+    if (canvasRef) {
+        canvasRef.removeEventListener('pointercancel', onPointerCancel);
+        canvasRef.removeEventListener('dragstart', onDragStart);
+        canvasRef.removeEventListener('dragend', onDragEnd);
+        canvasRef.draggable = false;
+    }
+    if (dragImageEl) {
+        try { dragImageEl.remove(); } catch { /* ignore */ }
+        dragImageEl = null;
+    }
     selectionObservers.length = 0;
+    selectionDragObservers.length = 0;
     anchor = null;
     focusEnd = null;
     dragging = false;
+    dragPending = false;
+    dragActive = false;
+    dragText = '';
 }
 
 function notifySelectionChange() {
@@ -343,6 +527,16 @@ function notifySelectionChange() {
             fn({ hasSelection: has });
         } catch (err) {
             console.warn('[selection] observer threw:', err);
+        }
+    }
+}
+
+function notifySelectionDrag(state) {
+    for (const fn of selectionDragObservers) {
+        try {
+            fn(state);
+        } catch (err) {
+            console.warn('[selection] drag observer threw:', err);
         }
     }
 }

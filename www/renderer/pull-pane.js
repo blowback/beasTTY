@@ -14,9 +14,14 @@
 // validates each token against the injected CP/M helpers, composes the SLIDE S
 // command, and opens the in-pane review sub-state (confirm → one pushTxBytes of
 // command + Enter terminator, refused while a SLIDE session is active or no
-// serial writer is registered; cancel → nothing). Still NO drop gesture (S9.3)
-// and NO reverse drag (S9.4). The ~60s timer + window-focus listener are set up
-// in wirePullPane and torn down in dispose().
+// serial writer is registered; cancel → nothing) — PLUS the S9.3 drop layer:
+// onSelectionDrag(state) receives the terminal-selection drag state from
+// main.js (fed by selection.js's onSelectionDragState observer, never imported),
+// the pane's dragenter/over/leave/drop handlers show the UX-DR3 affordance and
+// route a drop into beginReview, and the narrow-window rail blooms the card
+// open as a zero-layout-shift overlay (data-bloom). Still NO reverse drag
+// (S9.4). The ~60s timer + window-focus listener are set up in wirePullPane
+// and torn down in dispose().
 //
 // Direct-import allowlist (AD-3): this module direct-imports NOTHING from other
 // app modules — every dependency (idb, retainFocus, the DOM root, the
@@ -88,7 +93,25 @@ let paneRootEl = null, cardEl = null, fnameEl = null, capEl = null, capLabelEl =
     countEl = null, listEl = null, blankEl = null, blankMsgEl = null,
     chooseBtn = null, grantBtn = null, footEl = null, badgeEl = null, refreshBtn = null,
     reviewEl = null, cmdlineEl = null, cmdTextEl = null, nothingEl = null,
-    tokListEl = null, actionsEl = null, cancelBtn = null, confirmBtn = null;
+    tokListEl = null, actionsEl = null, cancelBtn = null, confirmBtn = null,
+    railEl = null;
+
+// ====== S9.3 — selection-drag / drop-affordance / bloom state ======
+
+// The in-app selection drag currently pending over the app, as reported by
+// selection.js via main.js (onSelectionDrag). The accept predicate keys off
+// selDrag.active — set ONLY by our own dragstart — so OS file drags and
+// foreign text drags over the pane fall through untouched.
+let selDrag = { active: false, text: '', validCount: 0 };
+// dragenter/dragleave fire per descendant; depth-count so the affordance only
+// clears on leave-to-zero (file-source.js dragDepth precedent).
+let dropDepth = 0;
+let dropAffordanceOn = false;
+// Rail bloom (FR-2). bloomedByClick tracks whether the document-level
+// pointerdown-outside listener is installed (only the click-bloom case
+// dismisses that way).
+let bloomed = false;
+let bloomedByClick = false;
 
 // Verbatim microcopy (EXPERIENCE.md — do NOT paraphrase).
 const COPY = {
@@ -97,12 +120,28 @@ const COPY = {
     empty: 'Empty — pulled files will appear here.',
     boundCaption: 'Local folder',
     reviewCaption: 'Review — pull to this folder',
+    // S9.3 — resting footer (restored when the drop affordance clears) and the
+    // drop-active footer prefix (EXPERIENCE.md:130 — "⤓ Drop to pull 2 files").
+    footResting: 'Drag a filename selection here to pull',
+    footDropPrefix: '⤓ Drop to pull ',
 };
 
 // Verbatim skip reason for tokens that fail the 8.3 idempotence check
 // (EXPERIENCE.md:133 / mockup pull-pane.html:282 — do NOT paraphrase). Tokens
 // rejected by validateCpmFilename surface its specific reason instead.
 const REASON_83 = 'Not a CP/M 8.3 name (name ≤8, ext ≤3, uppercase). v1 only pulls 8.3 names.';
+
+// S9.3 (AC-7, deferred from the S9.2 code review) — the composed command must
+// stay within the standard CP/M CCP line buffer (~127 chars); 126 leaves margin
+// for the terminator. Otherwise-valid names that would push past it are skipped
+// with this reason (proposed copy, no sourced wording — flag in review if reworded).
+const MAX_COMMAND_CHARS = 126;
+const REASON_LIMIT = 'over the 126-char CP/M command-line limit';
+// The command shape, single-sourced for both the cap arithmetic and the final
+// join — SLIDE-UAT.md UAT-E9-01 checks (a)/(b) anticipate hardware changing
+// the separator (space → comma) or prefix (B:SLIDE S); each is one line here.
+const CMD_PREFIX = 'SLIDE S ';
+const CMD_SEP = ' ';
 
 const FSA_OPTS = { mode: 'readwrite' };
 
@@ -146,6 +185,10 @@ export function wirePullPane(opts) {
     chooseBtn = paneRootEl.querySelector('#pull-pane-choose');
     grantBtn = paneRootEl.querySelector('#pull-pane-grant');
     footEl = paneRootEl.querySelector('#pull-pane-foot');
+    // COPY.footResting is the single source for the resting hint (the drop
+    // affordance restores from it); sync the static HTML copy to it at wire
+    // time so the two can never drift.
+    if (footEl) footEl.textContent = COPY.footResting;
     badgeEl = paneRootEl.querySelector('#pull-pane-badge');
     refreshBtn = paneRootEl.querySelector('#pull-pane-refresh');
     reviewEl = paneRootEl.querySelector('#pull-pane-review');
@@ -156,6 +199,7 @@ export function wirePullPane(opts) {
     actionsEl = paneRootEl.querySelector('#pull-pane-actions');
     cancelBtn = paneRootEl.querySelector('#pull-pane-cancel');
     confirmBtn = paneRootEl.querySelector('#pull-pane-confirm');
+    railEl = paneRootEl.querySelector('.pp-rail');
 
     // AD-10 — every interactive control retains #terminal-wrapper focus. All are
     // buttons (the mousedown→preventDefault branch, restoreTarget unused for that
@@ -167,6 +211,20 @@ export function wirePullPane(opts) {
     // S9.2 review actions — same retainFocus wiring as choose/grant (AD-10).
     if (cancelBtn) { retainFocusRef(cancelBtn, wrapperRef); cancelBtn.addEventListener('click', onReviewCancel); }
     if (confirmBtn) { retainFocusRef(confirmBtn, wrapperRef); confirmBtn.addEventListener('click', onReviewConfirm); }
+
+    // S9.3 — drop target (AC-2/3/4). DOM events only, no new imports (AD-3).
+    // Handlers early-return unless an in-app selection drag is acceptable, so
+    // OS file drags / foreign text drags fall through untouched (no
+    // preventDefault → browser shows no-drop).
+    paneRootEl.addEventListener('dragenter', onPaneDragEnter);
+    paneRootEl.addEventListener('dragover', onPaneDragOver);
+    paneRootEl.addEventListener('dragleave', onPaneDragLeave);
+    paneRootEl.addEventListener('drop', onPaneDrop);
+    // S9.3 — rail click blooms the card open (FR-2). The rail became a click
+    // surface here, so it goes through retainFocus like every other pane
+    // control (AD-10): its mousedown is suppressed, keeping #terminal-wrapper
+    // focused while the bloom paints.
+    if (railEl) { retainFocusRef(railEl, wrapperRef); railEl.addEventListener('click', onRailClick); }
 
     // FR-8 triggers: the ~60s timer + window focus. Both route through the one
     // guarded triggerRefresh; the transfer-done trigger arrives via refresh() from
@@ -187,7 +245,9 @@ export function wirePullPane(opts) {
     return {
         render,
         refresh: triggerRefresh,   // FR-8a transfer-done trigger (main.js onFileLanded).
-        beginReview,               // S9.2 entry point (S9.3's drop handler calls it next).
+        beginReview,               // S9.2 entry point (now also the S9.3 drop path).
+        onSelectionDrag,           // S9.3 — selection drag state from main.js (AC-8);
+                                   // doubles as the test entry point (specs call it directly).
         dispose,
         __getStateForTests,
         __resetForTests,
@@ -367,6 +427,139 @@ function setFirstRun() {
     render();
 }
 
+// ====== S9.3 — drop target + affordance + rail bloom (FR-2/4/6, UX-DR3) ======
+
+// onSelectionDrag — public API + test entry point. main.js feeds it from
+// selection.js's onSelectionDragState observer ({active: true, text} on
+// dragstart, {active: false} on dragend); specs call it directly to simulate
+// drag state.
+function onSelectionDrag(dragState) {
+    if (dragState && dragState.active) {
+        const text = String(dragState.text ?? '');
+        // validCount is computed lazily on the first accepted dragenter —
+        // a drag that never reaches the pane skips the compose entirely.
+        selDrag = { active: true, text, validCount: 0 };
+        // FR-2 — a selection drag blooms the rail open so the drop target exists.
+        if (railVisible()) setBloom(true, false);
+    } else {
+        selDrag = { active: false, text: '', validCount: 0 };
+        dropDepth = 0;
+        setDropAffordance(false);
+        // Un-bloom on dragend — unless the drag ended in a drop that opened the
+        // review (the review keeps the bloom until it exits).
+        if (bloomed && !state.review) setBloom(false);
+    }
+}
+
+// Accept predicate — drops are acceptable only while an in-app selection drag
+// is active (never OS 'Files' drags or foreign text — selDrag.active is set
+// solely by our own dragstart), no SLIDE session owns the wire, and a folder
+// is bound + readable (view list|empty; state.view stays truthful under an
+// open review, so a drop can replace it — AC-3).
+function dropAcceptable() {
+    return selDrag.active
+        && !slideActiveNow()
+        && (state.view === 'list' || state.view === 'empty');
+}
+
+function onPaneDragEnter(ev) {
+    if (!dropAcceptable()) return;
+    ev.preventDefault();
+    dropDepth++;
+    if (dropDepth === 1) {
+        // Cap-aware count for the footer copy ("⤓ Drop to pull {n} files").
+        selDrag.validCount = composeFromText(selDrag.text).validCount;
+        setDropAffordance(true);
+    }
+}
+
+function onPaneDragOver(ev) {
+    if (!dropAcceptable()) return;
+    ev.preventDefault();   // required for drop to fire
+    ev.dataTransfer.dropEffect = 'copy';
+}
+
+function onPaneDragLeave() {
+    // Cleanup keys off the pane's own entered-state, NOT dropAcceptable():
+    // if acceptability flips off mid-drag (a device-initiated SLIDE session
+    // starts), the leave must still count down and clear the affordance —
+    // otherwise the accent + footer stay lit promising a drop that is inert.
+    if (dropDepth === 0) return;
+    dropDepth -= 1;
+    if (dropDepth === 0) setDropAffordance(false);
+}
+
+function onPaneDrop(ev) {
+    if (!dropAcceptable()) return;
+    ev.preventDefault();
+    dropDepth = 0;
+    setDropAffordance(false);
+    // The stash is the fallback: some synthetic DataTransfers round-trip empty.
+    const text = (ev.dataTransfer && ev.dataTransfer.getData('text/plain')) || selDrag.text;
+    // beginReview re-checks suspension itself — if it flipped mid-drag, nothing
+    // opens and nothing is sent (AC-3). Zero-valid text still opens the S9.2
+    // zero-valid review (AC-4).
+    beginReview(text);
+}
+
+// UX-DR3 affordance — classes only (mockup pull-pane.html:103-108, rgba
+// translated to the shipped color-mix tint); footer swaps to the drop copy
+// with the cap-aware valid-token count and restores the resting hint on clear.
+function setDropAffordance(on) {
+    dropAffordanceOn = on;
+    if (cardEl) cardEl.classList.toggle('drop', on);
+    if (footEl) {
+        footEl.classList.toggle('drop-active', on);
+        footEl.textContent = on
+            ? `${COPY.footDropPrefix}${pluralFiles(selDrag.validCount)}`
+            : COPY.footResting;
+    }
+}
+
+// ====== S9.3 — rail bloom (FR-2, deferred from S9.1a) ======
+
+// The rail is visible only under the @container (max-width: 90px) narrow-window
+// query — computed display is the one honest source (data-bloom must never be
+// set while the card is already visible in a wide window).
+function railVisible() {
+    if (!railEl) return false;
+    return getComputedStyle(railEl).display !== 'none';
+}
+
+// Bloom is a zero-layout-shift overlay: data-bloom on #pull-pane makes the
+// card paint position:absolute above the stage while the pane keeps its 30px
+// flow slot — the canvas never moves (NFR-5). CSS in index.html.
+function setBloom(on, byClick) {
+    if (on) {
+        if (!bloomed) {
+            paneRootEl.setAttribute('data-bloom', '');
+            bloomed = true;
+        }
+        // Only the click-bloom case dismisses on pointerdown-outside; the
+        // drag-bloom case un-blooms on dragend / review exit instead.
+        if (byClick && !bloomedByClick) {
+            bloomedByClick = true;
+            document.addEventListener('pointerdown', onDocPointerDown, true);
+        }
+    } else {
+        if (bloomed) paneRootEl.removeAttribute('data-bloom');
+        bloomed = false;
+        if (bloomedByClick) {
+            bloomedByClick = false;
+            document.removeEventListener('pointerdown', onDocPointerDown, true);
+        }
+    }
+}
+
+function onRailClick() {
+    if (railVisible()) setBloom(true, true);
+}
+
+function onDocPointerDown(ev) {
+    if (paneRootEl.contains(ev.target)) return;
+    setBloom(false);
+}
+
 // ====== S9.2 — selection → SLIDE S compose + in-pane review (FR-4/5/7/11) ======
 
 // The session predicate, test-overridable. Checked at beginReview AND
@@ -381,39 +574,89 @@ function slideActiveNow() {
     return isSlideActiveRef();
 }
 
+// mergeDirColumns — rewrite the raw token stream so a dragged CP/M DIR listing
+// reads as filenames. DIR prints columnar 'NAME     EXT' fields (no dot) with
+// ':' between columns and a leading drive prefix ('A:'), so the plain
+// whitespace split sees 'VPEEK    COM' as two names and ':' as a third.
+// Rules, deliberately narrow:
+//   - a lone ':' and drive-prefix tokens ('A:'…'P:') are DIR noise — dropped;
+//   - a dotless 1-8 char token followed by a dotless 1-3 char token joins as
+//     NAME.EXT, but ONLY when the joined form passes the injected validators
+//     (so lowercase prose never joins, and dot-joined selections like
+//     'GAME.COM DUMP.BIN' pass through untouched — neither half is dotless
+//     next to a joinable partner).
+// Anything the rules don't match flows through to per-token validation and
+// surfaces in the review, which remains the operator's safety net.
+function mergeDirColumns(raws) {
+    const out = [];
+    for (let i = 0; i < raws.length; i += 1) {
+        const t = raws[i];
+        if (t === ':' || /^[A-P]:$/.test(t)) continue;
+        const next = raws[i + 1];
+        if (next
+                && !t.includes('.') && t.length <= 8
+                && next !== ':' && !next.includes('.') && next.length <= 3) {
+            const joined = `${t}.${next}`;
+            if (validateRef(joined).ok && truncateRef(joined) === joined) {
+                out.push(joined);
+                i += 1;   // consume the ext token
+                continue;
+            }
+        }
+        out.push(t);
+    }
+    return out;
+}
+
 // composeFromText — pure: selection text → { tokens, validCount, command|null }.
-// Split on whitespace/newlines, order preserved, empty tokens dropped. A token
+// Split on whitespace/newlines, order preserved, empty tokens dropped, then
+// mergeDirColumns rewrites DIR-columnar pairs into dot-joined names. A token
 // is valid iff it passes the injected validateCpmFilename AND truncateCpm83
 // returns it unchanged (idempotence, NOT truncation: on pull the command must
 // request the exact name the device has — truncating LONGNAME.TEXT to
 // LONGNAME.TEX would silently request a different file. Because truncateCpm83
 // uppercases, this also rejects lowercase tokens, which are prose in a CP/M
 // listing, not filenames). Exact-duplicate valid tokens collapse to the first
-// occurrence. command is 'SLIDE S ' + names joined by single spaces, or null
-// when nothing is valid (no code path may transmit a bare 'SLIDE S' — FR-7).
+// occurrence (whether the first was included or cap-skipped). command is
+// CMD_PREFIX + names joined by CMD_SEP, or null when nothing is valid (no
+// code path may transmit a bare 'SLIDE S' — FR-7).
 function composeFromText(text) {
     const tokens = [];
     const names = [];
     const seen = new Set();
-    for (const raw of text.split(/\s+/)) {
-        if (raw.length === 0) continue;
+    // AC-7 — once appending a name (with its joining separator) would push the
+    // command past MAX_COMMAND_CHARS, that name and every later valid one are
+    // skipped. Dedupe applies first: a duplicate of an included name collapses,
+    // it doesn't burn budget. cmdLen tracks the composed length so the cap
+    // arithmetic and the final join can never disagree on the command shape.
+    let capReached = false;
+    let cmdLen = CMD_PREFIX.length;
+    const raws = mergeDirColumns(text.split(/\s+/).filter((t) => t.length > 0));
+    for (const raw of raws) {
         const v = validateRef(raw);
         if (!v.ok) { tokens.push({ raw, name: raw, ok: false, reason: v.reason }); continue; }
         if (truncateRef(raw) !== raw) { tokens.push({ raw, name: raw, ok: false, reason: REASON_83 }); continue; }
         if (seen.has(raw)) continue;   // duplicate valid name — first occurrence wins
         seen.add(raw);
+        const prospective = cmdLen + (names.length > 0 ? CMD_SEP.length : 0) + raw.length;
+        if (capReached || prospective > MAX_COMMAND_CHARS) {
+            capReached = true;
+            tokens.push({ raw, name: raw, ok: false, reason: REASON_LIMIT });
+            continue;
+        }
+        cmdLen = prospective;
         names.push(raw);
         tokens.push({ raw, name: raw, ok: true, reason: null });
     }
     return {
         tokens,
         validCount: names.length,
-        command: names.length > 0 ? `SLIDE S ${names.join(' ')}` : null,
+        command: names.length > 0 ? CMD_PREFIX + names.join(CMD_SEP) : null,
     };
 }
 
-// beginReview — the S9.2 public entry point (tests now, S9.3's drop handler
-// next). Opens the review even with zero tokens (a prose-only drop still needs
+// beginReview — the S9.2 public entry point (also the S9.3 drop path —
+// onPaneDrop routes here). Opens the review even with zero tokens (a prose-only drop still needs
 // something to show — the zero-valid message). Returns false (no-op) while a
 // SLIDE session is active (FR-11). Review entry does NOT bump the epoch (it
 // enumerates nothing, and cancelling an in-flight refresh would be needless)
@@ -493,9 +736,11 @@ function onReviewConfirm() {
 function onReviewCancel() { exitReview(); }   // transmits nothing (FR-5)
 
 // Exit — clear the flag and re-render: the underlying content view re-projects,
-// picking up any refresh that landed while the review was open.
+// picking up any refresh that landed while the review was open. S9.3: a review
+// exit while bloomed also un-blooms (AC-6 — the bloom existed for the review).
 function exitReview() {
     state.review = null;
+    if (bloomed) setBloom(false);
     render();
 }
 
@@ -602,6 +847,8 @@ export function __getStateForTests() {
         view: state.view,
         fileCount: state.files.length,
         files: state.files.map((f) => ({ ...f })),
+        dropAffordance: dropAffordanceOn,   // S9.3 (AC-9)
+        bloom: bloomed,                     // S9.3 (AC-9)
         review: state.review
             ? {
                 command: state.review.command,
@@ -618,6 +865,11 @@ export function __resetForTests() {
     dirHandle = null;
     slideActiveOverride = null;
     state = { folderName: null, permission: 'prompt', files: [], view: 'first-run', review: null };
+    // S9.3 — clear drag/drop/bloom state so specs start from rest.
+    selDrag = { active: false, text: '', validCount: 0 };
+    dropDepth = 0;
+    setDropAffordance(false);
+    setBloom(false);
     render();
 }
 
@@ -645,6 +897,21 @@ export function dispose() {
     if (refreshBtn) refreshBtn.removeEventListener('click', triggerRefresh);
     if (cancelBtn) cancelBtn.removeEventListener('click', onReviewCancel);
     if (confirmBtn) confirmBtn.removeEventListener('click', onReviewConfirm);
+    // S9.3 — drop target + bloom teardown. Clear the visual state BEFORE the
+    // listeners go: a disposed pane must not leave the bloom overlay painted
+    // (or the drop affordance lit) with every dismiss path removed.
+    if (paneRootEl) {
+        selDrag = { active: false, text: '', validCount: 0 };
+        dropDepth = 0;
+        setDropAffordance(false);
+        setBloom(false);
+        paneRootEl.removeEventListener('dragenter', onPaneDragEnter);
+        paneRootEl.removeEventListener('dragover', onPaneDragOver);
+        paneRootEl.removeEventListener('dragleave', onPaneDragLeave);
+        paneRootEl.removeEventListener('drop', onPaneDrop);
+    }
+    if (railEl) railEl.removeEventListener('click', onRailClick);
+    document.removeEventListener('pointerdown', onDocPointerDown, true);
     if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
     window.removeEventListener('focus', triggerRefresh);
 }

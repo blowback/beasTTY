@@ -46,7 +46,7 @@
 #   E1 is the backbone and must land before the other menu/modal epics.
 
 generated: 2026-07-01
-last_updated: 2026-07-23  # MERGE ui-rethink → main: E8 (Command History, E8.1–E8.3 all done + code-reviewed on ui-rethink) joins E9 (Pull Pane) on main. E9 S9.2 → done (selection→SLIDE S compose + in-pane review; code-review --fix pass: 4 findings fixed incl. send-session suspension + recv-to-folder pref; 11 specs, suite green). Open question for S9.3: multi-file separator (spec says spaces, SLIDE_Z80_REQUIREMENT.md says commas). Next: S9.3 drop-to-pull. E8 detail: E8.3 settings surfaces (enable toggle + size presets + Clear… confirm); E8.2 recall overlay (5 review fixes incl. SLIDE-transfer phantom commit); E8.1 capture engine. E0–E7 complete (milestone ui-rethink, 2026-07-04).
+last_updated: 2026-07-23  # E9 S9.3 → review (drop-to-pull: drag origination + pane drop target/affordance + rail bloom + 126-char cap; 18 new specs, suite green 622 passed/0 failed; manual native-drag checkpoint + hardware checks a/b/c handed to UAT-E9-01 in docs/SLIDE-UAT.md). Earlier today — MERGE ui-rethink → main: E8 (Command History, E8.1–E8.3 done + code-reviewed) joins E9 on main; S9.2 done (4 review findings fixed). Separator question (spaces vs commas) operationalized as UAT-E9-01 check (a). Next: code-review S9.3, then S9.4 (optional) or epic retro. E8 detail: E8.3 settings surfaces (enable toggle + size presets + Clear… confirm); E8.2 recall overlay (5 review fixes incl. SLIDE-transfer phantom commit); E8.1 capture engine. E0–E7 complete (milestone ui-rethink, 2026-07-04).
 # retrospective action items (surface open ones during sprint status)
 action_items: []  # ui-rethink (E0–E7) items all resolved & cleared 2026-07-23; retros append new ones here
 project: beastty
@@ -124,6 +124,6 @@ development_status:
   e9-1a-pull-pane-shell-fsa-folder-view: done
   e9-1b-live-refresh-triggers-guards-diff-render: done
   e9-2-selection-to-slide-s-in-pane-review: done
-  e9-3-drop-to-pull-fire-land-refresh: backlog
+  e9-3-drop-to-pull-fire-land-refresh: review
   e9-4-reverse-drag-pane-to-terminal: backlog   # optional — may be cut from v1
   epic-e9-retrospective: optional

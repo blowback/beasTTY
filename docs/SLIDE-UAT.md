@@ -3,7 +3,7 @@ status: pending
 phase: 12-slide-ux-polish-docs-real-hardware-uat
 source: [12-CONTEXT.md, 12-RESEARCH.md, 12-UI-SPEC.md]
 started: 2026-05-08
-updated: 2026-05-08
+updated: 2026-07-23
 ---
 
 # SLIDE — Real-hardware UAT (Phase 12 SLIDE-42)
@@ -150,12 +150,64 @@ Z80 reset.
 
 **result:** blocked (Z80 SLIDE.COM does not yet implement the v0.2.1 ADR-003 ESC^SLIDE wakeup + CTRL_CAN echo amendment; PR to github.com/blowback/slide is the gate. Inherits the UAT-10-01 blocked-result idiom; re-run after the patched slide.asm lands.)
 
+## Pull pane — drag to pull (E9 S9.3)
+
+### UAT-E9-01: Drag a terminal selection onto the pull pane (FR-4/6/8)
+
+**expected:** Drag-selecting filenames on the terminal canvas and dropping
+them on the pull pane opens the in-pane review with the composed
+`SLIDE S <names>` command; confirming types the command to the MicroBeast,
+SLIDE sends the files, and they appear in the bound local folder with
+fresh markers — one gesture, end to end.
+
+**steps:**
+1. Bind a local folder in the pull pane (Choose folder…) and connect to
+   the MicroBeast.
+2. At the CP/M prompt, run `DIR` (or otherwise get filenames on screen).
+   Columnar DIR output is understood: `VPEEK    COM` composes as
+   `VPEEK.COM`, and drive prefixes (`A:`) / lone `:` column separators
+   are dropped. Dot-joined names from SLIDE's own transfer log/prompt
+   echo work as before.
+3. Drag-select one or more 8.3 names — columnar
+   (`VLOAD    COM : VPEEK    COM`) or dot-joined (`GAME.COM DUMP.BIN`) —
+   then press inside the highlighted selection and
+   drag it onto the pull pane. Verify: the native drag initiates (no
+   80×24 canvas-screenshot ghost under the cursor), the pane border
+   accents, and the footer reads "⤓ Drop to pull N files".
+4. Drop. Verify the review opens with the composed command and per-name
+   ✓/✗ rows. Confirm with [Pull N files].
+5. Watch the SLIDE transfer run; verify each file lands in the bound
+   folder and the pane list refreshes with fresh markers at the top.
+6. In a narrow window (pane collapsed to the rail): repeat the drag —
+   verify the rail blooms the card open mid-drag without the canvas
+   moving, and rail click also blooms.
+
+**Hardware checks (deferred from S9.2/S9.3 — record answers below):**
+- (a) **Separator:** does space-separated `SLIDE S FILE1.TXT FILE2.TXT`
+  work, or only comma-separated `FILE1.TXT,FILE2.TXT` as
+  SLIDE_Z80_REQUIREMENT.md:91-94 documents? (SLIDE-UAT step lists and
+  the shipped compose both use spaces.)
+- (b) **`B:` prefix:** from an `A>` prompt with SLIDE.COM on B:, does the
+  injected bare `SLIDE S …` resolve, or is a `B:` prefix required (the
+  receive direction auto-types `B:SLIDE R`)?
+- (c) **Line-length limit:** behavior at/near the 126-char command cap —
+  compose a selection that hits the cap and verify the truncated command
+  the review shows is accepted by the CCP.
+
+If hardware disagrees on (a) or (b), each is a one-line change in
+`pull-pane.js` `composeFromText` (join separator / command prefix
+constant) plus spec updates — no architectural impact.
+
+**result:** TBD (requires real hardware; also confirms the native-drag
+origination manual checkpoint — see story e9-3 Dev Notes "Sanctioned
+fallback" if the drag does not initiate reliably)
+
 ## Summary
 
-total: 4
+total: 5
 passed: 0
 issues: 0
-pending: 3
+pending: 4
 skipped: 0
 blocked: 1
 
@@ -163,7 +215,7 @@ blocked: 1
 
 - Tester:
 - Date:
-- Pass count: 0/4
+- Pass count: 0/5
 - Notes:
 
 ## Gaps

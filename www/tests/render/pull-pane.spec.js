@@ -77,6 +77,52 @@ function manyFiles(n) {
     return Array.from({ length: n }, (_, i) => ({ name: `F${String(i).padStart(2, '0')}.COM`, size: 1000 + i }));
 }
 
+// ── Shared state readers (S9.2/S9.3 describes) ──
+const view = (page) => page.locator(CARD).getAttribute('data-view');
+const reviewState = (page) => page.evaluate(() => window.__pullPane.__getStateForTests().review);
+const paneState = (page) => page.evaluate(() => window.__pullPane.__getStateForTests());
+
+// ── Shared drag simulation (S9.3 describes) ──
+// Simulate the selection.js observer feed (dragstart/dragend).
+const dragState = (page, s) => page.evaluate((st) => window.__pullPane.onSelectionDrag(st), s);
+// Dispatch a DragEvent on #pull-pane with an in-page DataTransfer carrying
+// text/plain. Returns dispatchEvent's result: false iff preventDefault ran
+// (i.e. the pane accepted the drag).
+const dispatchDrag = (page, type, text) => page.evaluate(({ t, txt }) => {
+    const dt = new DataTransfer();
+    if (txt != null) dt.setData('text/plain', txt);
+    const ev = new DragEvent(t, { bubbles: true, cancelable: true, dataTransfer: dt });
+    return document.getElementById('pull-pane').dispatchEvent(ev);
+}, { t: type, txt: text });
+
+// ── Shared tx-sink byte capture (S9.2/S9.3 transmit specs) ──
+// Register the push counter AFTER resetTx (resetTx itself notifies observers).
+// Also registers a stub writer: confirm refuses without a connected port
+// (WR-03), so the transmit specs need one to reach the push path.
+async function armTxCapture(page) {
+    await page.evaluate(async () => {
+        const tx = await import('/input/tx-sink.js');
+        tx.resetTx();
+        tx.registerWriter({ write: async () => {} });
+        window.__txPushes = 0;
+        tx.registerTxObserver(() => { window.__txPushes++; });
+    });
+}
+const txPushes = (page) => page.evaluate(() => window.__txPushes);
+const ringBytes = (page) => page.evaluate(async () => {
+    const tx = await import('/input/tx-sink.js');
+    const hex = tx.formatHexStrip(1024);
+    return hex ? hex.split(' ').map((p) => parseInt(p, 16)) : [];
+});
+// Restore global state touched by the capture so later specs see reality.
+const disarmTxCapture = (page) => page.evaluate(async () => {
+    const tx = await import('/input/tx-sink.js');
+    tx.unregisterWriter();
+    tx.resetTx();
+    delete window.__txPushes;
+});
+const ascii = (s) => [...s].map((c) => c.charCodeAt(0));
+
 test.describe('E9 S9.1a — pull pane: content states', () => {
     test.beforeEach(async ({ page }) => { await setup(page); });
 
@@ -348,35 +394,6 @@ test.describe('E9 S9.2 — pull pane: selection → SLIDE S review', () => {
     test.beforeEach(async ({ page }) => { await setup(page); });
 
     const TOOLTIP_83 = 'Not a CP/M 8.3 name (name ≤8, ext ≤3, uppercase). v1 only pulls 8.3 names.';
-    const view = (page) => page.locator(CARD).getAttribute('data-view');
-    const reviewState = (page) => page.evaluate(() => window.__pullPane.__getStateForTests().review);
-
-    // Register the push counter AFTER resetTx (resetTx itself notifies observers).
-    // Also registers a stub writer: confirm refuses without a connected port
-    // (WR-03), so the transmit specs need one to reach the push path.
-    async function armTxCapture(page) {
-        await page.evaluate(async () => {
-            const tx = await import('/input/tx-sink.js');
-            tx.resetTx();
-            tx.registerWriter({ write: async () => {} });
-            window.__txPushes = 0;
-            tx.registerTxObserver(() => { window.__txPushes++; });
-        });
-    }
-    const txPushes = (page) => page.evaluate(() => window.__txPushes);
-    const ringBytes = (page) => page.evaluate(async () => {
-        const tx = await import('/input/tx-sink.js');
-        const hex = tx.formatHexStrip(1024);
-        return hex ? hex.split(' ').map((p) => parseInt(p, 16)) : [];
-    });
-    // Restore global state touched by the capture so later specs see reality.
-    const disarmTxCapture = (page) => page.evaluate(async () => {
-        const tx = await import('/input/tx-sink.js');
-        tx.unregisterWriter();
-        tx.resetTx();
-        delete window.__txPushes;
-    });
-    const ascii = (s) => [...s].map((c) => c.charCodeAt(0));
 
     test('classification: valid / lowercase / over-length / invalid-char / duplicate → rows + composed command @fast', async ({ page }) => {
         const ok = await page.evaluate(() =>
@@ -550,5 +567,375 @@ test.describe('E9 S9.2 — pull pane: selection → SLIDE S review', () => {
         await page.locator('#pull-pane-confirm').click();
         expect(await page.evaluate(() => document.activeElement.id)).toBe('terminal-wrapper');
         await disarmTxCapture(page);
+    });
+});
+
+// ── S9.3 — drop-to-pull: affordance (UX-DR3), drop→review, e2e chain (FR-6/8),
+//    rail bloom (FR-2), 126-char cap (AC-7) ──
+// Drag state is driven through the public onSelectionDrag entry point (AC-9 —
+// no extra __ hook); DragEvents are dispatched on #pull-pane with an in-page
+// DataTransfer, which tests the handlers deterministically (the native drag
+// loop itself is the T7 manual checkpoint).
+test.describe('E9 S9.3 — pull pane: drop-to-pull', () => {
+    test.beforeEach(async ({ page }) => { await setup(page); });
+
+    const FOOT_RESTING = 'Drag a filename selection here to pull';
+    const REASON_LIMIT = 'over the 126-char CP/M command-line limit';
+
+    test('affordance: dragenter shows drop classes + verbatim footer copy; dragleave restores @fast', async ({ page }) => {
+        await bindFake(page, {
+            name: 'MicroBeastPull', permission: 'granted',
+            files: [{ name: 'NOTES.TXT', size: 820 }],
+        });
+        await dragState(page, { active: true, text: 'GAME.COM DUMP.BIN prose' });
+        const accepted = await dispatchDrag(page, 'dragenter', 'GAME.COM DUMP.BIN prose');
+        expect(accepted).toBe(false);   // preventDefault ran — drop is acceptable
+        expect((await paneState(page)).dropAffordance).toBe(true);
+        await expect(page.locator(CARD)).toHaveClass(/\bdrop\b/);
+        await expect(page.locator('#pull-pane-foot')).toHaveClass(/\bdrop-active\b/);
+        // Valid-token count only (prose excluded), verbatim ⤓ copy (EXPERIENCE.md:130).
+        await expect(page.locator('#pull-pane-foot')).toHaveText('⤓ Drop to pull 2 files');
+        // Leave-to-zero clears everything and restores the resting hint.
+        await dispatchDrag(page, 'dragleave', null);
+        expect((await paneState(page)).dropAffordance).toBe(false);
+        await expect(page.locator(CARD)).not.toHaveClass(/\bdrop\b/);
+        await expect(page.locator('#pull-pane-foot')).not.toHaveClass(/\bdrop-active\b/);
+        await expect(page.locator('#pull-pane-foot')).toHaveText(FOOT_RESTING);
+        await dragState(page, { active: false });
+    });
+
+    test('affordance: singular copy for one file; depth-counted across nested enter/leave @fast', async ({ page }) => {
+        await bindFake(page, { name: 'MicroBeastPull', permission: 'granted', files: [] });
+        await dragState(page, { active: true, text: 'GAME.COM' });
+        await dispatchDrag(page, 'dragenter', 'GAME.COM');
+        await expect(page.locator('#pull-pane-foot')).toHaveText('⤓ Drop to pull 1 file');
+        // A second enter (child element) then one leave keeps the affordance on…
+        await dispatchDrag(page, 'dragenter', 'GAME.COM');
+        await dispatchDrag(page, 'dragleave', null);
+        expect((await paneState(page)).dropAffordance).toBe(true);
+        // …and the second leave (depth 0) clears it.
+        await dispatchDrag(page, 'dragleave', null);
+        expect((await paneState(page)).dropAffordance).toBe(false);
+        // dragend (drag-state off) also fully clears a stuck affordance.
+        await dispatchDrag(page, 'dragenter', 'GAME.COM');
+        expect((await paneState(page)).dropAffordance).toBe(true);
+        await dragState(page, { active: false });
+        expect((await paneState(page)).dropAffordance).toBe(false);
+        await expect(page.locator('#pull-pane-foot')).toHaveText(FOOT_RESTING);
+    });
+
+    test('foreign drags ignored: no in-app selection drag → no affordance, no preventDefault, no review @fast', async ({ page }) => {
+        await bindFake(page, { name: 'MicroBeastPull', permission: 'granted', files: [] });
+        // No onSelectionDrag({active:true}) — this is a foreign text drag.
+        const enterNotPrevented = await dispatchDrag(page, 'dragenter', 'GAME.COM');
+        expect(enterNotPrevented).toBe(true);   // fell through untouched → browser shows no-drop
+        expect((await paneState(page)).dropAffordance).toBe(false);
+        await expect(page.locator(CARD)).not.toHaveClass(/\bdrop\b/);
+        await dispatchDrag(page, 'drop', 'GAME.COM');
+        expect(await reviewState(page)).toBe(null);
+        expect(await view(page)).not.toBe('review');
+    });
+
+    test('suspension: active SLIDE session → no affordance, drop inert @fast', async ({ page }) => {
+        await bindFake(page, { name: 'MicroBeastPull', permission: 'granted', files: [] });
+        await page.evaluate(() => window.__pullPane.__setSlideActiveForTests(true));
+        await dragState(page, { active: true, text: 'GAME.COM' });
+        const notPrevented = await dispatchDrag(page, 'dragenter', 'GAME.COM');
+        expect(notPrevented).toBe(true);
+        expect((await paneState(page)).dropAffordance).toBe(false);
+        await dispatchDrag(page, 'drop', 'GAME.COM');
+        expect(await reviewState(page)).toBe(null);
+        await page.evaluate(() => window.__pullPane.__setSlideActiveForTests(null));
+        await dragState(page, { active: false });
+    });
+
+    test('no folder bound (first-run) → no affordance, drop inert @fast', async ({ page }) => {
+        expect((await paneState(page)).view).toBe('first-run');
+        await dragState(page, { active: true, text: 'GAME.COM' });
+        const notPrevented = await dispatchDrag(page, 'dragenter', 'GAME.COM');
+        expect(notPrevented).toBe(true);
+        expect((await paneState(page)).dropAffordance).toBe(false);
+        await dispatchDrag(page, 'drop', 'GAME.COM');
+        expect(await reviewState(page)).toBe(null);
+        await dragState(page, { active: false });
+    });
+
+    test('drop opens the S9.2 review; affordance cleared; a second drop replaces it @fast', async ({ page }) => {
+        await bindFake(page, { name: 'MicroBeastPull', permission: 'granted', files: [] });
+        await dragState(page, { active: true, text: 'GAME.COM' });
+        await dispatchDrag(page, 'dragenter', 'GAME.COM');
+        await dispatchDrag(page, 'drop', 'GAME.COM');
+        await dragState(page, { active: false });
+        expect(await view(page)).toBe('review');
+        expect((await reviewState(page)).command).toBe('SLIDE S GAME.COM');
+        expect((await paneState(page)).dropAffordance).toBe(false);
+        await expect(page.locator(CARD)).not.toHaveClass(/\bdrop\b/);
+        // Drop while the review is open replaces the review content (AC-3).
+        await dragState(page, { active: true, text: 'DUMP.BIN' });
+        await dispatchDrag(page, 'dragenter', 'DUMP.BIN');
+        await dispatchDrag(page, 'drop', 'DUMP.BIN');
+        await dragState(page, { active: false });
+        expect(await view(page)).toBe('review');
+        expect((await reviewState(page)).command).toBe('SLIDE S DUMP.BIN');
+        await expect(page.locator('#pull-pane-cmdtext')).toHaveText('SLIDE S DUMP.BIN');
+    });
+
+    test('drop falls back to the drag-state stash when dataTransfer text is empty @fast', async ({ page }) => {
+        await bindFake(page, { name: 'MicroBeastPull', permission: 'granted', files: [] });
+        await dragState(page, { active: true, text: 'GAME.COM DUMP.BIN' });
+        await dispatchDrag(page, 'drop', null);   // empty DataTransfer
+        expect((await reviewState(page)).command).toBe('SLIDE S GAME.COM DUMP.BIN');
+        await dragState(page, { active: false });
+    });
+
+    test('suspension flipping mid-drag: drop after the flip opens nothing, sends nothing @fast', async ({ page }) => {
+        await armTxCapture(page);
+        await bindFake(page, { name: 'MicroBeastPull', permission: 'granted', files: [] });
+        await dragState(page, { active: true, text: 'GAME.COM' });
+        await dispatchDrag(page, 'dragenter', 'GAME.COM');
+        expect((await paneState(page)).dropAffordance).toBe(true);
+        // A SLIDE transfer starts while the drag is mid-air…
+        await page.evaluate(() => window.__pullPane.__setSlideActiveForTests(true));
+        await dispatchDrag(page, 'drop', 'GAME.COM');
+        expect(await reviewState(page)).toBe(null);
+        expect(await txPushes(page)).toBe(0);
+        // …and dragend still clears the stuck affordance.
+        await dragState(page, { active: false });
+        expect((await paneState(page)).dropAffordance).toBe(false);
+        await page.evaluate(() => window.__pullPane.__setSlideActiveForTests(null));
+        await disarmTxCapture(page);
+    });
+
+    test('zero-valid drop opens the S9.2 zero-valid review — no bare SLIDE S possible (FR-7) @fast', async ({ page }) => {
+        await armTxCapture(page);
+        await bindFake(page, { name: 'MicroBeastPull', permission: 'granted', files: [] });
+        await dragState(page, { active: true, text: 'read this prose' });
+        await dispatchDrag(page, 'drop', 'read this prose');
+        await dragState(page, { active: false });
+        expect(await view(page)).toBe('review');
+        expect((await reviewState(page)).command).toBe(null);
+        await expect(page.locator('#pull-pane-nothing'))
+            .toHaveText('Nothing to pull — no CP/M 8.3 names in the selection.');
+        await expect(page.locator('#pull-pane-confirm')).toBeDisabled();
+        await page.evaluate(() => document.getElementById('pull-pane-confirm').click());
+        expect(await txPushes(page)).toBe(0);
+        await disarmTxCapture(page);
+    });
+
+    test('DIR columnar: NAME EXT pairs join dot-less, drive prefix + ":" separators dropped @fast', async ({ page }) => {
+        // The user's real drag off a DIR screen: 'A: VLOAD    COM : VPEEK    COM'.
+        await page.evaluate(() =>
+            window.__pullPane.beginReview('A: VLOAD    COM : VPEEK    COM'));
+        let rv = await reviewState(page);
+        expect(rv.command).toBe('SLIDE S VLOAD.COM VPEEK.COM');
+        expect(rv.validCount).toBe(2);
+        await expect(page.locator('#pull-pane-toklist .pp-tok')).toHaveCount(2);
+        await expect(page.locator('#pull-pane-toklist .pp-tok.ok .nm'))
+            .toHaveText(['VLOAD.COM', 'VPEEK.COM']);
+        // Single columnar pair joins too; dot-joined names pass through beside it.
+        await page.evaluate(() =>
+            window.__pullPane.beginReview('GAME.COM VPEEK    COM'));
+        rv = await reviewState(page);
+        expect(rv.command).toBe('SLIDE S GAME.COM VPEEK.COM');
+        // Lowercase prose never joins (the joined form fails the uppercase
+        // idempotence check), and a join that would exceed 8.3 shape is left split.
+        await page.evaluate(() =>
+            window.__pullPane.beginReview('read me TOOLONGNAME COM'));
+        rv = await reviewState(page);
+        // TOOLONGNAME (9 chars) can't join; COM alone is still a valid bare name.
+        expect(rv.command).toBe('SLIDE S COM');
+        const skipped = page.locator('#pull-pane-toklist .pp-tok.skip .nm');
+        await expect(skipped).toHaveText(['read', 'me', 'TOOLONGNAME']);
+        await page.locator('#pull-pane-cancel').click();
+    });
+
+    test('long review scrolls inside the pane — the window never grows a scrollbar @fast', async ({ page }) => {
+        await bindFake(page, { name: 'MicroBeastPull', permission: 'granted', files: [] });
+        const noWindowScroll = () => page.evaluate(() =>
+            document.documentElement.scrollHeight <= document.documentElement.clientHeight);
+        expect(await noWindowScroll()).toBe(true);
+        // 49 distinct names → 49 review rows (cap-skipped ones still render),
+        // far taller than the viewport. The pane must not inflate the stage.
+        const names = Array.from({ length: 49 }, (_, i) => `N${String(i).padStart(2, '0')}.COM`);
+        await page.evaluate((t) => window.__pullPane.beginReview(t), names.join(' '));
+        await expect(page.locator('#pull-pane-toklist .pp-tok')).toHaveCount(49);
+        expect(await noWindowScroll()).toBe(true);
+        // The overflow lives inside the token list (its own scrollbar engages)…
+        expect(await page.evaluate(() => {
+            const el = document.getElementById('pull-pane-toklist');
+            return el.scrollHeight > el.clientHeight;
+        })).toBe(true);
+        // …while the command line stays visible above it, un-squeezed (its
+        // overflow-x:auto zeroes the flex minimum, so without flex-shrink:0 a
+        // long list collapses it to just its horizontal scrollbar).
+        const cmd = await page.locator('#pull-pane-cmdline').boundingBox();
+        expect(cmd.height).toBeGreaterThan(25);
+        await expect(page.locator('#pull-pane-cmdtext')).toBeVisible();
+        // Same containment for the plain file list view.
+        await page.locator('#pull-pane-cancel').click();
+        await page.evaluate(() => {
+            window.__ppFake.__setFiles(Array.from({ length: 80 }, (_, i) =>
+                ({ name: `L${String(i).padStart(2, '0')}.BIN`, size: 100 + i })));
+            return window.__pullPane.refresh();
+        });
+        await expect(page.locator('#pull-pane-list .pp-row')).toHaveCount(80);
+        expect(await noWindowScroll()).toBe(true);
+        expect(await page.evaluate(() => {
+            const el = document.getElementById('pull-pane-list');
+            return el.scrollHeight > el.clientHeight;
+        })).toBe(true);
+    });
+
+    test('e2e chain (AC-5): drop → review → confirm → ONE push of exact bytes → landed files appear fresh @fast', async ({ page }) => {
+        const base = [{ name: 'NOTES.TXT', size: 820 }];
+        await bindFake(page, { name: 'MicroBeastPull', permission: 'granted', files: base });
+        await armTxCapture(page);
+        // Drop the dragged selection on the pane.
+        await dragState(page, { active: true, text: 'GAME.COM DUMP.BIN' });
+        await dispatchDrag(page, 'dragenter', 'GAME.COM DUMP.BIN');
+        await dispatchDrag(page, 'drop', 'GAME.COM DUMP.BIN');
+        await dragState(page, { active: false });
+        expect(await view(page)).toBe('review');
+        // Confirm → exactly ONE push: ASCII command + configured terminator (cr).
+        await page.locator('#pull-pane-confirm').click();
+        expect(await txPushes(page)).toBe(1);
+        expect(await ringBytes(page)).toEqual(ascii('SLIDE S GAME.COM DUMP.BIN').concat([0x0D]));
+        expect(await view(page)).toBe('list');
+        // Device reply lands the files in the shared folder → onFileLanded fires
+        // pullPane.refresh() (the very function main.js wires) → both files
+        // appear with fresh markers, sorted to the top.
+        await page.evaluate((b) => {
+            window.__ppFake.__setFiles([...b,
+                { name: 'GAME.COM', size: 12000 }, { name: 'DUMP.BIN', size: 4096 }]);
+            return window.__pullPane.refresh();
+        }, base);
+        await expect(page.locator('#pull-pane-list .pp-row')).toHaveCount(3);
+        await expect(page.locator('#pull-pane-list .pp-row.fresh')).toHaveCount(2);
+        const rows = page.locator('#pull-pane-list .pp-row');
+        await expect(rows.nth(0).locator('.pp-nm')).toHaveText('DUMP.BIN');
+        await expect(rows.nth(1).locator('.pp-nm')).toHaveText('GAME.COM');
+        await expect(rows.nth(0)).toHaveClass(/\bfresh\b/);
+        await expect(rows.nth(1)).toHaveClass(/\bfresh\b/);
+        await disarmTxCapture(page);
+    });
+
+    test('e2e terminator variant: crlf mode → command + 0D 0A through the drop path @fast', async ({ page }) => {
+        await bindFake(page, { name: 'MicroBeastPull', permission: 'granted', files: [] });
+        await armTxCapture(page);
+        await page.evaluate(async () => (await import('/input/keyboard.js')).setCrlfMode('crlf'));
+        await dragState(page, { active: true, text: 'GAME.COM' });
+        await dispatchDrag(page, 'drop', 'GAME.COM');
+        await dragState(page, { active: false });
+        await page.locator('#pull-pane-confirm').click();
+        expect(await ringBytes(page)).toEqual(ascii('SLIDE S GAME.COM').concat([0x0D, 0x0A]));
+        await page.evaluate(async () => (await import('/input/keyboard.js')).setCrlfMode('cr'));
+        await disarmTxCapture(page);
+    });
+
+    test('length cap (AC-7): boundary at 126 chars — last fit included, overflow skipped with reason @fast', async ({ page }) => {
+        // 'SLIDE S ' (8) + nine 12-char names joined (116) = 124; + ' A' = 126
+        // (exactly at the cap → included); 'B' would make 128 → skipped, along
+        // with every later valid token. A duplicate of an included name
+        // collapses without burning budget.
+        const nine = Array.from({ length: 9 }, (_, i) => `AAAAAAA${i}.COM`);
+        const text = [...nine, 'A', 'AAAAAAA0.COM', 'B', 'C.TXT'].join(' ');
+        await page.evaluate((t) => window.__pullPane.beginReview(t), text);
+        const rv = await reviewState(page);
+        expect(rv.command).toBe(`SLIDE S ${nine.join(' ')} A`);
+        expect(rv.command.length).toBe(126);
+        expect(rv.validCount).toBe(10);
+        // 12 rows: 10 included + B + C.TXT (the duplicate collapsed, no row).
+        await expect(page.locator('#pull-pane-toklist .pp-tok')).toHaveCount(12);
+        const skipped = page.locator('#pull-pane-toklist .pp-tok.skip');
+        await expect(skipped.locator('.nm')).toHaveText(['B', 'C.TXT']);
+        expect(await skipped.nth(0).locator('.pp-info').getAttribute('title')).toBe(REASON_LIMIT);
+        expect(await skipped.nth(1).locator('.pp-info').getAttribute('title')).toBe(REASON_LIMIT);
+        await expect(page.locator('#pull-pane-confirm')).toHaveText('Pull 10 files');
+        await page.locator('#pull-pane-cancel').click();
+        // The drop-affordance footer count is cap-aware too (composeFromText).
+        await bindFake(page, { name: 'MicroBeastPull', permission: 'granted', files: [] });
+        await dragState(page, { active: true, text });
+        await dispatchDrag(page, 'dragenter', text);
+        await expect(page.locator('#pull-pane-foot')).toHaveText('⤓ Drop to pull 10 files');
+        await dragState(page, { active: false });
+    });
+});
+
+// ── S9.3 — rail bloom (FR-2 completion). Narrow viewport → container query
+//    swaps card for rail; bloom overlays the card without any layout shift. ──
+test.describe('E9 S9.3 — pull pane: rail bloom', () => {
+    test.beforeEach(async ({ page }) => {
+        await setup(page);
+        await page.setViewportSize({ width: 720, height: 900 });
+    });
+
+    const hasBloomAttr = (page) => page.evaluate(() => document.getElementById('pull-pane').hasAttribute('data-bloom'));
+
+    test('selection dragstart blooms the card open; dragend with no review un-blooms; zero layout shift @fast', async ({ page }) => {
+        await bindFake(page, { name: 'MicroBeastPull', permission: 'granted', files: [{ name: 'A.COM', size: 10 }] });
+        await expect(page.locator(CARD)).toBeHidden();
+        await expect(page.locator('#pull-pane .pp-rail')).toBeVisible();
+        const canvasBefore = await page.locator('#terminal').evaluate((el) => {
+            const r = el.getBoundingClientRect();
+            return { x: r.x, y: r.y, w: r.width, h: r.height };
+        });
+        await dragState(page, { active: true, text: 'GAME.COM' });
+        expect(await hasBloomAttr(page)).toBe(true);
+        expect((await paneState(page)).bloom).toBe(true);
+        await expect(page.locator(CARD)).toBeVisible();
+        // NFR-5 — bloom is an overlay: the canvas never moves.
+        const canvasDuring = await page.locator('#terminal').evaluate((el) => {
+            const r = el.getBoundingClientRect();
+            return { x: r.x, y: r.y, w: r.width, h: r.height };
+        });
+        expect(canvasDuring).toEqual(canvasBefore);
+        // Dragend with no review open → un-bloom, card hidden again.
+        await dragState(page, { active: false });
+        expect(await hasBloomAttr(page)).toBe(false);
+        await expect(page.locator(CARD)).toBeHidden();
+    });
+
+    test('rail click blooms (title = mockup copy); pointerdown outside un-blooms @fast', async ({ page }) => {
+        await bindFake(page, { name: 'MicroBeastPull', permission: 'granted', files: [] });
+        await expect(page.locator('#pull-pane .pp-rail'))
+            .toHaveAttribute('title', 'Click or drag a selection here to open the pull pane');
+        await page.locator('#terminal-wrapper').focus();
+        await page.locator('#pull-pane .pp-rail').click();
+        expect(await hasBloomAttr(page)).toBe(true);
+        await expect(page.locator(CARD)).toBeVisible();
+        // Bloom never moves focus off the wrapper (AC-8).
+        expect(await page.evaluate(() => document.activeElement.id)).toBe('terminal-wrapper');
+        // Pointerdown outside the pane (on the canvas) dismisses the click-bloom.
+        const box = await page.locator('#terminal').boundingBox();
+        await page.mouse.click(box.x + 20, box.y + 20);
+        expect(await hasBloomAttr(page)).toBe(false);
+        await expect(page.locator(CARD)).toBeHidden();
+    });
+
+    test('drop during bloom opens the review; bloom survives dragend and clears on review exit @fast', async ({ page }) => {
+        await bindFake(page, { name: 'MicroBeastPull', permission: 'granted', files: [] });
+        await dragState(page, { active: true, text: 'GAME.COM' });
+        expect(await hasBloomAttr(page)).toBe(true);
+        await dispatchDrag(page, 'dragenter', 'GAME.COM');
+        await dispatchDrag(page, 'drop', 'GAME.COM');
+        // dragend after the drop: review is open → bloom stays for the decision.
+        await dragState(page, { active: false });
+        expect(await hasBloomAttr(page)).toBe(true);
+        await expect(page.locator(CARD)).toHaveAttribute('data-view', 'review');
+        // Review exit while bloomed → un-bloom (cancel path).
+        await page.locator('#pull-pane-cancel').click();
+        expect(await hasBloomAttr(page)).toBe(false);
+        await expect(page.locator(CARD)).toBeHidden();
+        expect((await paneState(page)).review).toBe(null);
+    });
+
+    test('wide window: card already visible → data-bloom never set @fast', async ({ page }) => {
+        await page.setViewportSize({ width: 1440, height: 900 });
+        await bindFake(page, { name: 'MicroBeastPull', permission: 'granted', files: [] });
+        await expect(page.locator(CARD)).toBeVisible();
+        await dragState(page, { active: true, text: 'GAME.COM' });
+        expect(await hasBloomAttr(page)).toBe(false);
+        expect((await paneState(page)).bloom).toBe(false);
+        await dragState(page, { active: false });
     });
 });

@@ -764,6 +764,11 @@ const selection = wireSelection({
     readRow: readRowText,
 });
 window.__selection = selection;
+// E9 S9.3 (FR-4, AD-3) — feed the terminal-selection drag state into the pull
+// pane's drop-target/bloom logic. Connected AFTER wireSelection here so neither
+// module imports the other (the onFileLanded: pullPane.refresh precedent); the
+// pullPane const is initialized above, so no TDZ in this direction.
+selection.onSelectionDragState((s) => pullPane.onSelectionDrag(s));
 window.__getActiveCellSize = getActiveCellSize;
 // Epic E1 Story E1.5 — read-only canvas state for the View ▸ Font / Zoom oracles
 // (mirrors the window.__prefs read pattern; never a live DOM ref).

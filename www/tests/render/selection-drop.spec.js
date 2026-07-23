@@ -113,3 +113,127 @@ test('SLIDE-12 — post-drop pointer-select works after overlay clears', async (
     const sel = await page.evaluate(() => window.__selection.getSelection());
     expect(sel).not.toBeNull();
 });
+
+// ── E9 S9.3 — drag origination from the terminal selection (AC-1). ──
+// A pointerdown INSIDE the committed selection arms a native HTML5 drag
+// (canvas draggable + stashed payload) instead of restarting selection;
+// dragstart/dragend are dispatched synthetically with an in-page DataTransfer
+// (the native drag loop itself is the story's manual T7 checkpoint).
+test.describe('E9 S9.3 — selection drag origination', () => {
+    // Real cell metrics (window.__getActiveCellSize, CSS px — the session
+    // selection.spec.js source). The file-top getCellSize fallback (9×18) is
+    // wrong for these specs: row-1 math with a stale cellH lands inside row 0.
+    const realCellSize = (page) => page.evaluate(() => window.__getActiveCellSize());
+
+    // Drag-select cols 0..5 on the first row ("hello world" → "hello ").
+    async function makeSelection(page) {
+        const { cellW, cellH } = await realCellSize(page);
+        const canvas = page.locator('#terminal');
+        const box = await canvas.boundingBox();
+        const yMid = box.y + cellH / 2;
+        await page.mouse.move(box.x + cellW / 2, yMid);
+        await page.mouse.down();
+        await page.mouse.move(box.x + cellW * 5 + cellW / 2, yMid);
+        await page.mouse.up();
+        const sel = await page.evaluate(() => window.__selection.getSelection());
+        expect(sel).not.toBeNull();
+        return { box, cellW, cellH, yMid, text: sel.rows.join('\n') };
+    }
+
+    const draggable = (page) => page.evaluate(() => document.getElementById('terminal').draggable);
+    const selection = (page) => page.evaluate(() => window.__selection.getSelection());
+
+    test('pointerdown inside the selection arms draggable + keeps the selection; click clears it @fast', async ({ page }) => {
+        await setup(page);
+        const { box, cellW, yMid, text } = await makeSelection(page);
+        expect(await draggable(page)).toBe(false);
+        // Down INSIDE the committed selection (col 2) — no selection restart.
+        await page.mouse.move(box.x + cellW * 2 + cellW / 2, yMid);
+        await page.mouse.down();
+        expect(await draggable(page)).toBe(true);
+        const during = await selection(page);
+        expect(during).not.toBeNull();
+        expect(during.rows.join('\n')).toBe(text);
+        // No dragstart fired → the pointerup is a plain click: deselect + disarm.
+        await page.mouse.up();
+        expect(await selection(page)).toBeNull();
+        expect(await draggable(page)).toBe(false);
+    });
+
+    test('pointerdown outside the selection starts a fresh selection as before @fast', async ({ page }) => {
+        await setup(page);
+        const { box, cellW, cellH } = await makeSelection(page);
+        // Down on row 1 ("foo bar baz") — outside the row-0 selection.
+        const y2 = box.y + cellH + cellH / 2;
+        await page.mouse.move(box.x + cellW / 2, y2);
+        await page.mouse.down();
+        expect(await draggable(page)).toBe(false);   // origination branch NOT taken
+        await page.mouse.move(box.x + cellW * 2 + cellW / 2, y2);
+        await page.mouse.up();
+        const sel = await selection(page);
+        expect(sel.rows).toEqual(['foo']);
+    });
+
+    test('dragstart carries the stashed text + notifies observers; dragend resets @fast', async ({ page }) => {
+        await setup(page);
+        const { box, cellW, yMid, text } = await makeSelection(page);
+        await page.evaluate(() => {
+            window.__dragEvents = [];
+            window.__selection.onSelectionDragState((s) => window.__dragEvents.push(s));
+        });
+        await page.mouse.move(box.x + cellW * 2 + cellW / 2, yMid);
+        await page.mouse.down();
+        // Synthetic dragstart with a real DataTransfer (Chromium constructor).
+        const payload = await page.evaluate(() => {
+            const dt = new DataTransfer();
+            const ev = new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: dt });
+            document.getElementById('terminal').dispatchEvent(ev);
+            // effectAllowed is not asserted: Chromium only honours the setter on
+            // a real drag session's data store, so a synthetic DataTransfer
+            // reads back 'none' regardless (only provable in the T7 manual run).
+            return { text: dt.getData('text/plain'), prevented: ev.defaultPrevented };
+        });
+        expect(payload.prevented).toBe(false);
+        expect(payload.text).toBe(text);
+        expect(await page.evaluate(() => window.__dragEvents)).toEqual([{ active: true, text }]);
+        // dragend → observers notified, draggable reset.
+        await page.evaluate(() => {
+            document.getElementById('terminal').dispatchEvent(new DragEvent('dragend', { bubbles: true }));
+        });
+        expect(await page.evaluate(() => window.__dragEvents)).toEqual([{ active: true, text }, { active: false }]);
+        expect(await draggable(page)).toBe(false);
+        await page.mouse.up();
+    });
+
+    test('a dragstart not armed by the origination branch is aborted @fast', async ({ page }) => {
+        await setup(page);
+        // No selection, no armed pointerdown — a stray dragstart is cancelled.
+        const prevented = await page.evaluate(() => {
+            const ev = new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: new DataTransfer() });
+            document.getElementById('terminal').dispatchEvent(ev);
+            return ev.defaultPrevented;
+        });
+        expect(prevented).toBe(true);
+    });
+
+    test('D-19 wrapper blur is skipped while a drag is pending (payload survives); normal blur still clears @fast', async ({ page }) => {
+        await setup(page);
+        const { box, cellW, yMid } = await makeSelection(page);
+        // Arm the drag, then blur the wrapper (what the capture-free mousedown
+        // does for real) — the selection must survive to feed dragstart.
+        await page.mouse.move(box.x + cellW * 2 + cellW / 2, yMid);
+        await page.mouse.down();
+        await page.evaluate(() => {
+            document.getElementById('terminal-wrapper').dispatchEvent(new FocusEvent('blur'));
+        });
+        expect(await selection(page)).not.toBeNull();
+        await page.mouse.up();   // plain click → deselect + disarm
+        expect(await selection(page)).toBeNull();
+        // Regression: with no drag pending, wrapper blur still clears (D-19).
+        await makeSelection(page);
+        await page.evaluate(() => {
+            document.getElementById('terminal-wrapper').dispatchEvent(new FocusEvent('blur'));
+        });
+        expect(await selection(page)).toBeNull();
+    });
+});
