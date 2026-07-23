@@ -421,6 +421,129 @@
       outline-offset: 2px;
     }
 
+    /* ==== Epic E9 Story S9.1a — stage flex-row + docked pull pane ==== */
+    /* The stage holds the canvas and the gutter pane in a flex ROW. The canvas
+       (#terminal-wrapper) keeps margin:16px auto and NEVER shrinks (flex-shrink:0),
+       so its auto margins absorb positive free space and centre it in the area LEFT
+       of the pane — the pane costs zero terminal columns (AC-1). The pane yields
+       first under pressure (flex-shrink:1); when it is squeezed below the rail
+       threshold a container query swaps the card for the edge rail (AC-2). Full-width
+       menu-bar + status-bar are unaffected (they stay body column children). */
+    #stage {
+      align-self: stretch;                  /* full width (body is align-items:center) */
+      display: flex;
+      align-items: flex-start;              /* canvas keeps its own height; overlays anchor to it */
+      min-width: 0;
+    }
+    #stage > #terminal-wrapper { flex: 0 0 auto; }   /* never shrink — canvas is fixed-size */
+
+    /* AD-9 neutral shell: --chrome-* tokens ONLY, identical CRT↔Console (no
+       [data-theme] branch, no phosphor var, no box-shadow — depth = tone + 1px). */
+    #pull-pane {
+      flex: 0 1 312px;                      /* dock width; yields before the canvas does */
+      min-width: 30px;                      /* collapse floor = the rail */
+      align-self: stretch;                  /* match the canvas height beside it */
+      margin: 16px 16px 16px 0;
+      container-type: inline-size;          /* width source for the narrow-window query */
+      display: flex;
+      min-height: 0;
+    }
+    .pp-card {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      overflow: hidden;
+      background: var(--chrome-bg);
+      border: 1px solid var(--chrome-border);
+      border-radius: 6px;                   /* rounded/md */
+      font-size: 13px;
+    }
+    .pp-head {
+      display: flex; align-items: center; gap: 8px;
+      padding: 8px 10px;
+      border-bottom: 1px solid var(--chrome-border);
+      color: var(--chrome-fg);
+    }
+    .pp-head .pp-fname {
+      flex: 1; min-width: 0;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .pp-head .pp-refresh { color: var(--chrome-muted); font-size: 14px; cursor: default; }
+    .pp-cap {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 5px 11px;
+      color: var(--chrome-muted); font-size: 11.5px;
+      border-bottom: 1px solid var(--chrome-border);
+    }
+    .pp-cap[hidden] { display: none; }
+    .pp-list {
+      flex: 1; min-height: 0;
+      overflow: auto;
+      padding: 5px;
+      display: flex; flex-direction: column; gap: 1px;
+    }
+    .pp-list[hidden] { display: none; }
+    .pp-row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 5px 9px;
+      border-radius: 4px;
+      color: var(--chrome-fg);
+      white-space: nowrap;
+    }
+    /* Reuse the menu-item selected-row highlight on hover (do NOT invent a colour). */
+    .pp-row:hover { background: var(--chrome-accent); color: var(--chrome-bg); }
+    .pp-row .pp-nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+    .pp-row .pp-sz { color: var(--chrome-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+    .pp-row:hover .pp-sz { color: var(--chrome-bg); }
+    .pp-blank {
+      flex: 1;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 12px; padding: 22px; text-align: center;
+    }
+    .pp-blank[hidden] { display: none; }
+    .pp-blank .pp-blank-msg { color: var(--chrome-muted); font-size: 12px; line-height: 1.5; }
+    .pp-btn {
+      border-radius: 6px; padding: 6px 12px;
+      font-family: inherit; font-size: 13px;
+      cursor: pointer;
+      background: transparent; color: var(--chrome-fg);
+      border: 1px solid var(--chrome-border);
+    }
+    .pp-btn[hidden] { display: none; }
+    .pp-btn:hover { border-color: var(--chrome-accent); }
+    .pp-btn:focus-visible { outline: 2px solid var(--chrome-accent); outline-offset: 2px; }
+    .pp-foot {
+      padding: 9px 11px;
+      border-top: 1px solid var(--chrome-border);
+      color: var(--chrome-muted); font-size: 12px; text-align: center;
+    }
+    .pp-foot[hidden] { display: none; }
+
+    /* Narrow-window fallback rail — hidden by default; the container query below
+       swaps card↔rail when the pane is squeezed. The rail costs no terminal
+       columns (it lives in the same gutter flex item, floored at 30px). */
+    .pp-rail { display: none; }
+    @container (max-width: 90px) {
+      .pp-card { display: none; }
+      .pp-rail {
+        flex: 1;
+        display: flex; flex-direction: column; align-items: center; gap: 10px;
+        padding: 10px 0;
+        background: var(--chrome-bg);
+        border: 1px solid var(--chrome-border);
+        border-radius: 6px;
+      }
+    }
+    .pp-rail .pp-badge {
+      background: var(--chrome-accent); color: var(--chrome-bg);
+      border-radius: 8px; font-size: 10px; font-weight: 600; padding: 1px 5px;
+    }
+    .pp-rail .pp-vlabel {
+      writing-mode: vertical-rl; transform: rotate(180deg);
+      color: var(--chrome-muted); font-size: 11px; letter-spacing: 0.12em;
+    }
+
     /* E3.4 — the Phase 11 #settings-slide form-control CSS (auto-send input + compat
        select) was removed with the pane; those controls now inherit the shared
        .chrome-modal .field select / input[type="text"] rules inside #slide-config-modal. */
@@ -1532,6 +1655,14 @@
        by File ▸ Download Session Log (menu-authoritative, byte-gated). -->
 
   <!-- Terminal canvas + overlays. tabindex=0 on wrapper so keydown fires here. -->
+  <!-- Epic E9 Story S9.1a (FR-2 / AD-11 / UX-DR1) — the terminal and the docked
+       pull pane share a flex-row "stage" so the 80×24 canvas stays
+       margin:auto-centred in the space to the LEFT of the pane. The pane is
+       gutter furniture: a SIBLING of #terminal-wrapper (never inside it), so it
+       is not a canvas overlay and costs zero terminal columns (AC-1). menu-bar +
+       status-bar stay full-width body column children; only these two move into
+       the row. -->
+  <div id="stage">
   <div id="terminal-wrapper" tabindex="0">
     <canvas id="terminal" tabindex="-1"></canvas>
     <div id="bell-overlay"></div>
@@ -1577,6 +1708,49 @@
       <button type="button" class="paste-inline" data-action="cancel" hidden>[Cancel]</button>
     </div>
   </div>
+
+  <!-- ============================================================= -->
+  <!-- Epic E9 Story S9.1a — Local Folder Pull Pane shell.            -->
+  <!-- renderer/pull-pane.js owns it (wirePullPane at the composition  -->
+  <!-- root, after wireStatusBar). Docked in the right layout gutter,  -->
+  <!-- beside the canvas. State is expressed via data-view on          -->
+  <!-- .pp-card + [hidden] on the sub-containers ONLY (no inline       -->
+  <!-- styles). --chrome-* tokens only — identical across CRT↔Console. -->
+  <!-- The ↻ glyph is an INERT placeholder in S9.1a (the three refresh -->
+  <!-- triggers are S9.1b). Narrow-window fallback: a container query   -->
+  <!-- swaps the card for the .pp-rail file-count badge (AC-2).        -->
+  <!-- ============================================================= -->
+  <aside id="pull-pane" aria-label="Local folder pull pane">
+    <div class="pp-card" data-view="first-run">
+      <div class="pp-head">
+        <span class="pp-fname" id="pull-pane-fname">Pull pane</span>
+        <span class="pp-refresh" aria-hidden="true"
+              title="Refreshes on transfer-done, window focus, and ~60s">↻</span>
+      </div>
+      <div class="pp-cap" id="pull-pane-cap" hidden>
+        <span>Local folder</span><span id="pull-pane-count">0 files</span>
+      </div>
+      <!-- File list (view=list). Rows are injected by pull-pane.js. -->
+      <div class="pp-list" id="pull-pane-list" hidden></div>
+      <!-- Blank state (view=first-run|permission|empty): one message + one
+           optional control. pull-pane.js sets the message text + which button
+           shows via [hidden]. -->
+      <div class="pp-blank" id="pull-pane-blank">
+        <div class="pp-blank-msg" id="pull-pane-blank-msg">No folder chosen. Pulled files land here.</div>
+        <button type="button" class="pp-btn" id="pull-pane-choose">Choose folder…</button>
+        <button type="button" class="pp-btn" id="pull-pane-grant" hidden>Grant access</button>
+      </div>
+      <!-- Footer hint (shown once a folder is bound + readable). -->
+      <div class="pp-foot" id="pull-pane-foot" hidden>Drag a filename selection here to pull</div>
+    </div>
+    <!-- Narrow-window fallback rail (container query). Bloom-open on click/drag
+         is structurally stubbed here (S9.2/S9.3 finish the interaction). -->
+    <div class="pp-rail" title="Pull folder">
+      <span class="pp-badge" id="pull-pane-badge">0</span>
+      <span class="pp-vlabel">PULL FOLDER</span>
+    </div>
+  </aside>
+  </div><!-- /#stage -->
 
   <!-- Epic E7 Story E7.1 (AD-7) — <details id="settings"> removed wholesale. Every
        control it held is now menu-authoritative: Local echo → Settings ▸ Local echo

@@ -73,6 +73,7 @@ import { wireChrome } from './renderer/chrome.js';
 import { SHORTCUT_GROUPS } from './input/shortcuts.js';
 import { wireMenuBar } from './renderer/menu-bar.js';
 import { wireStatusBar } from './renderer/status-bar.js';
+import { wirePullPane } from './renderer/pull-pane.js';
 import { wireScrollState } from './renderer/scroll-state.js';
 import { wireSelection } from './input/selection.js';
 import { wireKeyboard, setLocalEcho, setCrlfMode, getLocalEcho, getCrlfMode } from './input/keyboard.js';
@@ -153,6 +154,7 @@ import {
 // main.js only surfaces its test hooks as window.__focus for the Playwright
 // chromium suite.
 import {
+    retainFocus,               // E9 S9.1a (AD-10) — injected into wirePullPane (AD-3)
     __getStateForTests as __focusGetStateForTests,
     __resetForTests as __focusResetForTests,
 } from './renderer/focus.js';
@@ -574,6 +576,21 @@ const statusBar = wireStatusBar({
     getRecentErrorCount,
 });
 window.__statusBar = statusBar;   // Playwright hook (mirrors window.__menuBar)
+
+// ---- Epic E9 Story S9.1a (FR-1/2/3, NFR-2/4/5, AD-11/AD-3/AD-10/AD-12) ----
+// Wire the docked pull pane. Slotted AFTER wireStatusBar and BEFORE wireScrollState
+// per the documented boot order (AD-12). Per AD-3 pull-pane.js direct-imports
+// nothing from other app modules — idb (get/setRecvDirHandle, the SLIDE-recv shared
+// recv_directory key — AD-11), the shared retainFocus helper (AD-10), the #pull-pane
+// DOM root, and the terminal-wrapper focus-restore target all arrive here as opts.
+// S9.1a is the shell only: no refresh triggers, no drop/pull (S9.1b / S9.2 / S9.3).
+const pullPane = wirePullPane({
+    paneEl: document.getElementById('pull-pane'),
+    idb: { getRecvDirHandle, setRecvDirHandle },
+    retainFocus,
+    terminalWrapper,
+});
+window.__pullPane = pullPane;   // Playwright hook (mirrors window.__statusBar)
 
 // E4.2 (FR-27, AD-6) — route the build stamp into the status bar's #status-build
 // (its permanent home, alongside Help ▸ About/E6.2 — no longer the Debug pane).
