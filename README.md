@@ -82,6 +82,8 @@ viewport to the live tail before the byte is sent.
 
 
 
+![Command line history](images/cli_history.png)
+
 ### Esc key behaviour
 
 Esc is context-sensitive. The first matching rule wins:
