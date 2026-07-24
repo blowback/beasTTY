@@ -65,7 +65,13 @@
 // prefers it for the data-view projection; the review's own DOM is painted once
 // by beginReview (renderReview), never by refresh-triggered render() calls.
 // Shape: null | { command: string|null, tokens: [{raw, name, ok, reason}], validCount }.
-let state = { folderName: null, permission: 'prompt', files: [], view: 'first-run', review: null };
+//
+// detail (S10.1) is the same flag pattern as review: stored beside view, its
+// DOM painted once by openDetail (renderDetail), projected — never repainted —
+// by refresh-triggered render() calls. Opens only from list view with no
+// review open. Shape: null | { name, records: string[], crc: string|null,
+// error: string|null }.
+let state = { folderName: null, permission: 'prompt', files: [], view: 'first-run', review: null, detail: null };
 
 // The bound directory handle (SLIDE-recv's recv_directory). Not persisted here
 // beyond the idb.setRecvDirHandle write on the first-run pick.
@@ -94,7 +100,8 @@ let wrapperRef = null;          // #terminal-wrapper — retainFocus restore tar
 let validateRef = null, truncateRef = null, pushTxBytesRef = null,
     isSlideActiveRef = null, isWriterReadyRef = null, getEnterBytesRef = null,
     onPullRequestedRef = null,
-    sendFilesRef = null;   // S9.4 — file-source send path (sanctioned fallback)
+    sendFilesRef = null,   // S9.4 — file-source send path (sanctioned fallback)
+    analyzeCsumRef = null; // S10.1 — pure csum module (renderer/csum.js), injected not imported
 
 // Test override for the injected isSlideActive (null = use the injected one).
 // Mirrors the __setDirHandleForTests approach to unhostable browser state.
@@ -106,7 +113,8 @@ let paneRootEl = null, cardEl = null, fnameEl = null, capEl = null, capLabelEl =
     chooseBtn = null, grantBtn = null, footEl = null, badgeEl = null, refreshBtn = null,
     reviewEl = null, cmdlineEl = null, cmdTextEl = null, nothingEl = null,
     tokListEl = null, actionsEl = null, cancelBtn = null, confirmBtn = null,
-    railEl = null;
+    railEl = null,
+    detailEl = null, detailTitleEl = null, detailRowsEl = null, detailBackBtn = null;
 
 // ====== S9.3 — selection-drag / drop-affordance / bloom state ======
 
@@ -162,6 +170,25 @@ let selAnchor = null;
 // (fired when a native drag starts) never runs the collapse.
 let pendingCollapse = null;
 
+// ====== S10.1 — host-side checksum column (FR-1/2/3, NFR-3) ======
+
+// Whole-file CRC-32 cache, keyed by content identity `${name}:${size}:${lastModified}`
+// — NOT by view. Session-lifetime, in-memory only (no idb — story scope).
+// Successes only; a read failure is shown as '—' but never cached, so the next
+// refresh retries it.
+let csumCache = new Map();
+// What each row's .pp-cs cell currently shows (name → 8-hex | '…' | '—').
+// The test hook derives `csums` from this ∩ state.files.
+let csumShown = new Map();
+// Sequential fill queue: one getFile()/arrayBuffer() at a time across ALL fill
+// passes (no I/O stampede on large folders). Each pass chains onto the tail.
+let fillChain = Promise.resolve();
+
+const CSUM_PENDING = '…';
+const CSUM_FAIL = '—';
+
+function csumKey(f) { return `${f.name}:${f.size}:${f.lastModified}`; }
+
 // Verbatim microcopy (EXPERIENCE.md — do NOT paraphrase).
 const COPY = {
     firstRun: 'No folder chosen. Pulled files land here.',
@@ -173,6 +200,10 @@ const COPY = {
     // drop-active footer prefix (EXPERIENCE.md:130 — "⤓ Drop to pull 2 files").
     footResting: 'Drag a filename selection here to pull',
     footDropPrefix: '⤓ Drop to pull ',
+    // S10.1 — checksum column + detail view (story e10-1 verbatim-copy block).
+    csumTip: 'CRC-32 — matches CSUM / csumhost',
+    detailTip: 'Per-record checksums (CSUM -V)',
+    detailReadFail: "Couldn't read this file.",
 };
 
 // Verbatim skip reason for tokens that fail the 8.3 idempotence check
@@ -219,6 +250,20 @@ function resetDiffBaseline() {
     selectedNames = new Set();
     selAnchor = null;
     pendingCollapse = null;
+    // S10.1 — and a fresh checksum slate: the cache key (name:size:mtime) has
+    // no folder identity, so an entry surviving a rebind could hand a
+    // same-named, same-stamped file in ANOTHER folder the old folder's CRC
+    // without a read — the exact corruption the column exists to expose.
+    resetCsumState();
+}
+
+// S10.1 — shared csum teardown (rebind / test reset / dispose). Callers bump
+// the epoch first, which already makes any in-flight fill write nothing;
+// detaching the chain keeps a parked read from blocking the next intent's.
+function resetCsumState() {
+    csumCache = new Map();
+    csumShown = new Map();
+    fillChain = Promise.resolve();
 }
 
 export function wirePullPane(opts) {
@@ -235,6 +280,10 @@ export function wirePullPane(opts) {
         // S9.4 — file-source's send path for the reverse-drag handoff
         // (sanctioned fallback; see the header note and story e9-4 Dev Notes).
         sendFiles: sendFilesRef,
+        // S10.1 — the pure csum module's analyzeCsum. Called unguarded, like
+        // the validators above: a missing injection is a mis-wired composition
+        // root and must fail loudly.
+        analyzeCsum: analyzeCsumRef,
     } = opts);
 
     // Derive child refs from the injected root (no cross-module document reach).
@@ -264,6 +313,11 @@ export function wirePullPane(opts) {
     cancelBtn = paneRootEl.querySelector('#pull-pane-cancel');
     confirmBtn = paneRootEl.querySelector('#pull-pane-confirm');
     railEl = paneRootEl.querySelector('.pp-rail');
+    // S10.1 — detail sub-state refs.
+    detailEl = paneRootEl.querySelector('#pull-pane-detail');
+    detailTitleEl = paneRootEl.querySelector('#pull-pane-detail-title');
+    detailRowsEl = paneRootEl.querySelector('#pull-pane-detail-rows');
+    detailBackBtn = paneRootEl.querySelector('#pull-pane-detail-back');
 
     // AD-10 — every interactive control retains #terminal-wrapper focus. All are
     // buttons (the mousedown→preventDefault branch, restoreTarget unused for that
@@ -275,6 +329,15 @@ export function wirePullPane(opts) {
     // S9.2 review actions — same retainFocus wiring as choose/grant (AD-10).
     if (cancelBtn) { retainFocusRef(cancelBtn, wrapperRef); cancelBtn.addEventListener('click', onReviewCancel); }
     if (confirmBtn) { retainFocusRef(confirmBtn, wrapperRef); confirmBtn.addEventListener('click', onReviewConfirm); }
+    // S10.1 — detail back button + the delegated per-row ⁞ handlers (buttons
+    // are rebuilt with the rows; container listeners survive them all, where
+    // per-button wiring would re-register N listeners + N focus.js registry
+    // entries on every rebuild).
+    if (detailBackBtn) { retainFocusRef(detailBackBtn, wrapperRef); detailBackBtn.addEventListener('click', closeDetail); }
+    if (listEl) {
+        listEl.addEventListener('click', onListDetailClick);
+        listEl.addEventListener('mousedown', onListDetailMousedown);
+    }
 
     // S9.3 — drop target (AC-2/3/4). DOM events only, no new imports (AD-3).
     // Handlers early-return unless an in-app selection drag is acceptable, so
@@ -428,12 +491,14 @@ async function enumerateAndRender(handle, gen) {
     try {
         for await (const [name, h] of handle.entries()) {
             if (h.kind !== 'file') continue;
-            let size = 0;
-            try { const f = await h.getFile(); size = f.size; } catch { size = 0; }
+            let size = 0, lastModified = 0;
+            // S10.1 — lastModified rides the same getFile() that already reads
+            // size; it feeds the checksum cache key only, never the snapshot.
+            try { const f = await h.getFile(); size = f.size; lastModified = f.lastModified; } catch { size = 0; }
             // S9.4 — keep the file handle so a row drag can resolve its File.
             // The diff-render snapshot below stays keyed on name+size only: a
             // handle identity change alone must never count as a content change.
-            files.push({ name, size, handle: h });
+            files.push({ name, size, lastModified, handle: h });
         }
     } catch (e) {
         console.warn('[pull-pane] enumerate failed:', e);
@@ -453,6 +518,13 @@ async function enumerateAndRender(handle, gen) {
     const prevSnap = lastSnapshot;
     if (prevSnap && snapshotsEqual(prevSnap, files)) {
         state.files = files;
+        // S10.1 — the same-size-edit trap (story e10-1 Dev Notes): an in-place
+        // edit that keeps the size produces exactly this snapshot-equal early
+        // return, so the checksum fill MUST run here too or the stale CRC sits
+        // on screen forever — the very corruption the column exists to expose.
+        // The bumped lastModified makes the cache key miss → recompute →
+        // textContent-only cell update, zero row churn.
+        kickCsumFill(gen);
         return;
     }
     // Changed → files present now but absent from the previous snapshot are fresh
@@ -473,6 +545,81 @@ async function enumerateAndRender(handle, gen) {
     }
     state.view = files.length === 0 ? 'empty' : 'list';
     render();
+    // S10.1 — fill pass on EVERY enumeration completion (both exits — see the
+    // snapshot-equal branch above). After render() so the cells exist.
+    kickCsumFill(gen);
+}
+
+// ====== S10.1 — checksum column fill (FR-2/3, NFR-3) ======
+
+// Reconcile every row's .pp-cs cell with the cache, then queue the misses for
+// the sequential async fill. Cache hits update synchronously (renderRows
+// already painted them; this also catches the snapshot-equal path where no
+// rows were rebuilt). Cell writes are textContent-only — never a row rebuild.
+function kickCsumFill(gen) {
+    // Prune entries whose file (or content identity) is gone — without an
+    // owner reconciling them, mtime bumps mint a new key per save and the
+    // maps grow for the whole session.
+    const liveNames = new Set(state.files.map((f) => f.name));
+    for (const n of csumShown.keys()) {
+        if (!liveNames.has(n)) csumShown.delete(n);
+    }
+    const liveKeys = new Set(state.files.map(csumKey));
+    for (const k of csumCache.keys()) {
+        if (!liveKeys.has(k)) csumCache.delete(k);
+    }
+    const misses = [];
+    for (const f of state.files) {
+        if (!f.handle) continue;
+        const hit = csumCache.get(csumKey(f));
+        if (hit !== undefined) {
+            if (csumShown.get(f.name) !== hit) {
+                csumShown.set(f.name, hit);
+                updateCsumCell(f.name, hit);
+            }
+        } else {
+            misses.push(f);
+        }
+    }
+    if (misses.length > 0) enqueueFill(misses, gen);
+}
+
+// Sequential fill: one getFile()/arrayBuffer() at a time, chained onto the
+// module-wide queue so overlapping passes never stampede the disk. Every cell
+// write re-checks gen === epoch (the E9 discipline) — a stale pass after a
+// rebind/new-folder intent writes nothing. Cache writes are keyed by content
+// identity, not by view, so they stay valid even from a superseded pass. A
+// read failure shows '—' and the loop continues (FR-12) — one bad file never
+// blocks the rest — and is NOT cached, so the next refresh retries.
+function enqueueFill(misses, gen) {
+    fillChain = fillChain.then(async () => {
+        for (const f of misses) {
+            if (gen !== epoch) return;   // superseded — a newer pass owns the fill
+            const key = csumKey(f);
+            let value = csumCache.get(key);   // a newer pass may have filled it
+            if (value === undefined) {
+                try {
+                    const file = await f.handle.getFile();
+                    const bytes = new Uint8Array(await file.arrayBuffer());
+                    value = analyzeCsumRef(bytes).crc;
+                    csumCache.set(key, value);
+                } catch (e) {
+                    console.warn('[pull-pane] checksum read failed:', e);
+                    value = CSUM_FAIL;
+                }
+            }
+            if (gen !== epoch) return;   // stale fill writes no cell
+            csumShown.set(f.name, value);
+            updateCsumCell(f.name, value);
+        }
+    });
+}
+
+// textContent-only mutation of an existing cell — no rebuild, no scroll reset.
+function updateCsumCell(name, text) {
+    if (!listEl) return;
+    const cs = listEl.querySelector(`.pp-row[data-name="${CSS.escape(name)}"] .pp-cs`);
+    if (cs) cs.textContent = text;
 }
 
 // Snapshot equality — both arrays are name-asc; compare names + sizes positionally.
@@ -549,8 +696,11 @@ function onSelectionDrag(dragState) {
         // validCount is computed lazily on the first accepted dragenter —
         // a drag that never reaches the pane skips the compose entirely.
         selDrag = { active: true, text, validCount: 0 };
-        // FR-2 — a selection drag blooms the rail open so the drop target exists.
-        if (railVisible()) setBloom(true, false);
+        // FR-2 — a selection drag blooms the rail open so the drop target
+        // exists. Not while a detail is open (S10.1): dropAcceptable refuses
+        // that drop, and blooming would animate open a card that then shows a
+        // no-drop cursor — an invitation AC-7 refuses.
+        if (railVisible() && !state.detail) setBloom(true, false);
     } else {
         selDrag = { active: false, text: '', validCount: 0 };
         dropDepth = 0;
@@ -569,6 +719,10 @@ function onSelectionDrag(dragState) {
 function dropAcceptable() {
     return selDrag.active
         && !slideActiveNow()
+        // S10.1 (AC-7) — interim S10.2 boundary: while the detail view is open
+        // a terminal-selection drop is refused outright (no affordance, drop
+        // inert). S10.2 replaces this branch with CSUM -V diff routing.
+        && !state.detail
         && (state.view === 'list' || state.view === 'empty');
 }
 
@@ -621,7 +775,7 @@ function setDropAffordance(on) {
     if (footEl) {
         footEl.classList.toggle('drop-active', on);
         footEl.textContent = on
-            ? `${COPY.footDropPrefix}${pluralFiles(selDrag.validCount)}`
+            ? `${COPY.footDropPrefix}${plural(selDrag.validCount, 'file')}`
             : COPY.footResting;
     }
 }
@@ -697,6 +851,9 @@ function applySelectionClasses() {
 // dragend/pointerup already cleared it must not resurrect anything.
 function onRowPointerDown(ev) {
     if (ev.button !== 0) return;
+    // S10.1 — the ⁞ detail button is gesture-inert: no selection change, no
+    // drag-stash arming (its click routes through onListDetailClick instead).
+    if (ev.target.closest && ev.target.closest('.pp-detail')) return;
     const rowEl = ev.target.closest('.pp-row');
     if (!rowEl) {
         // Empty-area click inside the list clears the selection (filer convention).
@@ -879,6 +1036,122 @@ function onWrapperDrop(ev) {
     });
 }
 
+// ====== S10.1 — per-record checksum detail sub-state (FR-4/5) ======
+
+// Delegated ⁞ click. onRowPointerDown ignores button targets (gesture-inert);
+// click still bubbles here, where the row's name routes to openDetail.
+function onListDetailClick(ev) {
+    const btn = ev.target && ev.target.closest ? ev.target.closest('.pp-detail') : null;
+    if (!btn) return;
+    const rowEl = btn.closest('.pp-row');
+    if (rowEl) openDetail(rowEl.dataset.name);
+}
+
+// Delegated stand-in for retainFocus's button branch (AD-10): preventDefault
+// on mousedown blocks the focus steal from #terminal-wrapper while the click
+// (and keyboard Tab-focus) still work. One container listener instead of
+// per-button retainFocus wiring, because the buttons are rebuilt with the
+// rows on every content-changing refresh.
+function onListDetailMousedown(ev) {
+    if (ev.target && ev.target.closest && ev.target.closest('.pp-detail')) ev.preventDefault();
+}
+
+// The in-flight ⁞ open, if any. Last click wins: a second open supersedes the
+// first even though neither has set the flag yet (the flag is only set after
+// the read resolves).
+let detailOpenToken = null;
+
+// openDetail — read the file FRESH (records are never kept from the column
+// fill), analyze, then set the flag + paint ONCE (the S9.2 review pattern:
+// refresh-triggered render() calls only project visibility). The await runs
+// BEFORE the flag is set, so there is never a half-painted detail — a slow
+// read just delays the swap. A read failure paints the failure copy in the
+// detail body; it never throws (AC-8). Post-await, the open is abandoned if
+// the pane moved on: another sub-state opened, a LATER ⁞ click superseded
+// this one, the folder was rebound (dirHandle identity — refresh ticks never
+// change it, so a background tick can't kill the open), the view degraded, or
+// the file vanished from the folder.
+async function openDetail(name) {
+    if (state.review || state.detail) return;   // mutual exclusion by construction
+    if (state.view !== 'list') return;
+    const entry = state.files.find((f) => f.name === name);
+    if (!entry || !entry.handle) return;
+    const boundHandle = dirHandle;
+    const token = {};
+    detailOpenToken = token;
+    let detail;
+    let records = [];
+    let freshKey = null;
+    try {
+        const file = await entry.handle.getFile();
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        const analyzed = analyzeCsumRef(bytes);
+        records = analyzed.records;
+        detail = { name, recordCount: records.length, crc: analyzed.crc, error: null };
+        freshKey = `${name}:${file.size}:${file.lastModified}`;
+    } catch (e) {
+        console.warn('[pull-pane] detail read failed:', e);
+        detail = { name, recordCount: 0, crc: null, error: COPY.detailReadFail };
+    }
+    if (detailOpenToken !== token) return;      // a later ⁞ click owns the open
+    if (state.review || state.detail) return;   // the pane moved on during the read
+    if (dirHandle !== boundHandle || state.view !== 'list') return;
+    if (!state.files.some((f) => f.name === name)) return;   // file vanished meanwhile
+    if (freshKey) {
+        // Write-back: the column must agree with the header the user is about
+        // to read. The fresh mtime keys the cache, so the next enumeration
+        // hits it instead of reverting the cell to a stale value.
+        csumCache.set(freshKey, detail.crc);
+        csumShown.set(name, detail.crc);
+        updateCsumCell(name, detail.crc);
+    }
+    state.detail = detail;
+    renderDetail(detail, records);
+    render();
+}
+
+// ‹ Back — clear the flag and re-render truthfully: the list re-projects
+// current state, picking up any refresh that landed while the detail was open.
+// Bloom rules untouched: closing the detail never un-blooms (S9.3 dismissal
+// paths own that).
+function closeDetail() {
+    state.detail = null;
+    render();
+}
+
+// renderDetail — paints the detail's own DOM. Called ONLY from openDetail, so
+// refresh-triggered render() calls never repaint an open detail. The records
+// array is consumed here and not kept in state (post-paint, nothing reads it —
+// the DOM is the record listing's single home). Labels stay honest: the
+// whole-file value is CRC-32, per-record values are Fletcher-16.
+function renderDetail(dv, records) {
+    if (!dv) return;
+    if (detailTitleEl) {
+        detailTitleEl.textContent = dv.error
+            ? dv.name
+            : `${dv.name} · ${plural(dv.recordCount, 'record')} · CRC ${dv.crc}`;
+    }
+    if (detailRowsEl) {
+        const frag = document.createDocumentFragment();
+        if (dv.error) {
+            const err = document.createElement('div');
+            err.className = 'pp-dv-err';
+            err.textContent = dv.error;
+            frag.append(err);
+        } else {
+            for (let i = 0; i < records.length; i++) {
+                const row = document.createElement('div');
+                row.className = 'pp-dv-row';
+                row.textContent = `${hex4(i)}: ${records[i]}`;
+                frag.append(row);
+            }
+        }
+        detailRowsEl.replaceChildren(frag);
+    }
+}
+
+function hex4(n) { return n.toString(16).toUpperCase().padStart(4, '0'); }
+
 // ====== S9.2 — selection → SLIDE S compose + in-pane review (FR-4/5/7/11) ======
 
 // The session predicate, test-overridable. Checked at beginReview AND
@@ -982,6 +1255,11 @@ function composeFromText(text) {
 // and does NOT touch lastSnapshot/freshNames.
 export function beginReview(text) {
     if (slideActiveNow()) return false;
+    // S10.1 (AC-7) — refused while the detail sub-state is open, mirroring
+    // dropAcceptable: this is a public entry point, so the exclusion must
+    // hold here too, not only on the drop path. S10.2 routes this case to
+    // the CSUM -V diff instead.
+    if (state.detail) return false;
     state.review = composeFromText(String(text ?? ''));
     renderReview();
     render();
@@ -1025,7 +1303,7 @@ function renderReview() {
         tokListEl.replaceChildren(frag);
     }
     if (confirmBtn) {
-        confirmBtn.textContent = `Pull ${pluralFiles(rv.validCount)}`;
+        confirmBtn.textContent = `Pull ${plural(rv.validCount, 'file')}`;
         confirmBtn.disabled = rv.validCount === 0;
     }
 }
@@ -1076,8 +1354,15 @@ function render() {
     const { view, files, folderName } = state;
     // S9.2 — an open review wins the data-view projection; the content view
     // underneath stays live (refresh keeps mutating it) and re-projects on exit.
+    // S10.1 — the detail flag projects the same way (review outranks it, but
+    // the two are mutually exclusive by construction).
     const reviewing = !!state.review;
-    cardEl.setAttribute('data-view', reviewing ? 'review' : view);
+    const detailing = !reviewing && !!state.detail;
+    // One source for "a sub-state covers the content view" — every content
+    // projection below keys off this, so a future sub-state (S10.2 diff) is
+    // one term here, not five hand-updated conditions.
+    const overlay = reviewing || detailing;
+    cardEl.setAttribute('data-view', reviewing ? 'review' : detailing ? 'detail' : view);
 
     // Header — bound states show the folder name; first-run shows the generic label.
     if (fnameEl) fnameEl.textContent = folderName || 'Pull pane';
@@ -1090,15 +1375,16 @@ function render() {
     if (capLabelEl) capLabelEl.textContent = reviewing ? COPY.reviewCaption : COPY.boundCaption;
     if (countEl) {
         countEl.hidden = reviewing;
-        countEl.textContent = pluralFiles(files.length);
+        countEl.textContent = plural(files.length, 'file');
     }
     if (badgeEl) badgeEl.textContent = String(files.length);
 
-    // File list. While reviewing, leave the list DOM entirely alone (hidden but
-    // untouched — zero churn); the exit render repaints it from current state.
+    // File list. While a sub-state covers it, leave the list DOM entirely
+    // alone (hidden but untouched — zero churn); the exit render repaints it
+    // from current state.
     if (listEl) {
-        listEl.hidden = reviewing || view !== 'list';
-        if (!reviewing) {
+        listEl.hidden = overlay || view !== 'list';
+        if (!overlay) {
             if (view === 'list') renderRows();
             else listEl.replaceChildren();
         }
@@ -1106,7 +1392,7 @@ function render() {
 
     // Blank state (first-run | permission | empty) — one message + one control.
     const blankView = view === 'first-run' || view === 'permission' || view === 'empty';
-    if (blankEl) blankEl.hidden = reviewing || !blankView;
+    if (blankEl) blankEl.hidden = overlay || !blankView;
     if (blankMsgEl) {
         if (view === 'first-run') blankMsgEl.textContent = COPY.firstRun;
         else if (view === 'permission') blankMsgEl.textContent = COPY.permission;
@@ -1115,13 +1401,18 @@ function render() {
     if (chooseBtn) chooseBtn.hidden = view !== 'first-run';
     if (grantBtn) grantBtn.hidden = view !== 'permission';
 
-    // Footer hint — only once a folder is bound + readable (never during review).
-    if (footEl) footEl.hidden = reviewing || !bound;
+    // Footer hint — only once a folder is bound + readable (never under a
+    // sub-state).
+    if (footEl) footEl.hidden = overlay || !bound;
 
     // Review body + actions — content is painted by renderReview at beginReview
     // time; render() only projects visibility (AC-3: refresh never repaints it).
     if (reviewEl) reviewEl.hidden = !reviewing;
     if (actionsEl) actionsEl.hidden = !reviewing;
+
+    // S10.1 detail body — same paint-once discipline (renderDetail at
+    // openDetail time; here only visibility).
+    if (detailEl) detailEl.hidden = !detailing;
 }
 
 function renderRows() {
@@ -1134,6 +1425,14 @@ function renderRows() {
     // FR-10 changed-case: capture scroll before the rebuild, restore it after, so
     // a refresh that adds files never yanks the user's scroll position.
     const prevScroll = listEl.scrollTop;
+    // S10.1 — the rebuild destroys any keyboard-focused ⁞ button; note which
+    // row held it so focus is restored after (otherwise it falls to <body>
+    // and keystrokes reach neither the terminal nor any control — AD-10).
+    const activeEl = document.activeElement;
+    const focusedDetailRow = (activeEl && activeEl.classList
+            && activeEl.classList.contains('pp-detail') && listEl.contains(activeEl))
+        ? activeEl.closest('.pp-row').dataset.name
+        : null;
     const frag = document.createDocumentFragment();
     for (const f of ordered) {
         const row = document.createElement('div');
@@ -1149,14 +1448,44 @@ function renderRows() {
         const nm = document.createElement('span');
         nm.className = 'pp-nm';
         nm.textContent = f.name;
+        // S10.1 — ambient CRC-32 cell. Cache hits paint synchronously (no
+        // placeholder flash). A miss keeps whatever the cell last showed —
+        // '—' after a read failure (never cached, so the next enumeration's
+        // fill retries it) or a stale value awaiting recompute — and only a
+        // never-shown file gets the pending placeholder. Repainting misses as
+        // '…' here would fake an in-progress state on paths (review/detail
+        // exit) that queue no fill.
+        const cs = document.createElement('span');
+        cs.className = 'pp-cs';
+        cs.title = COPY.csumTip;
+        const hit = f.handle ? csumCache.get(csumKey(f)) : undefined;
+        const shown = hit ?? csumShown.get(f.name) ?? CSUM_PENDING;
+        cs.textContent = shown;
+        csumShown.set(f.name, shown);
         const sz = document.createElement('span');
         sz.className = 'pp-sz';
         sz.textContent = formatSize(f.size);
-        row.append(nm, sz);
+        // S10.1 — per-row detail button (⁞). Gesture-inert and focus-safe via
+        // the DELEGATED listEl handlers (onListDetailMousedown preventDefaults
+        // the focus steal — retainFocus's button branch verbatim — and
+        // onRowPointerDown ignores button targets): rows rebuild on every
+        // content change, and per-button retainFocus wiring would push a new
+        // focus.js registry entry per button per rebuild, unbounded.
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'pp-detail';
+        btn.textContent = '⁞';
+        btn.title = COPY.detailTip;
+        row.append(nm, cs, sz, btn);
         frag.append(row);
     }
     listEl.replaceChildren(frag);
     listEl.scrollTop = prevScroll;
+    if (focusedDetailRow !== null) {
+        const again = listEl.querySelector(`.pp-row[data-name="${CSS.escape(focusedDetailRow)}"] .pp-detail`);
+        if (again) again.focus();
+        else if (wrapperRef) wrapperRef.focus();
+    }
 }
 
 // Byte formatter — mirrors slide-chip.js formatBytes (12 KB / 820 B / 1.2 MB).
@@ -1166,7 +1495,7 @@ function formatSize(b) {
     return `${(b / 1_000_000).toFixed(1)} MB`;
 }
 
-function pluralFiles(n) { return n === 1 ? '1 file' : `${n} files`; }
+function plural(n, noun) { return n === 1 ? `1 ${noun}` : `${n} ${noun}s`; }
 
 // ====== Test introspection (matches the window.__* pattern) ======
 
@@ -1182,6 +1511,10 @@ export function __getStateForTests() {
         bloom: bloomed,                     // S9.3 (AC-9)
         dragOutArmed: dragOut !== null,     // S9.4 (AC-7)
         selectedNames: [...selectedNames].sort(),   // S9.4 multi-select extension
+        // S10.1 (AC-9) — what each row's checksum cell shows right now.
+        csums: Object.fromEntries(state.files.map((f) => [f.name, csumShown.get(f.name) ?? CSUM_PENDING])),
+        // S10.1 (AC-9) — the open detail sub-state.
+        detail: state.detail ? { ...state.detail } : null,
         review: state.review
             ? {
                 command: state.review.command,
@@ -1197,7 +1530,7 @@ export function __resetForTests() {
     resetDiffBaseline();
     dirHandle = null;
     slideActiveOverride = null;
-    state = { folderName: null, permission: 'prompt', files: [], view: 'first-run', review: null };
+    state = { folderName: null, permission: 'prompt', files: [], view: 'first-run', review: null, detail: null };
     // S9.3 — clear drag/drop/bloom state so specs start from rest.
     selDrag = { active: false, text: '', validCount: 0 };
     dropDepth = 0;
@@ -1206,6 +1539,7 @@ export function __resetForTests() {
     dragOut = null;   // S9.4 — no stale reverse-drag stash across specs
     dragOutInFlight = false;
     clearWrapperAffordance();
+    // (csum cache/shown/chain were reset by resetDiffBaseline above.)
     render();
 }
 
@@ -1233,6 +1567,20 @@ export function dispose() {
     if (refreshBtn) refreshBtn.removeEventListener('click', triggerRefresh);
     if (cancelBtn) cancelBtn.removeEventListener('click', onReviewCancel);
     if (confirmBtn) confirmBtn.removeEventListener('click', onReviewConfirm);
+    // S10.1 — detail sub-state teardown (row ⁞ buttons go with the rows).
+    // Clear the visual state BEFORE the listeners go (the S9.3 bloom rule): a
+    // disposed pane must not freeze an open detail on screen with its Back
+    // listener removed.
+    state.detail = null;
+    if (detailEl) detailEl.hidden = true;
+    if (cardEl && cardEl.getAttribute('data-view') === 'detail') {
+        cardEl.setAttribute('data-view', state.view);
+    }
+    if (detailBackBtn) detailBackBtn.removeEventListener('click', closeDetail);
+    if (listEl) {
+        listEl.removeEventListener('click', onListDetailClick);
+        listEl.removeEventListener('mousedown', onListDetailMousedown);
+    }
     // S9.3 — drop target + bloom teardown. Clear the visual state BEFORE the
     // listeners go: a disposed pane must not leave the bloom overlay painted
     // (or the drop affordance lit) with every dismiss path removed.
@@ -1271,4 +1619,7 @@ export function dispose() {
     document.removeEventListener('pointerdown', onDocPointerDown, true);
     if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
     window.removeEventListener('focus', triggerRefresh);
+    // S10.1 — checksum machinery teardown (epoch bump stops in-flight writes).
+    ++epoch;
+    resetCsumState();
 }

@@ -510,6 +510,16 @@
     .pp-row .pp-nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
     .pp-row .pp-sz { color: var(--chrome-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
     .pp-row:hover .pp-sz { color: var(--chrome-bg); }
+    /* S10.1 — ambient CRC-32 column (FR-1/2, UX-DR1). Muted, ~11px, tabular
+       (monospace inherits from the body stack, like .pp-sz); never wraps or
+       widens the row (the name keeps flex:1+ellipsis). Recolors with the row
+       exactly like .pp-sz — --chrome-* only (AD-9). */
+    .pp-row .pp-cs {
+      color: var(--chrome-muted); font-size: 11px;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+    .pp-row:hover .pp-cs { color: var(--chrome-bg); }
     /* S9.4 — rows are native drag sources (reverse drag → terminal → SLIDE send).
        Cursor only; no new tokens, identical CRT↔Console (AD-9). */
     .pp-row[draggable="true"] { cursor: grab; }
@@ -517,6 +527,7 @@
        hover-row accent treatment — never a new colour (--chrome-* only, AD-9). */
     .pp-row.fresh { position: relative; background: var(--chrome-accent); color: var(--chrome-bg); }
     .pp-row.fresh .pp-sz { color: var(--chrome-bg); }
+    .pp-row.fresh .pp-cs { color: var(--chrome-bg); }
     .pp-row.fresh::before {
       content: ""; position: absolute; left: 0; top: 4px; bottom: 4px;
       width: 2px; background: var(--chrome-accent); border-radius: 2px;
@@ -532,7 +543,8 @@
       color: var(--chrome-fg);
       box-shadow: inset 0 0 0 1px var(--chrome-accent);
     }
-    .pp-row.sel .pp-sz, .pp-row.sel:hover .pp-sz, .pp-row.fresh.sel .pp-sz {
+    .pp-row.sel .pp-sz, .pp-row.sel:hover .pp-sz, .pp-row.fresh.sel .pp-sz,
+    .pp-row.sel .pp-cs, .pp-row.sel:hover .pp-cs, .pp-row.fresh.sel .pp-cs {
       color: var(--chrome-muted);
     }
     .pp-blank {
@@ -638,6 +650,74 @@
       border-color: var(--chrome-border);
       cursor: default;
     }
+
+    /* S10.1 — per-row detail button (⁞, UX-DR2). Hidden at rest via opacity
+       (NOT visibility/display — the button must stay keyboard-focusable);
+       revealed on row hover, row :focus-within (a keyboard user Tabbing to it
+       must see it), and its own :focus-visible. --chrome-* only (AD-9). */
+    .pp-row .pp-detail {
+      background: none; border: 0; padding: 0 2px; margin: 0;
+      color: var(--chrome-muted); font: inherit; font-size: 13px; line-height: 1;
+      cursor: pointer;
+      opacity: 0;
+    }
+    .pp-row:hover .pp-detail,
+    .pp-row:focus-within .pp-detail,
+    .pp-row .pp-detail:focus-visible { opacity: 1; }
+    .pp-row:hover .pp-detail { color: var(--chrome-bg); }
+    .pp-row .pp-detail:focus-visible {
+      outline: 2px solid var(--chrome-accent); outline-offset: 1px; border-radius: 3px;
+    }
+
+    /* S10.1 — detail sub-state (FR-4/5, UX-DR3/DR7). Same layout discipline as
+       .pp-review: the pane has container-type:size, so the record listing
+       scrolls INTERNALLY (flex:1 + min-height:0 + overflow-y:auto) and never
+       inflates the stage row. --chrome-* only (AD-9). */
+    .pp-dv {
+      flex: 1; min-height: 0;
+      padding: 10px 11px;
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    .pp-dv[hidden] { display: none; }
+    .pp-dv-title {
+      flex-shrink: 0;
+      color: var(--chrome-fg);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    /* Back is the detail view's only way out (Esc deliberately doesn't close
+       it), so it reads a step above the base .pp-btn: accent border + text,
+       semibold. Not the solid-mint primary treatment — that stays reserved
+       for confirm actions like [Pull N files]. --chrome-* only (AD-9). */
+    .pp-dv-back {
+      align-self: flex-start; flex-shrink: 0;
+      color: var(--chrome-accent);
+      border-color: var(--chrome-accent);
+      font-weight: 600;
+    }
+    .pp-dv-back:hover {
+      background: color-mix(in srgb, var(--chrome-accent) 12%, transparent);
+    }
+    .pp-dv-rows {
+      flex: 1; min-height: 0;
+      overflow-y: auto;
+      color: var(--chrome-fg);
+    }
+    .pp-dv-rows .pp-dv-row {
+      /* monospace inherits from the body stack */
+      font-size: 12px; line-height: 1.6;
+      font-variant-numeric: tabular-nums;
+      white-space: pre;
+    }
+    .pp-dv-rows .pp-dv-err {
+      color: var(--chrome-muted); font-size: 12px; line-height: 1.5;
+    }
+    .pp-dv-foot {
+      flex-shrink: 0;
+      padding-top: 9px;
+      border-top: 1px solid var(--chrome-border);
+      color: var(--chrome-muted); font-size: 12px; text-align: center;
+    }
+    .pp-dv-foot[hidden] { display: none; }
 
     /* Narrow-window fallback rail — hidden by default; the container query below
        swaps card↔rail when the pane is squeezed. The rail costs no terminal
@@ -2063,6 +2143,18 @@
         <div class="pp-cmdline" id="pull-pane-cmdline" hidden><span class="pp-pr">›</span><span id="pull-pane-cmdtext"></span></div>
         <div class="pp-nothing" id="pull-pane-nothing" hidden>Nothing to pull — no CP/M 8.3 names in the selection.</div>
         <div class="pp-toklist" id="pull-pane-toklist"></div>
+      </div>
+      <!-- S10.1 per-record checksum detail sub-state (view=detail — FR-4/5).
+           pull-pane.js paints the header + record rows once at openDetail();
+           render() only projects visibility (the S9.2 review pattern), so a
+           background refresh never repaints an open detail. The footer hint
+           ships [hidden]: it invites the CSUM -V drop that S10.2 wires up —
+           never show an invitation the current build refuses. -->
+      <div class="pp-dv" id="pull-pane-detail" hidden>
+        <div class="pp-dv-title" id="pull-pane-detail-title"></div>
+        <button type="button" class="pp-btn pp-dv-back" id="pull-pane-detail-back">‹ Back</button>
+        <div class="pp-dv-rows" id="pull-pane-detail-rows"></div>
+        <div class="pp-dv-foot" id="pull-pane-detail-foot" hidden>Drag CSUM -V output here to compare</div>
       </div>
       <!-- Blank state (view=first-run|permission|empty): one message + one
            optional control. pull-pane.js sets the message text + which button

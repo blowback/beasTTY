@@ -29,7 +29,13 @@ const BLANK_MSG = '#pull-pane-blank-msg';
 //
 // S9.4 additions: getFile() now returns a REAL File (content defaults to
 // `size` zero-bytes; pass `content` for byte-exact payload assertions) so both
-// the enumeration size read and the reverse-drag payload work. Modes drive the
+// the enumeration size read and the reverse-drag payload work.
+//
+// S10.1: mkFile pins lastModified to 0 so the checksum cache key
+// (name:size:mtime) is stable across enumerations — the File default is
+// Date.now() per call, which would make every refresh tick a cache miss and
+// queue a full byte re-read of every file through the same pending queue the
+// S9.4 manual-mode specs are timing. Modes drive the
 // pointerdown-prefetch race deterministically: 'ok' resolves; 'reject' rejects
 // (file deleted since enumeration); 'manual' parks every resolve until
 // __resolvePendingGetFiles() releases it (never release = never resolves).
@@ -38,7 +44,7 @@ const FAKE_HANDLE_FACTORY = `
     let curFiles = files.slice();
     let getFileMode = 'ok';
     const pendingGetFiles = [];
-    const mkFile = (f) => new File([f.content ?? new Uint8Array(f.size)], f.name);
+    const mkFile = (f) => new File([f.content ?? new Uint8Array(f.size)], f.name, { lastModified: 0 });
     const handle = {
       name,
       kind: 'directory',
