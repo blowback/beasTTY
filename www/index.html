@@ -722,6 +722,32 @@
     }
     .pp-dv-foot[hidden] { display: none; }
 
+    /* S10.2 — drop-to-diff (FR-6/7, UX-DR4). The detail footer's drop-active
+       accent mirrors .pp-foot.drop-active; a mismatched record row carries
+       the established 12% accent tint plus a textual accent ≠ suffix (both
+       values shown — never colour alone, never red: red stays reserved for
+       security / port-lost). --chrome-* only (AD-9). */
+    .pp-dv-foot.drop-active {
+      color: var(--chrome-accent);
+      border-top-color: var(--chrome-accent);
+      background: color-mix(in srgb, var(--chrome-accent) 10%, transparent);
+      font-weight: 600;
+    }
+    .pp-dv-rows .pp-dv-row.mismatch {
+      background: color-mix(in srgb, var(--chrome-accent) 12%, transparent);
+    }
+    .pp-dv-row.mismatch .pp-dv-ne { color: var(--chrome-accent); }
+    .pp-dv-result {
+      flex-shrink: 0;
+      display: flex; flex-direction: column; gap: 3px;
+      font-size: 12px; line-height: 1.5;
+    }
+    .pp-dv-result[hidden] { display: none; }
+    .pp-dv-result .pp-dv-caption { color: var(--chrome-fg); font-weight: 600; }
+    .pp-dv-result .pp-dv-countline,
+    .pp-dv-result .pp-dv-diag,
+    .pp-dv-result .pp-dv-fail { color: var(--chrome-muted); }
+
     /* Narrow-window fallback rail — hidden by default; the container query below
        swaps card↔rail when the pane is squeezed. The rail costs no terminal
        columns (it lives in the same gutter flex item, floored at 30px). */
@@ -1328,6 +1354,24 @@
       outline: none;
     }
     .chrome-modal footer form {
+      margin: 0;
+      /* 2026-07-24 — the two clear-confirms put BOTH buttons in one
+         method="dialog" form, so the form itself lays them out like the
+         footer would (single-button forms are unaffected). */
+      display: flex;
+      gap: 8px;
+    }
+
+    /* ==== Clear-confirm dialogs (E1.5 / E8.3) on the .chrome-modal rails ==== */
+    /* 2026-07-24 — these two previously had NO author CSS and rendered with raw
+       UA <dialog> styling. Small fixed cap (short body copy); the body <p> drops
+       its UA margin — the .modal-body flex gap owns the spacing. */
+    #clear-scrollback-confirm,
+    #clear-cmd-history-confirm {
+      max-width: 400px;
+    }
+    #clear-scrollback-confirm .modal-body p,
+    #clear-cmd-history-confirm .modal-body p {
       margin: 0;
     }
 
@@ -2156,6 +2200,10 @@
       <div class="pp-dv" id="pull-pane-detail" hidden>
         <div class="pp-dv-title" id="pull-pane-detail-title"></div>
         <button type="button" class="pp-btn pp-dv-back" id="pull-pane-detail-back">‹ Back</button>
+        <!-- S10.2 — diff result region (caption / count line / diagnosis).
+             Static + aria-live so a landed drop is announced; painted only by
+             renderDiff, hidden until a drop lands. -->
+        <div class="pp-dv-result" id="pull-pane-detail-result" aria-live="polite" hidden></div>
         <div class="pp-dv-rows" id="pull-pane-detail-rows"></div>
         <div class="pp-dv-foot" id="pull-pane-detail-foot" hidden>Drag CSUM -V output here to compare</div>
       </div>
@@ -2257,17 +2305,24 @@
        Opened via the shared openModal helper (main.js) from View ▸ Clear Scrollback…
        A native <form method="dialog"> closes with the button's value as returnValue
        ('confirm' | 'cancel'); Esc/backdrop resolve '' → treated as cancel. Cancel is
-       default-focused so Enter is the safe choice on this destructive action. -->
-  <dialog id="clear-scrollback-confirm" aria-labelledby="clear-scrollback-confirm-title">
+       default-focused so Enter is the safe choice on this destructive action.
+       2026-07-24 — restyled onto the shared .chrome-modal rails (header / modal-body /
+       footer) — it previously rendered with raw UA <dialog> styling. Ids, values,
+       copy, and focus behavior unchanged. -->
+  <dialog id="clear-scrollback-confirm" class="chrome-modal" aria-labelledby="clear-scrollback-confirm-title">
     <header>
       <h2 id="clear-scrollback-confirm-title">Clear scrollback?</h2>
     </header>
-    <p>Wipes the 10,000-line history.</p>
-    <p class="hint">Visible screen is unaffected. Snaps to live tail if you're scrolled up.</p>
-    <form method="dialog">
-      <button id="clear-scrollback-confirm-ok" type="submit" value="confirm">Clear scrollback</button>
-      <button id="clear-scrollback-confirm-cancel" type="submit" value="cancel">Cancel</button>
-    </form>
+    <div class="modal-body">
+      <p>Wipes the 10,000-line history.</p>
+      <p class="hint">Visible screen is unaffected. Snaps to live tail if you're scrolled up.</p>
+    </div>
+    <footer>
+      <form method="dialog">
+        <button id="clear-scrollback-confirm-ok" type="submit" value="confirm">Clear scrollback</button>
+        <button id="clear-scrollback-confirm-cancel" type="submit" value="cancel">Cancel</button>
+      </form>
+    </footer>
   </dialog>
 
   <!-- Epic E8 Story E8.3 (FR-21, UX-DR3) — Clear command history deliberate-friction
@@ -2275,15 +2330,21 @@
        helper (main.js confirmClearCommandHistory) from Settings ▸ Clear command history….
        Cancel is default-focused so Enter is the safe choice on this destructive action;
        Esc/backdrop resolve '' → treated as cancel. Only 'confirm' empties the store. -->
-  <dialog id="clear-cmd-history-confirm" aria-labelledby="clear-cmd-history-confirm-title">
+  <!-- 2026-07-24 — restyled onto the shared .chrome-modal rails (see the
+       clear-scrollback note above); ids, values, copy, focus behavior unchanged. -->
+  <dialog id="clear-cmd-history-confirm" class="chrome-modal" aria-labelledby="clear-cmd-history-confirm-title">
     <header>
       <h2 id="clear-cmd-history-confirm-title">Clear command history?</h2>
     </header>
-    <p>This can't be undone.</p>
-    <form method="dialog">
-      <button id="clear-cmd-history-confirm-ok" type="submit" value="confirm">Clear command history</button>
-      <button id="clear-cmd-history-confirm-cancel" type="submit" value="cancel">Cancel</button>
-    </form>
+    <div class="modal-body">
+      <p>This can't be undone.</p>
+    </div>
+    <footer>
+      <form method="dialog">
+        <button id="clear-cmd-history-confirm-ok" type="submit" value="confirm">Clear command history</button>
+        <button id="clear-cmd-history-confirm-cancel" type="submit" value="cancel">Cancel</button>
+      </form>
+    </footer>
   </dialog>
 
   <!-- Epic E2 Story E2.3 (FR-15) — Serial Configuration modal. Native <dialog>

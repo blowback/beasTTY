@@ -74,7 +74,7 @@ import { SHORTCUT_GROUPS } from './input/shortcuts.js';
 import { wireMenuBar } from './renderer/menu-bar.js';
 import { wireStatusBar } from './renderer/status-bar.js';
 import { wirePullPane } from './renderer/pull-pane.js';
-import { analyzeCsum } from './renderer/csum.js';   // E10 S10.1 — injected into wirePullPane (AD-3)
+import { analyzeCsum, parseCsumV, classifyCsumDiff } from './renderer/csum.js';   // E10 — injected into wirePullPane (AD-3)
 import { wireScrollState } from './renderer/scroll-state.js';
 import { wireSelection } from './input/selection.js';
 import { wireKeyboard, setLocalEcho, setCrlfMode, getLocalEcho, getCrlfMode, CRLF_MODES } from './input/keyboard.js';
@@ -671,6 +671,10 @@ const pullPane = wirePullPane({
     // S10.1 — CSUM-compatible checksums (renderer/csum.js is pure and
     // import-free; the pane receives it here per AD-3, never imports it).
     analyzeCsum,
+    // S10.2 — CSUM -V drop-to-diff: the pure parser + mismatch-pattern
+    // classifier, the story's two sanctioned injected-opt additions.
+    parseCsumV,
+    classifyCsumDiff,
 });
 window.__pullPane = pullPane;   // Playwright hook (mirrors window.__statusBar)
 

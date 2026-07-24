@@ -101,7 +101,8 @@ let validateRef = null, truncateRef = null, pushTxBytesRef = null,
     isSlideActiveRef = null, isWriterReadyRef = null, getEnterBytesRef = null,
     onPullRequestedRef = null,
     sendFilesRef = null,   // S9.4 — file-source send path (sanctioned fallback)
-    analyzeCsumRef = null; // S10.1 — pure csum module (renderer/csum.js), injected not imported
+    analyzeCsumRef = null, // S10.1 — pure csum module (renderer/csum.js), injected not imported
+    parseCsumVRef = null, classifyCsumDiffRef = null; // S10.2 — CSUM -V parser + diff classifier (csum.js)
 
 // Test override for the injected isSlideActive (null = use the injected one).
 // Mirrors the __setDirHandleForTests approach to unhostable browser state.
@@ -114,7 +115,8 @@ let paneRootEl = null, cardEl = null, fnameEl = null, capEl = null, capLabelEl =
     reviewEl = null, cmdlineEl = null, cmdTextEl = null, nothingEl = null,
     tokListEl = null, actionsEl = null, cancelBtn = null, confirmBtn = null,
     railEl = null,
-    detailEl = null, detailTitleEl = null, detailRowsEl = null, detailBackBtn = null;
+    detailEl = null, detailTitleEl = null, detailRowsEl = null, detailBackBtn = null,
+    detailFootEl = null, detailResultEl = null;
 
 // ====== S9.3 — selection-drag / drop-affordance / bloom state ======
 
@@ -204,6 +206,28 @@ const COPY = {
     csumTip: 'CRC-32 — matches CSUM / csumhost',
     detailTip: 'Per-record checksums (CSUM -V)',
     detailReadFail: "Couldn't read this file.",
+    // S10.2 — detail drop-to-diff (story e10-2 verbatim-copy block).
+    // Parameterized lines are template functions so the verbatim shape lives
+    // here with the rest.
+    detailFootResting: 'Drag CSUM -V output here to compare',
+    detailFootDrop: '⤓ Drop to compare',
+    diffAllMatchCrcMatch: (m) => `All ${m} records match · CRC match`,
+    diffAllMatch: (m) => `All ${m} records match`,
+    diffAllMatchCrcDiffers: (m) => `All ${m} records match · CRC differs`,
+    diffMismatch: (n, m) => `${n} of ${m} records differ`,
+    diffCountLine: (a, b) => `Device reports ${a} records; local file has ${b}.`,
+    // Proposed copy — no EXPERIENCE.md source yet (flag in review if reworded,
+    // the REASON_LIMIT precedent). Shown when the dropped listing has the same
+    // record count as the file but its records don't line up 1:1 (an offset
+    // drag, or the tail of a longer listing): keeps the result region from
+    // landing blank and stops an "All N match" claim over an incomplete compare.
+    diffPartial: (m, total) => `Compared ${m} of ${total} records — the dropped listing doesn't line up with this file.`,
+    diffNoRecords: 'No CSUM -V records found in the dropped text.',
+    diffRowTitle: 'local ≠ device',
+    diffTail: 'Only the last record differs — likely tail padding.',
+    diffTailInfo: "SLIDE before v0.5.2 didn't zero-fill the final record; the file is probably fine.",
+    diffRun: 'A contiguous run of records differs — likely a block that never got written back.',
+    diffStride: (ord) => `Every ${ord} record differs — likely an interleave / skew-table bug.`,
 };
 
 // Verbatim skip reason for tokens that fail the 8.3 idempotence check
@@ -284,6 +308,11 @@ export function wirePullPane(opts) {
         // the validators above: a missing injection is a mis-wired composition
         // root and must fail loudly.
         analyzeCsum: analyzeCsumRef,
+        // S10.2 — the pure CSUM -V parser + mismatch-pattern classifier, the
+        // story's two sanctioned injected-opt additions. Unguarded like
+        // analyzeCsum.
+        parseCsumV: parseCsumVRef,
+        classifyCsumDiff: classifyCsumDiffRef,
     } = opts);
 
     // Derive child refs from the injected root (no cross-module document reach).
@@ -318,6 +347,13 @@ export function wirePullPane(opts) {
     detailTitleEl = paneRootEl.querySelector('#pull-pane-detail-title');
     detailRowsEl = paneRootEl.querySelector('#pull-pane-detail-rows');
     detailBackBtn = paneRootEl.querySelector('#pull-pane-detail-back');
+    // S10.2 — detail footer (drop affordance target) + the diff result region.
+    // COPY.detailFootResting is the single source for the resting hint (the
+    // affordance restores from it); sync the static HTML copy at wire time so
+    // the two can never drift — the footResting precedent above.
+    detailFootEl = paneRootEl.querySelector('#pull-pane-detail-foot');
+    if (detailFootEl) detailFootEl.textContent = COPY.detailFootResting;
+    detailResultEl = paneRootEl.querySelector('#pull-pane-detail-result');
 
     // AD-10 — every interactive control retains #terminal-wrapper focus. All are
     // buttons (the mousedown→preventDefault branch, restoreTarget unused for that
@@ -697,17 +733,20 @@ function onSelectionDrag(dragState) {
         // a drag that never reaches the pane skips the compose entirely.
         selDrag = { active: true, text, validCount: 0 };
         // FR-2 — a selection drag blooms the rail open so the drop target
-        // exists. Not while a detail is open (S10.1): dropAcceptable refuses
-        // that drop, and blooming would animate open a card that then shows a
-        // no-drop cursor — an invitation AC-7 refuses.
-        if (railVisible() && !state.detail) setBloom(true, false);
+        // exists. S10.2: also when the open detail is diffable — only an
+        // error-bodied detail (whose drop dropAcceptable refuses) keeps the
+        // no-bloom rule, so the bloom never opens a card showing a no-drop
+        // cursor.
+        if (railVisible() && (!state.detail || !state.detail.error)) setBloom(true, false);
     } else {
         selDrag = { active: false, text: '', validCount: 0 };
         dropDepth = 0;
         setDropAffordance(false);
-        // Un-bloom on dragend — unless the drag ended in a drop that opened the
-        // review (the review keeps the bloom until it exits).
-        if (bloomed && !state.review) setBloom(false);
+        // Un-bloom on dragend — unless the drag ended in a drop that opened
+        // the review (the review keeps the bloom until it exits), or (S10.2)
+        // landed a diff into the open detail: hiding the result the drop just
+        // created would undo the interaction, so ‹ Back is that bloom's exit.
+        if (bloomed && !state.review && !(state.detail && state.detail.diff)) setBloom(false);
     }
 }
 
@@ -717,12 +756,13 @@ function onSelectionDrag(dragState) {
 // is bound + readable (view list|empty; state.view stays truthful under an
 // open review, so a drop can replace it — AC-3).
 function dropAcceptable() {
-    return selDrag.active
-        && !slideActiveNow()
-        // S10.1 (AC-7) — interim S10.2 boundary: while the detail view is open
-        // a terminal-selection drop is refused outright (no affordance, drop
-        // inert). S10.2 replaces this branch with CSUM -V diff routing.
-        && !state.detail
+    if (!selDrag.active) return false;
+    // S10.2 (FR-6/11) — detail-open branch, checked BEFORE the session
+    // predicate: the diff compares text, not the port, so an active SLIDE
+    // session must not refuse it. Acceptable iff the detail has a listing to
+    // compare; the error body refuses (never invite a drop that can't).
+    if (state.detail) return !state.detail.error;
+    return !slideActiveNow()
         && (state.view === 'list' || state.view === 'empty');
 }
 
@@ -732,7 +772,8 @@ function onPaneDragEnter(ev) {
     dropDepth++;
     if (dropDepth === 1) {
         // Cap-aware count for the footer copy ("⤓ Drop to pull {n} files").
-        selDrag.validCount = composeFromText(selDrag.text).validCount;
+        // The detail-open diff route (S10.2) shows no count — skip the compose.
+        if (!state.detail) selDrag.validCount = composeFromText(selDrag.text).validCount;
         setDropAffordance(true);
     }
 }
@@ -760,23 +801,35 @@ function onPaneDrop(ev) {
     setDropAffordance(false);
     // The stash is the fallback: some synthetic DataTransfers round-trip empty.
     const text = (ev.dataTransfer && ev.dataTransfer.getData('text/plain')) || selDrag.text;
+    // S10.2 (FR-6) — a detail-open drop routes to the CSUM -V diff; the pull
+    // review is never opened over a detail (beginReview refuses that itself).
+    if (state.detail) { runDiffDrop(text); return; }
     // beginReview re-checks suspension itself — if it flipped mid-drag, nothing
     // opens and nothing is sent (AC-3). Zero-valid text still opens the S9.2
     // zero-valid review (AC-4).
     beginReview(text);
 }
 
-// UX-DR3 affordance — classes only (mockup pull-pane.html:103-108, rgba
-// translated to the shipped color-mix tint); footer swaps to the drop copy
-// with the cap-aware valid-token count and restores the resting hint on clear.
+// UX-DR3/DR4 affordance — classes only (mockup pull-pane.html:103-108, rgba
+// translated to the shipped color-mix tint). No detail open: the main footer
+// swaps to the drop copy with the cap-aware valid-token count. Detail open
+// (S10.2): the DETAIL footer swaps to the compare copy instead — the main
+// footer stays hidden under the detail. Both restore their resting hint on
+// clear.
 function setDropAffordance(on) {
     dropAffordanceOn = on;
+    const detailDrop = on && !!state.detail;
+    const paneDrop = on && !state.detail;
     if (cardEl) cardEl.classList.toggle('drop', on);
     if (footEl) {
-        footEl.classList.toggle('drop-active', on);
-        footEl.textContent = on
+        footEl.classList.toggle('drop-active', paneDrop);
+        footEl.textContent = paneDrop
             ? `${COPY.footDropPrefix}${plural(selDrag.validCount, 'file')}`
             : COPY.footResting;
+    }
+    if (detailFootEl) {
+        detailFootEl.classList.toggle('drop-active', detailDrop);
+        detailFootEl.textContent = detailDrop ? COPY.detailFootDrop : COPY.detailFootResting;
     }
 }
 
@@ -1061,6 +1114,15 @@ function onListDetailMousedown(ev) {
 // the read resolves).
 let detailOpenToken = null;
 
+// S10.2 — the host records of the OPEN detail, stowed by openDetail at paint
+// time. S10.1's review deliberately kept the records array out of state (the
+// DOM is the listing's single home); the diff resolves that call the other
+// way: it must compare against EXACTLY the listing painted on screen — a
+// re-read at drop time could diff against bytes the user isn't looking at,
+// and scraping the DOM rows back apart is strictly worse. Cleared wherever
+// the detail clears (closeDetail / dispose / __resetForTests).
+let detailRecords = [];
+
 // openDetail — read the file FRESH (records are never kept from the column
 // fill), analyze, then set the flag + paint ONCE (the S9.2 review pattern:
 // refresh-triggered render() calls only project visibility). The await runs
@@ -1087,11 +1149,11 @@ async function openDetail(name) {
         const bytes = new Uint8Array(await file.arrayBuffer());
         const analyzed = analyzeCsumRef(bytes);
         records = analyzed.records;
-        detail = { name, recordCount: records.length, crc: analyzed.crc, error: null };
+        detail = { name, recordCount: records.length, crc: analyzed.crc, error: null, diff: null };
         freshKey = `${name}:${file.size}:${file.lastModified}`;
     } catch (e) {
         console.warn('[pull-pane] detail read failed:', e);
-        detail = { name, recordCount: 0, crc: null, error: COPY.detailReadFail };
+        detail = { name, recordCount: 0, crc: null, error: COPY.detailReadFail, diff: null };
     }
     if (detailOpenToken !== token) return;      // a later ⁞ click owns the open
     if (state.review || state.detail) return;   // the pane moved on during the read
@@ -1105,6 +1167,7 @@ async function openDetail(name) {
         csumShown.set(name, detail.crc);
         updateCsumCell(name, detail.crc);
     }
+    detailRecords = records;   // S10.2 — the diff's comparison base (see note at decl)
     state.detail = detail;
     renderDetail(detail, records);
     render();
@@ -1112,10 +1175,14 @@ async function openDetail(name) {
 
 // ‹ Back — clear the flag and re-render truthfully: the list re-projects
 // current state, picking up any refresh that landed while the detail was open.
-// Bloom rules untouched: closing the detail never un-blooms (S9.3 dismissal
-// paths own that).
+// S10.2 (AC-9c) — closing also un-blooms when bloomed, exitReview parity:
+// with drag-bloom able to persist for a painted diff, ‹ Back is that bloom's
+// exit. (Amends S10.1's "closing detail never un-blooms" rule; the S9.3
+// click-bloom dismissal paths are otherwise untouched.)
 function closeDetail() {
     state.detail = null;
+    detailRecords = [];
+    if (bloomed) setBloom(false);
     render();
 }
 
@@ -1126,6 +1193,12 @@ function closeDetail() {
 // whole-file value is CRC-32, per-record values are Fletcher-16.
 function renderDetail(dv, records) {
     if (!dv) return;
+    // S10.2 — every detail paint starts diff-clean: result region hidden and
+    // emptied; the footer hint shows whenever the detail painted without
+    // error and hides on the error body (never invite a drop that can't
+    // compare — dropAcceptable refuses it too).
+    if (detailResultEl) { detailResultEl.hidden = true; detailResultEl.replaceChildren(); }
+    if (detailFootEl) detailFootEl.hidden = !!dv.error;
     if (detailTitleEl) {
         detailTitleEl.textContent = dv.error
             ? dv.name
@@ -1151,6 +1224,167 @@ function renderDetail(dv, records) {
 }
 
 function hex4(n) { return n.toString(16).toUpperCase().padStart(4, '0'); }
+
+// ====== S10.2 — CSUM -V drop-to-diff (FR-6..9, FR-11) ======
+
+// runDiffDrop — a landed detail-open drop: parse the dropped text, diff it
+// against the stowed host listing, classify the mismatch pattern, and paint
+// ONCE. Compares text only — never touches pushTxBytesRef / onPullRequestedRef
+// / sendFilesRef, and deliberately runs under an active SLIDE session (FR-11).
+function runDiffDrop(text) {
+    const dv = state.detail;
+    if (!dv || dv.error) return;
+    const parsed = parseCsumVRef(String(text ?? ''));
+    let diff;
+    let deviceValues = parsed.records;
+    if (parsed.count === 0) {
+        // FR-9 defined failure — zero parseable record lines (including a
+        // whole-file CSUM output that is only a CRC). parsed.records is already
+        // the empty Map here (count is its size), so deviceValues needs no
+        // reassignment; the empty mismatched array makes renderDiff clear any
+        // previously painted diff.
+        diff = { caption: null, countLine: null, diagnosis: null, mismatched: [], error: COPY.diffNoRecords };
+    } else {
+        // Compared set = host indices with a parsed device value; m = its size.
+        // Values are normalized uppercase 4-hex on both sides, so string
+        // equality is the whole comparison.
+        const hostCount = detailRecords.length;
+        const mismatched = [];
+        let m = 0;
+        for (let i = 0; i < hostCount; i++) {
+            const dev = parsed.records.get(i);
+            if (dev === undefined) continue;
+            m += 1;
+            if (dev !== detailRecords[i]) mismatched.push(i);
+        }
+        // The dropped listing lines up 1:1 with this file iff every host record
+        // has a device counterpart AND the device carries no extra/out-of-range
+        // records (m === hostCount === parsed.count). Only an aligned compare
+        // may claim "All N match" or name a tail/run/stride pattern: a partial
+        // or misaligned selection (an offset drag, the tail of a longer
+        // listing, two files' output in one selection) can coincidentally match
+        // parsed.count to hostCount, and classifyCsumDiff — which assumes an
+        // aligned compare over 0..hostCount-1 — would then diagnose a pattern
+        // off a shifted index window. Require alignment for a pattern;
+        // otherwise the count / partial line below is the whole story.
+        const aligned = m === hostCount && parsed.count === hostCount;
+        const cls = aligned
+            ? classifyCsumDiffRef({ hostCount, deviceCount: parsed.count, mismatched })
+            : { kind: 'count' };
+        // Caption. A mismatch in the overlap always surfaces as "X of m differ";
+        // the whole-file "All N match" claim (and its CRC sub-caption) is only
+        // honest when the compare was aligned.
+        let caption = null;
+        if (mismatched.length > 0) caption = COPY.diffMismatch(mismatched.length, m);
+        else if (aligned) {
+            if (parsed.crc === null) caption = COPY.diffAllMatch(m);
+            else if (parsed.crc === dv.crc) caption = COPY.diffAllMatchCrcMatch(m);
+            else caption = COPY.diffAllMatchCrcDiffers(m);
+        }
+        // Count / alignment line. Aligned → none. Otherwise name why: a genuine
+        // count difference, or (counts equal but the records don't line up) the
+        // partial-overlap line, so the result region never lands blank.
+        let countLine = null;
+        if (!aligned) {
+            countLine = parsed.count !== hostCount
+                ? COPY.diffCountLine(parsed.count, hostCount)
+                : COPY.diffPartial(m, hostCount);
+        }
+        // Diagnosis — exactly one line, only for an aligned compare (cls is
+        // forced to 'count' otherwise). 'count' renders none (the count/partial
+        // line IS the named cause); 'none' renders none (per-record results
+        // carry a lone mid-file mismatch).
+        let diagnosis = null;
+        if (cls.kind === 'tail') diagnosis = COPY.diffTail;
+        else if (cls.kind === 'run') diagnosis = COPY.diffRun;
+        else if (cls.kind === 'stride') diagnosis = COPY.diffStride(ordinal(cls.n));
+        diff = { caption, countLine, diagnosis, mismatched, error: null };
+    }
+    state.detail.diff = diff;
+    renderDiff(diff, deviceValues);
+}
+
+// renderDiff — paint-once into the painted listing. Called ONLY from the drop
+// path; render() keeps projecting visibility only, so the S10.1 no-repaint-
+// under-refresh guarantee extends to the diff for free. Mutates the existing
+// .pp-dv-row nodes in place, touching ONLY the rows entering or leaving the
+// mismatch set (a clean row staying clean already shows its correct base
+// label, so it is left alone — no full-list re-stringify per drop), and
+// preserves the rows container's scroll position. The mismatch marker is
+// textual (both values + ≠) — never colour alone, never red (UX-DR4).
+function renderDiff(diff, deviceValues) {
+    if (detailRowsEl) {
+        const prevScroll = detailRowsEl.scrollTop;
+        const mismatchSet = new Set(diff.mismatched);
+        const rows = detailRowsEl.querySelectorAll('.pp-dv-row');
+        for (let i = 0; i < rows.length; i++) {
+            const row = rows[i];
+            const wasMismatch = row.classList.contains('mismatch');
+            if (mismatchSet.has(i)) {
+                // Always rewrite a mismatched row: the device value can differ
+                // between drops, so the ≠ suffix must be rebuilt.
+                row.textContent = `${hex4(i)}: ${detailRecords[i]}`;
+                row.classList.add('mismatch');
+                const ne = document.createElement('span');
+                ne.className = 'pp-dv-ne';
+                ne.textContent = ` ≠ ${deviceValues.get(i)}`;
+                row.append(ne);
+                row.title = COPY.diffRowTitle;
+            } else if (wasMismatch) {
+                // Leaving the set — strip the prior drop's ≠ suffix + marks.
+                row.textContent = `${hex4(i)}: ${detailRecords[i]}`;
+                row.classList.remove('mismatch');
+                row.removeAttribute('title');
+            }
+            // clean → clean: untouched; its base label is already correct.
+        }
+        detailRowsEl.scrollTop = prevScroll;
+    }
+    // Result region — caption, count line, diagnosis (or the failure copy),
+    // in order. aria-live="polite" sits on the static container, so this
+    // replaceChildren is announced without stealing focus.
+    if (detailResultEl) {
+        const frag = document.createDocumentFragment();
+        const line = (cls, textContent) => {
+            const el = document.createElement('div');
+            el.className = cls;
+            el.textContent = textContent;
+            return el;
+        };
+        if (diff.error) frag.append(line('pp-dv-fail', diff.error));
+        if (diff.caption) frag.append(line('pp-dv-caption', diff.caption));
+        if (diff.countLine) frag.append(line('pp-dv-countline', diff.countLine));
+        if (diff.diagnosis) {
+            const d = line('pp-dv-diag', diff.diagnosis);
+            if (diff.diagnosis === COPY.diffTail) {
+                // The tail explanation splits at the sentence boundary: the
+                // visible line + this ⓘ title concatenate to the epic's
+                // verbatim text (the S9.2 skip-reason ⓘ idiom).
+                d.append(' ');
+                const info = document.createElement('span');
+                info.className = 'pp-info';
+                info.textContent = 'ⓘ';
+                info.title = COPY.diffTailInfo;
+                d.append(info);
+            }
+            frag.append(d);
+        }
+        detailResultEl.replaceChildren(frag);
+        // Never un-hide an empty region: every reachable diff produces at least
+        // one line (a caption, count/partial line, diagnosis, or the failure
+        // copy), but this guards a blank, silent aria-live box if that ever
+        // stops holding.
+        detailResultEl.hidden = !detailResultEl.hasChildNodes();
+    }
+}
+
+// English ordinal for the stride diagnosis ("Every 2nd record differs …").
+function ordinal(n) {
+    const tens = n % 100;
+    if (tens >= 11 && tens <= 13) return `${n}th`;
+    const unit = n % 10;
+    return `${n}${unit === 1 ? 'st' : unit === 2 ? 'nd' : unit === 3 ? 'rd' : 'th'}`;
+}
 
 // ====== S9.2 — selection → SLIDE S compose + in-pane review (FR-4/5/7/11) ======
 
@@ -1255,10 +1489,10 @@ function composeFromText(text) {
 // and does NOT touch lastSnapshot/freshNames.
 export function beginReview(text) {
     if (slideActiveNow()) return false;
-    // S10.1 (AC-7) — refused while the detail sub-state is open, mirroring
-    // dropAcceptable: this is a public entry point, so the exclusion must
-    // hold here too, not only on the drop path. S10.2 routes this case to
-    // the CSUM -V diff instead.
+    // Refused while the detail sub-state is open: this is the pull review's
+    // public entry point, and a review must never open over a detail. A
+    // detail-open DROP never reaches here — onPaneDrop routes it to the
+    // CSUM -V diff (S10.2, runDiffDrop) instead.
     if (state.detail) return false;
     state.review = composeFromText(String(text ?? ''));
     renderReview();
@@ -1514,8 +1748,16 @@ export function __getStateForTests() {
         selectedNames: [...selectedNames].sort(),   // S9.4 multi-select extension
         // S10.1 (AC-9) — what each row's checksum cell shows right now.
         csums: Object.fromEntries(state.files.map((f) => [f.name, csumShown.get(f.name) ?? CSUM_PENDING])),
-        // S10.1 (AC-9) — the open detail sub-state.
-        detail: state.detail ? { ...state.detail } : null,
+        // S10.1 (AC-9) — the open detail sub-state; S10.2 — its diff field is
+        // deep-copied (the nested mismatched array must not leak a live ref).
+        detail: state.detail
+            ? {
+                ...state.detail,
+                diff: state.detail.diff
+                    ? { ...state.detail.diff, mismatched: [...state.detail.diff.mismatched] }
+                    : null,
+            }
+            : null,
         review: state.review
             ? {
                 command: state.review.command,
@@ -1531,6 +1773,7 @@ export function __resetForTests() {
     resetDiffBaseline();
     dirHandle = null;
     slideActiveOverride = null;
+    detailRecords = [];   // S10.2 — no stowed listing survives a reset
     state = { folderName: null, permission: 'prompt', files: [], view: 'first-run', review: null, detail: null };
     // S9.3 — clear drag/drop/bloom state so specs start from rest.
     selDrag = { active: false, text: '', validCount: 0 };
@@ -1573,7 +1816,9 @@ export function dispose() {
     // disposed pane must not freeze an open detail on screen with its Back
     // listener removed.
     state.detail = null;
+    detailRecords = [];   // S10.2 — the stowed listing goes with the detail
     if (detailEl) detailEl.hidden = true;
+    if (detailResultEl) { detailResultEl.hidden = true; detailResultEl.replaceChildren(); }
     if (cardEl && cardEl.getAttribute('data-view') === 'detail') {
         cardEl.setAttribute('data-view', state.view);
     }

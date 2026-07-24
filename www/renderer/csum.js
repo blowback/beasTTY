@@ -72,3 +72,70 @@ export function analyzeCsum(bytes) {
     }
     return { records, crc: hex(crc32(padded), 8) };
 }
+
+// ── S10.2 (FR-6/8, NFR-2) — CSUM -V output parser + mismatch-pattern classifier ──
+
+// The grammar is pinned by csumhost.c:80,86 — records print as
+// printf("%04X: %04X\n", rec_no, fletcher16) and the whole-file CRC as
+// printf("%08lX\n", crc) — confirmed by the real capture ../beast_csum/pc.txt.
+// A terminal-grid selection wraps that output in noise (the echoed
+// "A>CSUM -V FILE.COM" command line, bare "A>" prompts, blank lines,
+// 80-column trailing spaces), so the rules stay narrow and everything
+// unmatched flows past — the mergeDirColumns tolerance discipline.
+const RECORD_LINE = /^([0-9A-Fa-f]{4}): +([0-9A-Fa-f]{4})$/;
+const CRC_LINE = /^[0-9A-Fa-f]{8}$/;
+
+// parseCsumV(text) → { records: Map<number,string>, count: number, crc: string|null }
+//   records — sparse map of record index → 4-uppercase-hex Fletcher-16 (a
+//             partial selection parses fine); duplicate indices: last wins.
+//   count   — number of distinct record indices.
+//   crc     — the LAST line that is exactly 8 hex digits, uppercase, or null.
+export function parseCsumV(text) {
+    const records = new Map();
+    let crc = null;
+    for (const raw of String(text ?? '').split(/\r?\n/)) {
+        const line = raw.trim();
+        const m = RECORD_LINE.exec(line);
+        if (m) {
+            records.set(parseInt(m[1], 16), m[2].toUpperCase());
+            continue;
+        }
+        if (CRC_LINE.test(line)) crc = line.toUpperCase();
+    }
+    return { records, count: records.size, crc };
+}
+
+// classifyCsumDiff({ hostCount, deviceCount, mismatched }) →
+//   { kind: 'count'|'tail'|'run'|'stride'|'none', n?: number }
+// mismatched is the sorted array of differing compared indices (distinct).
+// CONTRACT: only meaningful for an ALIGNED compare — the device records must be
+// exactly 0..hostCount-1 (every host record compared, no extra/out-of-range
+// device records). The caller (runDiffDrop) enforces this and passes 'count'
+// itself otherwise; deviceCount alone can't detect a same-count-but-misaligned
+// selection, so this function must not be trusted to.
+// Precedence, first match wins (FR-8):
+//   count  — device and host disagree on the record count; this IS the named
+//            cause, so no pattern is looked for (a truncated device listing
+//            "matching" the tail pattern would mislead).
+//   none   — nothing differs.
+//   tail   — exactly one mismatch, at the final record.
+//   run    — one contiguous run of length ≥ 2.
+//   stride — an arithmetic progression, stride n ≥ 2, ≥ 3 members.
+//   none   — anything else (a single mid-file mismatch names no pattern; the
+//            per-record results carry it).
+export function classifyCsumDiff({ hostCount, deviceCount, mismatched }) {
+    if (deviceCount !== hostCount) return { kind: 'count' };
+    if (mismatched.length === 0) return { kind: 'none' };
+    if (mismatched.length === 1 && mismatched[0] === hostCount - 1) return { kind: 'tail' };
+    if (mismatched.length >= 2
+            && mismatched[mismatched.length - 1] - mismatched[0] === mismatched.length - 1) {
+        return { kind: 'run' };
+    }
+    if (mismatched.length >= 3) {
+        const n = mismatched[1] - mismatched[0];
+        if (n >= 2 && mismatched.every((v, i) => v === mismatched[0] + i * n)) {
+            return { kind: 'stride', n };
+        }
+    }
+    return { kind: 'none' };
+}
