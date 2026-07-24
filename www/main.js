@@ -97,6 +97,7 @@ import { wireSerial, onStateChange, getState, toggleConnection, connectMicroBeas
 import {
     wireSlideDispatcher,
     dispatchInbound,
+    setExpectedRecvFiles,                                         // E9 — pull-pane batch hint for the chip's N/M
     enterSendMode as enterSlideSendMode,
     forceExitRecvMode as dispatcherForceExitRecvMode,   // Plan 10-05 Rule 1 — mode-flag sync hook
     __resetForTests as __slideResetForTests,
@@ -656,6 +657,9 @@ const pullPane = wirePullPane({
     isSlideActive: () => isSlideActive() || getWireOwner() === 'slide',
     isWriterReady,
     getEnterBytes: () => CRLF_MODES[getCrlfMode()],
+    // E9 — confirmed-pull batch size → SLIDE dispatcher, so the transfer chip
+    // shows "N/M" for pane-initiated pulls (the protocol never announces it).
+    onPullRequested: setExpectedRecvFiles,
 });
 window.__pullPane = pullPane;   // Playwright hook (mirrors window.__statusBar)
 
@@ -1248,6 +1252,7 @@ window.__slide = {
     __isAutoSendSafeForTests: __slideIsAutoSendSafeForTests,   // Phase 12 SLIDE-38
     dispatchInbound,
     enterSendMode: enterSlideSendMode,        // Phase 9 test hook
+    setExpectedRecvFiles,                     // E9 — batch-hint test hook
 };
 // Phase 10 Plan 10-03 — explicit per-property assignment matches CONTEXT lock
 // (locked grep targets `window.__slide.cancelRecv = cancelSlideRecv` and

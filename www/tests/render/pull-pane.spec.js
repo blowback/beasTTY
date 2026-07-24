@@ -801,6 +801,10 @@ test.describe('E9 S9.3 — pull pane: drop-to-pull', () => {
         expect(await txPushes(page)).toBe(1);
         expect(await ringBytes(page)).toEqual(ascii('SLIDE S GAME.COM DUMP.BIN').concat([0x0D]));
         expect(await view(page)).toBe('list');
+        // Confirm also handed the batch size to the SLIDE dispatcher (the
+        // injected onPullRequested → setExpectedRecvFiles), so the transfer
+        // chip can show "N/2" for this pull.
+        expect(await page.evaluate(() => window.__slide.__getStateForTests().expectedRecvFiles)).toBe(2);
         // Device reply lands the files in the shared folder → onFileLanded fires
         // pullPane.refresh() (the very function main.js wires) → both files
         // appear with fresh markers, sorted to the top.

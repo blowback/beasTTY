@@ -82,7 +82,8 @@ let wrapperRef = null;          // #terminal-wrapper — retainFocus restore tar
 // must fail loudly, not degrade (e.g. silently sending a command with no Enter
 // terminator).
 let validateRef = null, truncateRef = null, pushTxBytesRef = null,
-    isSlideActiveRef = null, isWriterReadyRef = null, getEnterBytesRef = null;
+    isSlideActiveRef = null, isWriterReadyRef = null, getEnterBytesRef = null,
+    onPullRequestedRef = null;
 
 // Test override for the injected isSlideActive (null = use the injected one).
 // Mirrors the __setDirHandleForTests approach to unhostable browser state.
@@ -171,6 +172,10 @@ export function wirePullPane(opts) {
         validateCpmFilename: validateRef, truncateCpm83: truncateRef,
         pushTxBytes: pushTxBytesRef, isSlideActive: isSlideActiveRef,
         isWriterReady: isWriterReadyRef, getEnterBytes: getEnterBytesRef,
+        // Optional — confirmed-pull batch-size hint. main.js routes it to the
+        // SLIDE dispatcher so the transfer chip can show "N/M" for pulls
+        // (the wire protocol itself never announces the batch size).
+        onPullRequested: onPullRequestedRef,
     } = opts);
 
     // Derive child refs from the injected root (no cross-module document reach).
@@ -729,6 +734,12 @@ function onReviewConfirm() {
     const bytes = new Uint8Array(cmd.length + enter.length);
     bytes.set(cmd, 0);
     bytes.set(enter, cmd.length);
+    // Batch-size hint BEFORE the command bytes go out — the Z80's wakeup can
+    // only follow the injected command, so the hint is in place when the
+    // recv session starts (chip shows "N/M" instead of a bare index).
+    if (onPullRequestedRef) {
+        try { onPullRequestedRef(rv.validCount); } catch { /* hint only — never blocks the pull */ }
+    }
     pushTxBytesRef(bytes);
     exitReview();
 }

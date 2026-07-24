@@ -91,14 +91,19 @@ test.describe('slide-chip — active layout', () => {
             () => page.evaluate(() => window.__slideChip.__getStateForTests().lifecycle),
             { timeout: 8000 },
         ).toBe('active');
-        // D-01 token order — direction arrow (recv ↓) + filename + N/M +
-        // percent + bytes + throughput + Cancel. Polling because the chip
+        // D-01 token order — direction arrow (recv ↓) + filename + file
+        // counter + percent + bytes + throughput + Cancel. On the recv side
+        // the counter is the bare 1-based index: the SLIDE protocol never
+        // announces batch size, so the total is unknown until FIN and a
+        // fabricated "/1" would misreport multi-file pulls ("9/1"). The
+        // FIRST file must read "1", not "2" (recv_current_file_idx counts
+        // headers seen — already 1-based mid-file). Polling because the chip
         // only renders content when bytes_in_file_done > 0 and the
         // active-state renderer has run via the 250 ms tick.
         await expect.poll(
             () => page.locator('#slide-chip-text').textContent(),
             { timeout: 3000 },
-        ).toMatch(/^↓ MY-DOC\.TXT  \d+\/\d+  \d+%/);
+        ).toMatch(/^↓ MY-DOC\.TXT  1  \d+%/);
         const text = await page.locator('#slide-chip-text').textContent();
         // Cancel inline button is a child of #slide-chip-text — assert via
         // the text content (innerText includes button label `[Cancel]`).

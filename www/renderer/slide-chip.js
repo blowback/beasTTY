@@ -224,7 +224,11 @@ function renderActiveState() {
     const arrow = st.mode === 'send' ? '↑' : '↓';
     const filename = st.current_filename || '';
     const fileIdx = (st.file_idx || 0) + 1;        // 1-based for display
-    const totalFiles = st.total_files || 1;
+    // total_files is 0 on the recv side — the SLIDE protocol never announces
+    // batch size, so a Z80→PC session's total is unknown until FIN. Show the
+    // bare 1-based index rather than a fabricated "/1" (a 9-file pull used
+    // to end on "9/1"). Send-side sessions know their count and keep "N/M".
+    const fileCounter = st.total_files ? `${fileIdx}/${st.total_files}` : `${fileIdx}`;
     const bytesDone = st.bytes_in_file_done || 0;
     const bytesTotal = st.bytes_in_file_total || 1;
     const percent = Math.floor((bytesDone / bytesTotal) * 100);
@@ -239,7 +243,7 @@ function renderActiveState() {
 
     // Two-space separators (UI-SPEC §Layout token separators — locked verbatim).
     chipTextElRef.innerHTML =
-        `${arrow} ${escapeHtml(filename)}  ${fileIdx}/${totalFiles}  ${percent}%  ${formatBytes(bytesDone)}  ${throughputText}  ${cancelButtonHtml()}`;
+        `${arrow} ${escapeHtml(filename)}  ${fileCounter}  ${percent}%  ${formatBytes(bytesDone)}  ${throughputText}  ${cancelButtonHtml()}`;
     chipElRef.setAttribute('aria-label', 'SLIDE transfer in progress — click Cancel to abort');
     wireInlineButtons();
     chipElRef.removeAttribute('hidden');

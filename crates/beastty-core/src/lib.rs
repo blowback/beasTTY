@@ -260,6 +260,14 @@ mod wasm_boundary {
             self.inner.state()
         }
 
+        /// True when the framer is between frames. slide.js gates the
+        /// mid-session ESC^SLIDE re-entry matcher on this so a wakeup
+        /// signature INSIDE a frame payload (file content) can never be
+        /// mistaken for a Z80 reset.
+        pub fn framer_idle(&self) -> bool {
+            self.inner.framer_idle()
+        }
+
         /// Pointer into the outbound buffer (ACK / NAK / CTRL_CAN echo bytes
         /// the SM produces). Stable across feed_byte / feed_chunk in steady
         /// state (Phase 7 OUTBOUND_RESERVE = 16 bytes pre-reserved). JS

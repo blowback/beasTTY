@@ -23,7 +23,9 @@ fn smoke_full_session_rdy_header_eof_fin() {
     assert_eq!(slide.state(), SlideState::HeaderPhase as u32);
     for &b in FIXTURE_HEADER_TEST_TXT { slide.feed_byte(b); }
     assert_eq!(slide.state(), SlideState::DataPhase as u32);
-    // EOF frame (zero-payload data frame).
+    // Deliver the header-declared 42 bytes (the EOF gap guard NAKs a
+    // premature EOF), then the EOF frame (zero-payload data frame).
+    for b in fixture_data_frame(1, &[0x55; 42]) { slide.feed_byte(b); }
     for &b in FIXTURE_EOF_SEQ_4 { slide.feed_byte(b); }
     assert_eq!(slide.state(), SlideState::HeaderPhase as u32);
     // Sender signals end-of-batch.

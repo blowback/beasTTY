@@ -114,6 +114,20 @@ pub fn fixture_max_payload_aa() -> Vec<u8> {
     frame
 }
 
+/// fixture_data_frame — arbitrary data-frame builder (SOF SEQ LEN payload CRC).
+/// Tests that drive a file to EOF must feed the header-declared byte count
+/// first — the EOF gap guard (recv_bytes_done) NAKs a premature EOF.
+pub fn fixture_data_frame(seq: u8, payload: &[u8]) -> Vec<u8> {
+    let mut scope = vec![seq, (payload.len() >> 8) as u8, (payload.len() & 0xFF) as u8];
+    scope.extend_from_slice(payload);
+    let crc = crc16_ccitt(&scope);
+    let mut frame = vec![0x01];
+    frame.extend_from_slice(&scope);
+    frame.push((crc >> 8) as u8);
+    frame.push((crc & 0xFF) as u8);
+    frame
+}
+
 // ===== Control-byte fixtures =====
 pub const CTRL_RDY_BYTE: &[u8] = &[0x11];
 pub const CTRL_FIN_BYTE: &[u8] = &[0x04];

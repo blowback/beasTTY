@@ -131,11 +131,28 @@ let slide = null;                        // per-session new Slide() (CoreSlide v
 
 // Phase 10 — mid-session ESC^SLIDE re-entry matcher state (separate from
 // dispatchTerminalMode's wakeIdx so the two matchers don't interfere when
-// dispatchInbound flips between modes mid-stream). Pattern 9 verbatim from
-// 10-RESEARCH.md — on full match, slide.force_idle + exitRecvMode + enterRecvMode
-// (T-10-03 mitigation: idempotent reset per CONTEXT C-05).
+// dispatchInbound flips between modes mid-stream). On full match,
+// slide.force_idle + exitRecvMode + enterRecvMode (T-10-03 mitigation:
+// idempotent reset per CONTEXT C-05). The matcher only advances on
+// framer-idle bytes (see dispatchRecvMode) — matched prefix bytes are fed
+// to the SM as idle no-ops, so no replay scratch buffer is needed.
 let recvWakeIdx = 0;
-const recvScratch = new Uint8Array(6);
+
+// E9 pull-pane batch hint — how many files the confirmed `SLIDE S …` command
+// requested. The SLIDE protocol never announces batch size, so this hint is
+// the ONLY source for the chip's "N/M" total on the recv side (device-typed
+// sessions have no hint and the chip shows the bare index). Set by main.js
+// from the pane's confirm (setExpectedRecvFiles); consumed by the next recv
+// session within a 30 s window (an aborted pull must not mislabel a later
+// manual session); cleared at exitRecvMode.
+let expectedRecvFiles = 0;
+let expectedRecvFilesTs = 0;
+const EXPECTED_RECV_FILES_TTL_MS = 30_000;
+
+export function setExpectedRecvFiles(n) {
+    expectedRecvFiles = (Number.isInteger(n) && n > 0) ? n : 0;
+    expectedRecvFilesTs = Date.now();
+}
 
 // Injected deps (wireSlideDispatcher sets these).
 let termRef = null;
@@ -528,6 +545,9 @@ export function __resetForTests() {
     // Plan 09-04 Rule 1 fix — reset the dispatch-tail chain so a stale
     // promise from a prior session does not block the next one.
     sendDispatchTail = Promise.resolve();
+    // E9 — clear the pull-pane batch hint.
+    expectedRecvFiles = 0;
+    expectedRecvFilesTs = 0;
 }
 export function __getStateForTests() {
     // Phase 9 D-18 — extended introspection. Phase 8's three fields preserved;
@@ -538,6 +558,7 @@ export function __getStateForTests() {
         wakeIdx,
         hasSlide: slide !== null,
         hasPendingSendSession: pendingSendSession !== null,
+        expectedRecvFiles,               // E9 batch hint (specs assert set/clear)
     };
     if (slide && currentSendCtx) {
         return {
@@ -571,8 +592,16 @@ export function __getStateForTests() {
         return {
             ...baseState,
             state: slide.state(),
-            file_idx: slide.recv_current_file_idx(),
-            total_files: 0,                                    // unknown until FIN — CONTEXT note
+            // recv_current_file_idx() counts headers SEEN (the SM post-
+            // increments at header parse), so mid-file it is already 1-based.
+            // The chip renders `file_idx + 1` (matching the send side's
+            // 0-based send_current_file_idx()), so normalise to 0-based-
+            // current here — otherwise a single-file pull displays "2/…".
+            file_idx: Math.max(0, slide.recv_current_file_idx() - 1),
+            // The protocol never announces batch size; the only source is the
+            // E9 pull-pane hint (0 when the session wasn't pane-initiated —
+            // the chip then shows the bare index).
+            total_files: expectedRecvFiles,
             bytes_in_file_done: slideRecvState.bytesInFileDone ?? 0,   // W1 wiring
             bytes_in_file_total: slide.recv_file_size(),
             current_filename: currentFilename,
@@ -723,60 +752,21 @@ function dispatchRecvMode(value) {
         return;
     }
 
-    let matchEnd = -1;
-    for (let i = 0; i < value.length; i++) {
-        const b = value[i];
-        if (b === WAKEUP[recvWakeIdx]) {
-            if (recvWakeIdx < 6) recvScratch[recvWakeIdx] = b;
-            recvWakeIdx++;
-            if (recvWakeIdx === 7) {
-                matchEnd = i;
-                recvWakeIdx = 0;
-                break;
-            }
-        } else {
-            if (recvWakeIdx > 0) {
-                if (b === WAKEUP[0]) {
-                    recvScratch[0] = b;
-                    recvWakeIdx = 1;
-                } else {
-                    recvWakeIdx = 0;
-                }
-            }
-        }
-    }
-    if (matchEnd >= 0) {
-        // Bytes BEFORE the wakeup go to the existing SM (last-ditch ACK).
-        // matchEnd points at the last byte of the 7-byte signature; the
-        // signature occupies indices [matchEnd-6 .. matchEnd] inclusive.
-        // Phase 10 review WR-01 — when the 7-byte signature spans chunks
-        // (recvWakeIdx > 0 going INTO this chunk), matchEnd can be 0..5,
-        // making (matchEnd - 6) negative. Uint8Array.subarray(0, -N) interprets
-        // the negative end as `length + end` and returns the chunk's leading
-        // bytes — which are the trailing bytes of the wakeup signature, NOT
-        // benign pre-wakeup data. Clamp to 0 so signature-spanning chunks
-        // produce an empty `before` slice (the leading bytes are part of the
-        // matched signature and are correctly discarded).
-        const beforeEnd = Math.max(0, matchEnd - 6);
-        const before = value.subarray(0, beforeEnd);
-        if (before.length) {
-            feedSlide(before);
-            drainEventsAndOutbound();
-        }
-        console.warn('[slide.js] mid-session ESC^SLIDE detected — Z80 reset; re-entering recv mode');
-        if (slide && typeof slide.force_idle === 'function') slide.force_idle();
-        exitRecvMode();
-        enterRecvMode();
-        // Bytes AFTER the wakeup feed to the new SM.
-        const tail = value.subarray(matchEnd + 1);
-        if (tail.length) {
-            feedSlide(tail);
-            drainEventsAndOutbound();
-            maybeExitRecvMode();
-        }
-        return;
-    }
-    // No re-entry — normal recv path.
+    // Mid-session ESC^SLIDE re-entry matcher, gated on framer idleness:
+    // the matcher only advances on bytes the framer sees BETWEEN frames.
+    // A wakeup signature INSIDE a frame payload is file content, not a Z80
+    // reset — slide.com literally carries its own wakeup_sig bytes, and the
+    // ungated matcher tore the session down mid-transfer the moment frame 1
+    // replayed them (real hardware, 2026-07-24), dumping the rest of the
+    // stream to the terminal and stranding the wire owner on 'slide'. A
+    // genuine reset emits the signature on an otherwise-quiet line where
+    // the framer is idle, so gating loses nothing. (Old wasm without
+    // framer_idle() falls back to always-idle — the pre-gate behavior.)
+    //
+    // The matcher is folded into the byte-walk below; matched prefix bytes
+    // are still fed to the SM — in framer-idle state the signature bytes
+    // (none of which are SOF or a CTRL byte) are no-ops, so no replay
+    // bookkeeping is needed.
     //
     // v1.1 polish 260513-grs Task 3 — post-FIN tail forwarding (recv side).
     // When the Z80's own CTRL_FIN arrives in the same chunk as trailing
@@ -796,13 +786,39 @@ function dispatchRecvMode(value) {
     let recvPostFinTail = null;
     let recvDoneAt = -1;
     for (let i = 0; i < value.length; i++) {
+        const b = value[i];
         const stBefore = slide.state();
         if (stBefore === STATE_DONE || stBefore === STATE_ERROR) {
             // Already Done before this byte — bytes from here on are tail.
             recvDoneAt = i - 1;
             break;
         }
-        slide.feed_byte(value[i]);
+        const framerIdle = (typeof slide.framer_idle === 'function')
+            ? slide.framer_idle()
+            : true;
+        if (framerIdle) {
+            if (b === WAKEUP[recvWakeIdx]) {
+                recvWakeIdx++;
+                if (recvWakeIdx === 7) {
+                    recvWakeIdx = 0;
+                    console.warn('[slide.js] mid-session ESC^SLIDE detected — Z80 reset; re-entering recv mode');
+                    // Settle the old SM (the already-fed signature-prefix
+                    // bytes were framer-idle no-ops), then swap in a fresh
+                    // session. Later bytes in this chunk feed the new SM.
+                    drainEventsAndOutbound();
+                    if (slide && typeof slide.force_idle === 'function') slide.force_idle();
+                    exitRecvMode();
+                    enterRecvMode();
+                    continue;   // this byte was the signature's last — consumed
+                }
+            } else if (recvWakeIdx > 0) {
+                recvWakeIdx = (b === WAKEUP[0]) ? 1 : 0;
+            }
+        } else if (recvWakeIdx > 0) {
+            // The framer entered a frame — any partial signature was noise.
+            recvWakeIdx = 0;
+        }
+        slide.feed_byte(b);
         const stAfter = slide.state();
         if (stAfter === STATE_DONE || stAfter === STATE_ERROR) {
             recvDoneAt = i;
@@ -868,6 +884,11 @@ function maybeExitRecvMode() {
 }
 
 function enterRecvMode() {
+    // E9 batch hint TTL — a pull confirmed long ago (Z80 errored, user walked
+    // away) must not label this session with a stale total.
+    if (expectedRecvFiles && Date.now() - expectedRecvFilesTs > EXPECTED_RECV_FILES_TTL_MS) {
+        expectedRecvFiles = 0;
+    }
     // Per-session new Slide() (Claude's Discretion default — no Slide::reset()
     // singleton optimization; ~1 KB allocation per session is irrelevant at
     // SLIDE's session cadence).
@@ -908,6 +929,8 @@ function exitRecvMode() {
     // D-09 — synchronous handoff. mode + owner flipped together; Pitfall 3.
     txSinkRef.setWireOwner('terminal');
     mode = 'terminal';
+    // E9 batch hint is per-session — never carries past the session it labeled.
+    expectedRecvFiles = 0;
     // Phase 10 review WR-02 — clear slide-recv's slideRef so it cannot
     // dereference the stale Slide after the next enterRecvMode's slide.free()
     // frees its wasm memory (RESEARCH Pitfall 4 — wasm-bindgen panics across

@@ -18,7 +18,7 @@
 use std::collections::VecDeque;
 
 use super::framer::{
-    Framer, EVT_NONE, EVT_RDY, EVT_ACK, EVT_NAK, EVT_FIN, EVT_CAN,
+    Framer, FramerState, EVT_NONE, EVT_RDY, EVT_ACK, EVT_NAK, EVT_FIN, EVT_CAN,
     EVT_DATA_FRAME, EVT_CRC_ERROR,
     EVT_FILE_COMPLETE, EVT_SESSION_COMPLETE, EVT_RETRANSMIT_NEEDED,
     EVT_HEADER_RECEIVED, EVT_RECV_DATA, EVT_RECV_FILE_DONE,
@@ -159,6 +159,25 @@ pub struct Slide {
     /// Phase 10 — 0-based file index, advances on every EVT_HEADER_RECEIVED.
     /// Surfaced as `recv_current_file_idx()`.
     recv_file_idx: u32,
+
+    /// Receiver-side running byte count for the in-progress file. Compared
+    /// against `recv_file_size` (from the header) when the EOF frame arrives:
+    /// an EOF after a gap (a CRC-dropped frame in a blind-burst window) must
+    /// NOT complete the file — it NAKs instead, so the sender's window rewind
+    /// (slide.asm .handle_nak) can repair the gap rather than a silently
+    /// short file being delivered.
+    recv_bytes_done: u32,
+
+    /// Seq of the EOF frame that completed the most recent file (0 = none —
+    /// seq 0 is always the header, so an EOF can never legitimately be 0).
+    /// Lets HeaderPhase recognise a RETRANSMITTED window: when the sender's
+    /// ACK-wait times out after an EOF (our ACK was lost on the wire), it
+    /// rewinds to the window start and re-sends data frames + EOF
+    /// (slide.asm .tx_timeout). Those frames arrive while we sit in
+    /// HeaderPhase; without this they read as "data before header" and
+    /// hard-Error the session — dumping the rest of the sender's stream
+    /// into the terminal (observed on real hardware, 2026-07-23).
+    last_eof_seq: u8,
 }
 
 impl Slide {
@@ -177,6 +196,8 @@ impl Slide {
             recv_filename: Vec::with_capacity(RECV_FILENAME_RESERVE),
             recv_file_size: 0,
             recv_file_idx: 0,
+            recv_bytes_done: 0,
+            last_eof_seq: 0,
         }
     }
 
@@ -304,6 +325,16 @@ impl Slide {
     /// State accessor (returns SlideState as u32 for Phase 8 boundary).
     pub fn state(&self) -> u32 {
         self.sm_state as u32
+    }
+
+    /// True when the framer sits BETWEEN frames (FramerState::Idle). The JS
+    /// recv dispatcher gates its mid-session ESC^SLIDE re-entry matcher on
+    /// this: a wakeup signature can only announce a real Z80 reset when it
+    /// arrives between frames — the same 7 bytes INSIDE a frame payload are
+    /// file content (slide.com itself contains its own `wakeup_sig`, which
+    /// falsely tore down the session on real hardware, 2026-07-24).
+    pub fn framer_idle(&self) -> bool {
+        matches!(self.framer.state(), FramerState::Idle)
     }
 
     /// Current sender-mode file index — Phase 9 WR-04 single source of truth.
@@ -635,7 +666,20 @@ impl Slide {
                     self.outbound_buf.push(0);
                     self.expected_seq = 1;
                     self.nak_retry_count = 0;
+                    self.recv_bytes_done = 0;
                     self.sm_state = SlideState::DataPhase;
+                } else if self.last_eof_seq != 0 {
+                    // Retransmission of the just-completed file's window: the
+                    // sender's ACK-wait timed out (our EOF ACK was lost) and
+                    // it rewound to the window start (slide.asm .tx_timeout).
+                    // Swallow the replayed data frames; re-ACK the replayed
+                    // EOF so the retry converges. No EVT_RECV_FILE_DONE — the
+                    // file was already delivered on the first pass.
+                    let payload = self.framer.take_payload();
+                    if payload.is_empty() && aux == self.last_eof_seq {
+                        self.outbound_buf.push(CTRL_ACK);
+                        self.outbound_buf.push(aux);
+                    }
                 } else {
                     // Protocol violation — sender sent data before header.
                     self.sm_state = SlideState::Error;
@@ -662,11 +706,30 @@ impl Slide {
                 // (slide-rs/recv.rs:172-180 — len==0 case.)
                 let payload = self.framer.take_payload();
                 if payload.is_empty() {
+                    // Gap guard: an EOF arriving before the header-declared
+                    // byte count was received means a frame in this blind
+                    // burst was dropped (CRC → our NAK is still in flight to
+                    // a sender that only reads controls at its post-window
+                    // ACK wait). Completing here would deliver a silently
+                    // short file. NAK instead and stay in DataPhase — the
+                    // sender rewinds the window and the replay fills the gap.
+                    if self.recv_bytes_done != self.recv_file_size {
+                        self.outbound_buf.push(CTRL_NAK);
+                        self.outbound_buf.push(self.expected_seq);
+                        self.nak_retry_count += 1;
+                        if self.nak_retry_count > NAK_BUDGET {
+                            self.sm_state = SlideState::Error;
+                        }
+                        return;
+                    }
                     // EXISTING (Phase 7): ACK the EOF frame's seq, loop to HeaderPhase.
                     self.outbound_buf.push(CTRL_ACK);
                     self.outbound_buf.push(aux);
                     self.expected_seq = 1;
                     self.nak_retry_count = 0;
+                    // Remember the EOF seq so HeaderPhase can recognise (and
+                    // re-ACK) a retransmitted window if this ACK gets lost.
+                    self.last_eof_seq = aux;
                     self.sm_state = SlideState::HeaderPhase;
                     // PHASE 10: emit EVT_RECV_FILE_DONE for the file just
                     // completed. recv_file_idx was advanced by the header
@@ -695,14 +758,32 @@ impl Slide {
                     // most-recent frame's bytes without an explicit pop.
                     self.recv_buf.clear();
                     self.recv_buf.extend_from_slice(&payload);
+                    self.recv_bytes_done = self.recv_bytes_done.wrapping_add(payload.len() as u32);
+                    let payload_full = payload.len() == super::framer::FRAME_SIZE;
                     self.recv_payloads.push_back(payload);
                     self.events.push_back(EVT_RECV_DATA | (aux as u32));
                     // EXISTING (Phase 7): per-window ACK on WIN_SIZE boundary.
                     // slide-rs/recv.rs:206-212: send ACK every WIN_SIZE frames.
+                    //
+                    // Partial-frame exception: a data frame shorter than
+                    // FRAME_SIZE is always a file's LAST (senders fill
+                    // frames), so its EOF marker follows in the SAME burst
+                    // and the sender (slide.asm .wait_ack) reads exactly ONE
+                    // control for that whole window+EOF flush. Emitting a
+                    // boundary ACK here AND an EOF ACK leaves a stray ACK in
+                    // the Z80's RX that shifts every later control read —
+                    // ending with the session's FIN echo bouncing off the
+                    // CCP as a stray "^D" (hardware, 2026-07-24; trigger:
+                    // total data frames ≡ 0 mod WIN_SIZE with a short final
+                    // frame, e.g. a ~23.5 KB .COM). Skip the boundary ACK
+                    // and let the EOF ACK be the window's single control.
+                    // Full final frames (size an exact FRAME_SIZE multiple)
+                    // keep the boundary ACK: their EOF arrives solo on the
+                    // sender's next read and gets its own ACK.
                     self.expected_seq = self.expected_seq.wrapping_add(1);
                     self.nak_retry_count = 0;
                     let last_acked = self.expected_seq.wrapping_sub(1);
-                    if last_acked & (WIN_SIZE - 1) == 0 {
+                    if payload_full && last_acked & (WIN_SIZE - 1) == 0 {
                         self.outbound_buf.push(CTRL_ACK);
                         self.outbound_buf.push(last_acked);
                     }
@@ -831,13 +912,12 @@ mod tests {
         // Now feed 4 frames seq 1..4 — slide-rs/recv.rs:206-212 says ACK
         // when (last_acked & (WIN_SIZE - 1)) == 0, i.e. when last_acked is
         // a multiple of 4. After accepting seq=4, last_acked == 4 → ACK.
-        // Build 4 minimal valid data frames (1-byte payload each).
+        // Frames must be FULL (FRAME_SIZE payloads): a partial frame is a
+        // file's last and suppresses the boundary ACK (its EOF marker rides
+        // the same burst and carries the window's single ACK — the stray-^D
+        // fix; see the partial-frame exception in the DataPhase arm).
         for seq in 1u8..=4 {
-            let mut frame = vec![0x01, seq, 0x00, 0x01, 0x00];   // SOF SEQ LEN_H LEN_L PAYLOAD(0x00)
-            let crc = crc16_ccitt(&[seq, 0x00, 0x01, 0x00]);
-            frame.push((crc >> 8) as u8);
-            frame.push((crc & 0xFF) as u8);
-            for &b in &frame {
+            for b in crate::slide::tests_only::fixture_data_frame(seq, &[0x00; 1024]) {
                 slide.feed_byte(b);
             }
         }
@@ -868,11 +948,13 @@ mod tests {
 
     #[test]
     fn eof_frame_loops_to_header() {
-        // Drive to DataPhase, then feed a zero-payload data frame (EOF marker).
+        // Drive to DataPhase, deliver the header-declared 42 bytes (the EOF
+        // gap guard NAKs a premature EOF), then feed the EOF marker.
         let mut slide = s_recv();
         slide.feed_byte(CTRL_RDY);
         for &b in FIXTURE_HEADER_TEST_TXT { slide.feed_byte(b); }
         slide.clear_outbound();
+        for b in crate::slide::tests_only::fixture_data_frame(1, &[0x55; 42]) { slide.feed_byte(b); }
         // EOF frame with seq=4 (FIXTURE_EOF_SEQ_4 from tests_only).
         for &b in FIXTURE_EOF_SEQ_4 { slide.feed_byte(b); }
         assert_eq!(slide.state(), SlideState::HeaderPhase as u32,

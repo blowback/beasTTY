@@ -69,7 +69,7 @@ pub struct Framer {
     payload_buf: Vec<u8>,
 }
 
-const FRAME_SIZE: usize = 1024;
+pub(crate) const FRAME_SIZE: usize = 1024;
 const CRC_INPUT_RESERVE: usize = FRAME_SIZE + 3;  // SEQ + LEN_H + LEN_L + payload
 
 impl Framer {
