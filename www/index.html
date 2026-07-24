@@ -505,11 +505,12 @@
       color: var(--chrome-fg);
       white-space: nowrap;
     }
-    /* Reuse the menu-item selected-row highlight on hover (do NOT invent a colour). */
-    .pp-row:hover { background: var(--chrome-accent); color: var(--chrome-bg); }
+    /* Hover — a transient light accent tint. NOT the solid-mint fill: across
+       the app solid mint means "selected" (#menu-bar .menu-item,
+       #command-history .ch-row.sel), so a hovered row must not read as picked. */
+    .pp-row:hover { background: color-mix(in srgb, var(--chrome-accent) 14%, transparent); }
     .pp-row .pp-nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
     .pp-row .pp-sz { color: var(--chrome-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
-    .pp-row:hover .pp-sz { color: var(--chrome-bg); }
     /* S10.1 — ambient CRC-32 column (FR-1/2, UX-DR1). Muted, ~11px, tabular
        (monospace inherits from the body stack, like .pp-sz); never wraps or
        widens the row (the name keeps flex:1+ellipsis). Recolors with the row
@@ -519,33 +520,35 @@
       font-variant-numeric: tabular-nums;
       white-space: nowrap;
     }
-    .pp-row:hover .pp-cs { color: var(--chrome-bg); }
     /* S9.4 — rows are native drag sources (reverse drag → terminal → SLIDE send).
        Cursor only; no new tokens, identical CRT↔Console (AD-9). */
     .pp-row[draggable="true"] { cursor: grab; }
-    /* Fresh files (S9.1b, FR-10 / Flow 7): thin mint left-marker + the shipped
-       hover-row accent treatment — never a new colour (--chrome-* only, AD-9). */
-    .pp-row.fresh { position: relative; background: var(--chrome-accent); color: var(--chrome-bg); }
-    .pp-row.fresh .pp-sz { color: var(--chrome-bg); }
-    .pp-row.fresh .pp-cs { color: var(--chrome-bg); }
+    /* Fresh files (S9.1b, FR-10 / Flow 7): thin mint left-marker + a faint tint —
+       an INFORMATIONAL "just arrived" cue, deliberately weaker than selection so
+       a fresh row is never mistaken for a picked one. (It used to wear the
+       solid-mint fill, which is the app-wide selected-row look — the collision
+       that made the top/fresh row read as stuck-selected.) --chrome-* only, AD-9. */
+    .pp-row.fresh { position: relative; background: color-mix(in srgb, var(--chrome-accent) 10%, transparent); }
+    .pp-row.fresh:hover { background: color-mix(in srgb, var(--chrome-accent) 14%, transparent); }
     .pp-row.fresh::before {
       content: ""; position: absolute; left: 0; top: 4px; bottom: 4px;
       width: 2px; background: var(--chrome-accent); border-radius: 2px;
     }
-    /* S9.4 multi-select — accent tint + inset line (the .pp-foot.drop-active
-       color-mix pattern; --chrome-* only, AD-9). Placed after :hover and
-       .fresh so a selected row reads selected under both (the fresh ::before
-       marker still shows through). */
+    /* S9.4 multi-select — SOLID mint fill + chrome-bg text, matching the app-wide
+       selected-row language (#menu-bar .menu-item, #command-history .ch-row.sel).
+       The actionable state gets the prominent treatment and beats :hover and
+       .fresh; on a selected fresh row the solid fill subsumes the mint
+       ::before marker (mint-on-mint) — selection is the stronger signal. */
     .pp-row.sel,
     .pp-row.sel:hover,
-    .pp-row.fresh.sel {
-      background: color-mix(in srgb, var(--chrome-accent) 18%, transparent);
-      color: var(--chrome-fg);
-      box-shadow: inset 0 0 0 1px var(--chrome-accent);
+    .pp-row.fresh.sel,
+    .pp-row.fresh.sel:hover {
+      background: var(--chrome-accent);
+      color: var(--chrome-bg);
     }
     .pp-row.sel .pp-sz, .pp-row.sel:hover .pp-sz, .pp-row.fresh.sel .pp-sz,
     .pp-row.sel .pp-cs, .pp-row.sel:hover .pp-cs, .pp-row.fresh.sel .pp-cs {
-      color: var(--chrome-muted);
+      color: var(--chrome-bg);
     }
     .pp-blank {
       flex: 1;

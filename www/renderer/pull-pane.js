@@ -1437,8 +1437,9 @@ function renderRows() {
     for (const f of ordered) {
         const row = document.createElement('div');
         // Visual state via class only (never inline styles). Fresh rows get the
-        // mint left-marker + hover-row accent treatment; selected rows the
-        // accent tint + inset line (index.html, --chrome-*).
+        // mint left-marker + a faint tint (an informational "just arrived" cue);
+        // selected rows get the solid-mint fill (the app-wide selected-row
+        // language, prominent and unmistakable) (index.html, --chrome-*).
         row.className = freshNames.has(f.name) ? 'pp-row fresh' : 'pp-row';
         if (selectedNames.has(f.name)) row.classList.add('sel');
         // S9.4 — every row (plain and fresh alike) is a native drag source;
