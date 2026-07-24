@@ -9,7 +9,8 @@ A [VT52](https://en.wikipedia.org/wiki/VT52) emulator in the browser, for use wi
 
 ## How do I use it?
 
-Plug in your retrocomputer then visit https://blowback.github.io/beasTTY/ in  a Chrome-based browser.
+Plug in your retrocomputer then visit https://blowback.github.io/beasTTY/ in  a Chrome-based browser. 
+Click "Connect" from the menu at the top, select your MicroBeast USB port, and off you go.
 
 ## I don't like chrome, can I use $BROWSER?
 
@@ -17,8 +18,8 @@ You may not. Only Chrome supports WebSerial, upon which this TTY is based.
 
 ## Display styles
 
-Render a crips modern display with "Clean" or go for a more vintage CRT look with 
-"Green", "Amber" or "White".
+Render a crisp modern display with "Clean" or go for a more vintage CRT look with 
+"Green", "Amber", "White", "Blue" or "Red".
 
 The special "Graphics Mode" characters are not available in "Clean" mode, which uses 
 Jetbrains Mono Regular or falls back to whatever monospaced font is locally available.
@@ -31,7 +32,8 @@ including the special "Graphics mode" characters accessible by `ESC F`. This fon
 
 ![Special Graphics characters](images/graphics.png)
 
-The fonts Cushion, Insigbyte, and You Square come from the excellent [ZX Origins](https://damieng.com/typography/zx-origins/) 
+The fonts Cushion, Insigbyte, You Squared, Chit, Orbiter, Patrol, Striker and ZX Palm all 
+come from the excellent [ZX Origins](https://damieng.com/typography/zx-origins/) 
 where there are many many more examples of DamienG's meticulous work. 
 
 ## Keyboard shortcuts
@@ -69,6 +71,17 @@ lists chords and special keys with UI-side meaning.
 Any keypress that produces an outbound byte while scrolled-back also snaps the
 viewport to the live tail before the byte is sent.
 
+### Command line history
+
+| Shortcut             | Action                                              |
+|----------------------|-----------------------------------------------------|
+| Up / Down            | Activate command line history                                |
+| Enter                | Send the selected command immediately  |
+| TAB                  | Edit the selected command before sending                      |
+| Esc            | Dismiss the command line history popup              |
+
+
+
 ### Esc key behaviour
 
 Esc is context-sensitive. The first matching rule wins:
@@ -96,7 +109,7 @@ your computer and the MicroBeast.
 ### Sending files (PC → Z80)
 
 Drag files onto the terminal area, or click the `↑ Send file` button in the
-top bar. The send modal previews each filename rewritten to CP/M 8.3 form,
+top menu. The send modal previews each filename rewritten to CP/M 8.3 form,
 and lets you confirm or cancel the batch before the transfer starts.
 
 If two or more files would collide on the Z80 side after 8.3 truncation
@@ -115,6 +128,14 @@ When the Z80 sends a file via `B:SLIDE S FILE.TXT`, BeasTTY auto-detects the
 SLIDE wakeup signature (`ESC ^ S L I D E`) and downloads each file via your
 browser's Downloads tray. Settings → SLIDE file transfer lets you optionally
 save received files to a chosen folder instead.
+
+You can also drag filenames from the terminal pane into the filer pane to 
+automatically transfer files from the MicroBeast to your local PC. 
+
+![Drag&drop file transfer](images/dragndrop.png)
+
+**NB** you can't drag directly to a filer window, you'll just get a new file 
+with all the selected filenames in it!
 
 ### Cancelling
 
