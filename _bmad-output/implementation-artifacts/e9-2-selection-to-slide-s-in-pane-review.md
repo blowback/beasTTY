@@ -166,4 +166,12 @@ Claude Fable 5 (claude-fable-5) via Claude Code — 2026-07-23.
 
 ## Code Review
 
-_(fill on completion: N findings, severity, fix sha — required before marking done per scripts/check-story-done-consistency.py)_
+- 2026-07-23 — `code-review --fix` pass: **4 findings fixed, 2 new specs** (11
+  total) — full itemization in the Change Log entry of the same date (suspension
+  predicate gains tx-sink wire-ownership; confirm refuses with no serial writer,
+  mirroring WR-03; pane folder-choose also enables `prefs.slideRecvToFolder`;
+  injected deps called unguarded so a mis-wired composition root fails loudly).
+  Two open questions deferred to S9.3: multi-file separator hardware check and
+  the composed-command length cap. _(Section backfilled 2026-07-24 — the outcome
+  was recorded in the Change Log but the template stub here was never replaced;
+  caught by the tightened `check-story-done-consistency.py`.)_

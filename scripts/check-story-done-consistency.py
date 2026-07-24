@@ -24,7 +24,27 @@ IMPL = Path(__file__).resolve().parent.parent / "_bmad-output" / "implementation
 SPRINT = IMPL / "sprint-status.yaml"
 
 # A Code Review section still containing any of these is an unfilled stub.
-STUB_MARKERS = ("Not yet run", "To be filled with", "Pending — run", "Pending - run")
+# "fill on completion" is the E9 story-template stub text — it sat unflagged
+# through all five E9 stories (E8 retro finding, 2026-07-24).
+STUB_MARKERS = ("Not yet run", "To be filled with", "Pending — run", "Pending - run",
+                "fill on completion")
+
+# Stories that predate the Code Review section convention (E0–E3 era). ONLY these
+# may lack the section without blocking; the list is CLOSED — never add to it for
+# a new story. An open-ended "legacy" allowance grandfathered E8 and E9 wholesale
+# (E8 retro headline, 2026-07-24): a missing section anywhere else is now an ERROR.
+LEGACY_NO_SECTION = frozenset({
+    "e0-1-focus-retention-helper",
+    "e0-2-modal-helper-openmodal-send-modal-refactor",
+    "e1-1-menu-bar-shell-dropdown-mechanics",
+    "e1-2-keyboard-navigation-esc-passthrough-guard",
+    "e1-3-chrome-js-decomposition-boot-order-reset-re-projection",
+    "e1-4-view-menu-theme-phosphor",
+    "e1-5-view-menu-font-zoom-clear",
+    "e2-1-connect-disconnect-single-writer-menu-item",
+    "e2-2-auto-connect-toggle-choose-microbeast",
+    "e2-3-serial-configuration-modal",
+})
 
 
 def done_story_slugs(sprint_text: str) -> list[str]:
@@ -75,17 +95,25 @@ def check_story(slug: str) -> tuple[list[str], list[str]]:
         errors.append(f"{slug}: front-matter Status is '{m.group(1).strip()}' but sprint-status says done")
 
     # 2) Code Review section: an unfilled STUB is the exact E4 regression (ERROR);
-    #    a totally ABSENT section is a pre-convention legacy gap (WARNING).
-    cr = re.search(r"^###\s+Code Review\s*$(.*?)(?=^###\s|\Z)", text, re.MULTILINE | re.DOTALL)
+    #    an ABSENT section blocks too, unless the story is on the closed
+    #    pre-convention list (WARNING). Both `## Code Review` (E9 template) and
+    #    `### Code Review` (E4–E8 convention) count — the h3-only match let the
+    #    h2-headed E9 sections (stubs included) sail past unread.
+    cr = re.search(r"^#{2,3}\s+Code Review\s*$(.*?)(?=^#{2,3}\s|\Z)",
+                   text, re.MULTILINE | re.DOTALL)
     if not cr:
-        warnings.append(f"{slug}: no `### Code Review` section (predates the section convention — backfill when known)")
+        msg = f"{slug}: no `Code Review` section"
+        if slug in LEGACY_NO_SECTION:
+            warnings.append(f"{msg} (predates the section convention — backfill when known)")
+        else:
+            errors.append(f"{msg} (required for post-E3 stories — record the review outcome)")
     else:
         body = cr.group(1).strip()
         if not body:
-            errors.append(f"{slug}: `### Code Review` section is empty")
+            errors.append(f"{slug}: `Code Review` section is empty")
         elif any(mark in body for mark in STUB_MARKERS):
             errors.append(
-                f"{slug}: `### Code Review` is still the unfilled stub "
+                f"{slug}: `Code Review` is still the unfilled stub "
                 f"(record the review outcome: N findings / fix sha, or '0 findings / clean')"
             )
     return errors, warnings

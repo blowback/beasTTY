@@ -164,4 +164,9 @@ None — no HALT conditions triggered; implemented in a single pass.
 
 ## Code Review
 
-_(fill on completion: N findings, severity, fix sha — required before marking done per scripts/check-story-done-consistency.py)_
+- 2026-07-23 — review run with the implementation; **1 finding, fixed** — folded
+  into the story commit `20c23f2`: an async **epoch guard** so a slow in-flight
+  directory read can't clobber a newer result, with enumeration tied to the
+  captured handle rather than the module-global `dirHandle`. 8 Playwright specs
+  green. _(Backfilled 2026-07-24 from the commit record — E9 retro action #5;
+  the outcome lived only in the commit message.)_

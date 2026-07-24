@@ -211,4 +211,13 @@ Claude Fable 5 (claude-fable-5) via Claude Code, 2026-07-24.
 
 ## Code Review
 
-_(fill on completion: N findings, severity, fix sha — required before marking done per scripts/check-story-done-consistency.py)_
+- 2026-07-24 — code review (high effort, `--fix`; commit `8bdb80a`): **10
+  verified findings, all fixed** — full itemization in the Change Log entry of
+  the same date (window-ACK pacing latch; reverse-drag stash lifetime;
+  `sendFiles()` session guard + `recv` in `isSessionActive()`; polite-fail
+  Chromium detection; batch hint across mid-session re-entry; `isSendActive()`
+  in the Esc path; recv hot-loop wasm-crossing trim; `renderRows()` consumes
+  `orderedFiles()`; refusal diagnostic throttled; throughput formatter purity).
+  Full suite 472 passed. _(Section backfilled 2026-07-24 — the outcome was
+  recorded in the Change Log the same day but the template stub here was never
+  replaced; caught by the tightened `check-story-done-consistency.py`.)_

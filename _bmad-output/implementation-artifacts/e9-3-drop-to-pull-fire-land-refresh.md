@@ -185,4 +185,11 @@ Followed the story task order T1→T7. T1: origination branch in `onPointerDown`
 
 ## Code Review
 
-_(fill on completion: N findings, severity, fix sha — required before marking done per scripts/check-story-done-consistency.py)_
+- 2026-07-23 — `code-review --fix` pass ahead of UAT-E9-01: **10 findings fixed**,
+  folded into the implementation commit `68658c2` ("story work plus the
+  code-review fixes" — the commit does not itemize findings apart from story
+  work; the sprint-status record carries the count). Suite 461 passed / 0 failed
+  after fixes. The five receiver interop fixes in `b63217d` came from the
+  hardware UAT session afterwards, not this review. _(Section backfilled
+  2026-07-24 — the review was run and recorded in sprint-status/commit but the
+  template stub here was never replaced.)_
