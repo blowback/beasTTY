@@ -14,6 +14,15 @@
 //
 // Boot-race guard (E0.1 learning): wait on window.__commandHistoryOverlay AND the
 // wasm encoder (canvas sized) before driving real keydowns.
+//
+// Amended per the E8 retro §6 (2026-07-24) hardware feedback, superseding the
+// AC text where they conflict: the list renders oldest→newest top→bottom (newest
+// at the bottom, ↑ = older, ↓ = newer); Enter sends the highlighted entry when
+// the edit line is empty OR ↑/↓ moved the highlight since the text last changed
+// (typed text with an untouched highlight still wins); ←/→ on an empty edit
+// line copy the highlight (as Tab); the legend reads "↑↓ select · Tab edit ·
+// Enter send · Esc cancel". Internal state stays newest-first (highlight/
+// filtered indices are unchanged — only display order and key mappings flipped).
 import { test, expect } from '@playwright/test';
 
 // Boot, wait for the overlay + engine + tx-sink hooks, focus the wrapper, then
@@ -168,25 +177,26 @@ test.describe('E8.2 AC-3 — filter: whitespace-split AND narrows the list', () 
 
 // ============================================================================
 test.describe('E8.2 AC-4 — navigate: ↑/↓ move the highlight (clamped, no wrap)', () => {
-  test('↓/↑ move within the filtered list and clamp at both ends @fast', async ({ page }) => {
+  test('↑/↓ move within the filtered list and clamp at both ends @fast', async ({ page }) => {
     await ready(page);
     await seed(page, ['A', 'B', 'C', 'D']);      // newest-first: D, C, B, A
-    await page.keyboard.press('ArrowUp');        // open, highlight 0 (D)
+    await page.keyboard.press('ArrowUp');        // open, highlight 0 (D — bottom row)
     expect((await ostate(page)).highlight).toBe(0);
 
-    await page.keyboard.press('ArrowDown');
-    await page.keyboard.press('ArrowDown');
+    // ↑ moves visually up = older = higher newest-first index (retro tweak i).
+    await page.keyboard.press('ArrowUp');
+    await page.keyboard.press('ArrowUp');
     expect((await ostate(page)).highlight).toBe(2);
 
-    await page.keyboard.press('ArrowUp');
+    await page.keyboard.press('ArrowDown');
     expect((await ostate(page)).highlight).toBe(1);
 
-    // Clamp at the top — five ↑ from row 1 never goes negative.
-    for (let i = 0; i < 5; i++) await page.keyboard.press('ArrowUp');
+    // Clamp at the bottom (newest) — five ↓ from row 1 never goes negative.
+    for (let i = 0; i < 5; i++) await page.keyboard.press('ArrowDown');
     expect((await ostate(page)).highlight).toBe(0);
 
-    // Clamp at the bottom — ten ↓ stops at the last row (index 3).
-    for (let i = 0; i < 10; i++) await page.keyboard.press('ArrowDown');
+    // Clamp at the top (oldest) — ten ↑ stops at the last row (index 3).
+    for (let i = 0; i < 10; i++) await page.keyboard.press('ArrowUp');
     expect((await ostate(page)).highlight).toBe(3);
 
     // aria-activedescendant tracks the highlight.
@@ -200,8 +210,8 @@ test.describe('E8.2 AC-5 — Tab copies the highlight into the edit line', () =>
   test('Tab replaces the edit line with the highlighted row (caret at end) @fast', async ({ page }) => {
     await ready(page);
     await seed(page, ['LIST', 'RUN']);           // newest-first: RUN, LIST
-    await page.keyboard.press('ArrowUp');        // highlight 0 = RUN
-    await page.keyboard.press('ArrowDown');      // highlight 1 = LIST
+    await page.keyboard.press('ArrowUp');        // open, highlight 0 = RUN (bottom)
+    await page.keyboard.press('ArrowUp');        // highlight 1 = LIST (visually up)
     await page.keyboard.press('Tab');
     const s = await ostate(page);
     expect(s.editText).toBe('LIST');
@@ -257,17 +267,63 @@ test.describe('E8.2 AC-7 — Enter sends the edit line + terminator, closes, com
     expect(await history(page)).toEqual(['RUN', 'LIST']);  // dedup — no duplicate
   });
 
-  test('bare Enter on an empty edit line sends only the terminator, commits nothing @fast', async ({ page }) => {
+  test('Enter on an empty edit line sends the highlighted entry as-is (retro tweak ii) @fast', async ({ page }) => {
     await ready(page);
     await seed(page, ['RUN', 'LIST']);            // newest-first: LIST, RUN
     await page.keyboard.press('ArrowUp');         // open, edit line empty (placeholder)
+    await page.keyboard.press('ArrowUp');         // highlight 1 = RUN (visually up)
+    await resetTx(page);
+
+    await page.keyboard.press('Enter');           // no Tab — sends the highlight
+
+    expect(await hex(page)).toBe(await asciiHex(page, 'RUN', '0D'));   // 52 55 4E 0D
+    expect(await hidden(page)).toBe(true);
+    expect(await history(page)).toEqual(['RUN', 'LIST']);  // sent entry re-sorted newest
+  });
+
+  test('typed edit text with an untouched highlight still wins (precedence rule) @fast', async ({ page }) => {
+    await ready(page);
+    await seed(page, ['RUN']);                    // 'ru' filters to RUN → highlighted
+    await page.keyboard.press('ArrowUp');
+    await page.keyboard.type('ru');               // typing only — no arrow after it
+    expect((await ostate(page)).filtered).toEqual(['RUN']);
+    await resetTx(page);
+
+    await page.keyboard.press('Enter');           // highlight untouched → 'ru' sent, not RUN
+
+    expect(await hex(page)).toBe(await asciiHex(page, 'ru', '0D'));
+    expect((await history(page))[0]).toBe('ru');  // the typed text committed newest
+  });
+
+  test('filter → ↑/↓ → Enter sends the arrowed-to highlight, not the filter text @fast', async ({ page }) => {
+    await ready(page);
+    await seed(page, ['PRINT A', 'LIST', 'PRINT B']);  // newest-first: PRINT B, LIST, PRINT A
+    await page.keyboard.press('ArrowUp');
+    await page.keyboard.type('print');            // filtered: PRINT B (bottom), PRINT A (top)
+    expect((await ostate(page)).filtered).toEqual(['PRINT B', 'PRINT A']);
+
+    await page.keyboard.press('ArrowUp');         // arrow = explicit selection → PRINT A
+    expect((await ostate(page)).navigated).toBe(true);
+    await resetTx(page);
+    await page.keyboard.press('Enter');
+
+    expect(await hex(page)).toBe(await asciiHex(page, 'PRINT A', '0D'));
+    expect((await history(page))[0]).toBe('PRINT A');  // the selection committed newest
+  });
+
+  test('typing after arrowing resets selection intent — Enter sends the new text @fast', async ({ page }) => {
+    await ready(page);
+    await seed(page, ['PRINT A', 'PRINT B']);
+    await page.keyboard.press('ArrowUp');
+    await page.keyboard.type('print');
+    await page.keyboard.press('ArrowUp');         // navigated
+    await page.keyboard.type('x');                // text changed → intent reset ('printx', no match)
+    expect((await ostate(page)).navigated).toBe(false);
     await resetTx(page);
 
     await page.keyboard.press('Enter');
 
-    expect(await hex(page)).toBe('0D');           // bare CR to the Z80
-    expect(await hidden(page)).toBe(true);
-    expect(await history(page)).toEqual(['LIST', 'RUN']);  // unchanged — no '' stored
+    expect(await hex(page)).toBe(await asciiHex(page, 'printx', '0D'));
   });
 
   test('terminator follows getCrlfMode — LF via a seeded prefs blob @fast', async ({ page }) => {
@@ -320,11 +376,13 @@ test.describe('E8.2 AC-9 — always-visible key-hint legend', () => {
     await seed(page, ['RUN']);
     await page.keyboard.press('ArrowUp');
     const legend = page.locator('#command-history-overlay .ch-legend');
-    for (const token of ['Tab', 'select', '↑↓', 'move', '←→', 'edit', 'Enter', 'send', 'Esc', 'cancel']) {
-      await expect(legend).toContainText(token);
-    }
-    // Each key label is bolded (5 <b> keys).
-    expect(await legend.locator('b').count()).toBe(5);
+    // Retro tweak iv (refined): arrows first, "↑↓ select · Tab edit · Enter
+    // send · Esc cancel" — no "←→" hint, no "move".
+    expect(await legend.textContent()).toMatch(/↑↓ select.*Tab edit.*Enter send.*Esc cancel/);
+    await expect(legend).not.toContainText('←→');
+    await expect(legend).not.toContainText('move');
+    // Each key label is bolded (4 <b> keys).
+    expect(await legend.locator('b').count()).toBe(4);
   });
 });
 
@@ -364,5 +422,48 @@ test.describe('E8.2 AC-11 — Flow 6 end-to-end (Reza): recall → filter → Ta
     expect(await hex(page)).toBe(await asciiHex(page, '10 PRINT "HELLO FROM Z80"', '0D'));
     expect(await hidden(page)).toBe(true);
     expect((await history(page))[0]).toBe('10 PRINT "HELLO FROM Z80"');  // newest entry
+  });
+});
+
+// ============================================================================
+test.describe('E8 retro §6 — hardware-feedback tweaks (2026-07-24)', () => {
+  test('tweak i: rows render oldest→newest top→bottom, newest highlighted at the bottom @fast', async ({ page }) => {
+    await ready(page);
+    await seed(page, ['LIST', 'RUN', 'DIR']);     // newest-first: DIR, RUN, LIST
+    await page.keyboard.press('ArrowUp');
+
+    const rows = page.locator('#command-history-overlay .ch-row .ch-row-txt');
+    await expect(rows).toHaveText(['LIST', 'RUN', 'DIR']);   // oldest at the top
+    // The bottom row (newest, beside the edit line) carries the highlight.
+    const last = page.locator('#command-history-overlay .ch-row').last();
+    await expect(last).toHaveClass(/sel/);
+    await expect(last).toHaveAttribute('id', 'ch-opt-0');    // ids stay newest-first
+  });
+
+  test('tweak iii: ← on an empty edit line copies the highlight (as Tab); then moves the caret @fast', async ({ page }) => {
+    await ready(page);
+    await seed(page, ['LIST', 'RUN']);            // newest-first: RUN, LIST
+    await page.keyboard.press('ArrowUp');         // open, highlight RUN, edit line empty
+
+    await page.keyboard.press('ArrowLeft');       // empty edit line → grab the highlight
+    let s = await ostate(page);
+    expect(s.editText).toBe('RUN');
+    expect(s.caretIndex).toBe(3);                 // caret at end, exactly like Tab
+
+    await page.keyboard.press('ArrowLeft');       // edit line has text → caret moves
+    s = await ostate(page);
+    expect(s.editText).toBe('RUN');
+    expect(s.caretIndex).toBe(2);
+  });
+
+  test('tweak iii: → also copies the highlight on an empty edit line @fast', async ({ page }) => {
+    await ready(page);
+    await seed(page, ['LIST', 'RUN']);
+    await page.keyboard.press('ArrowUp');         // open, highlight RUN (bottom)
+    await page.keyboard.press('ArrowUp');         // highlight LIST
+    await page.keyboard.press('ArrowRight');
+    const s = await ostate(page);
+    expect(s.editText).toBe('LIST');
+    expect(s.caretIndex).toBe(4);
   });
 });

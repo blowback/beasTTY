@@ -7,6 +7,19 @@
 // bytes to the wire (on Enter, via the injected pushTxBytes, reusing the engine's
 // commit()); everything else stays observation-only.
 //
+// Amended per the E8 retro §6 (2026-07-24) hardware feedback, superseding the
+// E8.2 AC text where they conflict:
+//   (i)   the list displays oldest→newest top→bottom — newest sits at the BOTTOM,
+//         beside the edit line (internal state stays newest-first; only the
+//         render order and the ↑/↓ mapping flip);
+//   (ii)  Enter sends the highlighted entry as-is when the edit line is EMPTY,
+//         or when ↑/↓ moved the highlight since the text last changed (filter →
+//         arrow → Enter picks the selection); untouched-highlight typed text
+//         still wins (type a fresh command → Enter sends what was typed);
+//   (iii) ←/→ with an EMPTY edit line copy the highlight into the edit line
+//         (same as Tab); with text present they move the caret as before;
+//   (iv)  the legend reads "↑↓ select · Tab edit · Enter send · Esc cancel".
+//
 // THE INTERCEPTION MODEL (the crux — see the story Dev Notes).
 // Beastty keeps focus on #terminal-wrapper at all times; every keydown fires
 // there. This overlay is a PASSIVE visual layer with a FAKE caret (a <div> +
@@ -57,6 +70,7 @@ let isOpenState = false;      // overlay open/closed
 let baseHistory = [];         // snapshot of getHistory() taken at open (newest-first)
 let filtered = [];            // baseHistory narrowed by the current AND filter
 let highlight = 0;            // index into `filtered` of the highlighted row
+let navigated = false;        // ↑/↓ moved the highlight since the text last changed
 let editText = '';            // the fake edit line's contents
 let caretIndex = 0;           // caret position within editText (0..editText.length)
 
@@ -190,10 +204,13 @@ function onKeydownOpen(e) {
     if (e.ctrlKey || e.altKey || e.metaKey) { e.preventDefault(); return; }
 
     switch (e.key) {
-        case 'ArrowUp':    e.preventDefault(); moveHighlight(-1); return;
-        case 'ArrowDown':  e.preventDefault(); moveHighlight(+1); return;
-        case 'ArrowLeft':  e.preventDefault(); moveCaret(-1);     return;
-        case 'ArrowRight': e.preventDefault(); moveCaret(+1);     return;
+        // The list renders oldest→newest top→bottom (retro tweak i), and
+        // `highlight` indexes the newest-first `filtered` array — so visually-up
+        // (older) is a HIGHER index and visually-down (newer) a lower one.
+        case 'ArrowUp':    e.preventDefault(); moveHighlight(+1); return;
+        case 'ArrowDown':  e.preventDefault(); moveHighlight(-1); return;
+        case 'ArrowLeft':  e.preventDefault(); arrowEdit(-1);     return;
+        case 'ArrowRight': e.preventDefault(); arrowEdit(+1);     return;
         case 'Backspace':  e.preventDefault(); backspace();       return;
         case 'Tab':        e.preventDefault(); copyHighlight();   return;
         case 'Enter':      e.preventDefault(); sendAndClose();    return;
@@ -240,6 +257,7 @@ function close() {
     baseHistory = [];
     filtered = [];
     highlight = 0;
+    navigated = false;
     editText = '';
     caretIndex = 0;
 }
@@ -248,7 +266,7 @@ function close() {
 
 // AC-3 — split the edit text on whitespace into AND terms; a command matches iff
 // every term is a case-insensitive substring (order-independent). Empty edit text
-// → the full history. Resets the highlight to the first (newest) match.
+// → the full history. Resets the highlight to the newest match (the bottom row).
 function recompute() {
     const terms = editText.trim().split(/\s+/).filter(Boolean);
     if (terms.length === 0) {
@@ -261,14 +279,28 @@ function recompute() {
         });
     }
     highlight = 0;
+    // A text change resets selection intent: Enter goes back to sending the
+    // typed text until the user arrows the list again (retro tweak ii).
+    navigated = false;
 }
 
 // AC-4 — move the highlight within the CURRENTLY filtered list, clamped at both
-// ends (no wrap). Navigation never re-filters or moves the caret.
+// ends (no wrap). Navigation never re-filters or moves the caret. `delta` is in
+// newest-first index space (+1 = older = visually up — see the ArrowUp mapping).
+// Any ↑/↓ press with rows visible (even one clamped at an edge) is an explicit
+// selection — it flips Enter to send the highlight (retro tweak ii).
 function moveHighlight(delta) {
     if (filtered.length === 0) return;
     highlight = clamp(highlight + delta, 0, filtered.length - 1);
+    navigated = true;
     render();
+}
+
+// Retro tweak iii — ←/→ on an EMPTY edit line grab the highlighted entry (same
+// as Tab); once the edit line has text they move the caret as before (AC-6).
+function arrowEdit(delta) {
+    if (editText.length === 0 && filtered.length > 0) { copyHighlight(); return; }
+    moveCaret(delta);
 }
 
 // AC-6 — move the caret within the edit text (local only; never re-filters).
@@ -308,7 +340,15 @@ function copyHighlight() {
 // ====== Enter-send (AC-7, AC-11) — the SOLE wire emission in E8 ======
 
 function sendAndClose() {
-    const text = editText;
+    // Precedence (retro tweak ii + same-day refinement): the highlighted entry
+    // is sent when the edit line is empty OR the user arrowed the list since
+    // the text last changed (filter → ↑/↓ → Enter picks the selection). Typed
+    // text with an untouched highlight wins — a freshly keyed command sends
+    // as typed even when it happens to match a stored one. No-rows (no-match
+    // filter) always sends the typed text; both-empty (unreachable via the UI —
+    // the overlay only opens on non-empty history) sends the bare terminator.
+    const useHighlight = filtered.length > 0 && (editText.length === 0 || navigated);
+    const text = useHighlight ? filtered[highlight] : editText;
 
     // Build the ASCII bytes (printable-domain edit line — charCodeAt is identity
     // for 0x20–0x7E, exactly what the engine appends) followed by the configured
@@ -356,8 +396,12 @@ function render() {
                 : 'No matching commands';
             listEl.innerHTML = `<div class="ch-empty">${esc(msg)}</div>`;
         } else {
+            // Retro tweak i — render oldest→newest top→bottom, so the newest
+            // entry (filtered[0]) is the BOTTOM row, beside the edit line. Row
+            // ids stay keyed to the newest-first index (aria-activedescendant
+            // and the highlight are index-based, not position-based).
             let html = '';
-            for (let i = 0; i < filtered.length; i++) {
+            for (let i = filtered.length - 1; i >= 0; i--) {
                 const sel = i === highlight;
                 html += `<div class="ch-row${sel ? ' sel' : ''}" role="option"`
                     + ` id="ch-opt-${i}" aria-selected="${sel ? 'true' : 'false'}">`
@@ -430,6 +474,7 @@ function __getStateForTests() {
         editText,
         caretIndex,
         highlight,
+        navigated,
         total: baseHistory.length,
         filtered: filtered.slice(),
         caption: countEl ? countEl.textContent : '',
