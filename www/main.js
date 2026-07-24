@@ -104,6 +104,7 @@ import {
     __getStateForTests as __slideGetStateForTests,
     __isAutoSendSafeForTests as __slideIsAutoSendSafeForTests,   // Phase 12 SLIDE-38
     cancelSlideSend,                                              // Phase 12 UAT Gap D — send-side cancel
+    isSendActive as slideSendActive,                              // production send-session predicate
 } from './transport/slide.js';
 import {
     enqueuePaste,
@@ -119,6 +120,7 @@ import {
     computeRenameScheme as fileSourceComputeRenameScheme,   // Phase 12 SLIDE-36 — pure helper for Playwright tests
     validateCpmFilename,                                     // E9 S9.2 — pull-pane token validation (the ONLY validators)
     truncateCpm83,                                           // E9 S9.2 — pull-pane 8.3 idempotence check
+    sendFiles,                                               // E9 S9.4 — reverse-drag fallback entry (sanctioned deviation, story e9-4)
     __resetForTests as __fileSourceResetForTests,
     __getStateForTests as __fileSourceGetStateForTests,
 } from './input/file-source.js';
@@ -660,6 +662,11 @@ const pullPane = wirePullPane({
     // E9 — confirmed-pull batch size → SLIDE dispatcher, so the transfer chip
     // shows "N/M" for pane-initiated pulls (the protocol never announces it).
     onPullRequested: setExpectedRecvFiles,
+    // S9.4 — reverse-drag handoff (sanctioned fallback, story e9-4 Dev Notes):
+    // Chromium's real drag loop strips a JS-constructed File from the drag
+    // data store, so the pane calls file-source's send path directly on
+    // drop-over-wrapper instead of riding dataTransfer.files.
+    sendFiles,
 });
 window.__pullPane = pullPane;   // Playwright hook (mirrors window.__statusBar)
 
@@ -1030,8 +1037,7 @@ const slideChipApi = wireSlideChip({
     // short-circuits in send mode, leaving force-start (and any
     // wakeup-completion) active-state cancels as dead buttons.
     onCancel: () => {
-        const state = __slideGetStateForTests();
-        if (state && state.mode === 'send') {
+        if (slideSendActive()) {
             cancelSlideSend();   // imported from transport/slide.js (resolved at module load)
         } else {
             cancelSlideRecvLazy();   // thunk-holder — resolved after wireSlideRecv
@@ -1356,6 +1362,8 @@ window.__slideChip = {
     enterError: slideChipApi.enterError,
     flashDropRejected: slideChipApi.flashDropRejected,
     hide: slideChipApi.hide,
+    // T-12-07 (UAT-E9-04) — specs fire the 30 s first-use auto-hide directly.
+    __fireFirstUseConfirmTimeoutForTests: slideChipApi.__fireFirstUseConfirmTimeoutForTests,
 };
 
 // Epic E0 Story E0.1 (AD-10) — retainFocus test-hook introspection for the

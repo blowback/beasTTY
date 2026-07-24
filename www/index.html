@@ -510,6 +510,9 @@
     .pp-row .pp-nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
     .pp-row .pp-sz { color: var(--chrome-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
     .pp-row:hover .pp-sz { color: var(--chrome-bg); }
+    /* S9.4 — rows are native drag sources (reverse drag → terminal → SLIDE send).
+       Cursor only; no new tokens, identical CRT↔Console (AD-9). */
+    .pp-row[draggable="true"] { cursor: grab; }
     /* Fresh files (S9.1b, FR-10 / Flow 7): thin mint left-marker + the shipped
        hover-row accent treatment — never a new colour (--chrome-* only, AD-9). */
     .pp-row.fresh { position: relative; background: var(--chrome-accent); color: var(--chrome-bg); }
@@ -517,6 +520,20 @@
     .pp-row.fresh::before {
       content: ""; position: absolute; left: 0; top: 4px; bottom: 4px;
       width: 2px; background: var(--chrome-accent); border-radius: 2px;
+    }
+    /* S9.4 multi-select — accent tint + inset line (the .pp-foot.drop-active
+       color-mix pattern; --chrome-* only, AD-9). Placed after :hover and
+       .fresh so a selected row reads selected under both (the fresh ::before
+       marker still shows through). */
+    .pp-row.sel,
+    .pp-row.sel:hover,
+    .pp-row.fresh.sel {
+      background: color-mix(in srgb, var(--chrome-accent) 18%, transparent);
+      color: var(--chrome-fg);
+      box-shadow: inset 0 0 0 1px var(--chrome-accent);
+    }
+    .pp-row.sel .pp-sz, .pp-row.sel:hover .pp-sz, .pp-row.fresh.sel .pp-sz {
+      color: var(--chrome-muted);
     }
     .pp-blank {
       flex: 1;

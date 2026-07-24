@@ -258,6 +258,11 @@ function notifySendGate() {
 }
 
 // ===== Drag-drop handlers (D-04 silent rejection at dragenter for non-file drags) =====
+
+// UAT-E9-04 (i) — refusal-diagnostic throttle (dragenter fires per
+// descendant crossing; one line per half second is plenty).
+let lastDragRefuseLogTs = 0;
+
 function isFileDrag(ev) {
     return ev.dataTransfer && ev.dataTransfer.types && ev.dataTransfer.types.includes && ev.dataTransfer.types.includes('Files');
 }
@@ -266,19 +271,46 @@ function isSessionActive() {
     if (!getSlideStateFn) return false;
     let st;
     try { st = getSlideStateFn(); } catch { return false; }
-    return !!st?.hasPendingSendSession || st?.mode === 'send';
+    // 'recv' included so a drop during an active pull gets the same
+    // "Transfer in progress" chip flash instead of a confirm modal whose
+    // Send click enterSendMode then refuses (wire owner is 'slide') with
+    // only a console.warn — matching updateSendGate's WR-02 arm.
+    return !!st?.hasPendingSendSession || st?.mode === 'send' || st?.mode === 'recv';
 }
 
 function onDragEnter(ev) {
-    if (!isFileDrag(ev)) return;
+    if (!isFileDrag(ev)) {
+        // UAT-E9-04 (i) diagnostic — a refused external drag is otherwise
+        // silent (no preventDefault → OS shows no-drop, no overlay). Some
+        // Linux filer/portal combinations present drags whose hover-phase
+        // types lack 'Files' (e.g. text/uri-list only) — Chromium cannot
+        // hand the page such files, so the refusal is correct but opaque.
+        // console.info (NOT debug — DevTools hides Verbose by default),
+        // throttled: dragenter fires per descendant crossing.
+        const now = Date.now();
+        if (now - lastDragRefuseLogTs > 500) {
+            lastDragRefuseLogTs = now;
+            const t = ev.dataTransfer && ev.dataTransfer.types ? Array.from(ev.dataTransfer.types) : [];
+            console.info('[file-source] drag not a Files drag — refused; types:', JSON.stringify(t));
+        }
+        return;
+    }
     if (isSessionActive()) {
         // Phase 11 Plan 11-03 D-10 / SLIDE-11 — chip flash replaces Phase 9
         // silent ignore. flashDropRejected sets a 3-second sliding window
         // overlay on the active-state chip rendering "Transfer in progress —
         // cancel first" (UI-SPEC §Copywriting verbatim). Don't preventDefault;
         // don't set the [data-drop-target] attribute (the drop overlay must
-        // not appear, only the chip flash).
-        try { if (slideChipRef && typeof slideChipRef.flashDropRejected === 'function') slideChipRef.flashDropRejected(); } catch {}
+        // not appear, only the chip flash). Throttled like the non-Files
+        // branch above — dragenter fires per descendant crossing, and each
+        // flashDropRejected call re-renders the chip; one call per half
+        // second keeps the 3 s sliding window pinned just the same.
+        const now = Date.now();
+        if (now - lastDragRefuseLogTs > 500) {
+            lastDragRefuseLogTs = now;
+            console.info('[file-source] drag refused — SLIDE session active (or pending send session)');
+            try { if (slideChipRef && typeof slideChipRef.flashDropRejected === 'function') slideChipRef.flashDropRejected(); } catch {}
+        }
         return;
     }
     ev.preventDefault();
@@ -337,6 +369,28 @@ function setDropTarget(active) {
     } else {
         wrapperElRef.removeAttribute('data-drop-target');
     }
+}
+
+// ===== sendFiles — E9 S9.4 sanctioned fallback entry (story e9-4 Dev Notes) =====
+// The pull pane's reverse drag cannot hand its File over inside the native
+// drag data store: Chromium's real drag loop serializes the store through
+// platform formats, and a JS-constructed File (no OS backing) is degraded to
+// a text/plain string of its filename (verified 2026-07-24, headless + headed).
+// So the pane keeps the native drag for the gesture and calls this on
+// drop-over-wrapper instead. Same path as an OS file drop from validation
+// onward: validate → truncate → collisions → confirm modal → enterSendMode.
+export function sendFiles(files) {
+    // Same session guard the OS drag/drop path enforces at dragenter/drop.
+    // Without it a reverse drag during a pending send (auto-typed command,
+    // awaiting the Z80 wakeup — wire owner still 'terminal', so the pane's
+    // own slide-active check passes) walks the whole confirm modal and then
+    // enterSendMode refuses with only a console.warn: the modal closes as
+    // if queued and nothing is ever sent. Flash the chip like the OS path.
+    if (isSessionActive()) {
+        try { if (slideChipRef && typeof slideChipRef.flashDropRejected === 'function') slideChipRef.flashDropRejected(); } catch {}
+        return Promise.resolve();
+    }
+    return processFiles(Array.from(files));
 }
 
 // ===== processFiles — runs validation + truncation + modal flow =====

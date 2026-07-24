@@ -19,8 +19,18 @@
 // main.js (fed by selection.js's onSelectionDragState observer, never imported),
 // the pane's dragenter/over/leave/drop handlers show the UX-DR3 affordance and
 // route a drop into beginReview, and the narrow-window rail blooms the card
-// open as a zero-layout-shift overlay (data-bloom). Still NO reverse drag
-// (S9.4). The ~60s timer + window-focus listener are set up in wirePullPane
+// open as a zero-layout-shift overlay (data-bloom) — PLUS the S9.4 reverse
+// drag: file rows are native drag sources whose payload is the row's real File
+// (resolved via handle.getFile(), prefetched at pointerdown, attached with
+// dataTransfer.items.add at dragstart). Chromium's REAL drag loop strips a
+// JS-constructed File from the drag data store (platform serialization
+// degrades it to a text/plain filename — verified 2026-07-24), so the handoff
+// is the sanctioned fallback (story e9-4 Dev Notes): the pane's own guarded
+// dragover/drop handlers on the injected #terminal-wrapper call the injected
+// file-source sendFiles() with the stashed File. If a drag ever DOES carry a
+// real 'Files' payload (OS drags; a future Chromium that preserves added
+// Files), the pane handlers step back and file-source owns the drop.
+// The ~60s timer + window-focus listener are set up in wirePullPane
 // and torn down in dispose().
 //
 // Direct-import allowlist (AD-3): this module direct-imports NOTHING from other
@@ -83,7 +93,8 @@ let wrapperRef = null;          // #terminal-wrapper — retainFocus restore tar
 // terminator).
 let validateRef = null, truncateRef = null, pushTxBytesRef = null,
     isSlideActiveRef = null, isWriterReadyRef = null, getEnterBytesRef = null,
-    onPullRequestedRef = null;
+    onPullRequestedRef = null,
+    sendFilesRef = null;   // S9.4 — file-source send path (sanctioned fallback)
 
 // Test override for the injected isSlideActive (null = use the injected one).
 // Mirrors the __setDirHandleForTests approach to unhostable browser state.
@@ -113,6 +124,43 @@ let dropAffordanceOn = false;
 // dismisses that way).
 let bloomed = false;
 let bloomedByClick = false;
+
+// ====== S9.4 — reverse-drag stash (FR-12) ======
+
+// dataTransfer accepts a payload only synchronously inside dragstart, but
+// handle.getFile() is async — so a primary-button pointerdown on a row starts
+// the resolves and dragstart consumes them. Shape: null | {names: string[],
+// want: number, files: File[]} — armed when non-null, ready when
+// files.length === want. Re-resolved per gesture, never cached across drags
+// (a file replaced on disk between drags must send fresh bytes). Independent
+// of selDrag: that is the terminal-selection drag INTO the pane; this is a
+// file drag OUT of it.
+let dragOut = null;
+// True from a successful dragstart until dragend — a native drag session is
+// in flight. Chromium fires pointercancel when the native drag begins, and
+// that pointercancel must NOT clear the stash (the drop side still reads it);
+// every other pointercancel (touch pan) and any pointerup that never reaches
+// listEl (release outside the list) must, or the armed stash outlives its
+// gesture and a later unrelated text drag over the terminal would claim it.
+let dragOutInFlight = false;
+// Depth counter for the wrapper drop affordance during a reverse drag
+// (dragenter/leave fire per descendant — file-source.js dragDepth precedent).
+let wrapDropDepth = 0;
+
+// Multi-select (S9.4 extension, user-requested 2026-07-24): plain click
+// selects one row, ctrl/cmd-click toggles, shift-click extends from the
+// anchor in RENDERED order (fresh-first, then name-asc), empty-area click
+// clears. Dragging a selected row drags the whole selection; dragging an
+// unselected row reselects to just it first (filer convention). Selection
+// lives on names, survives refreshes (pruned to files that still exist), and
+// resets with every new-folder intent.
+let selectedNames = new Set();
+let selAnchor = null;
+// A plain pointerdown on an ALREADY-selected row must not collapse the
+// selection immediately (the gesture may be a drag of the group) — filers
+// collapse on the mouse-up that turns out to be a plain click. pointercancel
+// (fired when a native drag starts) never runs the collapse.
+let pendingCollapse = null;
 
 // Verbatim microcopy (EXPERIENCE.md — do NOT paraphrase).
 const COPY = {
@@ -163,7 +211,15 @@ let refreshTimer = null;
 let lastSnapshot = null;
 let freshNames = new Set();
 
-function resetDiffBaseline() { lastSnapshot = null; freshNames = new Set(); }
+function resetDiffBaseline() {
+    lastSnapshot = null;
+    freshNames = new Set();
+    // Every caller is a new-folder/reset intent (bind / choose / grant / test
+    // bind / test reset) — a fresh folder starts with a fresh selection too.
+    selectedNames = new Set();
+    selAnchor = null;
+    pendingCollapse = null;
+}
 
 export function wirePullPane(opts) {
     ({
@@ -176,6 +232,9 @@ export function wirePullPane(opts) {
         // SLIDE dispatcher so the transfer chip can show "N/M" for pulls
         // (the wire protocol itself never announces the batch size).
         onPullRequested: onPullRequestedRef,
+        // S9.4 — file-source's send path for the reverse-drag handoff
+        // (sanctioned fallback; see the header note and story e9-4 Dev Notes).
+        sendFiles: sendFilesRef,
     } = opts);
 
     // Derive child refs from the injected root (no cross-module document reach).
@@ -231,6 +290,36 @@ export function wirePullPane(opts) {
     // focused while the bloom paints.
     if (railEl) { retainFocusRef(railEl, wrapperRef); railEl.addEventListener('click', onRailClick); }
 
+    // S9.4 — reverse-drag origination, delegated on the rows container. Rows
+    // are the sanctioned EXCEPTION to the AD-10 every-control retainFocus rule:
+    // retainFocus preventDefault()s mousedown, which also suppresses native
+    // drag initiation (S9.3 hit this from the canvas side; story e9-4 "Focus").
+    // So a row pointerdown blurs #terminal-wrapper; onRowDragEnd restores it,
+    // and a completed drop re-routes focus through the send modal's own
+    // openModal/restoreTo flow.
+    if (listEl) {
+        listEl.addEventListener('pointerdown', onRowPointerDown);
+        listEl.addEventListener('pointerup', onRowPointerUp);
+        listEl.addEventListener('dragstart', onRowDragStart);
+        listEl.addEventListener('dragend', onRowDragEnd);
+        // Second-chance cleanup for gestures the listEl handlers never see:
+        // a release outside the list, or a touch pan's pointercancel. Without
+        // these the armed stash survives the gesture (and the wrapper stays
+        // blurred, dropping keystrokes) until the next row click.
+        window.addEventListener('pointerup', onWindowPointerRelease);
+        window.addEventListener('pointercancel', onWindowPointerRelease);
+    }
+    // S9.4 — the reverse-drag drop side (sanctioned fallback). The wrapper is
+    // an injected opt (AD-3); the handlers are inert unless OUR stash is armed
+    // and the drag carries no real 'Files' payload, so file-source's own
+    // handlers on the same element never see a competing preventDefault.
+    if (wrapperRef) {
+        wrapperRef.addEventListener('dragenter', onWrapperDragEnter);
+        wrapperRef.addEventListener('dragover', onWrapperDragOver);
+        wrapperRef.addEventListener('dragleave', onWrapperDragLeave);
+        wrapperRef.addEventListener('drop', onWrapperDrop);
+    }
+
     // FR-8 triggers: the ~60s timer + window focus. Both route through the one
     // guarded triggerRefresh; the transfer-done trigger arrives via refresh() from
     // slide-recv's onFileLanded. (chrome.js owns document listeners; the pane owns
@@ -273,6 +362,12 @@ export function wirePullPane(opts) {
 // can never clobber a newer result (NFR-2).
 async function triggerRefresh() {
     if (document.hidden) return;
+    // A rebuild while a reverse-drag gesture is armed would detach the drag-
+    // source row: dragend then never bubbles to listEl's delegated handler,
+    // stranding the stash and the blurred wrapper. Skip this tick — the next
+    // trigger (timer / focus / transfer-done / manual) lands after the
+    // gesture resolves.
+    if (dragOut) return;
     if (!dirHandle) { await bindFromIdb(); return; }
     if (state.permission !== 'granted') return;
     const gen = ++epoch;
@@ -335,7 +430,10 @@ async function enumerateAndRender(handle, gen) {
             if (h.kind !== 'file') continue;
             let size = 0;
             try { const f = await h.getFile(); size = f.size; } catch { size = 0; }
-            files.push({ name, size });
+            // S9.4 — keep the file handle so a row drag can resolve its File.
+            // The diff-render snapshot below stays keyed on name+size only: a
+            // handle identity change alone must never count as a content change.
+            files.push({ name, size, handle: h });
         }
     } catch (e) {
         console.warn('[pull-pane] enumerate failed:', e);
@@ -366,6 +464,13 @@ async function enumerateAndRender(handle, gen) {
         : new Set();
     lastSnapshot = files.map((f) => ({ name: f.name, size: f.size }));
     state.files = files;
+    // Multi-select: names that vanished from the folder leave the selection
+    // (an unchanged enumeration has identical names — nothing to prune there).
+    if (selectedNames.size > 0) {
+        const live = new Set(files.map((f) => f.name));
+        selectedNames = new Set([...selectedNames].filter((n) => live.has(n)));
+        if (selAnchor && !live.has(selAnchor)) selAnchor = null;
+    }
     state.view = files.length === 0 ? 'empty' : 'list';
     render();
 }
@@ -563,6 +668,215 @@ function onRailClick() {
 function onDocPointerDown(ev) {
     if (paneRootEl.contains(ev.target)) return;
     setBloom(false);
+}
+
+// ====== S9.4 — reverse drag: pane row → terminal file-drop (FR-12) ======
+
+// The rendered row order — fresh-first, then name-asc (renderRows' partition,
+// single-sourced here so shift-ranges and drag payload order match the screen).
+function orderedFiles() {
+    const fresh = [], rest = [];
+    for (const f of state.files) (freshNames.has(f.name) ? fresh : rest).push(f);
+    return fresh.concat(rest);
+}
+
+// Project the selection onto the live rows — class only, no rebuild.
+function applySelectionClasses() {
+    if (!listEl) return;
+    for (const rowEl of listEl.querySelectorAll('.pp-row')) {
+        rowEl.classList.toggle('sel', selectedNames.has(rowEl.dataset.name));
+    }
+}
+
+// Primary-button pointerdown on a row: update the selection (plain / ctrl /
+// shift semantics above), then start resolving every selected row's File into
+// the stash so the (synchronous) dragstart can consume them. Suspended while
+// a SLIDE session owns the wire (FR-11 precedent) — selection still updates
+// (local UI), but no prefetch, and dragstart refuses too. The settle
+// callbacks identity-check the stash object: a resolve landing after
+// dragend/pointerup already cleared it must not resurrect anything.
+function onRowPointerDown(ev) {
+    if (ev.button !== 0) return;
+    const rowEl = ev.target.closest('.pp-row');
+    if (!rowEl) {
+        // Empty-area click inside the list clears the selection (filer convention).
+        selectedNames = new Set();
+        selAnchor = null;
+        applySelectionClasses();
+        return;
+    }
+    const name = rowEl.dataset.name;
+    if (ev.shiftKey && selAnchor) {
+        const names = orderedFiles().map((f) => f.name);
+        const a = names.indexOf(selAnchor);
+        const b = names.indexOf(name);
+        if (a !== -1 && b !== -1) {
+            selectedNames = new Set(names.slice(Math.min(a, b), Math.max(a, b) + 1));
+        } else {
+            selectedNames = new Set([name]);
+            selAnchor = name;
+        }
+    } else if (ev.ctrlKey || ev.metaKey) {
+        if (selectedNames.has(name)) selectedNames.delete(name);
+        else selectedNames.add(name);
+        selAnchor = name;
+    } else if (!selectedNames.has(name)) {
+        selectedNames = new Set([name]);
+        selAnchor = name;
+    } else {
+        // Already selected, no modifier: defer the collapse-to-single until a
+        // plain pointerup proves this wasn't the start of a group drag.
+        pendingCollapse = name;
+    }
+    applySelectionClasses();
+    if (slideActiveNow()) return;
+    // Prefetch the drag payload: the selection if the pressed row is in it
+    // (a ctrl-click that just deselected the row arms nothing — no drag from
+    // an unselected row), in rendered order so the send modal lists what the
+    // screen shows.
+    if (!selectedNames.has(name)) return;
+    const targets = orderedFiles().filter((f) => selectedNames.has(f.name) && f.handle);
+    if (targets.length === 0) return;
+    // files is index-placed (resolves can land out of order) and `got` counts
+    // arrivals — ready iff got === want, order always the rendered order.
+    const stash = { names: targets.map((f) => f.name), want: targets.length, got: 0, files: new Array(targets.length) };
+    dragOut = stash;
+    targets.forEach((entry, i) => {
+        entry.handle.getFile().then(
+            (file) => { if (dragOut === stash) { stash.files[i] = file; stash.got += 1; } },
+            // Rejection (file deleted/renamed since enumeration) disarms the
+            // whole stash: the drag silently never starts (never send a partial
+            // batch), and the next refresh reconciles the list.
+            () => { if (dragOut === stash) dragOut = null; },
+        );
+    });
+}
+
+// A plain click (pointerup with no drag) resolves the deferred collapse and
+// must not leave a stale stash behind. In a real drag the browser fires
+// pointercancel instead, so this never races dragstart; dragend does the
+// post-drag cleanup. Refocus the wrapper: rows can't go through retainFocus
+// (the AD-10 drag exception), so the click restores focus here instead.
+function onRowPointerUp(ev) {
+    if (pendingCollapse) {
+        const rowEl = ev.target && ev.target.closest ? ev.target.closest('.pp-row') : null;
+        if (rowEl && rowEl.dataset.name === pendingCollapse
+                && !ev.ctrlKey && !ev.metaKey && !ev.shiftKey) {
+            selectedNames = new Set([pendingCollapse]);
+            selAnchor = pendingCollapse;
+            applySelectionClasses();
+        }
+        pendingCollapse = null;
+    }
+    dragOut = null;
+    if (wrapperRef) wrapperRef.focus();
+}
+
+// Window-level release: catches what listEl's delegated pointerup never sees.
+// pointerup inside the list runs onRowPointerUp first (bubbling), which nulls
+// dragOut, so this no-ops there. A pointercancel fired because the native
+// drag began keeps the stash — dragend owns that cleanup path.
+function onWindowPointerRelease(ev) {
+    if (ev.type === 'pointercancel' && dragOutInFlight) return;
+    if (!dragOut && !pendingCollapse) return;
+    dragOut = null;
+    pendingCollapse = null;
+    clearWrapperAffordance();
+    // The row pointerdown blurred #terminal-wrapper; restore it so keystrokes
+    // keep reaching the Z80 even though the gesture ended off-list.
+    if (wrapperRef) wrapperRef.focus();
+}
+
+function onRowDragStart(ev) {
+    pendingCollapse = null;   // the gesture is a drag — never collapse the group
+    // Unarmed, still-resolving, or suspended → the drag never starts (silent
+    // abort — never send a half-armed or partial payload).
+    if (!dragOut || dragOut.got !== dragOut.want || slideActiveNow()) {
+        ev.preventDefault();
+        return;
+    }
+    dragOutInFlight = true;
+    for (const file of dragOut.files) ev.dataTransfer.items.add(file);
+    ev.dataTransfer.effectAllowed = 'copy';
+    // No setDragImage: the default ghost for a drag originating on the row is
+    // the row itself — small and correct (S9.3's canvas-screenshot problem
+    // does not apply here).
+}
+
+function onRowDragEnd() {
+    dragOut = null;
+    dragOutInFlight = false;
+    pendingCollapse = null;
+    // A drag canceled while over the wrapper (Esc) can skip dragleave — make
+    // sure the drop affordance never outlives the drag.
+    clearWrapperAffordance();
+    // The row pointerdown blurred #terminal-wrapper (see the wire-time AD-10
+    // exception note); restore it unconditionally. If the drop landed, the send
+    // modal takes focus afterwards through its own openModal flow and restores
+    // per its existing restoreTo rules.
+    if (wrapperRef) wrapperRef.focus();
+}
+
+// ── S9.4 drop side (sanctioned fallback — see the header note) ──
+
+// A wrapper drag event is ours to handle iff the reverse-drag stash is armed
+// with every File resolved, no SLIDE session owns the wire, and the drag
+// carries no real 'Files' payload (an OS file drag — or a future Chromium
+// that preserves the dragstart-added Files — belongs to file-source.js
+// untouched).
+function wrapperDropOurs(ev) {
+    if (!dragOut || dragOut.got !== dragOut.want || dragOut.want === 0) return false;
+    if (slideActiveNow()) return false;
+    const types = ev.dataTransfer && ev.dataTransfer.types;
+    if (types && types.includes && types.includes('Files')) return false;
+    return true;
+}
+
+// The affordance is file-source's existing data-drop-target overlay ("Drop
+// file(s) to send via SLIDE") — same attribute, reused, never fought over:
+// file-source ignores this drag entirely (isFileDrag false, so it neither
+// sets nor clears the attribute while ours is up).
+function clearWrapperAffordance() {
+    if (wrapDropDepth === 0) return;
+    wrapDropDepth = 0;
+    if (wrapperRef) wrapperRef.removeAttribute('data-drop-target');
+}
+
+function onWrapperDragEnter(ev) {
+    if (!wrapperDropOurs(ev)) return;
+    ev.preventDefault();
+    wrapDropDepth += 1;
+    if (wrapDropDepth === 1) wrapperRef.setAttribute('data-drop-target', 'true');
+}
+
+function onWrapperDragOver(ev) {
+    if (!wrapperDropOurs(ev)) return;
+    ev.preventDefault();   // required for drop to fire
+    ev.dataTransfer.dropEffect = 'copy';
+}
+
+function onWrapperDragLeave() {
+    // Keyed off our own entered-state, not wrapperDropOurs(): if acceptability
+    // flips off mid-drag the leave must still clear the affordance.
+    if (wrapDropDepth === 0) return;
+    wrapDropDepth -= 1;
+    if (wrapDropDepth === 0) wrapperRef.removeAttribute('data-drop-target');
+}
+
+function onWrapperDrop(ev) {
+    // Clear the affordance even when the guards below refuse (a session that
+    // started mid-drag must not leave the overlay lit — onPaneDragLeave's rule).
+    clearWrapperAffordance();
+    if (!wrapperDropOurs(ev)) return;
+    ev.preventDefault();
+    const files = dragOut.files.slice();
+    // The handoff: file-source's send path from validation onward — validate →
+    // 8.3 truncate → collisions → confirm modal (or the slideConfirmTransfers
+    // silent path) → enterSendMode with all its refusals. Async; a failure
+    // must not escape the drop handler.
+    Promise.resolve(sendFilesRef(files)).catch((err) => {
+        console.error('[pull-pane] reverse-drag send failed:', err);
+    });
 }
 
 // ====== S9.2 — selection → SLIDE S compose + in-pane review (FR-4/5/7/11) ======
@@ -785,7 +1099,7 @@ function render() {
     if (listEl) {
         listEl.hidden = reviewing || view !== 'list';
         if (!reviewing) {
-            if (view === 'list') renderRows(files);
+            if (view === 'list') renderRows();
             else listEl.replaceChildren();
         }
     }
@@ -810,13 +1124,12 @@ function render() {
     if (actionsEl) actionsEl.hidden = !reviewing;
 }
 
-function renderRows(files) {
-    // Fresh-first ordering (Flow 7): freshly-arrived names float to the top, then
-    // the rest. `files` is already name-asc, so this stable partition preserves
-    // name order within each group.
-    const fresh = [], rest = [];
-    for (const f of files) (freshNames.has(f.name) ? fresh : rest).push(f);
-    const ordered = fresh.concat(rest);
+function renderRows() {
+    // Fresh-first ordering (Flow 7): freshly-arrived names float to the top,
+    // then the rest, name-asc within each group. orderedFiles() is the single
+    // source of that order — shift-ranges and the drag payload read it too,
+    // so what the user selects/drags always matches what the screen shows.
+    const ordered = orderedFiles();
 
     // FR-10 changed-case: capture scroll before the rebuild, restore it after, so
     // a refresh that adds files never yanks the user's scroll position.
@@ -825,8 +1138,14 @@ function renderRows(files) {
     for (const f of ordered) {
         const row = document.createElement('div');
         // Visual state via class only (never inline styles). Fresh rows get the
-        // mint left-marker + hover-row accent treatment (index.html, --chrome-*).
+        // mint left-marker + hover-row accent treatment; selected rows the
+        // accent tint + inset line (index.html, --chrome-*).
         row.className = freshNames.has(f.name) ? 'pp-row fresh' : 'pp-row';
+        if (selectedNames.has(f.name)) row.classList.add('sel');
+        // S9.4 — every row (plain and fresh alike) is a native drag source;
+        // dataset.name lets the delegated handlers find the entry.
+        row.draggable = true;
+        row.dataset.name = f.name;
         const nm = document.createElement('span');
         nm.className = 'pp-nm';
         nm.textContent = f.name;
@@ -857,9 +1176,12 @@ export function __getStateForTests() {
         permission: state.permission,
         view: state.view,
         fileCount: state.files.length,
-        files: state.files.map((f) => ({ ...f })),
+        // name+size only — the S9.4 handle stays out (specs deep-compare this).
+        files: state.files.map((f) => ({ name: f.name, size: f.size })),
         dropAffordance: dropAffordanceOn,   // S9.3 (AC-9)
         bloom: bloomed,                     // S9.3 (AC-9)
+        dragOutArmed: dragOut !== null,     // S9.4 (AC-7)
+        selectedNames: [...selectedNames].sort(),   // S9.4 multi-select extension
         review: state.review
             ? {
                 command: state.review.command,
@@ -881,6 +1203,9 @@ export function __resetForTests() {
     dropDepth = 0;
     setDropAffordance(false);
     setBloom(false);
+    dragOut = null;   // S9.4 — no stale reverse-drag stash across specs
+    dragOutInFlight = false;
+    clearWrapperAffordance();
     render();
 }
 
@@ -922,6 +1247,27 @@ export function dispose() {
         paneRootEl.removeEventListener('drop', onPaneDrop);
     }
     if (railEl) railEl.removeEventListener('click', onRailClick);
+    // S9.4 — reverse-drag origination + drop-side teardown.
+    if (listEl) {
+        dragOut = null;
+        dragOutInFlight = false;
+        selectedNames = new Set();
+        selAnchor = null;
+        pendingCollapse = null;
+        listEl.removeEventListener('pointerdown', onRowPointerDown);
+        listEl.removeEventListener('pointerup', onRowPointerUp);
+        listEl.removeEventListener('dragstart', onRowDragStart);
+        listEl.removeEventListener('dragend', onRowDragEnd);
+        window.removeEventListener('pointerup', onWindowPointerRelease);
+        window.removeEventListener('pointercancel', onWindowPointerRelease);
+    }
+    if (wrapperRef) {
+        clearWrapperAffordance();
+        wrapperRef.removeEventListener('dragenter', onWrapperDragEnter);
+        wrapperRef.removeEventListener('dragover', onWrapperDragOver);
+        wrapperRef.removeEventListener('dragleave', onWrapperDragLeave);
+        wrapperRef.removeEventListener('drop', onWrapperDrop);
+    }
     document.removeEventListener('pointerdown', onDocPointerDown, true);
     if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
     window.removeEventListener('focus', triggerRefresh);

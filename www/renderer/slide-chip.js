@@ -123,6 +123,9 @@ export function wireSlideChip(opts) {
         // sees lc=null and the cancel-from-awaiting-timeout branch falls
         // through, leaving the chip stuck in awaiting-timeout after [Cancel].
         __getStateForTests,
+        // T-12-07 — run the 30 s first-use auto-hide body NOW (specs can't
+        // wait out the real timer).
+        __fireFirstUseConfirmTimeoutForTests: fireFirstUseConfirmTimeout,
     };
 }
 
@@ -238,6 +241,13 @@ function renderActiveState() {
     samples.push({ t: now, bytes: bytesDone });
     // Trim window to 2 s (D-02).
     while (samples.length > 0 && (now - samples[0].t) > WINDOW_MS) samples.shift();
+    // File transition — bytes_in_file_done reset under the window. Drop the
+    // stale samples (keep the newest as the new baseline) here at the push
+    // site, so the formatter stays a pure reader of the window; the held
+    // rate carries the display across the gap.
+    if (samples.length >= 2 && samples[samples.length - 1].bytes < samples[0].bytes) {
+        samples.splice(0, samples.length - 1);
+    }
 
     const throughputText = formatThroughput(samples);
 
@@ -251,15 +261,33 @@ function renderActiveState() {
 
 // ====== Throughput + byte-count formatters (D-02 verbatim) ======
 
+// UAT-E9-04 niggle (iii) — the rate used to flip between "—" and a value
+// every few ticks: the sample trim guarantees the window spans AT MOST
+// WINDOW_MS while the old guard demanded AT LEAST that same span, so timer
+// jitter put alternating renders on either side of the boundary. Two fixes:
+// the minimum measurable span (500 ms) is now decoupled from the trim
+// window, and the last computed rate is HELD whenever the current window
+// can't produce one — so after the first half-second the token never
+// reverts to "—" mid-session (width stays stable, no chip jumping).
+const MIN_RATE_SPAN_MS = 500;
+let lastThroughputText = null;   // held across ticks; cleared on enterActive
+
 function formatThroughput(samples) {
-    if (samples.length < 2) return '—';
-    const ageMs = samples[samples.length - 1].t - samples[0].t;
-    if (ageMs < 2000) return '—';
+    const held = lastThroughputText ?? '—';
+    if (samples.length < 2) return held;
     const deltaBytes = samples[samples.length - 1].bytes - samples[0].bytes;
+    // Negative deltas are trimmed at the push site (renderActiveState);
+    // defensively hold rather than show a negative rate if one slips through.
+    if (deltaBytes < 0) return held;
+    const ageMs = samples[samples.length - 1].t - samples[0].t;
+    if (ageMs < MIN_RATE_SPAN_MS) return held;
     const bps = (deltaBytes * 1000) / ageMs;
-    if (bps < 1000) return `${Math.round(bps)} B/s`;
-    if (bps < 1_000_000) return `${(bps / 1000).toFixed(1)} KB/s`;
-    return `${(bps / 1_000_000).toFixed(1)} MB/s`;
+    let text;
+    if (bps < 1000) text = `${Math.round(bps)} B/s`;
+    else if (bps < 1_000_000) text = `${(bps / 1000).toFixed(1)} KB/s`;
+    else text = `${(bps / 1_000_000).toFixed(1)} MB/s`;
+    lastThroughputText = text;
+    return text;
 }
 
 function formatBytes(b) {
@@ -404,21 +432,33 @@ function clearWakeupTimer() {
 //   slideAutoSendCommandConfirmed = current value and proceeds with the send.
 // onReset: callback fired when user clicks [Reset to default] — slide.js
 //   resets prefs to DEFAULTS and aborts the send (user must click again).
-export function enterFirstUseConfirm({ value, onConfirm, onReset }) {
+export function enterFirstUseConfirm({ value, onConfirm, onReset, onTimeout }) {
     clearAutoHide();
     clearWakeupTimer();
     clearFirstUseConfirmTimer();
     lifecycle = 'first-use-confirm';
-    firstUseConfirmCallbacks = { onConfirm, onReset, value };
+    firstUseConfirmCallbacks = { onConfirm, onReset, onTimeout, value };
     samples.length = 0;
     refreshChip();
     firstUseConfirmHandle = setTimeout(() => {
         firstUseConfirmHandle = null;
-        if (firstUseConfirmCallbacks) {
-            firstUseConfirmCallbacks = null;
-            hide();
-        }
+        fireFirstUseConfirmTimeout();
     }, FIRST_USE_CONFIRM_TIMEOUT_MS);
+}
+
+// T-12-07 fix (UAT-E9-04): the 30 s auto-hide previously abandoned the
+// awaiting Promise in slide.js — firstUseConfirmPending leaked and every
+// later enterSendMode was refused with "first-use confirm already in
+// progress" until reload (hit in the field on a fresh profile). The timeout
+// now reports itself via onTimeout so the caller releases the latch. Shared
+// between the real timer and the test hook.
+function fireFirstUseConfirmTimeout() {
+    clearFirstUseConfirmTimer();
+    if (!firstUseConfirmCallbacks) return;
+    const cbs = firstUseConfirmCallbacks;
+    firstUseConfirmCallbacks = null;
+    try { if (typeof cbs.onTimeout === 'function') cbs.onTimeout(); } catch {}
+    hide();
 }
 
 function clearFirstUseConfirmTimer() {
@@ -433,6 +473,7 @@ export function enterActive() {
     clearWakeupTimer();   // Phase 11 D-15 — wakeup arrived in time; cancel pending timeout.
     lifecycle = 'active';
     samples.length = 0;
+    lastThroughputText = null;   // UAT-E9-04 (iii) — fresh session, fresh hold
     refreshChip();
 }
 

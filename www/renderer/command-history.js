@@ -30,7 +30,7 @@
 //
 // Sources:
 //   - _bmad-output/planning-artifacts/epics-command-history.md#Story E8.2 (ACs).
-//   - www/renderer/paste-toast.js — transient-renderer seam this clones.
+//   - www/renderer/paste-toast.js — the transient-renderer pattern this clones.
 //   - www/renderer/menu-bar.js:515-573 — the #terminal-wrapper keydown-interception
 //     precedent (open-vs-closed preventDefault discipline).
 //   - www/input/keyboard.js:70-74,106,211-314 — CRLF_MODES/getCrlfMode + the

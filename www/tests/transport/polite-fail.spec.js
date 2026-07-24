@@ -54,4 +54,32 @@ test.describe('PLAT-01, PLAT-02 — Polite-fail for non-Chromium', () => {
         const hasTerminalGlobal = await page.evaluate(() => typeof window.Terminal !== 'undefined');
         expect(hasTerminalGlobal).toBe(false);
     });
+
+    test('insecure context in a Chromium browser gets the secure-context page, not "requires Chromium" (UAT-E9-04) @fast', async ({ page }) => {
+        // Real case: Chrome opened http://<lan-ip>:8000 from another machine —
+        // navigator.serial is absent because the context is insecure (the
+        // plain-HTTP exemption covers localhost only), NOT because the browser
+        // lacks Web Serial. The polite-fail must say what actually needs to
+        // change instead of telling a Chrome user to install Chromium.
+        page.on('pageerror', (err) => {
+            if (err.message.includes('__polite-fail__')) return;
+            throw err;
+        });
+        await page.addInitScript(() => {
+            try {
+                Object.defineProperty(Navigator.prototype, 'serial', { configurable: true, get: () => undefined });
+            } catch (e) {
+                Object.defineProperty(navigator, 'serial', { configurable: true, get: () => undefined });
+            }
+            Object.defineProperty(window, 'isSecureContext', { configurable: true, get: () => false });
+        });
+        await page.goto('/');
+        await expect(page).toHaveTitle('Beastty — secure context required');
+        await expect(page.locator('h1')).toHaveText('Beastty needs a secure context for Web Serial');
+        await expect(page.locator('body.polite-fail')).toBeVisible();
+        // Actionable remedies present: localhost + tunnel + HTTPS.
+        await expect(page.locator('body')).toContainText('http://localhost:8000');
+        await expect(page.locator('body')).toContainText('ssh -L');
+        await expect(page.locator('body')).toContainText('HTTPS');
+    });
 });

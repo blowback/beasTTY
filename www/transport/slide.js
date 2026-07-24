@@ -344,6 +344,12 @@ function surfaceFirstUseConfirm(cmd) {
             value: cmd,
             onConfirm: () => { resolve(true); },
             onReset:   () => { resolve(false); },
+            // T-12-07 fix — the chip's 30 s auto-hide used to abandon this
+            // Promise, leaking firstUseConfirmPending forever (every later
+            // send refused until reload). A timeout resolves distinctly:
+            // abort the send, release the latch, and DON'T touch prefs (a
+            // timeout is not a [Reset to default] decision).
+            onTimeout: () => { resolve('timeout'); },
         });
     });
 }
@@ -351,6 +357,10 @@ function surfaceFirstUseConfirm(cmd) {
 // SLIDE wire frame size — slide-rs/protocol.rs FRAME_SIZE (1024 bytes
 // per data frame). Used to chunk fileBytes into per-frame payloads.
 const FRAME_SIZE = 1024;
+// Mirror of slide.asm WIN_SIZE (sliding window: the Z80 receiver ACKs once
+// per WIN_SIZE frames; its FLUSH_SIZE — the disk-flush threshold that makes
+// it briefly deaf — is WIN_SIZE × FRAME_SIZE, always just before that ACK).
+const WIN_SIZE = 4;
 
 // --- Public API -----------------------------------------------------------
 
@@ -549,6 +559,12 @@ export function __resetForTests() {
     expectedRecvFiles = 0;
     expectedRecvFilesTs = 0;
 }
+/// Cheap production predicate for "a send session currently owns the wire".
+/// Callers on hot paths (e.g. the Escape keydown arm) use this instead of
+/// __getStateForTests, whose full snapshot can cross into wasm.
+export function isSendActive() {
+    return mode === 'send';
+}
 export function __getStateForTests() {
     // Phase 9 D-18 — extended introspection. Phase 8's three fields preserved;
     // sender-mode fields appear only when slide+ctx are populated so receiver
@@ -568,9 +584,10 @@ export function __getStateForTests() {
             total_files: currentSendCtx.fileBytes.length,
             bytes_in_file_done: currentSendCtx.sentBytesInFile,
             bytes_in_file_total: currentSendCtx.fileBytes[currentSendCtx.currentFileIdx]?.length ?? 0,
-            // file-source.js (Plan 09-03) holds names; expose via a wireFileSource
-            // -> slide.js callback in that plan. null until wired.
-            current_filename: null,
+            // UAT-E9-04 (ii) — names now ride the send session (fileNames in
+            // pendingSendSession → currentSendCtx), so the chip shows the
+            // current file in the send direction too.
+            current_filename: currentSendCtx.fileNames[currentSendCtx.currentFileIdx] ?? null,
         };
     }
     // Phase 10 Plan 10-03 — recv-mode introspection (CONTEXT §"window.__slide
@@ -752,16 +769,20 @@ function dispatchRecvMode(value) {
         return;
     }
 
-    // Mid-session ESC^SLIDE re-entry matcher, gated on framer idleness:
-    // the matcher only advances on bytes the framer sees BETWEEN frames.
-    // A wakeup signature INSIDE a frame payload is file content, not a Z80
-    // reset — slide.com literally carries its own wakeup_sig bytes, and the
-    // ungated matcher tore the session down mid-transfer the moment frame 1
-    // replayed them (real hardware, 2026-07-24), dumping the rest of the
-    // stream to the terminal and stranding the wire owner on 'slide'. A
-    // genuine reset emits the signature on an otherwise-quiet line where
-    // the framer is idle, so gating loses nothing. (Old wasm without
-    // framer_idle() falls back to always-idle — the pre-gate behavior.)
+    // Mid-session ESC^SLIDE re-entry matcher; it advances only on bytes the
+    // framer sees BETWEEN frames (framer idle). A wakeup signature INSIDE a
+    // frame payload is file content, not a Z80 reset — slide.com literally
+    // carries its own wakeup_sig bytes, and the unconditional matcher tore
+    // the session down mid-transfer the moment frame 1 replayed them (real
+    // hardware, 2026-07-24), dumping the rest of the stream to the terminal
+    // and stranding the wire owner on 'slide'. A genuine reset normally
+    // emits the signature on an otherwise-quiet line where the framer is
+    // idle. Known trade-off: a reset landing mid-frame parks the framer
+    // non-idle (it has no byte timeout), so that replayed signature is eaten
+    // as payload and re-entry does not fire — recovery is the documented
+    // Esc cancel (cancelSlideRecv's 2 s force_idle escape hatch). (Old wasm
+    // without framer_idle() falls back to always-idle — the old
+    // unconditional behavior.)
     //
     // The matcher is folded into the byte-walk below; matched prefix bytes
     // are still fed to the SM — in framer-idle state the signature bytes
@@ -793,30 +814,45 @@ function dispatchRecvMode(value) {
             recvDoneAt = i - 1;
             break;
         }
-        const framerIdle = (typeof slide.framer_idle === 'function')
-            ? slide.framer_idle()
-            : true;
-        if (framerIdle) {
-            if (b === WAKEUP[recvWakeIdx]) {
-                recvWakeIdx++;
-                if (recvWakeIdx === 7) {
-                    recvWakeIdx = 0;
-                    console.warn('[slide.js] mid-session ESC^SLIDE detected — Z80 reset; re-entering recv mode');
-                    // Settle the old SM (the already-fed signature-prefix
-                    // bytes were framer-idle no-ops), then swap in a fresh
-                    // session. Later bytes in this chunk feed the new SM.
-                    drainEventsAndOutbound();
-                    if (slide && typeof slide.force_idle === 'function') slide.force_idle();
-                    exitRecvMode();
-                    enterRecvMode();
-                    continue;   // this byte was the signature's last — consumed
+        // Only bytes that match the signature head or continue a partial
+        // match can touch the matcher (including its non-idle reset), so
+        // skip the per-byte JS→wasm framer_idle() crossing for everything
+        // else — mid-transfer that is virtually every payload byte.
+        if (b === WAKEUP[recvWakeIdx] || recvWakeIdx > 0) {
+            const framerIdle = (typeof slide.framer_idle === 'function')
+                ? slide.framer_idle()
+                : true;
+            if (framerIdle) {
+                if (b === WAKEUP[recvWakeIdx]) {
+                    recvWakeIdx++;
+                    if (recvWakeIdx === 7) {
+                        recvWakeIdx = 0;
+                        console.warn('[slide.js] mid-session ESC^SLIDE detected — Z80 reset; re-entering recv mode');
+                        // Settle the old SM (the already-fed signature-prefix
+                        // bytes were framer-idle no-ops), then swap in a fresh
+                        // session. Later bytes in this chunk feed the new SM.
+                        // Preserve the pane's batch-total hint across the
+                        // teardown — exitRecvMode zeroes it, but the resumed
+                        // session is the same user-initiated pull and should
+                        // keep its 'N/M' chip labelling (enterRecvMode's TTL
+                        // check still guards a genuinely stale hint).
+                        const savedExpected = expectedRecvFiles;
+                        const savedExpectedTs = expectedRecvFilesTs;
+                        drainEventsAndOutbound();
+                        if (slide && typeof slide.force_idle === 'function') slide.force_idle();
+                        exitRecvMode();
+                        expectedRecvFiles = savedExpected;
+                        expectedRecvFilesTs = savedExpectedTs;
+                        enterRecvMode();
+                        continue;   // this byte was the signature's last — consumed
+                    }
+                } else if (recvWakeIdx > 0) {
+                    recvWakeIdx = (b === WAKEUP[0]) ? 1 : 0;
                 }
             } else if (recvWakeIdx > 0) {
-                recvWakeIdx = (b === WAKEUP[0]) ? 1 : 0;
+                // The framer entered a frame — any partial signature was noise.
+                recvWakeIdx = 0;
             }
-        } else if (recvWakeIdx > 0) {
-            // The framer entered a frame — any partial signature was noise.
-            recvWakeIdx = 0;
         }
         slide.feed_byte(b);
         const stAfter = slide.state();
@@ -1088,8 +1124,15 @@ async function enterSendModeAfterFirstUseConfirm({ files, cmd }) {
     // Phase 12 WR-02 — clear the in-flight sentinel BEFORE any further
     // dispatch so subsequent enterSendMode invocations are not refused
     // after the chip has resolved (whether the user confirmed, reset to
-    // default, or surfaceFirstUseConfirm threw).
+    // default, timed out, or surfaceFirstUseConfirm threw).
     firstUseConfirmPending = false;
+    if (confirmed === 'timeout') {
+        // T-12-07 fix — chip auto-hid after 30 s with no decision. Abort the
+        // send (user re-initiates when ready) but leave prefs untouched: a
+        // timeout is not a [Reset to default] click.
+        console.info('[slide.js] first-use confirm timed out — send aborted; drop the file again when ready');
+        return;
+    }
     if (!confirmed) {
         // User clicked [Reset to default] — restore prefs and abort. User
         // must click ↑ Send file again to proceed with the default value.
@@ -1154,7 +1197,11 @@ function enterSendModeProceed({ files /* cmd */ }) {
     }
     // (else: empty-string-disables semantic — preserved from Phase 9 D-14.)
 
-    pendingSendSession = { metadata, fileBytes };
+    // UAT-E9-04 niggle (ii) — carry the (post-rewrite) filenames so the chip
+    // can show the current file during a send. Names were previously dropped
+    // here and __getStateForTests hardcoded current_filename: null (a Phase 9
+    // "until wired" leftover).
+    pendingSendSession = { metadata, fileBytes, fileNames: files.map((f) => f.name) };
 
     // Phase 11 Plan 11-04 D-16 — Compatibility mode 3-way branch governs how
     // the wakeup wait is handled. prefs.slideCompatibilityMode comes from the
@@ -1240,7 +1287,7 @@ function packMetadataInline(files) {
 /// populates currentSendCtx, sets txSinkRef.setWireOwner('slide'), mode='send',
 /// kicks an initial drain so the CTRL_RDY pushed by enter_send_mode reaches
 /// the wire promptly.
-function enterSendModeInternal({ metadata, fileBytes }) {
+function enterSendModeInternal({ metadata, fileBytes, fileNames }) {
     if (slide && typeof slide.free === 'function') slide.free();
     slide = new SlideCtor();
     // The new Slide's outbound_buf is at a different wasm-heap address than
@@ -1248,10 +1295,18 @@ function enterSendModeInternal({ metadata, fileBytes }) {
     outboundBuffer = null;
     outboundView = null;
     slide.enter_send_mode(metadata);
+    sendCtrlSeqPending = false;   // fresh framer — no cross-chunk seq owed (UAT-E9-03)
     currentSendCtx = {
         fileBytes,
+        fileNames: fileNames || [],   // UAT-E9-04 (ii) — chip filename source
         currentFileIdx: 0,
         sentBytesInFile: 0,
+        // True while a pumped window (or EOF frame) awaits its ACK. The pump
+        // refuses to push the next window until the drain loop observes the
+        // ACK (or a NAK's retransmit event), so a chunk that carries no
+        // completed ACK — a split ACK's lone control byte, console text,
+        // line noise — cannot advance the sender past the Z80's ACK cadence.
+        windowAckOwed: false,
     };
     // D-09 — synchronous handoff. mode + owner flipped together; Pitfall 3.
     txSinkRef.setWireOwner('slide');
@@ -1293,6 +1348,18 @@ const SEND_CANCEL_DRAIN_MS = 100;
 const SEND_CANCEL_ABSOLUTE_TIMEOUT_MS = 2000;
 let sendCancelInFlight = false;
 
+// UAT-E9-03 (2026-07-24, real-hardware multi-file send) — a lone ACK/NAK
+// control byte at a chunk boundary parks the Rust framer in AfterAckOrNak
+// awaiting the seq byte, which arrives as the FIRST byte of the NEXT chunk.
+// That seq is raw binary (any 0x00-0xFF) and usually NOT a control value, so
+// the stateless classifier in dispatchSendMode misrouted it to the terminal:
+// the ACK never completed, the SM never advanced, no next-file header was
+// sent, and the session wedged with the Z80 polling .file_loop silently.
+// The EOF ACK is the split-prone one — slide.asm prints "Transfer complete!"
+// right behind it, so chunk boundaries land inside the pair. This flag
+// carries the obligation across chunks; cleared on session entry/exit.
+let sendCtrlSeqPending = false;
+
 function sendCancelDelay(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -1323,6 +1390,7 @@ function forceExitSendMode() {
     mode = 'terminal';
     currentSendCtx = null;
     pendingSendSession = null;
+    sendCtrlSeqPending = false;   // UAT-E9-03 — never carry a seq owed into the next session
     // Free the WASM Slide struct before dropping the JS ref so the next
     // SlideCtor() can reuse the freed allocation. Without this the leaked
     // struct keeps its outbound_buf bytes intact at the old wasm-heap
@@ -1419,6 +1487,7 @@ function exitSendMode() {
     txSinkRef.setWireOwner('terminal');
     mode = 'terminal';
     currentSendCtx = null;
+    sendCtrlSeqPending = false;   // UAT-E9-03 — never carry a seq owed into the next session
     // Slide instance is left in Done/Error state until the next
     // enterSendModeInternal / enterRecvMode replaces it (mirror of
     // exitRecvMode lifecycle comment).
@@ -1490,6 +1559,15 @@ async function dispatchSendMode(value) {
     const SOF     = 0x01;  // defensive — Z80 in recv-session shouldn't emit
     const terminalBytes = [];
     let i = 0;
+    if (sendCtrlSeqPending && value.length > 0) {
+        // The previous chunk ended on a lone ACK/NAK; the framer is parked in
+        // AfterAckOrNak and THIS chunk's first byte is the seq. Feed it
+        // unconditionally — it is protocol, never console text, whatever its
+        // value (the old classifier dropped e.g. seq 0x14 here — UAT-E9-03).
+        slide.feed_byte(value[0]);
+        sendCtrlSeqPending = false;
+        i = 1;
+    }
     while (i < value.length) {
         const b = value[i];
         if (b === CTRL_ACK || b === CTRL_NAK) {
@@ -1500,8 +1578,10 @@ async function dispatchSendMode(value) {
                 i += 2;
             } else {
                 // Lone ACK/NAK at chunk end — the seq byte spans chunks.
-                // Feed what we have; framer.AfterAckOrNak holds across the
-                // boundary and will pick up the seq on the next chunk.
+                // framer.AfterAckOrNak holds across the boundary; flag the
+                // obligation so the next chunk's first byte is fed as the
+                // seq instead of being classified (UAT-E9-03).
+                sendCtrlSeqPending = true;
                 i += 1;
             }
         } else if (b === CTRL_RDY || b === CTRL_FIN || b === CTRL_CAN || b === SOF) {
@@ -1557,6 +1637,13 @@ async function drainEventsAndOutboundAwaitable() {
         if (evt === EVT_NONE) break;
         const kind = evt & 0xFFFF_0000;
         const aux  = evt & 0xFFFF;
+        if ((kind === EVT_ACK || kind === EVT_RETRANSMIT_NEEDED) && currentSendCtx) {
+            // A completed ACK (or a NAK's rewind) releases the window debt:
+            // the pump may push the next window this dispatch cycle. Header
+            // and EOF ACKs also land here — clearing an already-clear flag
+            // is harmless.
+            currentSendCtx.windowAckOwed = false;
+        }
         if (kind === EVT_FILE_COMPLETE) {
             // SM has just emitted EVT_FILE_COMPLETE | file_idx and pushed
             // the next file's header onto outbound (or transitioned to
@@ -1675,13 +1762,41 @@ function pumpNextDataChunkIfReady() {
     const fileIdx = slide.send_current_file_idx();
     const file = ctx.fileBytes[fileIdx];
     if (!file) return;
-    if (ctx.sentBytesInFile >= file.length) return;
-    const chunkStart = ctx.sentBytesInFile;
-    const chunkEnd = Math.min(chunkStart + FRAME_SIZE, file.length);
-    const payload = file.subarray(chunkStart, chunkEnd);
-    const isEof = chunkEnd === file.length;
-    slide.feed_send_chunk(payload, isEof);
-    ctx.sentBytesInFile = chunkEnd;
+    // UAT-E9-03 — pump a full WINDOW per dispatch, not one frame. slide.asm's
+    // receiver ACKs once per WIN_SIZE frames (plus once for the EOF), so a
+    // one-frame pump left the Z80 waiting for the rest of the window until
+    // its per-byte retry timeout NAKed it along — every send crawled on that
+    // retry crutch (~4-5× slow) and flooded the wire with NAK/ACK control
+    // pairs, the desync surface behind the cancelled-by-peer failure (a
+    // desynced classifier reading a seq byte of 0x18 — any file ≥ 24 KB has
+    // frame seq 24 — as CTRL_CAN echoes a cancel straight to the Z80).
+    // One window per ACK mirrors slide-py's reference sender, and every Z80
+    // disk flush stays covered by its own ACK-wait: FLUSH_SIZE == WIN_SIZE ×
+    // FRAME_SIZE, so the flush always lands just before the window ACK.
+    // Stop at window-boundary seqs (seq ≡ 0 mod WIN_SIZE) so a NAK-rewind
+    // resend re-aligns with the Z80's ACK cadence instead of drifting.
+    // Outbound stays ≤ OUTBOUND_VIEW_CAP: 4 frames + EOF marker = 4126.
+    //
+    // windowAckOwed latches after each window (and after the EOF frame) and
+    // is cleared only when the drain loop sees the ACK / retransmit event.
+    // Without it, ANY dispatch cycle — a split ACK's first half, console
+    // text, line noise — pumped the next window while the previous one was
+    // still un-ACKed, running the sender ahead of the Z80's cadence and
+    // uncovering its disk-flush deaf window.
+    if (ctx.windowAckOwed) return;
+    while (ctx.sentBytesInFile < file.length) {
+        const chunkStart = ctx.sentBytesInFile;
+        const chunkEnd = Math.min(chunkStart + FRAME_SIZE, file.length);
+        const payload = file.subarray(chunkStart, chunkEnd);
+        const isEof = chunkEnd === file.length;
+        slide.feed_send_chunk(payload, isEof);
+        ctx.sentBytesInFile = chunkEnd;
+        const seqJustSent = Math.floor(chunkStart / FRAME_SIZE) + 1;
+        if (isEof || seqJustSent % WIN_SIZE === 0) {
+            ctx.windowAckOwed = true;
+            break;
+        }
+    }
 }
 
 /// Mirror of maybeExitRecvMode for sender mode. Exits to terminal mode on

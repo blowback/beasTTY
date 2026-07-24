@@ -26,20 +26,39 @@ const BLANK_MSG = '#pull-pane-blank-msg';
 // S9.1b additions: `enumCount` increments on every enumeration (so guard tests can
 // assert "the tick did NOT enumerate"), and `__setFiles(next)` mutates the file
 // set so a refresh can be driven from unchanged → changed.
+//
+// S9.4 additions: getFile() now returns a REAL File (content defaults to
+// `size` zero-bytes; pass `content` for byte-exact payload assertions) so both
+// the enumeration size read and the reverse-drag payload work. Modes drive the
+// pointerdown-prefetch race deterministically: 'ok' resolves; 'reject' rejects
+// (file deleted since enumeration); 'manual' parks every resolve until
+// __resolvePendingGetFiles() releases it (never release = never resolves).
 const FAKE_HANDLE_FACTORY = `
   (function makeFakeHandle({ name, permission, grantsTo, files }) {
     let curFiles = files.slice();
+    let getFileMode = 'ok';
+    const pendingGetFiles = [];
+    const mkFile = (f) => new File([f.content ?? new Uint8Array(f.size)], f.name);
     const handle = {
       name,
       kind: 'directory',
       enumCount: 0,
       __setFiles(next) { curFiles = next.slice(); },
+      __setGetFileMode(m) { getFileMode = m; },
+      __resolvePendingGetFiles() { for (const p of pendingGetFiles.splice(0)) p.resolve(p.file); },
       async queryPermission() { return permission; },
       async requestPermission() { return grantsTo || permission; },
       async *entries() {
         handle.enumCount++;
         for (const f of curFiles) {
-          yield [f.name, { kind: 'file', async getFile() { return { size: f.size }; } }];
+          yield [f.name, {
+            kind: 'file',
+            getFile() {
+              if (getFileMode === 'reject') return Promise.reject(new DOMException('gone', 'NotFoundError'));
+              if (getFileMode === 'manual') return new Promise((resolve) => pendingGetFiles.push({ resolve, file: mkFile(f) }));
+              return Promise.resolve(mkFile(f));
+            },
+          }];
         }
         // A sub-directory the v1 one-level enumeration must skip.
         yield ['SUBDIR', { kind: 'directory' }];
@@ -941,5 +960,485 @@ test.describe('E9 S9.3 — pull pane: rail bloom', () => {
         expect(await hasBloomAttr(page)).toBe(false);
         expect((await paneState(page)).bloom).toBe(false);
         await dragState(page, { active: false });
+    });
+});
+
+// ── S9.4 — reverse drag: pane row → terminal → file-source's send path
+//    (FR-12, NFR-1). Two handoff routes, both covered here:
+//    (1) A drag whose store still carries real 'Files' (same-document
+//        synthetic dispatch; OS drags; a future Chromium that preserves the
+//        dragstart-added File) → the pane's wrapper handlers step back and
+//        file-source.js's unchanged drop handlers own it.
+//    (2) The REAL drag loop (sanctioned fallback, story e9-4 Dev Notes):
+//        Chromium's platform serialization strips a JS-constructed File down
+//        to a text/plain filename string, so the pane's own guarded wrapper
+//        drop handler calls the injected file-source sendFiles() with the
+//        stashed File instead. Simulated by dropping a text/plain-only
+//        DataTransfer while the stash is armed — exactly what the real loop
+//        delivers (verified by instrumented real-drag runs, 2026-07-24). ──
+test.describe('E9 S9.4 — pull pane: reverse drag', () => {
+    test.beforeEach(async ({ page }) => { await setup(page); });
+
+    const FILES = [{ name: 'GAME.COM', size: 12000 }, { name: 'NOTES.TXT', size: 820 }];
+    const armed = (page) => page.evaluate(() => window.__pullPane.__getStateForTests().dragOutArmed);
+    // Dispatch a pointer event on a named row. Synthetic dispatch performs no
+    // default focus move, so focus tests blur the wrapper explicitly.
+    const rowPointer = (page, name, type, init = {}) => page.evaluate(({ n, t, i }) => {
+        const row = [...document.querySelectorAll('#pull-pane-list .pp-row')]
+            .find((r) => r.dataset.name === n);
+        row.dispatchEvent(new PointerEvent(t, { bubbles: true, button: 0, ...i }));
+    }, { n: name, t: type, i: init });
+    // Dispatch a DragEvent on a named row with an in-page DataTransfer; the
+    // DataTransfer is stashed on window.__s94dt for a follow-up drop dispatch.
+    // Returns dispatch/payload facts for assertions.
+    const rowDrag = (page, name, type) => page.evaluate(async ({ n, t }) => {
+        const row = [...document.querySelectorAll('#pull-pane-list .pp-row')]
+            .find((r) => r.dataset.name === n);
+        const dt = (t === 'dragstart') ? new DataTransfer() : window.__s94dt;
+        const notPrevented = row.dispatchEvent(
+            new DragEvent(t, { bubbles: true, cancelable: true, dataTransfer: dt }));
+        if (t === 'dragstart') window.__s94dt = dt;
+        return {
+            notPrevented,
+            effectAllowed: dt ? dt.effectAllowed : null,
+            files: dt ? await Promise.all([...dt.files].map(async (f) => (
+                { name: f.name, size: f.size, text: await f.text() }))) : [],
+        };
+    }, { n: name, t: type });
+    // The full origination gesture: pointerdown → let getFile() settle → dragstart.
+    const grabRow = async (page, name) => {
+        await rowPointer(page, name, 'pointerdown');
+        await page.evaluate(() => new Promise((r) => setTimeout(r, 0)));
+        return rowDrag(page, name, 'dragstart');
+    };
+    const dropStashedDt = (page, targetId) => page.evaluate((id) => {
+        const ev = new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: window.__s94dt });
+        return document.getElementById(id).dispatchEvent(ev);
+    }, targetId);
+
+    test('rows are drag sources in list view — and nothing else in the pane is (AC-1) @fast', async ({ page }) => {
+        // first-run: no rows, zero draggables anywhere in the pane.
+        expect(await page.evaluate(() =>
+            document.querySelectorAll('#pull-pane [draggable="true"]').length)).toBe(0);
+        await bindFake(page, { name: 'MicroBeastPull', permission: 'granted', files: FILES });
+        const rows = page.locator('#pull-pane-list .pp-row');
+        await expect(rows).toHaveCount(2);
+        await expect(rows.nth(0)).toHaveAttribute('draggable', 'true');
+        await expect(rows.nth(1)).toHaveAttribute('draggable', 'true');
+        expect(await rows.nth(0).evaluate((el) => el.dataset.name)).toBe('GAME.COM');
+        expect(await rows.nth(0).evaluate((el) => getComputedStyle(el).cursor)).toBe('grab');
+        // Exactly the rows are draggable — header, footer, rail, buttons untouched.
+        expect(await page.evaluate(() =>
+            document.querySelectorAll('#pull-pane [draggable="true"]').length)).toBe(2);
+        // A fresh row drags the same as a plain one.
+        await page.evaluate((f) => {
+            window.__ppFake.__setFiles([...f, { name: 'NEW.BIN', size: 42 }]);
+            return window.__pullPane.refresh();
+        }, FILES);
+        const fresh = page.locator('#pull-pane-list .pp-row.fresh');
+        await expect(fresh).toHaveCount(1);
+        await expect(fresh).toHaveAttribute('draggable', 'true');
+        expect(await fresh.evaluate((el) => el.dataset.name)).toBe('NEW.BIN');
+        // Handles stay out of the test-state files (specs deep-compare it).
+        const st = await paneState(page);
+        expect(Object.keys(st.files[0]).sort()).toEqual(['name', 'size']);
+    });
+
+    test('pointerdown arms the stash; plain-click pointerup clears it; right button never arms (AC-2) @fast', async ({ page }) => {
+        await bindFake(page, { name: 'MicroBeastPull', permission: 'granted', files: FILES });
+        await rowPointer(page, 'GAME.COM', 'pointerdown');
+        expect(await armed(page)).toBe(true);
+        await rowPointer(page, 'GAME.COM', 'pointerup');
+        expect(await armed(page)).toBe(false);
+        await rowPointer(page, 'GAME.COM', 'pointerdown', { button: 2 });
+        expect(await armed(page)).toBe(false);
+    });
+
+    test('dragstart carries the row File — right name, bytes, effectAllowed copy (AC-2) @fast', async ({ page }) => {
+        await bindFake(page, {
+            name: 'MicroBeastPull', permission: 'granted',
+            files: [{ name: 'GAME.COM', size: 5, content: 'HELLO' }],
+        });
+        const res = await grabRow(page, 'GAME.COM');
+        expect(res.notPrevented).toBe(true);   // the drag starts
+        // (effectAllowed is write-ignored on a synthetic DataTransfer outside a
+        // real drag session — Chromium reads it back as 'none'. The assignment
+        // is covered by the T5 manual checkpoint; the payload is what matters.)
+        expect(res.files).toEqual([{ name: 'GAME.COM', size: 5, text: 'HELLO' }]);
+        // dragend clears the stash.
+        await rowDrag(page, 'GAME.COM', 'dragend');
+        expect(await armed(page)).toBe(false);
+        await page.evaluate(() => { delete window.__s94dt; });
+    });
+
+    test('dragend restores #terminal-wrapper focus (AC-2 / AD-10 exception) @fast', async ({ page }) => {
+        await bindFake(page, { name: 'MicroBeastPull', permission: 'granted', files: FILES });
+        await grabRow(page, 'GAME.COM');
+        // A real row grab blurs the wrapper (rows are NOT retainFocus-wired);
+        // synthetic dispatch doesn't move focus, so blur explicitly.
+        await page.evaluate(() => document.getElementById('terminal-wrapper').blur());
+        await rowDrag(page, 'GAME.COM', 'dragend');
+        expect(await armed(page)).toBe(false);
+        expect(await page.evaluate(() => document.activeElement.id)).toBe('terminal-wrapper');
+        await page.evaluate(() => { delete window.__s94dt; });
+    });
+
+    test('dragstart before the prefetch resolves cancels the drag; a stale resolve never resurrects the stash (AC-2) @fast', async ({ page }) => {
+        await bindFake(page, { name: 'MicroBeastPull', permission: 'granted', files: FILES });
+        await page.evaluate(() => window.__ppFake.__setGetFileMode('manual'));
+        await rowPointer(page, 'GAME.COM', 'pointerdown');
+        expect(await armed(page)).toBe(true);   // armed but unresolved
+        const res = await rowDrag(page, 'GAME.COM', 'dragstart');
+        expect(res.notPrevented).toBe(false);   // preventDefault — the drag never starts
+        expect(res.files).toEqual([]);
+        // dragend clears the stash; the getFile() resolve landing AFTER must not
+        // resurrect it.
+        await rowDrag(page, 'GAME.COM', 'dragend');
+        expect(await armed(page)).toBe(false);
+        await page.evaluate(() => window.__ppFake.__resolvePendingGetFiles());
+        expect(await armed(page)).toBe(false);
+        await page.evaluate(() => { delete window.__s94dt; });
+    });
+
+    test('rejected getFile (file gone since enumeration) → silent abort, drag never starts (AC-2) @fast', async ({ page }) => {
+        const errors = [];
+        page.on('pageerror', (e) => errors.push(String(e)));
+        await bindFake(page, { name: 'MicroBeastPull', permission: 'granted', files: FILES });
+        await page.evaluate(() => window.__ppFake.__setGetFileMode('reject'));
+        await rowPointer(page, 'GAME.COM', 'pointerdown');
+        await page.evaluate(() => new Promise((r) => setTimeout(r, 0)));
+        expect(await armed(page)).toBe(false);   // rejection disarmed the stash
+        const res = await rowDrag(page, 'GAME.COM', 'dragstart');
+        expect(res.notPrevented).toBe(false);
+        expect(errors).toEqual([]);
+        await page.evaluate(() => { delete window.__s94dt; });
+    });
+
+    test('suspension (AC-4): active SLIDE session → pointerdown does not arm; a session starting mid-gesture refuses dragstart @fast', async ({ page }) => {
+        await bindFake(page, { name: 'MicroBeastPull', permission: 'granted', files: FILES });
+        // Session already active at pointerdown → no prefetch, nothing armed.
+        await page.evaluate(() => window.__pullPane.__setSlideActiveForTests(true));
+        await rowPointer(page, 'GAME.COM', 'pointerdown');
+        expect(await armed(page)).toBe(false);
+        let res = await rowDrag(page, 'GAME.COM', 'dragstart');
+        expect(res.notPrevented).toBe(false);
+        // Armed while idle, session starts before dragstart → still refused.
+        await page.evaluate(() => window.__pullPane.__setSlideActiveForTests(null));
+        await rowPointer(page, 'GAME.COM', 'pointerdown');
+        await page.evaluate(() => new Promise((r) => setTimeout(r, 0)));
+        await page.evaluate(() => window.__pullPane.__setSlideActiveForTests(true));
+        res = await rowDrag(page, 'GAME.COM', 'dragstart');
+        expect(res.notPrevented).toBe(false);
+        expect(res.files).toEqual([]);
+        await page.evaluate(() => window.__pullPane.__setSlideActiveForTests(null));
+        await page.evaluate(() => { delete window.__s94dt; });
+    });
+
+    test('pane self-drop stays inert: a Files drag over the pane gets no affordance, no handling (AC-5) @fast', async ({ page }) => {
+        await bindFake(page, { name: 'MicroBeastPull', permission: 'granted', files: FILES });
+        await grabRow(page, 'GAME.COM');
+        // dragenter over the pane itself: dropAcceptable() requires selDrag.active
+        // (terminal-selection drags only) → falls through un-prevented.
+        const enterNotPrevented = await page.evaluate(() => {
+            const ev = new DragEvent('dragenter', { bubbles: true, cancelable: true, dataTransfer: window.__s94dt });
+            return document.getElementById('pull-pane').dispatchEvent(ev);
+        });
+        expect(enterNotPrevented).toBe(true);
+        expect((await paneState(page)).dropAffordance).toBe(false);
+        await expect(page.locator(CARD)).not.toHaveClass(/\bdrop\b/);
+        const dropNotPrevented = await dropStashedDt(page, 'pull-pane');
+        expect(dropNotPrevented).toBe(true);
+        expect(await reviewState(page)).toBe(null);
+        expect(await view(page)).not.toBe('review');
+        await rowDrag(page, 'GAME.COM', 'dragend');
+        await page.evaluate(() => { delete window.__s94dt; });
+    });
+
+    test('handoff route 1 — a Files-carrying DataTransfer dropped on #terminal-wrapper: pane steps back, file-source owns it (AC-3) @fast', async ({ page }) => {
+        await page.waitForFunction(() =>
+            window.__fileSource && typeof window.__fileSource.__getStateForTests === 'function');
+        await bindFake(page, {
+            name: 'MicroBeastPull', permission: 'granted',
+            files: [{ name: 'GAME.COM', size: 5, content: 'HELLO' }],
+        });
+        const res = await grabRow(page, 'GAME.COM');
+        expect(res.files.map((f) => f.name)).toEqual(['GAME.COM']);
+        // Drop on the terminal wrapper — the store still carries 'Files' (a
+        // same-document dt keeps it), so the pane's wrapper handler steps back
+        // and file-source.js's UNCHANGED handlers take it (isFileDrag passes).
+        await dropStashedDt(page, 'terminal-wrapper');
+        await page.waitForFunction(() => window.__fileSource.__getStateForTests().modalOpen === true);
+        await expect(page.locator('#send-modal-list li')).toHaveCount(1);
+        await expect(page.locator('#send-modal-list li').first()).toContainText('GAME.COM');
+        // Cancel closes clean — nothing sent, modal state reset.
+        await page.locator('#send-modal-cancel').click();
+        await page.waitForFunction(() => window.__fileSource.__getStateForTests().modalOpen === false);
+        // dragend after the drop still clears the stash + refocuses the wrapper.
+        await rowDrag(page, 'GAME.COM', 'dragend');
+        expect(await armed(page)).toBe(false);
+        await page.evaluate(() => {
+            delete window.__s94dt;
+            window.__fileSource.__resetForTests();
+        });
+    });
+
+    // Dispatch a DragEvent on #terminal-wrapper with a text/plain-only dt —
+    // byte-for-byte what Chromium's real drag loop delivers after stripping
+    // the constructed File. Returns dispatchEvent's result (false iff the
+    // pane's handler preventDefault()ed, i.e. accepted).
+    const wrapperDegraded = (page, type) => page.evaluate((t) => {
+        const dt = new DataTransfer();
+        dt.setData('text/plain', 'GAME.COM');
+        const ev = new DragEvent(t, { bubbles: true, cancelable: true, dataTransfer: dt });
+        return document.getElementById('terminal-wrapper').dispatchEvent(ev);
+    }, type);
+
+    test('handoff route 2 — real-loop degraded store: armed stash + text/plain drop on the wrapper → sendFiles → modal; overlay shown over the terminal (AC-3) @fast', async ({ page }) => {
+        await page.waitForFunction(() =>
+            window.__fileSource && typeof window.__fileSource.__getStateForTests === 'function');
+        await bindFake(page, {
+            name: 'MicroBeastPull', permission: 'granted',
+            files: [{ name: 'GAME.COM', size: 5, content: 'HELLO' }],
+        });
+        await grabRow(page, 'GAME.COM');
+        // Over the terminal: the pane's own handler accepts and lights the
+        // existing data-drop-target overlay (file-source ignores non-Files drags).
+        const enterAccepted = await wrapperDegraded(page, 'dragenter');
+        expect(enterAccepted).toBe(false);   // preventDefault ran
+        expect(await page.evaluate(() =>
+            document.getElementById('terminal-wrapper').hasAttribute('data-drop-target'))).toBe(true);
+        const overAccepted = await wrapperDegraded(page, 'dragover');
+        expect(overAccepted).toBe(false);
+        // Drop: overlay clears, the stashed File goes through sendFiles into
+        // the SAME validate→truncate→confirm-modal path as an OS drop.
+        await wrapperDegraded(page, 'drop');
+        expect(await page.evaluate(() =>
+            document.getElementById('terminal-wrapper').hasAttribute('data-drop-target'))).toBe(false);
+        await page.waitForFunction(() => window.__fileSource.__getStateForTests().modalOpen === true);
+        await expect(page.locator('#send-modal-list li')).toHaveCount(1);
+        await expect(page.locator('#send-modal-list li').first()).toContainText('GAME.COM');
+        await page.locator('#send-modal-cancel').click();
+        await page.waitForFunction(() => window.__fileSource.__getStateForTests().modalOpen === false);
+        await rowDrag(page, 'GAME.COM', 'dragend');
+        expect(await armed(page)).toBe(false);
+        await page.evaluate(() => {
+            delete window.__s94dt;
+            window.__fileSource.__resetForTests();
+        });
+    });
+
+    test('wrapper drop guards: foreign text drag (no stash) is inert; dragleave clears the overlay; suspension mid-drag refuses (AC-4) @fast', async ({ page }) => {
+        await page.waitForFunction(() =>
+            window.__fileSource && typeof window.__fileSource.__getStateForTests === 'function');
+        await bindFake(page, { name: 'MicroBeastPull', permission: 'granted', files: FILES });
+        // Foreign text/plain drag — no stash armed → all four handlers fall through.
+        expect(await wrapperDegraded(page, 'dragenter')).toBe(true);
+        expect(await page.evaluate(() =>
+            document.getElementById('terminal-wrapper').hasAttribute('data-drop-target'))).toBe(false);
+        expect(await wrapperDegraded(page, 'drop')).toBe(true);
+        expect(await page.evaluate(() => window.__fileSource.__getStateForTests().modalOpen)).toBe(false);
+        // Armed drag: enter lights the overlay, leave-to-zero clears it.
+        await grabRow(page, 'GAME.COM');
+        await wrapperDegraded(page, 'dragenter');
+        expect(await page.evaluate(() =>
+            document.getElementById('terminal-wrapper').hasAttribute('data-drop-target'))).toBe(true);
+        await wrapperDegraded(page, 'dragleave');
+        expect(await page.evaluate(() =>
+            document.getElementById('terminal-wrapper').hasAttribute('data-drop-target'))).toBe(false);
+        // A SLIDE session starting mid-drag: the drop refuses — no modal, and
+        // the affordance (re-lit before the flip) is still cleared by the drop.
+        await wrapperDegraded(page, 'dragenter');
+        await page.evaluate(() => window.__pullPane.__setSlideActiveForTests(true));
+        expect(await wrapperDegraded(page, 'drop')).toBe(true);   // not consumed
+        expect(await page.evaluate(() =>
+            document.getElementById('terminal-wrapper').hasAttribute('data-drop-target'))).toBe(false);
+        expect(await page.evaluate(() => window.__fileSource.__getStateForTests().modalOpen)).toBe(false);
+        await page.evaluate(() => window.__pullPane.__setSlideActiveForTests(null));
+        // dragend cleanup (also proves a canceled-over-wrapper drag can't leave
+        // the overlay lit).
+        await rowDrag(page, 'GAME.COM', 'dragend');
+        expect(await armed(page)).toBe(false);
+        await page.evaluate(() => { delete window.__s94dt; });
+    });
+});
+
+// ── S9.4 extension (user-requested 2026-07-24) — multi-select + multi-file
+//    reverse drag: plain click selects one, ctrl/cmd-click toggles, shift-click
+//    ranges in rendered order, empty-area click clears; dragging a selected
+//    row drags the whole selection into the same sendFiles handoff. ──
+test.describe('E9 S9.4 — pull pane: multi-select reverse drag', () => {
+    test.beforeEach(async ({ page }) => { await setup(page); });
+
+    const THREE = [
+        { name: 'A.COM', size: 3, content: 'AAA' },
+        { name: 'B.COM', size: 3, content: 'BBB' },
+        { name: 'C.COM', size: 3, content: 'CCC' },
+    ];
+    const selected = (page) => page.evaluate(() => window.__pullPane.__getStateForTests().selectedNames);
+    const selRows = (page) => page.evaluate(() =>
+        [...document.querySelectorAll('#pull-pane-list .pp-row.sel')].map((r) => r.dataset.name));
+    const rowPointer = (page, name, type, init = {}) => page.evaluate(({ n, t, i }) => {
+        const row = [...document.querySelectorAll('#pull-pane-list .pp-row')]
+            .find((r) => r.dataset.name === n);
+        row.dispatchEvent(new PointerEvent(t, { bubbles: true, button: 0, ...i }));
+    }, { n: name, t: type, i: init });
+    const clickRow = async (page, name, init = {}) => {
+        await rowPointer(page, name, 'pointerdown', init);
+        await rowPointer(page, name, 'pointerup', init);
+    };
+    // pointerdown → settle getFile()s → dragstart; stash the dt on window.__s94dt.
+    const grabRow = (page, name) => page.evaluate(async (n) => {
+        const row = [...document.querySelectorAll('#pull-pane-list .pp-row')]
+            .find((r) => r.dataset.name === n);
+        row.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0 }));
+        await new Promise((r) => setTimeout(r, 0));
+        const dt = new DataTransfer();
+        const started = row.dispatchEvent(
+            new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: dt }));
+        window.__s94dt = dt;
+        return { started, files: [...dt.files].map((f) => f.name) };
+    }, name);
+    const wrapperDegraded = (page, type) => page.evaluate((t) => {
+        const dt = new DataTransfer();
+        dt.setData('text/plain', 'reverse-drag');
+        const ev = new DragEvent(t, { bubbles: true, cancelable: true, dataTransfer: dt });
+        return document.getElementById('terminal-wrapper').dispatchEvent(ev);
+    }, type);
+
+    test('selection mechanics: plain replaces, ctrl toggles, shift ranges in rendered order, empty-area clears @fast', async ({ page }) => {
+        await bindFake(page, { name: 'MicroBeastPull', permission: 'granted', files: THREE });
+        await clickRow(page, 'A.COM');
+        expect(await selected(page)).toEqual(['A.COM']);
+        expect(await selRows(page)).toEqual(['A.COM']);
+        // Plain click on another row replaces the selection.
+        await clickRow(page, 'B.COM');
+        expect(await selected(page)).toEqual(['B.COM']);
+        // Ctrl-click toggles on… then off. The shift anchor follows the last
+        // ctrl-clicked row (C.COM) even on deselect — filer convention.
+        await clickRow(page, 'C.COM', { ctrlKey: true });
+        expect(await selected(page)).toEqual(['B.COM', 'C.COM']);
+        await clickRow(page, 'C.COM', { ctrlKey: true });
+        expect(await selected(page)).toEqual(['B.COM']);
+        // Shift-click ranges from the anchor (C.COM) → A..C in rendered order.
+        await clickRow(page, 'A.COM', { shiftKey: true });
+        expect(await selected(page)).toEqual(['A.COM', 'B.COM', 'C.COM']);
+        // A plain click re-anchors; shift then ranges from it.
+        await clickRow(page, 'B.COM');
+        await clickRow(page, 'C.COM', { shiftKey: true });
+        expect(await selected(page)).toEqual(['B.COM', 'C.COM']);
+        // Empty-area pointerdown inside the list clears.
+        await page.evaluate(() => {
+            document.getElementById('pull-pane-list').dispatchEvent(
+                new PointerEvent('pointerdown', { bubbles: true, button: 0 }));
+        });
+        expect(await selected(page)).toEqual([]);
+        expect(await selRows(page)).toEqual([]);
+    });
+
+    test('group-drag guard: plain pointerdown on a selected row keeps the group until a plain pointerup collapses it @fast', async ({ page }) => {
+        await bindFake(page, { name: 'MicroBeastPull', permission: 'granted', files: THREE });
+        await clickRow(page, 'A.COM');
+        await clickRow(page, 'B.COM', { ctrlKey: true });
+        expect(await selected(page)).toEqual(['A.COM', 'B.COM']);
+        // pointerdown alone must NOT collapse (the gesture may be a group drag)…
+        await rowPointer(page, 'A.COM', 'pointerdown');
+        expect(await selected(page)).toEqual(['A.COM', 'B.COM']);
+        // …a dragstart keeps the group…
+        await page.evaluate(async () => { await new Promise((r) => setTimeout(r, 0)); });
+        const res = await page.evaluate(() => {
+            const row = [...document.querySelectorAll('#pull-pane-list .pp-row')]
+                .find((r) => r.dataset.name === 'A.COM');
+            const dt = new DataTransfer();
+            const started = row.dispatchEvent(
+                new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: dt }));
+            return { started, count: dt.files.length };
+        });
+        expect(res.started).toBe(true);
+        expect(res.count).toBe(2);
+        await rowPointer(page, 'A.COM', 'dragend');
+        expect(await selected(page)).toEqual(['A.COM', 'B.COM']);
+        // …while a plain click (down + up, no drag) collapses to that row.
+        await clickRow(page, 'A.COM');
+        expect(await selected(page)).toEqual(['A.COM']);
+    });
+
+    test('multi drag payload: dragstart carries the whole selection in rendered order; unselected row drags alone @fast', async ({ page }) => {
+        await bindFake(page, { name: 'MicroBeastPull', permission: 'granted', files: THREE });
+        await clickRow(page, 'A.COM');
+        await clickRow(page, 'C.COM', { ctrlKey: true });
+        const multi = await grabRow(page, 'C.COM');
+        expect(multi.started).toBe(true);
+        expect(multi.files).toEqual(['A.COM', 'C.COM']);   // rendered (name-asc) order
+        await page.evaluate(() => {
+            const row = document.querySelector('#pull-pane-list .pp-row');
+            row.dispatchEvent(new DragEvent('dragend', { bubbles: true }));
+        });
+        // Dragging an UNSELECTED row reselects to just it (filer convention).
+        const single = await grabRow(page, 'B.COM');
+        expect(single.files).toEqual(['B.COM']);
+        expect(await selected(page)).toEqual(['B.COM']);
+        await page.evaluate(() => {
+            const row = document.querySelector('#pull-pane-list .pp-row');
+            row.dispatchEvent(new DragEvent('dragend', { bubbles: true }));
+        });
+        await page.evaluate(() => { delete window.__s94dt; });
+    });
+
+    test('route 2 multi handoff: degraded drop on the wrapper sends the whole selection → modal lists N files @fast', async ({ page }) => {
+        await page.waitForFunction(() =>
+            window.__fileSource && typeof window.__fileSource.__getStateForTests === 'function');
+        await bindFake(page, { name: 'MicroBeastPull', permission: 'granted', files: THREE });
+        await clickRow(page, 'A.COM');
+        await clickRow(page, 'B.COM', { ctrlKey: true });
+        await grabRow(page, 'B.COM');
+        await wrapperDegraded(page, 'dragenter');
+        await wrapperDegraded(page, 'drop');
+        await page.waitForFunction(() => window.__fileSource.__getStateForTests().modalOpen === true);
+        await expect(page.locator('#send-modal-list li')).toHaveCount(2);
+        await expect(page.locator('#send-modal-list li').nth(0)).toContainText('A.COM');
+        await expect(page.locator('#send-modal-list li').nth(1)).toContainText('B.COM');
+        await page.locator('#send-modal-cancel').click();
+        await page.waitForFunction(() => window.__fileSource.__getStateForTests().modalOpen === false);
+        await page.evaluate(() => {
+            const row = document.querySelector('#pull-pane-list .pp-row');
+            row.dispatchEvent(new DragEvent('dragend', { bubbles: true }));
+            delete window.__s94dt;
+            window.__fileSource.__resetForTests();
+        });
+    });
+
+    test('selection survives refreshes, prunes vanished files, resets on rebind; row click restores wrapper focus @fast', async ({ page }) => {
+        await bindFake(page, { name: 'MicroBeastPull', permission: 'granted', files: THREE });
+        await clickRow(page, 'A.COM');
+        await clickRow(page, 'B.COM', { ctrlKey: true });
+        // Unchanged refresh: zero DOM churn, classes and state intact.
+        await page.evaluate(() => window.__pullPane.__timerTickForTests());
+        expect(await selected(page)).toEqual(['A.COM', 'B.COM']);
+        expect(await selRows(page)).toEqual(['A.COM', 'B.COM']);
+        // Changed refresh: B.COM vanishes, D.COM arrives → selection prunes to A.
+        await page.evaluate(() => {
+            window.__ppFake.__setFiles([
+                { name: 'A.COM', size: 3 }, { name: 'C.COM', size: 3 }, { name: 'D.COM', size: 3 }]);
+            return window.__pullPane.__timerTickForTests();
+        });
+        expect(await selected(page)).toEqual(['A.COM']);
+        expect(await selRows(page)).toEqual(['A.COM']);
+        // Rebind (new-folder intent) resets the selection entirely.
+        await bindFake(page, { name: 'OtherFolder', permission: 'granted', files: THREE });
+        expect(await selected(page)).toEqual([]);
+        // AD-10 spirit: a selection click hands focus back to the wrapper on
+        // pointerup (rows can't go through retainFocus — the drag exception).
+        await page.evaluate(() => document.getElementById('terminal-wrapper').blur());
+        await clickRow(page, 'A.COM');
+        expect(await page.evaluate(() => document.activeElement.id)).toBe('terminal-wrapper');
+    });
+
+    test('suspension: pointerdown during a SLIDE session still selects (local UI) but never arms a drag @fast', async ({ page }) => {
+        await bindFake(page, { name: 'MicroBeastPull', permission: 'granted', files: THREE });
+        await page.evaluate(() => window.__pullPane.__setSlideActiveForTests(true));
+        await clickRow(page, 'A.COM');
+        expect(await selected(page)).toEqual(['A.COM']);
+        expect(await page.evaluate(() => window.__pullPane.__getStateForTests().dragOutArmed)).toBe(false);
+        await page.evaluate(() => window.__pullPane.__setSlideActiveForTests(null));
     });
 });

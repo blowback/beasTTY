@@ -237,6 +237,46 @@ test('SLIDE-38 — first-use confirmation chip surfaces for non-default value', 
     ).toBe('first-use-confirm');
 });
 
+test('T-12-07 (UAT-E9-04) — first-use confirm TIMEOUT releases the latch: next send is not refused, prefs untouched', async ({ page }) => {
+    await setupConnected(page);
+    await page.evaluate(() => {
+        window.__prefs.live.slideAutoSendCommand = 'A:SLIDE R\r';
+        window.__prefs.live.slideAutoSendCommandConfirmed = '';
+    });
+    await page.setInputFiles('#send-file-input', {
+        name: 'hello.txt', mimeType: 'text/plain', buffer: Buffer.from('hi'),
+    });
+    await expect(page.locator('#send-modal')).toBeVisible();
+    await page.locator('#send-modal-send').click();
+    await expect.poll(
+        () => page.evaluate(() => window.__slideChip.__getStateForTests().lifecycle),
+        { timeout: 8000 },
+    ).toBe('first-use-confirm');
+    // Fire the 30 s auto-hide NOW. Pre-fix this abandoned the awaiting
+    // Promise: firstUseConfirmPending leaked and every later enterSendMode
+    // logged "first-use confirm already in progress" until a reload.
+    await page.evaluate(() => window.__slideChip.__fireFirstUseConfirmTimeoutForTests());
+    await expect.poll(
+        () => page.evaluate(() => window.__slideChip.__getStateForTests().lifecycle),
+        { timeout: 2000 },
+    ).toBe('hidden');
+    // A timeout is not a [Reset to default] — the custom command survives.
+    expect(await page.evaluate(() => window.__prefs.live.slideAutoSendCommand)).toBe('A:SLIDE R\r');
+    // The latch is released: a second send reaches the first-use confirm
+    // again (chip re-surfaces) instead of being refused.
+    await page.setInputFiles('#send-file-input', {
+        name: 'again.txt', mimeType: 'text/plain', buffer: Buffer.from('hi2'),
+    });
+    await expect(page.locator('#send-modal')).toBeVisible();
+    await page.locator('#send-modal-send').click();
+    await expect.poll(
+        () => page.evaluate(() => window.__slideChip.__getStateForTests().lifecycle),
+        { timeout: 8000 },
+    ).toBe('first-use-confirm');
+    // Leave clean: resolve via the timeout hook again.
+    await page.evaluate(() => window.__slideChip.__fireFirstUseConfirmTimeoutForTests());
+});
+
 test('SLIDE-38 — confirmation flag re-arms when user changes auto-send command', async ({ page }) => {
     await setup(page);
     await openSlideModal(page);

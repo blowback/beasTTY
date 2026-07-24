@@ -117,7 +117,36 @@ let lastConnectError = null;
 //
 // STATIC HTML ONLY — if extending, use textContent for user-provided strings,
 // not innerHTML (threat-register T-05-02-01 mitigation).
+const POLITE_FAIL_FOOTER =
+    '<p class="muted">No telemetry. No data leaves your browser. Source: github.com/{TBD-during-Phase-6}</p>';
+
 export function renderPoliteFail() {
+    // UAT-E9-04 — navigator.serial is ALSO absent in Chromium when the page
+    // is not a secure context (e.g. http://<lan-ip>:8000 opened from another
+    // machine; the plain-HTTP exemption covers localhost only). Telling a
+    // Chrome user "requires Chromium" there is wrong and unactionable —
+    // branch on isSecureContext and say what actually needs to change.
+    //
+    // But only for Chromium: a non-Chromium browser over plain HTTP hits
+    // BOTH conditions (no navigator.serial, insecure context), and telling
+    // it "this browser supports Beastty, use localhost/HTTPS" sends the
+    // user on a wild goose chase — Web Serial does not exist there in any
+    // context. navigator.userAgentData is itself Chromium-only, so its
+    // presence is the signal; the UA-string test covers Chromium 89 (the
+    // supported floor, which predates userAgentData).
+    const isChromium = !!navigator.userAgentData || /Chrome\//.test(navigator.userAgent);
+    if (isChromium && window.isSecureContext === false) {
+        document.title = 'Beastty — secure context required';
+        document.body.classList.add('polite-fail');
+        document.body.innerHTML = `<h1>Beastty needs a secure context for Web Serial</h1>
+<p>This browser supports Beastty, but Web Serial is only available on HTTPS pages or on <code>localhost</code> — and this page was opened over plain HTTP from another machine.</p>
+<p>Any of these work:</p>
+<ul><li>Open Beastty on the machine serving it, via <code>http://localhost:8000</code></li>
+<li>Tunnel it here: <code>ssh -L 8000:localhost:8000 &lt;server&gt;</code>, then open <code>http://localhost:8000</code></li>
+<li>Serve it over HTTPS</li></ul>
+${POLITE_FAIL_FOOTER}`;
+        return;
+    }
     document.title = 'Beastty — Chromium required';
     document.body.classList.add('polite-fail');
     document.body.innerHTML = `<h1>Beastty requires a Chromium-based browser</h1>
@@ -125,7 +154,7 @@ export function renderPoliteFail() {
 <p>Open Beastty in Chrome, Edge, Brave, Opera, or Arc to connect.</p>
 <ul><li>Chrome 89+</li><li>Microsoft Edge 89+</li><li>Brave 1.22+</li><li>Opera 75+</li><li>Arc (any version)</li></ul>
 <p><a href="https://www.chromium.org/getting-involved/download-chromium/">Download Chromium</a></p>
-<p class="muted">No telemetry. No data leaves your browser. Source: github.com/{TBD-during-Phase-6}</p>`;
+${POLITE_FAIL_FOOTER}`;
 }
 
 export async function wireSerial(opts) {

@@ -205,10 +205,120 @@ intolerance, EOF-after-gap short file, boundary+EOF double-ACK stray
 upstream repo: `uart_flush_rx` before `send_fin` guards against control
 residue on noisy-line recovery paths.
 
+## Pull pane — reverse drag to send (E9 S9.4)
+
+### UAT-E9-02: Drag a pane file onto the terminal to send it (FR-12)
+
+**expected:** Dragging a file row out of the pull pane and dropping it on
+the terminal sends it to the MicroBeast through file-source's send
+path — drop overlay, confirm modal, auto-typed `B:SLIDE R`, wakeup,
+transfer. Both transfer directions now live in-app.
+
+*(Design note: the sanctioned `sendFiles()` fallback IS the shipped
+design — the first manual checkpoint (2026-07-24) showed Chromium's
+real drag loop strips a JS-constructed File from the drag data store
+(it degrades to a text/plain filename), so the pane keeps the native
+drag gesture and hands the stashed File to file-source's send path
+directly at drop-over-wrapper. The drag→overlay→drop→modal chain has
+since been re-verified through the real drag loop in instrumented
+runs; this UAT's remaining job is the on-hardware transfer.)*
+
+**steps:**
+1. Bind a local folder in the pull pane (Choose folder…) with at least
+   two files listed (e.g. `GAME.COM`, `DUMP.BIN`), and connect to the
+   MicroBeast.
+2. Press on a file's row and drag toward the terminal. Verify: the
+   native drag initiates with the row itself as the drag ghost (small —
+   not a screenshot of a large surface), and the cursor shows a grab
+   affordance at rest over rows.
+3. Drag over the terminal. Verify the existing drop overlay appears
+   ("Drop file(s) to send via SLIDE").
+4. Drop. Verify the send confirm modal opens listing exactly 1 file
+   with the correct name.
+5. Confirm the send. Watch the auto-typed `B:SLIDE R` + wakeup +
+   transfer, then run `DIR` on the MicroBeast and verify the file
+   landed on the device — the transferred bytes must be the file's
+   real content (run it, or compare sizes), not just its name.
+6. Multi-select (extension, 2026-07-24): click one row, ctrl-click a
+   second (rows show the accent tint + inset line; shift-click ranges;
+   clicking empty list space clears). Drag either selected row onto
+   the terminal — the confirm modal must list BOTH files — confirm and
+   verify both land on the device. Also check: dragging a row that is
+   NOT part of the selection reselects to just that row and sends it
+   alone.
+6. Suspension: start a transfer (either direction), then try to drag a
+   row mid-transfer — the drag must not start. Drop an OS file on the
+   terminal during the same transfer — the chip flashes "Transfer in
+   progress — cancel first" and refuses (unchanged S9.3-era belt).
+7. Focus: after a drag that ends without a drop (release over the pane
+   or press Esc), verify keystrokes still reach the Z80 (dragend
+   restores `#terminal-wrapper` focus).
+8. (Reads-oddly check, narrow window) Drag a row out of a bloomed card:
+   the bloom staying up after the drop is expected — the next
+   pointerdown outside the pane dismisses it. Note here if it feels
+   wrong in practice.
+
+**result:** pass (2026-07-24, real MicroBeast + Z80 SLIDE v0.5.2).
+Single-file reverse drag confirmed first ("works great" — drag,
+overlay, modal, transfer, lands on device), then multi-select drag
+confirmed with the 19 KB + 24 KB pair after the UAT-E9-03 sender
+fixes: both files land in one session at wire speed. Steps 6-8
+(suspension chip-flash, focus-after-inert-drag, bloom edge) not
+explicitly walked on hardware — all are spec-covered; note anything
+odd during daily driving.
+
+### UAT-E9-03: Multi-file send — wire-chunking interop retest
+
+**context:** Multi-file reverse-drag on hardware (2026-07-24,
+bbcbasic.com 19 KB + mbasic.com 24 KB) failed after file 1 with
+"Transfer cancelled by peer" — twice, surviving the first fix round.
+Full diagnosis (from reading Z80 slide.asm v0.5.2 + slide-py and
+byte-exact synthetic reproduction), three defects fixed:
+1. **The sender pumped ONE frame per received ACK, but slide.asm ACKs
+   only once per 4-frame window** — every send ever made limped on the
+   Z80's retry-timeout NAKs (one frame per ~660 ms NAK, ~4-5× slow)
+   and flooded the wire with control pairs. The pump now sends full
+   window-aligned bursts (slide-py's behavior; the Z80's disk-flush
+   deaf windows always sit just before its window ACK, so this is
+   timing-safe by construction).
+2. A control pair (ACK/NAK + seq) split across serial chunks desynced
+   the byte classifier; with NAK spam and a ≥24 KB file, a seq byte of
+   24 (0x18 = CTRL_CAN) then read as a cancel and Beastty's mandatory
+   cancel echo delivered a real CAN to the Z80 — hence "cancelled by
+   peer", and only for the 24 KB file (the 19 KB file's seqs stop at
+   21). Fixed with a cross-chunk seq carry.
+3. Esc now cancels SEND sessions too (was recv-only — the wedge had no
+   keyboard escape).
+
+**steps:**
+0. **Hard-reload Beastty first (Ctrl+Shift+R)** — module scripts cache
+   heuristically off the plain static server; a soft reload can retest
+   the old code.
+1. Bind a folder containing two files, at least one ≥ 24 KB; connect.
+2. Multi-select both (ctrl-click) and drag onto the terminal; confirm
+   the 2-file send modal.
+3. Verify BOTH files transfer in one session: two "Transfer complete!"
+   prints, then "Session complete." and a clean `B>`; `DIR` shows both
+   files with correct sizes; chip closes with the sent summary.
+   **Speed is the tell that the new sender is running:** ~19 KB should
+   move in roughly 11 s of wire time at 19200, not ~40 s (the old
+   one-frame-per-ACK sender crawled on the Z80's retry NAKs).
+4. Esc check: start another multi-file send, press Esc mid-transfer —
+   the Z80 prints "Transfer cancelled by peer" and returns to `B>`, and
+   the chip closes (no stuck chip).
+
+**result:** pass (2026-07-24, real MicroBeast + Z80 SLIDE v0.5.2, after
+the round-2 window-pump fix). The failing 19 KB + 24 KB pair now
+transfers end-to-end in one session, and noticeably faster ("much
+nippier" — the retry-NAK crutch is gone, so ALL sends including OS
+drags now run at wire speed). Step 4 (Esc mid-transfer cancel) is
+covered by synthetic spec but was not explicitly exercised on hardware
+this run — worth a one-off press next time a send is up.
+
 ## Summary
 
-total: 5
-passed: 1
+total: 7
+passed: 3
 issues: 0
 pending: 3
 skipped: 0
@@ -218,7 +328,7 @@ blocked: 1
 
 - Tester:
 - Date:
-- Pass count: 0/5
+- Pass count: 0/7
 - Notes:
 
 ## Gaps

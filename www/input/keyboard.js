@@ -27,6 +27,12 @@ import { isActive as pastePumpIsActive, cancelPaste } from './paste-pump.js';
 // selection-drag-cancel arm (Phase 6 D-19) and paste-cancel arm (Phase 5 D-18)
 // per CONTEXT.md §"Esc disambiguation slot" lock.
 import { isSlideActive, cancelSlideRecv } from '../transport/slide-recv.js';
+// UAT-E9-03 (2026-07-24) — the recv-side predicate above never sees SEND
+// sessions (slide-recv gets no slideRef for them), so Esc during a send was
+// inert: it fell through to the encode path and tx-sink silently dropped the
+// 0x1B (wire owner 'slide'). Mirror of the Phase 12 UAT Gap D chip-button
+// fix: dispatch by the dispatcher's mode, same as main.js onCancel.
+import { cancelSlideSend, isSendActive as slideSendActive } from '../transport/slide.js';
 // Phase 6 Plan 04 (Wave 3) — clipboard + selection + scroll-state intercepts.
 import { copySelection, pasteFromClipboard } from './clipboard.js';
 import {
@@ -240,6 +246,17 @@ export function wireKeyboard(opts) {
         if (e.code === 'Escape' && isSlideActive()) {
             e.preventDefault();
             cancelSlideRecv();
+            return;
+        }
+
+        // UAT-E9-03 — same Esc slot, SEND direction. isSlideActive() above is
+        // recv-only; a send session is visible only via the dispatcher's
+        // mode. Without this arm, Esc during a send session did nothing
+        // (encode → tx-sink owner-drop) and a wedged send could only be
+        // cancelled from the chip's [Cancel] button.
+        if (e.code === 'Escape' && slideSendActive()) {
+            e.preventDefault();
+            cancelSlideSend();
             return;
         }
 

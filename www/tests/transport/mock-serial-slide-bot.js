@@ -134,6 +134,22 @@ export const MOCK_SERIAL_SLIDE_BOT = `
     can_already_injected: false,
     first_data_frame_seen: false,
 
+    // UAT-E9-03 v0.5.2 wire realism — real hardware can deliver an ACK's
+    // control byte and its seq byte in SEPARATE serial chunks (USB chunking
+    // cuts anywhere, and slide.asm prints "Transfer complete!" right behind
+    // the EOF ACK). When set, every recv-role ACK goes out as TWO
+    // __mockReaderPush calls: [CTRL_ACK] then [seq, ...console text on EOF].
+    splitRecvAcks: false,
+    // UAT-E9-03 — recv-role stall: stop ACKing after N ACKs so the sender
+    // hangs awaiting one (deterministic mid-session state for cancel tests).
+    stallAfterAcks: null,
+    acksSent: 0,
+    // UAT-E9-03 — v0.5.2 ACK cadence: like slide.asm's receiver, ACK only at
+    // window boundaries (data seq ≡ 0 mod WIN_SIZE) and for the EOF marker —
+    // NEVER per frame. Proves the sender pushes whole windows unprompted
+    // (a one-frame-per-ACK sender deadlocks under this cadence).
+    v052AckCadence: false,
+
     framesObserved: 0,             // recv role
 
     // Plan 10-05 — send-role state.
@@ -181,6 +197,10 @@ export const MOCK_SERIAL_SLIDE_BOT = `
       bot.injectCanAfterFirstDataFrame = false;
       bot.can_already_injected = false;
       bot.first_data_frame_seen = false;
+      bot.splitRecvAcks = false;
+      bot.stallAfterAcks = null;
+      bot.acksSent = 0;
+      bot.v052AckCadence = false;
       bot.framesObserved = 0;
       // Plan 10-05 — also clear send-role state.
       bot.send.queuedFiles = [];
@@ -263,8 +283,26 @@ export const MOCK_SERIAL_SLIDE_BOT = `
     },
     finObserved() { return bot.fin_observed; },
     framesObservedCount() { return bot.framesObserved; },
+    setSplitAcks(v) { bot.splitRecvAcks = !!v; },
+    setStallAfterAcks(n) { bot.stallAfterAcks = n; bot.acksSent = 0; },
+    setV052AckCadence(v) { bot.v052AckCadence = !!v; },
   };
   window.__mockSlideBot = bot;
+
+  // Recv-role ACK emitter honoring splitRecvAcks + stallAfterAcks. extra =
+  // bytes riding in the same chunk as the seq (v0.5.2's BDOS console
+  // prints, e.g. "Transfer complete!" behind the EOF ACK).
+  function pushRecvAck(seq, extra) {
+    if (bot.stallAfterAcks !== null && bot.acksSent >= bot.stallAfterAcks) return;
+    bot.acksSent += 1;
+    const tail = extra && extra.length ? extra : [];
+    if (bot.splitRecvAcks) {
+      window.__mockReaderPush(new Uint8Array([CTRL_ACK]));
+      window.__mockReaderPush(new Uint8Array([seq, ...tail]));
+    } else {
+      window.__mockReaderPush(new Uint8Array([CTRL_ACK, seq, ...tail]));
+    }
+  }
 
   // ===== Hook into the writer log =====
   // SERIAL_MOCK's MockWriter.write pushes every entry into __mockWriterLog.
@@ -411,7 +449,7 @@ export const MOCK_SERIAL_SLIDE_BOT = `
       const name = String.fromCharCode(...nameBytes);
       bot.received_filenames.push(name);
       bot.received_files.push(new Uint8Array(0));
-      window.__mockReaderPush(new Uint8Array([CTRL_ACK, 0]));
+      pushRecvAck(0);
       return;
     }
 
@@ -426,8 +464,11 @@ export const MOCK_SERIAL_SLIDE_BOT = `
     }
 
     if (payload.length === 0) {
-      // EOF marker — current file complete; ACK the EOF seq.
-      window.__mockReaderPush(new Uint8Array([CTRL_ACK, seq]));
+      // EOF marker — current file complete; ACK the EOF seq. v0.5.2 prints
+      // its per-file done message via BDOS right behind this ACK — same
+      // wire, same chunk neighborhood.
+      const msg = [...'\\r\\nTransfer complete!\\r\\n'].map((c) => c.charCodeAt(0));
+      pushRecvAck(seq, msg);
       return;
     }
 
@@ -437,7 +478,11 @@ export const MOCK_SERIAL_SLIDE_BOT = `
     next.set(cur, 0);
     next.set(payload, cur.length);
     bot.received_files[bot.received_files.length - 1] = next;
-    window.__mockReaderPush(new Uint8Array([CTRL_ACK, seq]));
+    // v0.5.2 cadence: data-frame ACKs only at window boundaries (slide.asm
+    // .no_flush — ACK when seq ≡ 0 mod WIN_SIZE). Default legacy cadence
+    // ACKs every frame (kept for the pre-E9 specs' pacing assumptions).
+    if (bot.v052AckCadence && (seq & 3) !== 0) return;
+    pushRecvAck(seq);
   }
 
   // ===== Send-role inbound parser + dispatch (Plan 10-05) =====
