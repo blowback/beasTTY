@@ -163,3 +163,24 @@ claude-opus-4-8 (1M context) — BMad Dev Story workflow.
 | Date | Version | Description | Author |
 |---|---|---|---|
 | 2026-07-23 | 1.0 | E8.3 implemented — Settings ▸ Command history enable toggle, size presets (50/100/200/500) with immediate trim, and Clear… modal confirm. New engine `trimToCap()`; menu-bar wiring + projections; new Playwright spec (6 tests). Full suite 413 passed. Status → review. | Amelia (Dev) |
+| 2026-07-23 | 1.1 | Code review run — 0 correctness bugs, 3 cleanups folded into `c1706d0`. Status → done. (Code Review section backfilled 2026-07-24 — E8 retro action #1.) | Amelia (Dev) |
+
+### Code Review
+
+**Outcome:** review of the Settings surfaces + engine `trimToCap()`; **0
+correctness bugs** — consistent with the story reusing generic, proven menu
+mechanics wholesale (checkable / radio-submenu / action rows, the
+Clear-Scrollback confirm pattern). **3 cleanups applied**, folded into the
+implementation commit `c1706d0` before recording, per this project's
+convention. Suite green after cleanups (413 passed / 1 skipped on `retries:1`;
+4 pre-existing documented flakes recovered, none in this story's files).
+
+- **Cap clamp shared via `capOf()`** across `commit()` and the new
+  `trimToCap()` — one clamp rule instead of two drifting copies.
+- **Size-radio re-derive folded into `projectCommandHistory()`** so the three
+  projection call sites (wire-time, menu-open, reset) no longer duplicate it.
+- **5 new comments reworded** off the global banned-vocabulary list.
+
+*(Backfilled 2026-07-24. The review ran between "Status → review" and the story
+commit on 2026-07-23; its outcome lived only in the `c1706d0` commit message
+until the E8 retro flagged the missing section.)*

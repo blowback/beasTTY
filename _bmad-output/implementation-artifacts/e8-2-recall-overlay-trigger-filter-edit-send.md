@@ -204,3 +204,35 @@ claude-opus-4-8 (Claude Code, bmad-dev-story workflow)
 
 - 2026-07-23 — Story drafted (create-story workflow). Ultimate context engine analysis completed — comprehensive developer guide created. Status → ready-for-dev.
 - 2026-07-23 — Implemented E8.2 recall overlay (dev-story). New `renderer/command-history.js` overlay + markup/CSS + `main.js` wiring in the AD-12 slot + 18-test spec. Full suite green on `retries:1`. Status → review.
+- 2026-07-23 — Code review run; 5 fixes + a regression test folded into the implementation commit `474cf65`. Status → done. (Section below backfilled 2026-07-24 from the commit record — E8 retro action #1.)
+
+### Code Review
+
+**Outcome:** review of the overlay + its E8.1 engine touchpoints; **5 findings,
+all fixed** + 1 regression test — folded into the implementation commit
+`474cf65` before recording, per this project's convention. All five sit in
+input classification (the epic's novel edge logic). Full suite green on
+`retries:1` after fixes (582 tests; repeat runs fully green).
+
+- **Numeric-keypad digits desynced the E8.1 mirror** (user-facing). The engine
+  captured `e.key`, but keypad digits carry a `Keypad*` tag and read
+  `'End'`/`'Insert'` etc. under NumLock-off — a command typed on the keypad
+  stored garbled. **Fixed:** capture the encoded wire byte, not `e.key`.
+  Keypad-digit regression test added to `command-history.spec.js`.
+- **Bare Shift+Arrow was eaten by the trigger.** **Fixed:** Shift excluded from
+  the ↑/↓ open chord so Shift+Arrow still reaches the wire (menu-bar precedent).
+- **Trigger active during a SLIDE transfer.** The overlay could open mid-transfer
+  and Enter-"send" a command whose bytes tx-sink silently drops (owner ===
+  `'slide'`) while `commit()` still recorded it — a phantom history entry for a
+  send that never left the machine. **Fixed:** trigger suspended while SLIDE
+  owns the wire, mirroring the E8.1 engine's suspend.
+- **Modified chords misread while open.** Ctrl+Enter / Ctrl+ArrowLeft etc. were
+  routed as their plain forms. **Fixed:** Ctrl/Alt/Meta chords swallowed while
+  open (preventDefault + no-op; keeps NFR-2 structural).
+- **Missing IME-composition guard.** **Fixed:** `e.isComposing` bail added,
+  matching the sibling keyboard.js / menu-bar.js handlers.
+
+*(Backfilled 2026-07-24. The review ran between "Status → review" and the story
+commit on 2026-07-23; its outcome lived only in the `474cf65` commit message
+until the E8 retro flagged the missing section. Superseded in part by the
+post-retro hardware tweaks of 2026-07-24 — see commit `c8822e2`.)*

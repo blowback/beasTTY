@@ -195,3 +195,26 @@ claude-opus-4-8 (Claude Code, bmad-dev-story workflow)
 - 2026-07-22 — Implemented E8.1 command capture engine (line mirror + persisted
   history store), keyboard.js capture hook, main.js wiring, and command-history spec.
   Full suite green on `retries:1` (545 passed / 0 failed). Status → review.
+- 2026-07-22 — Code review run; 2 hardening fixes folded into the implementation
+  commit `ea27a13`. Status → done. (Section below backfilled 2026-07-24 from the
+  commit record — E8 retro action #1.)
+
+### Code Review
+
+**Outcome:** review of the new engine + wiring surface; **2 findings, both
+robustness hardening, both fixed** — folded into the implementation commit
+`ea27a13` before recording, per this project's convention. Full suite green on
+`retries:1` after fixes (545 passed / 0 failed / 1 skipped).
+
+- **`commit()` clamps `commandHistorySize` to a positive integer.** A corrupt or
+  invalid stored prefs blob (e.g. `commandHistorySize: 0`, negative, or
+  non-numeric) previously flowed straight into `slice(0, cap)` and could
+  mis-truncate or wipe the store. **Fixed:** defensive clamp at the commit path.
+- **`getHistory()` returns a validated defensive copy.** Consumers received the
+  live prefs array and could corrupt it in place; a non-array stored blob could
+  surface raw. **Fixed:** fresh copy per call, non-array degrades to `[]` —
+  preserving the NFR-4 "corrupt storage degrades, never throws" contract.
+
+*(Backfilled 2026-07-24. The review ran between "Status → review" and the story
+commit on 2026-07-22; its outcome lived only in the `ea27a13` commit message
+until the E8 retro flagged the missing section.)*
