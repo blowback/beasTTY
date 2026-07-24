@@ -148,7 +148,21 @@ You can generate checksums on the MicroBeast side using my [CSUM](https://github
 and compare them with the automatically generated equivalents in BeasTTY'starts
 filer pane:
 
-![CRC-32 checksumos](images/crc.png)
+![CRC-32 checksums](images/crc.png)
+
+Hover over the checksum until the disclosure icon appears:
+
+![CRC-32 checksum disclosure](images/csum_expand.png)
+
+Click on the disclosure icon to get the multi-block checksum for the file, 
+equivalent to typing `csum -v ...` on the MicroBeast:
+
+![Fletcher-16 checksum expanded](images/csum_expanded.png)
+
+Drag a `csum -v ...` output from the MicroBeast onto that window to compare
+it with the local file, block by block:
+
+![Fletcher-16 checksum comparison](images/csum_compare.png)
 
 
 ### Working with legacy `slide.com` (no wakeup)
