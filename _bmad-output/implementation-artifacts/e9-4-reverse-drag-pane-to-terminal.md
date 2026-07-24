@@ -4,7 +4,7 @@ baseline_commit: 2e6d85f64c964d8a283568123678a6f7c73f14ff
 
 # Story 9.4: Reverse drag — pane file to terminal to device (optional)
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -207,6 +207,7 @@ Claude Fable 5 (claude-fable-5) via Claude Code, 2026-07-24.
 - 2026-07-24 — UAT-E9-04 niggles from hard-testing: (ii) send-direction chip filename wired (Phase 9 "until wired" leftover); (iii) chip rate flip-flop fixed (trim-vs-guard boundary bug + hold-last + negative-delta guard at file transitions); new chip spec. (i) OS-filer drag rejection NOT reproduced synthetically — awaiting Ant's observation (terminal vs pane target; note the pane never accepted OS drags by S9.3 design). Status: review.
 - 2026-07-24 — UAT-E9-04 (i) triage chain: field data (fresh page, zero drag events delivered on Linux) → cross-machine check → Windows Chrome 150 ACCEPTS the drag → (i) closed as Linux-desktop-environmental; temporary tracer stripped. The Windows run surfaced two more real defects, both fixed + spec'd: polite-fail misdiagnosing insecure-context Chromium as "not Chromium" (now a secure-context page with remedies), and the known-flagged T-12-07 first-use-confirm timeout leaking `firstUseConfirmPending` (all sends refused until reload; timeout now resolves cleanly, prefs untouched). Status: review.
 - 2026-07-24 — Ant field-confirms the Windows send works end-to-end post-fixes. All UAT-E9-04 items closed. Story awaits code review → done. Status: review.
+- 2026-07-24 — Code review (high effort, --fix; commit 8bdb80a): 10 verified findings, all fixed — window-ACK pacing latch (a split ACK's lone control byte could pump the next window early, running the sender ahead of the Z80's cadence); reverse-drag stash lifetime (window-level pointerup/pointercancel + refresh skip while a gesture is armed — a stale stash could send an old file on a later unrelated text drag); `sendFiles()` session guard + `recv` in `isSessionActive()` (silent no-op modal paths); polite-fail Chromium detection (Firefox over LAN HTTP got the wrong page); batch hint preserved across mid-session re-entry (chip keeps N/M); `isSendActive()` replaces the test hook in the Esc path; recv hot-loop wasm crossing trimmed; `renderRows()` consumes `orderedFiles()`; refusal diagnostic throttled; throughput formatter no longer mutates its argument. Full suite 472 passed. Status: done.
 
 ## Code Review
 
