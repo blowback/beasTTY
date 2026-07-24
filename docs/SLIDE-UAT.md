@@ -3,7 +3,7 @@ status: pending
 phase: 12-slide-ux-polish-docs-real-hardware-uat
 source: [12-CONTEXT.md, 12-RESEARCH.md, 12-UI-SPEC.md]
 started: 2026-05-08
-updated: 2026-07-23
+updated: 2026-07-24
 ---
 
 # SLIDE — Real-hardware UAT (Phase 12 SLIDE-42)
@@ -182,32 +182,35 @@ fresh markers — one gesture, end to end.
    verify the rail blooms the card open mid-drag without the canvas
    moving, and rail click also blooms.
 
-**Hardware checks (deferred from S9.2/S9.3 — record answers below):**
-- (a) **Separator:** does space-separated `SLIDE S FILE1.TXT FILE2.TXT`
-  work, or only comma-separated `FILE1.TXT,FILE2.TXT` as
-  SLIDE_Z80_REQUIREMENT.md:91-94 documents? (SLIDE-UAT step lists and
-  the shipped compose both use spaces.)
-- (b) **`B:` prefix:** from an `A>` prompt with SLIDE.COM on B:, does the
-  injected bare `SLIDE S …` resolve, or is a `B:` prefix required (the
-  receive direction auto-types `B:SLIDE R`)?
-- (c) **Line-length limit:** behavior at/near the 126-char command cap —
-  compose a selection that hits the cap and verify the truncated command
-  the review shows is accepted by the CCP.
+**Hardware checks (deferred from S9.2/S9.3 — answers recorded 2026-07-24):**
+- (a) **Separator:** ANSWERED — space-separated `SLIDE S FILE1 FILE2 …`
+  works against Z80 SLIDE v0.5.x; multi-file batch pulls (up to the
+  11-name cap boundary) transferred end-to-end. No comma change needed.
+- (b) **`B:` prefix:** ANSWERED — bare `SLIDE S …` resolves from both
+  `B>` and `A>` prompts (verified `A>slide s slide.com`, lowercase CCP
+  input included). No prefix change needed.
+- (c) **Line-length limit:** ANSWERED — a composed 126-char command
+  (exactly at the cap: 11 names) was accepted by the CCP and the
+  transfer ran.
 
-If hardware disagrees on (a) or (b), each is a one-line change in
-`pull-pane.js` `composeFromText` (join separator / command prefix
-constant) plus spec updates — no architectural impact.
-
-**result:** TBD (requires real hardware; also confirms the native-drag
-origination manual checkpoint — see story e9-3 Dev Notes "Sanctioned
-fallback" if the drag does not initiate reliably)
+**result:** pass (2026-07-24, real MicroBeast + Z80 SLIDE v0.5.2). The
+full chain works: drag-select (incl. columnar `DIR` output → dot-joined
+names), native drag origination (no canvas-screenshot ghost), pane
+affordance + rail bloom, review → confirm → transfer → files land in
+the bound folder with fresh markers. UAT surfaced five Beastty receiver
+interop bugs against v0.5.2, all fixed + replay-tested in commit
+b63217d (wakeup-signature-in-payload false re-entry, window-retransmit
+intolerance, EOF-after-gap short file, boundary+EOF double-ACK stray
+`^D`, chip file counters). Optional Z80-side hardening noted for the
+upstream repo: `uart_flush_rx` before `send_fin` guards against control
+residue on noisy-line recovery paths.
 
 ## Summary
 
 total: 5
-passed: 0
+passed: 1
 issues: 0
-pending: 4
+pending: 3
 skipped: 0
 blocked: 1
 

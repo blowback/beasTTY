@@ -4,7 +4,7 @@ baseline_commit: 1210a6b451b6dac486ecd6dea988f1da846d62ee
 
 # Story 9.3: Drop-to-pull — fire the command, land the files, refresh
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 

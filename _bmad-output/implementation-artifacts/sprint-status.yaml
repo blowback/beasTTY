@@ -46,7 +46,7 @@
 #   E1 is the backbone and must land before the other menu/modal epics.
 
 generated: 2026-07-01
-last_updated: 2026-07-23  # E9 S9.3 → review (drop-to-pull: drag origination + pane drop target/affordance + rail bloom + 126-char cap; 18 new specs, suite green 622 passed/0 failed; manual native-drag checkpoint + hardware checks a/b/c handed to UAT-E9-01 in docs/SLIDE-UAT.md). Earlier today — MERGE ui-rethink → main: E8 (Command History, E8.1–E8.3 done + code-reviewed) joins E9 on main; S9.2 done (4 review findings fixed). Separator question (spaces vs commas) operationalized as UAT-E9-01 check (a). Next: code-review S9.3, then S9.4 (optional) or epic retro. E8 detail: E8.3 settings surfaces (enable toggle + size presets + Clear… confirm); E8.2 recall overlay (5 review fixes incl. SLIDE-transfer phantom commit); E8.1 capture engine. E0–E7 complete (milestone ui-rethink, 2026-07-04).
+last_updated: 2026-07-24  # E9 S9.3 → done. Code-review --fix (10 findings), then UAT-E9-01 executed on REAL HARDWARE and passed end-to-end: drag→drop→review→confirm→transfer→land→refresh, incl. DIR-columnar parsing (VPEEK    COM → VPEEK.COM) and pane-content scrolling added during UAT. Hardware surfaced 5 receiver interop bugs vs Z80 SLIDE v0.5.2, all fixed + replay-tested (commit b63217d): wakeup-signature-in-payload false re-entry (pulling SLIDE.COM broke the session), window-retransmit intolerance, EOF-after-gap silent short file, boundary+EOF double-ACK (stray ^D), chip counters (2/1 → 1; pane batch hint gives N/M). Hardware checks answered: (a) space separators WORK, (b) bare SLIDE S resolves from A> and B>, (c) 126-char line accepted. Next: S9.4 (optional reverse drag) or epic-e9 retro. E8 done 2026-07-23; E0–E7 complete (milestone ui-rethink, 2026-07-04).
 # retrospective action items (surface open ones during sprint status)
 action_items: []  # ui-rethink (E0–E7) items all resolved & cleared 2026-07-23; retros append new ones here
 project: beastty
@@ -124,6 +124,6 @@ development_status:
   e9-1a-pull-pane-shell-fsa-folder-view: done
   e9-1b-live-refresh-triggers-guards-diff-render: done
   e9-2-selection-to-slide-s-in-pane-review: done
-  e9-3-drop-to-pull-fire-land-refresh: review
+  e9-3-drop-to-pull-fire-land-refresh: done
   e9-4-reverse-drag-pane-to-terminal: backlog   # optional — may be cut from v1
   epic-e9-retrospective: optional
