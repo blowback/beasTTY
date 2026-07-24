@@ -142,6 +142,15 @@ with all the selected filenames in it!
 Press `Esc`, or click `[Cancel]` on the floating SLIDE chip, to abort an
 in-flight send or receive. The wire returns to a clean CP/M prompt.
 
+### Checksums
+
+You can generate checksums on the MicroBeast side using my [CSUM](https://github.com/blowback/csum) utility,
+and compare them with the automatically generated equivalents in BeasTTY'starts
+filer pane:
+
+![CRC-32 checksumos](images/crc.png)
+
+
 ### Working with legacy `slide.com` (no wakeup)
 
 Detection of inbound transfers and the auto-typed-command handshake both
