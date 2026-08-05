@@ -4,7 +4,7 @@ baseline_commit: 034e5df29204997c8007d48780fd6b7ef1760a84
 
 # Story 11.4: A hidden tab never invents a failure
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -311,7 +311,25 @@ claude-opus-5[1m] (bmad-dev-story workflow), 2026-08-05.
 
 ## Code Review
 
+2026-08-05, `/code-review --fix` (high effort) over `42b1bb1` plus the surrounding cancel machinery. **5 findings — 2 fixed and committed (`d570904`), 3 recorded as follow-ups.**
+
+**Fixed:**
+
+1. **`slide.js:1697` — send cancel lost the peer's `CTRL_CAN` echo whenever any byte arrived first.** `maybeExitSendMode` exits the session on `STATE_CANCEL_PEND`, so the first inbound chunk after `slide.cancel()` — an in-flight ACK, or `slide.asm`'s `msg_cancelled` text — flipped `mode` to `'terminal'`. The echo then routed through `dispatchInbound` → `dispatchTerminalMode` and never reached the state machine: the new Step 3 wait timed out, `lastCancelEchoArrived` read `false`, and `force_idle` ran on a cancel the Z80 had answered correctly. The same path made a cancelled transfer print `exitSendMode`'s "Sent N files" summary. `maybeExitSendMode` now returns early while `sendCancelInFlight` is set — the cancel sequence's own Step 5 `forceExitSendMode`, with the 2 s hatch behind it, owns the exit. `pumpNextDataChunkIfReady` already no-ops outside `DATA_PHASE`, so nothing extra goes on the wire. `maybeExitRecvMode` has no `CancelPending` arm, which is why only the send side lost its echo — the third instance of the recv-only-predicate asymmetry this story's Dev Notes §6 warned about.
+2. **`slide.js:1313` / `slide-recv.js:652` — `lastCancelEchoArrived` was never cleared when a cancel started**, so a cancel that threw before its Step 3 assignment (or that `__resetForTests` cut short) left the *previous* cancel's `true` standing, and a reader would conclude "the peer echoed" about a cancel that was never answered. Both `cancelSlideSend` and `cancelSlideRecv` now reset it to `null` up front.
+
+**Recorded as follow-ups, not fixed here:**
+
+3. **`main.js:458` — the `pagehide` teardown never fires for send sessions.** `wireChrome` is handed the recv-only `isSlideActive`; `main.js:667` already uses `isSlideActive() || getWireOwner() === 'slide'` for exactly this reason. Closing the tab mid-*send* emits no `CTRL_CAN` and leaves the Z80 waiting. Pre-dates this story, but AC-6 made `pagehide` the sole hide-time trigger, so it is now the only remaining protection and it has a hole. Skipped because `main.js` is outside this story's diff and widening the predicate changes production teardown behaviour.
+4. **`mock-serial-slide-bot.js:401` — the new recv-role `CTRL_CAN` echo removed the only coverage of the send-cancel no-echo path.** The recv-role branch has no `injectNoEchoOnCancel` equivalent (that flag lives in `bot.send` and is read only by `onInboundByteSendRole`), so the bot now *always* echoes when the page cancels a send, making `cancelSlideSend`'s `!echoArrived → force_idle` branch and its 2 s hatch unreachable in any spec. The recv mirror *is* covered at `slide-cancel.spec.js:117`. Skipped as test-surface design rather than a correctness fix.
+5. **`slide-recv.js:773` — `abandonPendingStateWait` is wired into `forceExitRecvMode` but not `exitRecvMode`.** A mid-cancel `STATE_ERROR` burns the full 500 ms instead of settling at the transition — the same "burn the budget" shape this story removed, on a rarer branch. Latency only; the eventual answer (`false`) is correct.
+
+**Checked and cleared:** the `STATE_DONE` / `STATE_ERROR` / `STATE_CANCEL_PEND` constants match across `slide.js` and `slide-recv.js`; `waitForState` / `waitForSendState` cannot leak or double-settle (`settled` latch plus `clearTimeout(deadline)`), and the deadline callback can never observe `waiter.settle === null` because `pendingStateWaiter` is published after the assignment.
+
+**Verification:** full Playwright suite 735 passed / 1 skipped (2.2 min) with the fixes applied.
+
 ## Change Log
 
+- 2026-08-06 — Code review recorded and story closed. `/code-review --fix` returned 5 findings: the send-cancel early-exit that discarded the peer's `CTRL_CAN` echo and the unreset `lastCancelEchoArrived` were fixed and committed (`d570904`); three follow-ups (send-side `pagehide` hole at `main.js:458`, the bot's missing recv-role no-echo knob, `abandonPendingStateWait` absent from `exitRecvMode`) are recorded above for a later story. Suite 735 passed / 1 skipped. Still NOT hardware-verified — the clamp is simulated; worth a checkpoint before E11 ships. Status: done.
 - 2026-08-05 — Implemented (bmad-dev-story). Both cancel Step 3 waits converted from a 10 ms poll to resolve-on-transition, notified from the inbound byte dispatcher with the state value carried by argument, against one non-chained deadline. Tab-hide no longer cancels a SLIDE session; `pagehide` keeps the cancel + `CTRL_CAN`, recorded as a dated AD-13 amendment. Two findings beyond the story's brief: the mock bot never echoed `CTRL_CAN` in its recv role, contrary to `slide.asm respond_to_cancel` (so send-cancel echo had never been exercised); and under a clamped clock the sequence's own 200 ms + 100 ms windows consume the entire 2 s escape hatch, force-idling a healthy cancel — the hatch is now disarmed the moment the echo is confirmed. New spec `slide-hidden-tab-clamp.spec.js` (5 cases, proven red then green); `slide-bridge.spec.js`'s hide-emits case inverted. Full suite 734 passed / 1 pre-existing flaky / 1 skipped; `cargo test` green. Status: review.
 - 2026-08-05 — Story created (bmad-create-story). Analysis surfaced two defects beyond the one the epic names: (1) `waitForState` reads `slideRef`, which `exitRecvMode` nulls at the transition, so it can never resolve `true` on any clock; (2) `chrome.js:227-230` deliberately cancels an active receive on tab-hide (D-13 / SLIDE-31), which made FR-15's second AC unreachable by a poll fix alone. Decision taken with Ant: split the trigger — `pagehide` keeps the cancel, `visibilitychange → hidden` drops it — recorded as a dated AD-13 amendment. Also corrected the epic's reach claim: both helpers have exactly one call site each (the ADR-003 cancel sequence), so the defect affects every *cancel*, not every send. Status: ready-for-dev.
