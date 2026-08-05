@@ -111,6 +111,10 @@ let onFolderChangedRef = null;     // pull-pane rebind after Change folder… sw
 let currentFile = null;            // { name, totalBytes, chunks: Uint8Array[], bytesDone }
 let inflightDownloads = [];        // Promise[] for cancel-time settle (Plan 10-03)
 let cancelInFlight = false;        // Plan 10-03 idempotency guard
+// E11 S11.4 — observability twin of slide.js's field. `true` when the Z80's
+// CTRL_CAN echo settled the Step 3 wait, `false` when the 500 ms budget
+// expired, `null` before any cancel in this page session.
+let lastCancelEchoArrived = null;
 let sessionFolderFallback = false; // D-04 — picker dismissed mid-session → anchor-click for rest
 let lastDownloadAt = 0;            // W4 — module-scope timestamp for actual gap serialisation
 // Plan 10-05 Rule 1 fix — FIFO promise chain that actually serialises
@@ -645,6 +649,12 @@ export async function cancelSlideRecv() {
         drainSlideOutboundOneShot();    // 1-byte writeSlideFrame fire-and-forget
         // Step 3 — wait up to 500 ms for Z80 echo (state transitions Done).
         const echoArrived = await waitForState(STATE_DONE, CANCEL_ECHO_WAIT_MS);
+        lastCancelEchoArrived = echoArrived;   // E11 S11.4 observability
+        // E11 S11.4 — disarm the 2 s hatch once the peer has echoed (twin of
+        // the send side): under a hidden tab's ~1 s timer floor the sequence's
+        // own Step 1 / Step 4 windows can consume the whole 2 s budget and
+        // force_idle a healthy cancel. Unchanged for the no-echo path.
+        if (echoArrived) clearTimeout(absoluteTimeout);
         // Step 4 — drain 100 ms post-echo.
         await delay(CANCEL_DRAIN_MS);
         // Step 5 — if no echo, force_idle escape hatch (ADR-003 §3).
@@ -680,19 +690,64 @@ function drainSlideOutboundOneShot() {
     if (typeof slideRef.clear_outbound === 'function') slideRef.clear_outbound();
 }
 
-// waitForState — poll slideRef.state() every 10 ms; resolve true on match,
-// false on timeout. Used by the cancel sequence Step 3 to detect Z80 echo
+// waitForState — resolve when the SM transitions to targetState, or false when
+// timeoutMs expires. Used by the cancel sequence Step 3 to detect the Z80 echo
 // (Done state) within 500 ms.
+//
+// E11 S11.4 — this used to poll slideRef.state() every 10 ms. Two defects rode
+// on that shape:
+//
+//   1. It could never resolve true. The echo byte is fed at slide.js's
+//      dispatchRecvMode byte-walk, and exitRecvMode → setSlideRef(null) runs
+//      synchronously in the SAME read-loop callback. No scheduled tick can
+//      interleave with a synchronous block, so by the time the first tick ran,
+//      slideRef was already null and the guard was false forever — the wait
+//      burned its whole 500 ms on every cancel and Step 5's force_idle was
+//      then skipped by its own slideRef guard.
+//   2. Chromium floors a hidden tab's chained timers at ~1 s while
+//      performance.now() keeps real time, so the poll collapsed to one or two
+//      samples and the Z80's published ~500 ms echo budget was never sampled.
+//
+// The fix for (1) is why notifyRecvStateTransition carries the state VALUE: a
+// waiter that re-reads slideRef inherits the bug. The fix for (2) is a single
+// non-chained deadline — a clamp can only make one timer fire late, which is
+// the safe direction.
+let pendingStateWaiter = null;
+
+// Named export imported by slide.js's dispatcher. Called from the inbound
+// byte-walk with the state the SM transitioned TO. Never called from the local
+// force_idle escape hatches — reporting those as "the Z80 echoed" would be a lie.
+export function notifyRecvStateTransition(stateValue) {
+    const waiter = pendingStateWaiter;
+    if (!waiter) return;
+    if (stateValue === waiter.targetState) waiter.settle(true);
+}
+
+// Settle any pending waiter false when the session is torn down under it, so
+// it cannot hang to its deadline or leak across sessions.
+function abandonPendingStateWait() {
+    if (pendingStateWaiter) pendingStateWaiter.settle(false);
+}
+
 function waitForState(targetState, timeoutMs) {
     return new Promise((resolve) => {
-        const t0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
-        const now = () => (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
-        const tick = () => {
-            if (slideRef && slideRef.state() === targetState) return resolve(true);
-            if (now() - t0 >= timeoutMs) return resolve(false);
-            setTimeout(tick, 10);
+        // Synchronous first check — the echo can already have been fed while
+        // Step 2's outbound drain ran.
+        if (slideRef && slideRef.state() === targetState) {
+            resolve(true);
+            return;
+        }
+        const waiter = { targetState, settle: null };
+        let settled = false;
+        const deadline = setTimeout(() => waiter.settle(false), timeoutMs);
+        waiter.settle = (matched) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(deadline);          // a leaked timer would outlive the session
+            if (pendingStateWaiter === waiter) pendingStateWaiter = null;
+            resolve(matched);
         };
-        tick();
+        pendingStateWaiter = waiter;
     });
 }
 
@@ -702,6 +757,7 @@ function waitForState(targetState, timeoutMs) {
 // via dispatcherForceExitRef so the dispatcher returns to terminal mode
 // without waiting for the next inbound chunk to trigger maybeExitRecvMode.
 function forceExitRecvMode() {
+    abandonPendingStateWait();   // E11 S11.4 — the session is going away under it
     if (txSinkRef && typeof txSinkRef.setWireOwner === 'function') {
         txSinkRef.setWireOwner('terminal');
     }
@@ -805,6 +861,10 @@ export function __resetForTests() {
     filenameView = null;
     cachedHandle = null;
     currentPermission = null;
+    // E11 S11.4 — no cancel has happened in the next spec's session, and no
+    // waiter may survive into it.
+    lastCancelEchoArrived = null;
+    abandonPendingStateWait();
 }
 
 export function __getStateForTests() {
@@ -814,6 +874,7 @@ export function __getStateForTests() {
         bytesInFileTotal: currentFile?.totalBytes ?? 0,
         recvToFolder: prefsRef?.slideRecvToFolder ?? false,
         cancelInFlight,
+        lastCancelEchoArrived,          // E11 S11.4 — did the peer echo CTRL_CAN?
         sessionFolderFallback,
         lastDownloadAt,
         hasHandle: !!cachedHandle,

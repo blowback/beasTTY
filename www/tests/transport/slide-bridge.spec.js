@@ -182,13 +182,17 @@ test.describe('slide-bridge — visibilitychange', () => {
 
     test.beforeEach(async ({ page }) => { await setup(page); });
 
-    test('visibilitychange hidden emits single-byte CTRL_CAN when active', async ({ page }) => {
+    test('visibilitychange hidden does NOT emit CTRL_CAN — a transfer survives a tab switch', async ({ page }) => {
+        // INVERTED by E11 S11.4 (decision 2026-08-05). This case used to assert
+        // that hiding the tab emitted CTRL_CAN (Phase 11 D-13 / SLIDE-31). With
+        // Split View, "hidden" is an ordinary state during a transfer — a tab
+        // switch destroying a healthy receive is exactly the invented failure
+        // that story removes. The teardown protection D-13's own rationale
+        // argues for lives on pagehide, asserted verbatim by the next case.
         await commonReset(page);
         await enterMidStream(page, 4096);
         // Reset writer log so prior session bytes don't pollute the assertion.
         await page.evaluate(() => { window.__mockWriterLog.length = 0; });
-        // Synthesize visibilitychange to hidden — D-13 fires CTRL_CAN
-        // best-effort.
         await page.evaluate(() => {
             Object.defineProperty(document, 'visibilityState', {
                 value: 'hidden', configurable: true,
@@ -198,13 +202,12 @@ test.describe('slide-bridge — visibilitychange', () => {
             });
             document.dispatchEvent(new Event('visibilitychange'));
         });
-        // CTRL_CAN (0x18) must land in the writer log within a short window.
-        await expect.poll(
-            () => page.evaluate(() =>
-                window.__mockWriterLog.some((e) =>
-                    e.bytes && e.bytes.some((b) => b === 0x18))),
-            { timeout: 3000 },
-        ).toBe(true);
+        // Give the (removed) branch every chance to fire before asserting.
+        await page.waitForTimeout(500);
+        const sawCtrlCan = await page.evaluate(() =>
+            window.__mockWriterLog.some((e) =>
+                e.bytes && e.bytes.some((b) => b === 0x18)));
+        expect(sawCtrlCan).toBe(false);
     });
 
     test('pagehide emits single-byte CTRL_CAN when active', async ({ page }) => {

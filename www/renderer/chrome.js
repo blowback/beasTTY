@@ -211,32 +211,34 @@ export function wireChrome(opts) {
             document.title = document.title.slice(4);
         }
         if (!document.hidden && requestFrame) requestFrame();
-        // Phase 11 Plan 11-04 D-13 / SLIDE-31 — fire-and-forget CTRL_CAN on
-        // hide during active SLIDE session. Best-effort: try/catch wrappers
-        // prevent error propagation during page teardown (PITFALLS §6 — page
-        // is hidden / unloading; errors must NOT propagate). No await — the
-        // browser may not flush the wire before the tab closes, and that is
-        // acceptable per CONTEXT D-13. The 0x18 byte is the SLIDE CTRL_CAN
-        // per ADR-003. cancelSlideRecv is the Phase 10 D-15 5-step cancel
-        // state machine; calling it AND writing 0x18 is intentional double
-        // safety (the cancel state machine internalises its own CTRL_CAN
-        // emission via slide.cancel(), and the writeSlideFrame is a
-        // last-ditch direct-to-wire call in case the SM has already
-        // transitioned past CancelPending — Phase 10 D-15 cancelInFlight
-        // guard makes this idempotent).
-        if (document.visibilityState === 'hidden' && isSlideActiveRef && isSlideActiveRef()) {
-            try { if (cancelSlideRecvRef) cancelSlideRecvRef(); } catch {}
-            try { if (txSinkRef && txSinkRef.writeSlideFrame) txSinkRef.writeSlideFrame(new Uint8Array([0x18])); } catch {}
-        }
+        // E11 S11.4 (2026-08-05) — hiding the tab NO LONGER cancels an active
+        // SLIDE session. Phase 11 Plan 11-04 D-13 / SLIDE-31 fired a cancel +
+        // raw CTRL_CAN here, but its own rationale is about teardown ("the
+        // browser may not flush the wire before the tab closes") — which is
+        // what pagehide signals. Split View makes "hidden" an ordinary state
+        // during a transfer: selecting another tab would destroy a healthy
+        // one. The cancel + CTRL_CAN pair is kept verbatim on pagehide below.
+        // Recorded as a dated amendment to AD-13 in ARCHITECTURE-SPINE.md and
+        // docs/architecture-www.md — AD-13 forbids losing that behaviour
+        // silently, not narrowing it deliberately.
     });
 
-    // Phase 11 Plan 11-04 D-13 / SLIDE-31 — pagehide is the bfcache-safe
-    // complement to visibilitychange. modern Chromium fires visibilitychange
-    // on tab close, but pagehide is the spec-guaranteed signal for bfcache
-    // eviction. Body mirrors the visibilitychange SLIDE branch verbatim;
-    // the inner isSlideActiveRef() guard ensures duplicate calls are safe
-    // (the second one no-ops because slide.cancel() already transitioned
-    // to CancelPending).
+    // Phase 11 Plan 11-04 D-13 / SLIDE-31 — since E11 S11.4 this is the SOLE
+    // hide trigger for the cancel (visibilitychange no longer fires it), and
+    // it is the one D-13's rationale actually argues for: the page is really
+    // going away, and the browser may not flush the wire before it does.
+    // pagehide is also the spec-guaranteed signal for bfcache eviction, where
+    // modern Chromium's visibilitychange-on-tab-close is not.
+    //
+    // Fire-and-forget, best-effort: the try/catch wrappers stop errors
+    // propagating during teardown (PITFALLS §6), and there is no await — an
+    // unflushed wire is acceptable per CONTEXT D-13. The 0x18 byte is the
+    // SLIDE CTRL_CAN per ADR-003. Calling cancelSlideRecv (the Phase 10 D-15
+    // 5-step cancel state machine) AND writing 0x18 is intentional double
+    // safety: the state machine emits its own CTRL_CAN via slide.cancel(),
+    // and the writeSlideFrame is a last-ditch direct-to-wire call for the case
+    // where the SM has already moved past CancelPending. The isSlideActiveRef()
+    // guard plus D-15's cancelInFlight latch make repeat calls no-ops.
     window.addEventListener('pagehide', () => {
         if (isSlideActiveRef && isSlideActiveRef()) {
             try { if (cancelSlideRecvRef) cancelSlideRecvRef(); } catch {}

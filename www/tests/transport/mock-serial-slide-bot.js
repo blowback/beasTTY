@@ -132,6 +132,7 @@ export const MOCK_SERIAL_SLIDE_BOT = `
     nak_already_injected: false,
     injectCanAfterFirstDataFrame: false,
     can_already_injected: false,
+    can_echoed: false,             // E11 S11.4 — slide.asm can_initiated mirror
     first_data_frame_seen: false,
 
     // UAT-E9-03 v0.5.2 wire realism — real hardware can deliver an ACK's
@@ -196,6 +197,7 @@ export const MOCK_SERIAL_SLIDE_BOT = `
       bot.nak_already_injected = false;
       bot.injectCanAfterFirstDataFrame = false;
       bot.can_already_injected = false;
+      bot.can_echoed = false;           // E11 S11.4 — slide.asm can_initiated mirror
       bot.first_data_frame_seen = false;
       bot.splitRecvAcks = false;
       bot.stallAfterAcks = null;
@@ -385,9 +387,21 @@ export const MOCK_SERIAL_SLIDE_BOT = `
         continue;
       }
 
-      // CTRL_CAN echo from sender (D-19 bidirectional).
+      // CTRL_CAN from the sender (D-19 bidirectional). E11 S11.4 bot-parity
+      // check against slide.asm respond_to_cancel (:407-421): the Z80 echoes
+      // CTRL_CAN back unless IT initiated the cancel, and the v0.2.1 §2 header
+      // (:19-21) states the echo is bidirectional — "either side may initiate
+      // cancel; the other side echoes CTRL_CAN back within ~500 ms". The bot
+      // only honoured that in its send role, so a page-initiated send cancel
+      // never got an echo and every send cancel looked like a dead peer.
+      // can_echoed mirrors the Z80's can_initiated latch, so the echo of our
+      // own echo is a no-op (idempotency, v0.2.1 §2.4).
       if (head === CTRL_CAN) {
         bot.parse_buf.shift();
+        if (!bot.can_echoed && !bot.can_already_injected) {
+          bot.can_echoed = true;
+          window.__mockReaderPush(new Uint8Array([CTRL_CAN]));
+        }
         continue;
       }
 

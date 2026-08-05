@@ -43,7 +43,7 @@ import { pushTxBytes, getWireOwner, isWriterReady } from '../input/tx-sink.js';
 // drained recv events to no-op; Plan 10-03 routes EVT_HEADER_RECEIVED /
 // EVT_RECV_DATA / EVT_RECV_FILE_DONE through onRecvEvent, and re-issues
 // setSlideRef on every enterRecvMode so slide-recv has the live wasm Slide.
-import { onRecvEvent, setSlideRef as setSlideRecvRef, isSlideActive, slidePumpOnPortLost as slideRecvPumpOnPortLost } from './slide-recv.js';
+import { onRecvEvent, setSlideRef as setSlideRecvRef, isSlideActive, slidePumpOnPortLost as slideRecvPumpOnPortLost, notifyRecvStateTransition } from './slide-recv.js';
 // Phase 11 Plan 11-04 SLIDE-14 — auto-type echo swallow filter (CONTEXT C-03).
 // Sits BEFORE the wakeup matcher in dispatchTerminalMode's byte loop. After
 // the host auto-types a command (e.g. "B:SLIDE R\r"), CP/M echoes those bytes
@@ -473,6 +473,10 @@ export function __resetForTests() {
     // E9 — clear the pull-pane batch hint.
     expectedRecvFiles = 0;
     expectedRecvFilesTs = 0;
+    // E11 S11.4 — no cancel has happened in the next spec's session, and no
+    // waiter may survive into it.
+    lastCancelEchoArrived = null;
+    abandonPendingSendStateWait();
 }
 /// Cheap production predicate for "a send session currently owns the wire".
 /// Callers on hot paths (e.g. the Escape keydown arm) use this instead of
@@ -490,6 +494,7 @@ export function __getStateForTests() {
         hasSlide: slide !== null,
         hasPendingSendSession: pendingSendSession !== null,
         expectedRecvFiles,               // E9 batch hint (specs assert set/clear)
+        lastCancelEchoArrived,           // E11 S11.4 — did the peer echo CTRL_CAN?
     };
     if (slide && currentSendCtx) {
         return {
@@ -771,6 +776,14 @@ function dispatchRecvMode(value) {
         }
         slide.feed_byte(b);
         const stAfter = slide.state();
+        // E11 S11.4 — settle slide-recv's cancel Step 3 wait on the transition
+        // itself, carrying the state VALUE. It must hang off this point, not
+        // off drainEventsAndOutbound: while the SM is in CancelPending it
+        // consumes bytes and emits NO events at all (ADR-003 §4), so the echo
+        // produces nothing for the event drain to see. It also has to run
+        // before maybeExitRecvMode below, which nulls slide-recv's ref.
+        // No-ops unless a cancel wait is actually pending.
+        notifyRecvStateTransition(stAfter);
         if (stAfter === STATE_DONE || stAfter === STATE_ERROR) {
             recvDoneAt = i;
             break;
@@ -1157,6 +1170,13 @@ const SEND_CANCEL_DRAIN_MS = 100;
 const SEND_CANCEL_ABSOLUTE_TIMEOUT_MS = 2000;
 let sendCancelInFlight = false;
 
+// E11 S11.4 — observability for the Step 3 echo wait. `true` when the Z80's
+// CTRL_CAN echo settled the wait, `false` when the 500 ms budget expired,
+// `null` before any cancel in this page session. Specs read it through
+// __getStateForTests to tell "the peer answered" apart from "we gave up",
+// which the mode flag alone cannot express (both land in 'terminal').
+let lastCancelEchoArrived = null;
+
 // UAT-E9-03 (2026-07-24, real-hardware multi-file send) — a lone ACK/NAK
 // control byte at a chunk boundary parks the Rust framer in AfterAckOrNak
 // awaiting the seq byte, which arrives as the FIRST byte of the NEXT chunk.
@@ -1173,20 +1193,57 @@ function sendCancelDelay(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// waitForSendState — symmetric twin of slide-recv.js's waitForState (both were
+// created as mirrors in 728cbfe). Resolves when the SM transitions to
+// targetState, or false when timeoutMs expires.
+//
+// E11 S11.4 — this used to poll every 10 ms against a deadline. Chromium floors
+// a hidden tab's chained timers at ~1 s while performance.now() keeps real
+// time, so the poll collapsed to one or two samples and the Z80's published
+// ~500 ms echo budget was never sampled; at chain depth >= 5 (which a poll loop
+// is by construction) intensive throttling aligns timers to ~1-minute buckets
+// and the 2 s absolute timeout force-idles a healthy session. One non-chained
+// deadline can only be made to fire LATE by a clamp, which is the safe
+// direction. The transition itself is reported by notifySendStateTransition
+// from the inbound byte-walk.
+let pendingSendStateWaiter = null;
+
+// Same module as the dispatcher, so no export is needed here (the recv twin
+// needs one because its dispatcher lives in this file).
+function notifySendStateTransition(stateValue) {
+    const waiter = pendingSendStateWaiter;
+    if (!waiter) return;
+    if (stateValue === waiter.targetState) waiter.settle(true);
+}
+
+function abandonPendingSendStateWait() {
+    if (pendingSendStateWaiter) pendingSendStateWaiter.settle(false);
+}
+
 function waitForSendState(targetState, timeoutMs) {
     return new Promise((resolve) => {
-        const start = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
-        const now = () => (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
-        const tick = () => {
-            if (slide && slide.state() === targetState) return resolve(true);
-            if (now() - start >= timeoutMs) return resolve(false);
-            setTimeout(tick, 10);
+        // Synchronous first check — the CAN echo can already have been fed
+        // during the await drainSlideOutboundAwaitable() in Step 2.
+        if (slide && slide.state() === targetState) {
+            resolve(true);
+            return;
+        }
+        const waiter = { targetState, settle: null };
+        let settled = false;
+        const deadline = setTimeout(() => waiter.settle(false), timeoutMs);
+        waiter.settle = (matched) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(deadline);          // a leaked timer would outlive the session
+            if (pendingSendStateWaiter === waiter) pendingSendStateWaiter = null;
+            resolve(matched);
         };
-        tick();
+        pendingSendStateWaiter = waiter;
     });
 }
 
 function forceExitSendMode() {
+    abandonPendingSendStateWait();   // E11 S11.4 — `slide` is nulled below
     // Quick exit on cancel — does NOT call enterSummary (which advertises
     // "Sent N files"). Hides the chip, releases wire owner, clears send
     // context. Mirror of slide-recv.js forceExitRecvMode.
@@ -1253,6 +1310,15 @@ export async function cancelSlideSend() {
         try { await drainSlideOutboundAwaitable(); } catch {}
         // Step 3 — wait up to 500 ms for Z80 echo (state Done).
         const echoArrived = await waitForSendState(STATE_DONE, SEND_CANCEL_ECHO_WAIT_MS);
+        lastCancelEchoArrived = echoArrived;   // E11 S11.4 observability
+        // E11 S11.4 — the 2 s hatch guards a HUNG cancel; once the peer has
+        // echoed, all that remains is a fixed local drain. It has to be
+        // disarmed here because a hidden tab floors every setTimeout at ~1 s:
+        // Step 1's 200 ms and Step 4's 100 ms alone then stretch to ~2 s and
+        // trip the hatch on a perfectly healthy cancel — force-idling the
+        // session and printing a failure that did not happen. The 2000 ms
+        // value is unchanged and still guards the no-echo path in full.
+        if (echoArrived) clearTimeout(absoluteTimeout);
         // Step 4 — drain 100 ms post-echo.
         await sendCancelDelay(SEND_CANCEL_DRAIN_MS);
         // Step 5 — escape hatch.
@@ -1403,6 +1469,15 @@ async function dispatchSendMode(value) {
             i += 1;
         }
     }
+    // E11 S11.4 — settle the cancel Step 3 wait on the transition this chunk
+    // produced (the CAN echo is fed in the walk above). Same reason as the
+    // recv side: in CancelPending the SM emits no events (ADR-003 §4), so the
+    // event drain below would never see it. Resolving a promise is safe inside
+    // the sendDispatchTail chain — it settles on a microtask, and nothing new
+    // is awaited here.
+    // pendingSendStateWaiter is read first so the ordinary send path pays no
+    // extra JS→wasm state() crossing per inbound chunk.
+    if (pendingSendStateWaiter && slide) notifySendStateTransition(slide.state());
     await drainEventsAndOutboundAwaitable();
     pumpNextDataChunkIfReady();
     await drainEventsAndOutboundAwaitable();

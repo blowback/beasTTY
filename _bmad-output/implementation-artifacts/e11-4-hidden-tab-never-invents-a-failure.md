@@ -4,7 +4,7 @@ baseline_commit: 034e5df29204997c8007d48780fd6b7ef1760a84
 
 # Story 11.4: A hidden tab never invents a failure
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -99,29 +99,29 @@ This narrows an incumbent behaviour that AD-13 (`ARCHITECTURE-SPINE.md:139-142`)
 
 ## Tasks / Subtasks
 
-- [ ] **T1 — Observability first, so the red run is honest (AC: 8)**
-  - [ ] Add `lastCancelEchoArrived` to both `__getStateForTests()` snapshots, recording the existing `echoArrived` value at `slide.js:1255` and `slide-recv.js:647`. Reset to `null` in both `__resetForTests()`.
-  - [ ] **This is instrumentation only — do not touch the wait helpers yet.** Landing it first is what makes T2's red run a genuine behavioural failure rather than "the field does not exist".
-- [ ] **T2 — Write the specs, prove them red (AC: 7)**
-  - [ ] New `www/tests/transport/slide-hidden-tab-clamp.spec.js`, cases (a)–(e), house `beforeEach` copied verbatim from `slide-cancel.spec.js:13-34`.
-  - [ ] Run with `--retries=0`. Record which cases are red and the exact failure output — (a), (b), (c) and (e) must be red now; (d) must already be green.
-- [ ] **T3 — Convert the receive wait (AC: 2, 3, 4, 5)**
-  - [ ] Add a named export to `slide-recv.js` that accepts the transitioned-to state value and settles a pending waiter. Import it in `slide.js` alongside the existing `onRecvEvent` / `setSlideRef` / `isSlideActive` imports (`slide.js:46`) — no `main.js` change.
-  - [ ] Call it from `dispatchRecvMode`'s byte-walk **after** `slide.feed_byte(b)` / `stAfter` (`slide.js:772-777`) and **before** `maybeExitRecvMode()` (`slide.js:783`) — passing `stAfter`.
-  - [ ] Rewrite `waitForState`: synchronous first check, then `Promise.race`-style settle against one `delay(timeoutMs)`. Reuse the existing `delay` (`slide-recv.js:601`).
-  - [ ] Clear the pending waiter in `forceExitRecvMode` and `__resetForTests` so it cannot leak across sessions or specs.
-- [ ] **T4 — Convert the send wait (AC: 1, 3, 4, 5)**
-  - [ ] Module-scope waiter in `slide.js`; notify after the `dispatchSendMode` byte-walk (`slide.js:1371-1405`), before the drains. Same module, so no new export.
-  - [ ] Rewrite `waitForSendState` to the same shape. Reuse `sendCancelDelay` (`slide.js:1172`).
-  - [ ] Settle any pending waiter `false` in `forceExitSendMode` (which nulls `slide` at `:1212`) and clear in `__resetForTests`.
-  - [ ] Keep the two helpers **symmetric twins** — they were created as mirrors (`728cbfe`) and are documented as such at `slide.js:1188-1190` and `slide-recv.js:704-707`.
-- [ ] **T5 — Narrow the hide trigger (AC: 6, 9)**
-  - [ ] Remove the SLIDE branch from `chrome.js`'s `visibilitychange` listener (`:227-230`); leave `:210-213` and the whole `pagehide` listener alone.
-  - [ ] Invert `slide-bridge.spec.js:185`; leave `:210` and `:226` untouched.
-- [ ] **T6 — Green run + docs (AC: 7, 9, 10, 11)**
-  - [ ] Re-run the new spec file: all five green. Then the full transport project, then the full suite.
-  - [ ] Dated `[E11 2026-08-05]` AD-13 amendment in `ARCHITECTURE-SPINE.md`; matching update to `docs/architecture-www.md:42`.
-  - [ ] Record the `slide.asm` parity check in Completion Notes.
+- [x] **T1 — Observability first, so the red run is honest (AC: 8)**
+  - [x] Add `lastCancelEchoArrived` to both `__getStateForTests()` snapshots, recording the existing `echoArrived` value at `slide.js:1255` and `slide-recv.js:647`. Reset to `null` in both `__resetForTests()`.
+  - [x] **This is instrumentation only — do not touch the wait helpers yet.** Landing it first is what makes T2's red run a genuine behavioural failure rather than "the field does not exist".
+- [x] **T2 — Write the specs, prove them red (AC: 7)**
+  - [x] New `www/tests/transport/slide-hidden-tab-clamp.spec.js`, cases (a)–(e), house `beforeEach` copied verbatim from `slide-cancel.spec.js:13-34`.
+  - [x] Run with `--retries=0`. Record which cases are red and the exact failure output — (a), (b), (c) and (e) must be red now; (d) must already be green.
+- [x] **T3 — Convert the receive wait (AC: 2, 3, 4, 5)**
+  - [x] Add a named export to `slide-recv.js` that accepts the transitioned-to state value and settles a pending waiter. Import it in `slide.js` alongside the existing `onRecvEvent` / `setSlideRef` / `isSlideActive` imports (`slide.js:46`) — no `main.js` change.
+  - [x] Call it from `dispatchRecvMode`'s byte-walk **after** `slide.feed_byte(b)` / `stAfter` (`slide.js:772-777`) and **before** `maybeExitRecvMode()` (`slide.js:783`) — passing `stAfter`.
+  - [x] Rewrite `waitForState`: synchronous first check, then `Promise.race`-style settle against one `delay(timeoutMs)`. Reuse the existing `delay` (`slide-recv.js:601`). *(Deviation: uses a bare `setTimeout` deadline it can `clearTimeout`, not `delay` — AC-1 requires the deadline be cleared on transition-resolve, and a `delay()` promise exposes no handle to clear. Same on the send side.)*
+  - [x] Clear the pending waiter in `forceExitRecvMode` and `__resetForTests` so it cannot leak across sessions or specs.
+- [x] **T4 — Convert the send wait (AC: 1, 3, 4, 5)**
+  - [x] Module-scope waiter in `slide.js`; notify after the `dispatchSendMode` byte-walk (`slide.js:1371-1405`), before the drains. Same module, so no new export.
+  - [x] Rewrite `waitForSendState` to the same shape. Reuse `sendCancelDelay` (`slide.js:1172`). *(Same deviation as T3 — bare clearable `setTimeout`.)*
+  - [x] Settle any pending waiter `false` in `forceExitSendMode` (which nulls `slide` at `:1212`) and clear in `__resetForTests`.
+  - [x] Keep the two helpers **symmetric twins** — they were created as mirrors (`728cbfe`) and are documented as such at `slide.js:1188-1190` and `slide-recv.js:704-707`.
+- [x] **T5 — Narrow the hide trigger (AC: 6, 9)**
+  - [x] Remove the SLIDE branch from `chrome.js`'s `visibilitychange` listener (`:227-230`); leave `:210-213` and the whole `pagehide` listener alone.
+  - [x] Invert `slide-bridge.spec.js:185`; leave `:210` and `:226` untouched.
+- [x] **T6 — Green run + docs (AC: 7, 9, 10, 11)**
+  - [x] Re-run the new spec file: all five green. Then the full transport project, then the full suite.
+  - [x] Dated `[E11 2026-08-05]` AD-13 amendment in `ARCHITECTURE-SPINE.md`; matching update to `docs/architecture-www.md:42`.
+  - [x] Record the `slide.asm` parity check in Completion Notes.
 
 ## Dev Notes
 
@@ -245,14 +245,73 @@ A **single, non-chained** `setTimeout(2000)` is only floored, never shortened �
 
 ### Agent Model Used
 
+claude-opus-5[1m] (bmad-dev-story workflow), 2026-08-05.
+
 ### Debug Log References
+
+**Red run — `npx playwright test --project=chromium-transport --retries=0 tests/transport/slide-hidden-tab-clamp.spec.js`, T1 instrumentation only:**
+
+| Case | Result | Failure |
+|---|---|---|
+| (a) recv, ordinary clock | RED | `lastCancelEchoArrived` `false` — never `true` on any clock (Dev Notes §1 defect) |
+| (b) recv, clamped clock | RED | same, `false` |
+| (c) send, clamped clock | RED | see below — two rounds |
+| (d) no-echo burns the budget | GREEN | as predicted |
+| (e) hide does not cancel | RED | `CTRL_CAN` on the wire after `visibilitychange`, mode left `terminal` |
+
+**(c) took two rounds to make honest, and each round found something real:**
+
+1. *First attempt passed — for the wrong reason.* The bot never echoed `CTRL_CAN` in its recv role, so `waitForSendState` could not have succeeded either way; the case proved nothing about the clamp. Fixed by the AC-10 parity check (see Completion Notes) — with the bot echoing, (c) then passed **without** any production change, because the poll checks state *before* the deadline and `exitSendMode` leaves `slide` non-null, so even one late tick finds `Done`.
+2. *The assertion was reading the console too early.* An instrumented run (timer arm/fire log) showed the real failure lands at **t≈2016 ms**, long after `mode` returns to `terminal`:
+
+   ```
+   ECHO: true
+   req=200  armed@16   fired@1016      ← Step 1, floored to 1000
+   req=2000 armed@16   fired@2016      ← the 2 s hatch, on time
+   req=100  armed@1016 fired@2016      ← Step 4, floored to 1000
+   warning: [slide.js] send-cancel absolute timeout (2s); force_idle
+   ```
+
+   Adding `SETTLE_PAST_ABSOLUTE_MS` (2600 ms) before the console assertion made (c) — and (b) — genuinely red. This is the third defect described in the Completion Notes.
+
+**Green run:** all five pass; (a) now completes in 335 ms where it previously burned the full 600 ms budget every time.
+
+**Flake check.** New cases appeared in the flaky list of two full-project runs. Chased rather than accepted: (e) passes 10/10 and (c) 6/6 in isolation with `--retries=0`, and four no-retry full-project runs never failed a case from this file. Every reproduction, including one on the inverted `slide-bridge` case, was the documented boot-race — `page.evaluate: TypeError: Cannot read properties of undefined (reading 'open')` in `commonReset`, i.e. `window.__menuBar` absent because the wasm boot was starved under parallel load. That is the exact class `playwright.config.js:20-30` describes and `retries: 1` self-heals.
 
 ### Completion Notes List
 
+**Three defects, not one.** The epic named the poll. The story's Dev Notes named a second. Implementation surfaced a third:
+
+1. **`waitForState` could never resolve `true`, on any clock.** The echo byte is fed in `dispatchRecvMode`'s byte-walk and `exitRecvMode → setSlideRef(null)` runs synchronously in the *same* read-loop callback, so no scheduled tick could ever observe `STATE_DONE`. Every receive cancel burned its full 500 ms and reported no echo. Fixed by notifying with the transitioned-to state **value**, so the waiter never re-reads the ref.
+2. **The poll collapsed under a hidden tab's ~1 s timer floor.** Both waits are now one non-chained `setTimeout` deadline settled by the inbound dispatcher — a clamp can only make one deadline fire *late*, which is the safe direction.
+3. **NEW — the cancel sequence's own delays consume the whole 2 s escape hatch under a clamp.** Step 1 (200 ms) and Step 4 (100 ms) each floor to ~1 s, so a *healthy* cancel reaches Step 5 at ~2016 ms and the hatch fires first: `force_idle` on a session the peer had already acknowledged, plus a console warning for a failure that did not happen. Resolve-on-transition alone does not fix this — AC-7(c) is unreachable without it. Fix: `clearTimeout(absoluteTimeout)` the moment Step 3 confirms the echo, on both sides. The 2000 ms value is untouched and still guards the no-echo path in full (AC-4, and `slide-cancel.spec.js:117-137`'s `elapsed >= 600` lower bound, both green).
+
+**AC-10 — bot parity against `slide.asm`, and what it found.** Checked `§2` header (`:19-21`: "either side may initiate cancel; the other side echoes CTRL_CAN back within ~500 ms") and `respond_to_cancel` (`:407-421`). The routine is **role-independent** — it echoes whenever the peer cancels, suppressed only by the `can_initiated` latch when the Z80 itself started it. The mock bot honoured this in its *send* role only: in recv role (`drainBuf`) it consumed the page's `CTRL_CAN` and stayed silent, so **no page-initiated send cancel had ever been answered in any spec** and the send-side echo path was untested. Fixed with a faithful `can_echoed` mirror of `can_initiated`. This is exactly the E9 retro §3 "the bot can flatter you" failure mode, caught by the action item that binds this story.
+
+**Deviations from the story text, all recorded above:** (i) the waits use a bare clearable `setTimeout` rather than the existing `delay` / `sendCancelDelay` helpers, because AC-1 requires clearing the deadline on transition-resolve and a promise-returning helper exposes no handle; (ii) the mock bot gained the parity fix — a test-harness change, no production API growth; (iii) the specs needed a settle wait past the 2 s hatch to assert the console honestly.
+
+**Sanctioned API growth, exactly as AC-8 allows:** `lastCancelEchoArrived` in each of the two `__getStateForTests()` snapshots, and one named export `notifyRecvStateTransition` from `slide-recv.js`. No new `window.__*` hook, no `main.js` change, no Rust/wasm change. `isSendActive()` / `isSlideActive()` keep their shapes.
+
+**Test results.** New file 5/5 green. Transport project 199–201 passed per run (201 total incl. the 5 new), plus the documented boot-race flakes described above. **Full suite: 734 passed, 1 flaky (pre-existing `lifecycle.spec.js` boot race, self-healed on retry), 1 skipped.** `cargo test` green across all 17 targets (CORE-02 included) — expected, since nothing in the core was touched.
+
+**Not verified on hardware.** The clamp is simulated; a real hidden-tab transfer on a MicroBeast has not been run. Worth a checkpoint before E11 ships (E9 retro action #2).
+
 ### File List
+
+- `www/transport/slide.js` — modified (send wait converted; notify from `dispatchSendMode`; recv notify called from `dispatchRecvMode`; hatch disarmed on echo; `lastCancelEchoArrived`)
+- `www/transport/slide-recv.js` — modified (receive wait converted; `notifyRecvStateTransition` export; hatch disarmed on echo; `lastCancelEchoArrived`)
+- `www/renderer/chrome.js` — modified (SLIDE branch removed from `visibilitychange`; `pagehide` behaviour and rationale retained)
+- `www/tests/transport/slide-hidden-tab-clamp.spec.js` — new (cases (a)–(e))
+- `www/tests/transport/slide-bridge.spec.js` — modified (hide-emits case inverted)
+- `www/tests/transport/mock-serial-slide-bot.js` — modified (recv-role `CTRL_CAN` echo, `slide.asm` parity)
+- `_bmad-output/planning-artifacts/architecture/architecture-beastty-2026-07-01/ARCHITECTURE-SPINE.md` — modified (dated AD-13 amendment) — **untracked by design**, `.gitignore:16` excludes `planning-artifacts/`; the edit is on disk and will not appear in the commit
+- `docs/architecture-www.md` — modified (`chrome.js` visibility/pagehide description) — **untracked by design**, `.gitignore:21`
+- `_bmad-output/implementation-artifacts/e11-4-hidden-tab-never-invents-a-failure.md` — modified (this file)
+- `_bmad-output/implementation-artifacts/sprint-status.yaml` — modified (status transitions)
 
 ## Code Review
 
 ## Change Log
 
+- 2026-08-05 — Implemented (bmad-dev-story). Both cancel Step 3 waits converted from a 10 ms poll to resolve-on-transition, notified from the inbound byte dispatcher with the state value carried by argument, against one non-chained deadline. Tab-hide no longer cancels a SLIDE session; `pagehide` keeps the cancel + `CTRL_CAN`, recorded as a dated AD-13 amendment. Two findings beyond the story's brief: the mock bot never echoed `CTRL_CAN` in its recv role, contrary to `slide.asm respond_to_cancel` (so send-cancel echo had never been exercised); and under a clamped clock the sequence's own 200 ms + 100 ms windows consume the entire 2 s escape hatch, force-idling a healthy cancel — the hatch is now disarmed the moment the echo is confirmed. New spec `slide-hidden-tab-clamp.spec.js` (5 cases, proven red then green); `slide-bridge.spec.js`'s hide-emits case inverted. Full suite 734 passed / 1 pre-existing flaky / 1 skipped; `cargo test` green. Status: review.
 - 2026-08-05 — Story created (bmad-create-story). Analysis surfaced two defects beyond the one the epic names: (1) `waitForState` reads `slideRef`, which `exitRecvMode` nulls at the transition, so it can never resolve `true` on any clock; (2) `chrome.js:227-230` deliberately cancels an active receive on tab-hide (D-13 / SLIDE-31), which made FR-15's second AC unreachable by a poll fix alone. Decision taken with Ant: split the trigger — `pagehide` keeps the cancel, `visibilitychange → hidden` drops it — recorded as a dated AD-13 amendment. Also corrected the epic's reach claim: both helpers have exactly one call site each (the ADR-003 cancel sequence), so the defect affects every *cancel*, not every send. Status: ready-for-dev.
