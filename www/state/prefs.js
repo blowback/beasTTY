@@ -13,7 +13,9 @@
 // (D-32 + 05-CONTEXT.md D-31).
 
 const STORAGE_KEY = 'beastty.prefs';
-const CURRENT_VERSION = 1;
+// v2 — the SLIDE auto-send command line was replaced by where SLIDE.COM lives
+// (drive + program name) plus an auto-start switch. See migrateV1ToV2 below.
+const CURRENT_VERSION = 2;
 
 const DEFAULTS = Object.freeze({
     version: CURRENT_VERSION,
@@ -40,12 +42,21 @@ const DEFAULTS = Object.freeze({
                                  //   (same precedent as slideConfirmTransfers / serialAssertRtsOnConnect above).
     showAllSerialDevices: false,
     slideRecvToFolder: false,    // Phase 10 — CONTEXT D-02 (default OFF; toggle in Settings pane lands in Plan 10-04)
-    slideAutoSendCommand: 'B:SLIDE R\r',          // Phase 11 — D-09 (SLIDE-37) — trailing \r is a 0x0D byte, not a literal backslash-r
+    // ── Where SLIDE.COM lives on the device (v2; replaces the v1 auto-send
+    //    command line). Beastty appends the direction letter itself — `R` when
+    //    it sends a file to the device, `S` when the pull pane asks for files —
+    //    plus the CR, so the stored value is a location, not a command. Stating
+    //    it once means both directions invoke the same program: before v2 the
+    //    pull side was hardcoded to a bare `SLIDE S`, which CP/M answers with
+    //    `SLIDE?` from any drive that isn't the one holding SLIDE.COM.
+    slideProgramDrive: 'A:',                      // 'A:'..'P:' — a drive is always stated (no "current drive")
+    slideProgramName: 'SLIDE.COM',                // CP/M 8.3 name; the '.COM' is optional ('SLIDE' is equivalent)
+    slideAutoStart: true,                         // Auto-start SLIDE on the device before sending. OFF = type nothing
+                                                  //   (you run SLIDE R yourself) — the v1 empty-command sentinel, now
+                                                  //   explicit. The location above still drives the PULL command, so
+                                                  //   drag-to-pull keeps working with auto-start off.
     slideShowSummary: true,                       // Phase 11 — D-09 (D-08 default ON; Cancelled summary chip ALWAYS shows regardless)
     slideCompatibilityMode: 'auto',               // Phase 11 — D-09 ('auto' | 'wakeup-required' | 'force-start')
-    slideAutoSendCommandConfirmed: '',            // Phase 12 SLIDE-38: exact-match flag, keyed to the value last confirmed.
-                                                  //   Empty string = never confirmed. Re-arms on every Settings change.
-                                                  //   CURRENT_VERSION NOT bumped per Phase 6 D-32 defensive merge.
     slideConfirmTransfers: true,
         // v1.1 polish (260513-grs Task 2) — default ON preserves the existing
         // confirm-modal flow. Toggle in #settings-slide → "Confirm file transfers".
@@ -90,6 +101,49 @@ const DEFAULTS = Object.freeze({
 // so prefs.{IDB_ONLY_FIELDS[i]} is guaranteed undefined for callers.
 const IDB_ONLY_FIELDS = Object.freeze(['slideRecvDirectoryHandle']);
 
+// v1 → v2: the auto-send command line becomes a location + an auto-start switch.
+//
+// v1 stored the whole line Beastty auto-typed at the CCP ('B:SLIDE R\r'), with
+// the empty string meaning "type nothing". v2 stores where SLIDE.COM lives and
+// appends the direction letter itself, so the same setting serves sends AND
+// pulls. Read the program invocation out of the old line and drop the rest.
+//
+// The name is NOT constrained to 'SLIDE' — rename the binary to BANANA.COM if
+// you like; it still speaks the SLIDE protocol and still takes the standard
+// R / S argument, which is all Beastty needs. What v2 will not express is a
+// command line: the accepted shape is a program token plus at most a bare
+// direction letter, because that letter is the only thing marking the token as
+// a SLIDE invocation rather than an arbitrary command. 'A:SLIDE R' and
+// 'A:BANANA.COM R' both read; 'A:SLIDE R QUIET' does not, and must NOT be
+// reduced to the program 'A:SLIDE' — Beastty would then auto-type a command
+// the user never asked for.
+//
+// A v1 line that fails that shape falls back to the defaults. Auto-start is
+// left ON there: the user had auto-typing enabled, and silently disabling it
+// would be a surprising way to lose a working send.
+const LEGACY_PROGRAM_RE = /^([A-Pa-p]:)?([A-Za-z0-9]{1,8}(?:\.[A-Za-z0-9]{1,3})?)$/;
+const LEGACY_DIRECTION_RE = /^[RSrs]$/;
+
+function migrateV1ToV2(blob) {
+    const out = { ...blob };
+    const legacy = out.slideAutoSendCommand;
+    delete out.slideAutoSendCommand;
+    delete out.slideAutoSendCommandConfirmed;   // the first-use-confirm ceremony went with v1
+    if (typeof legacy !== 'string') return out;                 // absent → defaults
+    if (legacy.length === 0) { out.slideAutoStart = false; return out; }   // v1 disabled sentinel
+    const parts = legacy.trim().split(/\s+/).filter((t) => t.length > 0);
+    if (parts.length > 2) return out;
+    if (parts.length === 2 && !LEGACY_DIRECTION_RE.test(parts[1])) return out;
+    const m = LEGACY_PROGRAM_RE.exec(parts[0] || '');
+    if (!m) return out;
+    out.slideAutoStart = true;
+    // No drive in the old line means it ran from whatever drive was current;
+    // v2 always states one, and DEFAULTS supplies 'A:' when this is absent.
+    if (m[1]) out.slideProgramDrive = m[1].toUpperCase();
+    out.slideProgramName = m[2].toUpperCase();
+    return out;
+}
+
 let cached = null;
 let saveTimer = null;
 const subscribers = [];
@@ -107,8 +161,12 @@ export function loadPrefs() {
             // so we never trust fields a future schema might have moved.
             parsed = structuredClone(DEFAULTS);
         } else if (parsed.version < CURRENT_VERSION) {
-            // Field-by-field upgrade: keep stored fields, fill missing from defaults,
-            // bump version. Future plans add per-version migration steps here.
+            // Field-by-field upgrade: keep stored fields, fill missing from
+            // defaults, bump version. Per-version migration steps run first so
+            // a renamed/restructured field is rewritten before the merge (an
+            // unmigrated v1 blob would otherwise keep its dead fields AND take
+            // the v2 defaults, losing the user's setting).
+            if (parsed.version < 2) parsed = migrateV1ToV2(parsed);
             parsed = { ...DEFAULTS, ...parsed, version: CURRENT_VERSION };
         }
         // Defensive merge — partial-blob safety: a stored object missing the
@@ -243,39 +301,49 @@ export function getPrefs() {
     return cached;
 }
 
-// Phase 12 SLIDE-38 — auto-send command safety regex.
-// Body uses `*` (zero-or-more) NOT `+` so the bare `\r` case is admitted —
-// harmless on the Z80 (CCP receives a CR with no command body and re-prompts).
-// HTML-relevant characters (`<`, `>`, `&`, `"`, `'`) are not in this character
-// class, so values that pass this gate are also XSS-safe by construction
-// (T-12-05).
+// ── Where SLIDE.COM lives: validation + composition ──
 //
-// Plan 12-03 Rule 1 deviation: the regex literal recorded in 12-RESEARCH.md
-// Pitfall 5 + 12-UI-SPEC.md §SLIDE-38 was `/^[A-Za-z0-9:]*\r$/`, which
-// REJECTS the default DEFAULTS literal `'B:SLIDE R\r'` because the space
-// (0x20) between `R` and CR is not in `[A-Za-z0-9:]`. The SAFE_CASES /
-// UNSAFE_CASES locked table in the same docs (and 12-VALIDATION.md) lists
-// `'B:SLIDE R\r'` and `'A:SLIDE R\r'` as MUST-PASS, so the SAFE_CASES table
-// is internally inconsistent with the regex literal. The SAFE/UNSAFE table
-// is the authoritative artefact (the default auto-type value MUST be
-// accepted or auto-send is broken at every install — the locked default in
-// DEFAULTS.slideAutoSendCommand contains the space), so the character class
-// is widened to include the space character. The threat model survives:
-// semicolons, pipes, LF, multiple CR, control chars, and backslash are all
-// still outside the class and still rejected by the same regex (the 5
-// UNSAFE_CASES still all fail the gate).
-const SAFE_AUTO_SEND_RE = /^[A-Za-z0-9: ]*\r$/;
+// v2 replaced the free-form auto-send command line with a drive and a program
+// name, so the grammar a user can express is now narrow by construction: a
+// drive letter from a dropdown, and a CP/M 8.3 filename. That is what retired
+// the v1 first-use-confirmation ceremony (SLIDE-38) — there is no longer an
+// arbitrary command to confirm. The use-time hard gate it protected stays:
+// slide.js validates HERE before any byte reaches the wire, because a
+// hand-edited or corrupt localStorage blob can still carry anything.
+//
+// HTML-relevant characters (`<`, `>`, `&`, `"`, `'`), separators (`;`, `|`),
+// whitespace and control bytes are all outside both character classes, so
+// values that pass are wire-safe and XSS-safe by construction (T-12-03/T-12-05).
+//
+// CP/M stops at drive P. The extension is optional — 'SLIDE' and 'SLIDE.COM'
+// are the same program to the CCP.
+const PROGRAM_DRIVE_RE = /^[A-P]:$/;
+const PROGRAM_NAME_RE = /^[A-Z0-9]{1,8}(\.[A-Z0-9]{1,3})?$/;
+
+/** True iff `d` is a CP/M drive qualifier, 'A:'..'P:'. Pure. */
+export function isValidProgramDrive(d) {
+    return typeof d === 'string' && PROGRAM_DRIVE_RE.test(d);
+}
+
+/** True iff `n` is a CP/M 8.3 program name, extension optional. Pure. */
+export function isValidProgramName(n) {
+    return typeof n === 'string' && PROGRAM_NAME_RE.test(n);
+}
 
 /**
- * SLIDE-38: validate auto-send command for wire safety.
- * Empty string is the SLIDE-13 disabled sentinel and bypasses the regex
- * (auto-type is suppressed entirely; nothing reaches the wire).
- * Returns false for non-string inputs (defensive against undefined/null).
+ * Compose the program invocation SLIDE is started with, e.g. 'A:SLIDE.COM'.
+ * Pure. Returns null when either half fails its grammar — callers decide what
+ * an unusable location means for them (slide.js types nothing; the pull pane
+ * falls back to a bare 'SLIDE', which is no worse than pre-v2 behaviour).
+ * Note this deliberately does NOT include the direction letter: the caller
+ * appends ' R' to send or ' S' to pull.
  */
-export function isAutoSendSafe(cmd) {
-    if (typeof cmd !== 'string') return false;
-    if (cmd.length === 0) return true;
-    return SAFE_AUTO_SEND_RE.test(cmd);
+export function slideProgramPath(p) {
+    if (!p) return null;
+    const drive = p.slideProgramDrive;
+    const name = p.slideProgramName;
+    if (!isValidProgramDrive(drive) || !isValidProgramName(name)) return null;
+    return drive + name;
 }
 
 export { DEFAULTS };

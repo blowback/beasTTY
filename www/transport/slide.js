@@ -69,13 +69,11 @@ import {
 // reaching the wire after Settings change without a page reload, AND the
 // first-use-confirm chip being skipped because the stale prefsRef.confirmed
 // equality compare matched against the previous value.
-import { isAutoSendSafe, getPrefs } from '../state/prefs.js';
-// Phase 12 SLIDE-38 — re-export the pure helper so main.js can attach it to
-// window.__slide.__isAutoSendSafeForTests alongside the existing __slide
-// introspection surface (Phase 8/9/10 pattern: every test-observable knob
-// lives under window.__slide). The Playwright safety spec drives the helper
-// directly via window.__slide.__isAutoSendSafeForTests(input).
-export { isAutoSendSafe as __isAutoSendSafeForTests };
+import { slideProgramPath, getPrefs } from '../state/prefs.js';
+// The pull pane and the Settings row need the same composed program path, so
+// it lives in prefs.js (one canonical grammar) and is re-exported here for the
+// __slide test surface — every test-observable knob lives under window.__slide.
+export { slideProgramPath as __slideProgramPathForTests };
 
 // EVT_* — packed (kind << 16) | aux. JS unpacks via (evt >>> 16) for kind,
 // (evt & 0xFFFF) for aux. AUTHORITY: crates/beastty-core/tests/slide_boundary_shape.rs:slide_event_constants_pinned
@@ -160,16 +158,9 @@ let txSinkRef = null;     // { setWireOwner, getWireOwner, writeSlideFrame }
 let SlideCtor = null;     // the wasm-imported Slide class
 let wasmRef = null;       // for memory.buffer access in drainSlideOutbound
 // Phase 11 Plan 11-03 — additional injected deps for D-09 / D-12 / chip lifecycle.
-let prefsRef = null;      // { slideAutoSendCommand, slideShowSummary, slideCompatibilityMode }
+let prefsRef = null;      // { slideProgramDrive, slideProgramName, slideAutoStart, slideShowSummary, slideCompatibilityMode }
 let pastePumpRef = null;  // { cancelPaste } — D-12 paste-pump gate at SLIDE wakeup completion
-let slideChipRef = null;  // { enterActive, enterAwaitingWakeup, enterFirstUseConfirm, ... }
-// Phase 12 SLIDE-38 — savePrefs reference for first-use-confirm gate. Used to
-// (a) write slideAutoSendCommandConfirmed = current value when the user clicks
-// [Confirm], and (b) reset slideAutoSendCommand + slideAutoSendCommandConfirmed
-// to AUTO_SEND_DEFAULT when the user clicks [Reset to default]. Optional —
-// older boot paths / test harnesses without savePrefs threaded through still
-// observe the same fail-open behaviour as Phase 11.
-let savePrefsRef = null;
+let slideChipRef = null;  // { enterActive, enterAwaitingWakeup, enterError, ... }
 // Phase 12 UAT Niggle 1 — terminal-wrapper element ref for focus restore
 // after cancelSlideSend. Without this, hiding the chip leaves the browser's
 // focus on a now-display:none button so it falls back to <body>; clicking
@@ -187,7 +178,7 @@ let wrapperElRef = null;
 //      ONLY as a fallback for test harnesses that wire { prefs: customObj }
 //      without going through loadPrefs() (so getPrefs() returns null).
 //   3. null — caller must guard. Existing default branches at the call sites
-//      (AUTO_SEND_DEFAULT, 'auto' compatMode) cover the null path.
+//      (the shipped default path, 'auto' compatMode) cover the null path.
 function livePrefs() {
     return getPrefs() || prefsRef || null;
 }
@@ -217,19 +208,6 @@ const OUTBOUND_VIEW_CAP = 4128;
 // pending replaces the queued metadata.
 let pendingSendSession = null;  // { metadata: Uint8Array, fileBytes: Uint8Array[] } | null
 
-// Phase 12 WR-02 — sentinel guarding the async first-use-confirm window.
-// When `shouldSurfaceFirstUseConfirm(cmd)` returns true, enterSendMode
-// dispatches enterSendModeAfterFirstUseConfirm asynchronously and returns
-// without setting pendingSendSession. During the chip-display window the
-// existing `pendingSendSession !== null` first-click-wins guard does not
-// fire, so a second enterSendMode call could spawn a second coroutine
-// awaiting the same chip Promise. The chip's enterFirstUseConfirm clears
-// prior callbacks on re-entry, leaving the first coroutine's Promise
-// unresolved (T-12-07-style leak). This sentinel is set true before the
-// async dispatch and cleared on every exit path of
-// enterSendModeAfterFirstUseConfirm and in __resetForTests.
-let firstUseConfirmPending = false;
-
 // Phase 9 — active send-mode context. Populated by enterSendModeInternal;
 // mutated by pumpNextDataChunkIfReady as bytes flow out.
 let currentSendCtx = null;       // { fileBytes: Uint8Array[], currentFileIdx, sentBytesInFile } | null
@@ -248,110 +226,54 @@ let currentSendCtx = null;       // { fileBytes: Uint8Array[], currentFileIdx, s
 // respect to the outbound buffer + sender SM state.
 let sendDispatchTail = Promise.resolve();
 
-// Phase 11 Plan 11-03 D-09 — auto-send command sourced from prefs at call
-// time (replaces the Phase 9 D-14 hardcoded constant). The empty-string-
-// disables semantic per SLIDE-13 is preserved verbatim — readAutoSendCommandBytes
-// returns a zero-length Uint8Array when prefsRef.slideAutoSendCommand is the
-// explicit empty string, and the call site in enterSendMode skips pushTxBytes
-// when length === 0.
+// The bytes Beastty auto-types at the CCP to start SLIDE in receive mode
+// before a send. v2 composes them from where SLIDE.COM lives
+// (prefs.slideProgramDrive + slideProgramName) and appends the direction
+// letter ' R' plus the CR itself — the user no longer states either. The pull
+// pane composes ' S' from the same path, which is the point of storing a
+// location rather than a command line.
 //
-// When prefsRef is null (boot order: tests / older harnesses that did not
-// extend wireSlideDispatcher with the Plan 11-03 prefs opt), fall back to
-// the Phase 9 D-14 default `B:SLIDE R\r` so existing Playwright sender tests
-// keep observing the auto-type bytes on the wire. Production main.js boot
-// passes prefs (Plan 11-03 Task 3) so this fallback only matters in tests.
-//
-// Bytes are encoded at call time via TextEncoder so a user-edited command
-// string (e.g. "A:RUN PROG.COM\r" via the Plan 11-03 Settings sub-block)
-// flows through unchanged. Phase 12 SLIDE-38 will add safety validation
-// (alphanumeric + `:` + `\r` only); Phase 11 stores whatever the user types.
-const AUTO_SEND_DEFAULT = 'B:SLIDE R\r';
+// Returns a zero-length Uint8Array — the caller's `length === 0` skip covers
+// it without a separate code path — in three cases:
+//   - auto-start is off (the user starts SLIDE on the device by hand);
+//   - prefs are unavailable AND no fallback applies (tests without the prefs opt
+//     still get the shipped default, so existing sender specs keep observing
+//     auto-typed bytes);
+//   - the stored location fails its grammar. That is the T-12-03 use-time hard
+//     gate: the Settings controls cannot produce an invalid value, but a
+//     hand-edited or corrupt blob can, and nothing unvalidated reaches the wire.
+const AUTO_SEND_DEFAULT_PATH = 'A:SLIDE.COM';
+const AUTO_SEND_DIRECTION = ' R\r';
+
 function readAutoSendCommandBytes() {
     // Live read so post-Settings-change values reach the wire without a reload
     // (Phase 12 UAT Gap C — see livePrefs() block above).
     const p = livePrefs();
-    let cmd;
-    if (p) {
-        // prefs available — honour the user's value verbatim (including the
-        // explicit empty string which disables auto-type).
-        cmd = p.slideAutoSendCommand;
-        if (cmd === undefined || cmd === null) cmd = AUTO_SEND_DEFAULT;
-    } else {
-        // No prefs available — use Phase 9 default for backwards compatibility.
-        cmd = AUTO_SEND_DEFAULT;
-    }
-    if (cmd.length === 0) return new Uint8Array(0);
-    // Phase 12 SLIDE-38 use-time hard gate (T-12-03). Validate before placing
-    // bytes on the wire. Failure path returns zero-length Uint8Array (matches
-    // SLIDE-13 disabled-auto-type semantic — caller's `length === 0` skip
-    // covers it without a separate code path), fires chip enterError if the
-    // chip is wired, and surfaces the validation hint + data-invalid attribute
-    // on the Settings DOM (defense-in-depth UX feedback).
-    if (!isAutoSendSafe(cmd)) {
-        console.error('[slide] Auto-send command failed safety check; auto-type skipped:',
-                      JSON.stringify(cmd));
+    // No prefs available (boot order: tests / older harnesses that did not pass
+    // the prefs opt) — use the shipped default for backwards compatibility.
+    if (!p) return new TextEncoder().encode(AUTO_SEND_DEFAULT_PATH + AUTO_SEND_DIRECTION);
+    if (p.slideAutoStart === false) return new Uint8Array(0);
+    const path = slideProgramPath(p);
+    if (path === null) {
+        console.error('[slide] SLIDE.COM location failed validation; auto-start skipped:',
+                      JSON.stringify(`${p.slideProgramDrive}${p.slideProgramName}`));
         if (slideChipRef && typeof slideChipRef.enterError === 'function') {
-            try { slideChipRef.enterError('auto-send command unsafe — fix in Settings'); } catch {}
+            try { slideChipRef.enterError('SLIDE.COM location invalid — fix in Settings'); } catch {}
         }
+        // Defense-in-depth UX feedback on the Settings DOM (mirrors the change
+        // handler's cue, for the hand-edited-blob path that never fires one).
         try {
-            const inputEl = document.getElementById('slide-auto-send-input');
+            const inputEl = document.getElementById('slide-program-name');
             if (inputEl) {
                 inputEl.setAttribute('data-invalid', 'true');
                 inputEl.setAttribute('aria-invalid', 'true');
             }
-            const hintEl = document.getElementById('slide-auto-send-validation-hint');
+            const hintEl = document.getElementById('slide-program-validation-hint');
             if (hintEl) hintEl.hidden = false;
         } catch { /* ignore — DOM may not exist in tests */ }
         return new Uint8Array(0);
     }
-    const out = new TextEncoder().encode(cmd);
-    return out;
-}
-
-// Phase 12 SLIDE-38 — first-use-confirm gate helpers. shouldSurfaceFirstUseConfirm
-// is the predicate (cmd is non-default AND user has not yet confirmed this exact
-// value); surfaceFirstUseConfirm wraps the chip API in a Promise so enterSendMode
-// can `await` the user's [Confirm] / [Reset to default] click.
-//
-// Pitfall 6 (12-RESEARCH.md): the first-use chip surfaces ONLY at session start
-// (entry to enterSendMode), never during a Settings input change. The chip
-// lifecycle module (slide-chip.js) sits in 'first-use-confirm' until either
-// callback resolves the Promise — once resolved, slide.js proceeds with
-// enterAwaitingWakeup OR aborts the send.
-function shouldSurfaceFirstUseConfirm(cmd) {
-    if (cmd === AUTO_SEND_DEFAULT) return false;
-    // Live read — Settings change handler resets slideAutoSendCommandConfirmed
-    // to '' on every edit; a stale prefsRef snapshot would still hold the prior
-    // confirmed value and skip the chip (Phase 12 UAT Gap B).
-    const p = livePrefs();
-    if (!p) return false;
-    if (p.slideAutoSendCommandConfirmed === cmd) return false;
-    return true;
-}
-
-function surfaceFirstUseConfirm(cmd) {
-    return new Promise((resolve) => {
-        // Fail-open if chip isn't wired (test harnesses without slideChip opt
-        // get Phase 9/10/11 behaviour: command flows directly to wire after
-        // safety gate). This preserves Phase 9/10/11 sender Playwright tests
-        // that drive enterSendMode without a chip and lets unit-style
-        // safety-only spec runs work without the chip plumbing.
-        if (!slideChipRef || typeof slideChipRef.enterFirstUseConfirm !== 'function') {
-            resolve(true);
-            return;
-        }
-        slideChipRef.enterFirstUseConfirm({
-            value: cmd,
-            onConfirm: () => { resolve(true); },
-            onReset:   () => { resolve(false); },
-            // T-12-07 fix — the chip's 30 s auto-hide used to abandon this
-            // Promise, leaking firstUseConfirmPending forever (every later
-            // send refused until reload). A timeout resolves distinctly:
-            // abort the send, release the latch, and DON'T touch prefs (a
-            // timeout is not a [Reset to default] decision).
-            onTimeout: () => { resolve('timeout'); },
-        });
-    });
+    return new TextEncoder().encode(path + AUTO_SEND_DIRECTION);
 }
 
 // SLIDE wire frame size — slide-rs/protocol.rs FRAME_SIZE (1024 bytes
@@ -365,12 +287,12 @@ const WIN_SIZE = 4;
 // --- Public API -----------------------------------------------------------
 
 export function wireSlideDispatcher(opts) {
-    const { term, txSink, slideCtor, wasm, prefs, pastePump, slideChip, savePrefs, wrapperEl } = opts;
+    const { term, txSink, slideCtor, wasm, prefs, pastePump, slideChip, wrapperEl } = opts;
     termRef = term;
     txSinkRef = txSink;
     SlideCtor = slideCtor;
     wasmRef = wasm;
-    // Phase 11 Plan 11-03 — additional refs for D-09 (prefs.slideAutoSendCommand),
+    // Phase 11 Plan 11-03 — additional refs for D-09 (the SLIDE.COM location),
     // D-12 (pastePump.cancelPaste at SLIDE wakeup completion), chip lifecycle
     // hooks (enterActive / enterAwaitingWakeup / enterSummary). All optional —
     // null callers (older boot paths, test harnesses) get the same Phase 9/10
@@ -378,10 +300,6 @@ export function wireSlideDispatcher(opts) {
     prefsRef = prefs || null;
     pastePumpRef = pastePump || null;
     slideChipRef = slideChip || null;
-    // Phase 12 SLIDE-38 — savePrefs ref for first-use-confirm gate (writes
-    // slideAutoSendCommandConfirmed on [Confirm], resets to default on
-    // [Reset to default]). Optional — fail-open if not threaded through.
-    savePrefsRef = (typeof savePrefs === 'function') ? savePrefs : null;
     // Phase 12 UAT Niggle 1 — wrapper element ref for focus restore after
     // cancelSlideSend. Optional — fail-open if not threaded through.
     wrapperElRef = wrapperEl || null;
@@ -549,9 +467,6 @@ export function __resetForTests() {
     // Phase 9 additions — wipe any pending or active send-mode state.
     pendingSendSession = null;
     currentSendCtx = null;
-    // Phase 12 WR-02 — clear the first-use-confirm in-flight sentinel so
-    // a fresh test run is not blocked by a stranded flag from a prior run.
-    firstUseConfirmPending = false;
     // Plan 09-04 Rule 1 fix — reset the dispatch-tail chain so a stale
     // promise from a prior session does not block the next one.
     sendDispatchTail = Promise.resolve();
@@ -1027,20 +942,6 @@ export function enterSendMode({ files }) {
         return;
     }
 
-    // Phase 12 WR-02 — first-use-confirm-in-flight guard. When the async
-    // chip path is awaiting the user's [Confirm]/[Reset to default] click
-    // pendingSendSession is still null (it is only set in
-    // enterSendModeProceed after confirmation). Without this sentinel a
-    // second enterSendMode call would slip past the pendingSendSession
-    // check, spawn a second enterSendModeAfterFirstUseConfirm coroutine,
-    // re-enter the chip (clearing the first coroutine's onConfirm/onReset
-    // callbacks) and leak the first coroutine's surfaceFirstUseConfirm
-    // Promise unresolved.
-    if (firstUseConfirmPending) {
-        console.warn('[slide.js] enterSendMode: first-use confirm already in progress; ignoring duplicate enterSendMode');
-        return;
-    }
-
     // Phase 9 WR-02 — refuse if the wire is owned by an active SLIDE
     // session (mode === 'recv' or 'send'). pushTxBytes at tx-sink.js:50
     // would silently drop the auto-type bytes (`owner === 'slide'`),
@@ -1064,106 +965,14 @@ export function enterSendMode({ files }) {
         return;
     }
 
-    // Phase 12 SLIDE-38 — first-use confirmation gate.
-    // Pitfall 6 (12-RESEARCH.md): the gate runs ONLY at session START (here,
-    // before any auto-type bytes hit the wire), never during a Settings
-    // input change event. The cmd is read raw (pre-encoding) so the
-    // exact-string equality check against AUTO_SEND_DEFAULT and
-    // slideAutoSendCommandConfirmed works correctly. The use-time safety
-    // gate inside readAutoSendCommandBytes already rejects unsafe values;
-    // this gate ONLY runs for safe but non-default values that have not
-    // been confirmed yet. autoSendBytes.length === 0 (SLIDE-13 disabled OR
-    // safety-rejected) skips the gate entirely.
-    // Live read — Settings change handler updates slideAutoSendCommand on
-    // every edit; stale prefsRef snapshot caused Gap C/B (post-Settings-change
-    // value never reaching this gate without a reload).
-    const enterSendModePrefs = livePrefs();
-    const cmd = (enterSendModePrefs && enterSendModePrefs.slideAutoSendCommand !== undefined && enterSendModePrefs.slideAutoSendCommand !== null)
-        ? enterSendModePrefs.slideAutoSendCommand
-        : AUTO_SEND_DEFAULT;
-    if (cmd.length > 0 && shouldSurfaceFirstUseConfirm(cmd)) {
-        // Re-validate at gate time: if the value is unsafe, we never want to
-        // surface a confirmation chip for it (the use-time hard gate inside
-        // readAutoSendCommandBytes will already reject + show the validation
-        // hint). Only safe-but-non-default values get the confirmation chip.
-        if (isAutoSendSafe(cmd)) {
-            // Async path — defer to the first-use confirmation chip and let
-            // the user's [Confirm] / [Reset to default] click drive the rest.
-            // pendingSendSession is NOT set until after the user confirms,
-            // so a second enterSendMode invocation during the chip-displayed
-            // window cannot rely on the `pendingSendSession !== null`
-            // first-click-wins guard. Phase 12 WR-02 — set
-            // firstUseConfirmPending = true BEFORE the async dispatch so
-            // the explicit guard at the top of enterSendMode rejects any
-            // duplicate call until enterSendModeAfterFirstUseConfirm
-            // clears it on every exit path.
-            firstUseConfirmPending = true;
-            void enterSendModeAfterFirstUseConfirm({ files, cmd });
-            return;
-        }
-    }
-
-    enterSendModeProceed({ files, cmd });
+    enterSendModeProceed({ files });
 }
 
-// Phase 12 SLIDE-38 — async branch entered when the first-use chip needs
-// to surface for a non-default + not-yet-confirmed auto-send command.
-// Awaits the user's click; on [Confirm] proceeds with the normal Phase 9/11
-// send flow (writes slideAutoSendCommandConfirmed first); on [Reset to
-// default] resets prefs and aborts the send (user must click Send file
-// again). On the 30 s defensive timeout the awaiting Promise is left
-// unresolved and this function never returns — flagged as a Phase 12.1
-// cleanup in 12-03-SUMMARY.md (T-12-07).
-async function enterSendModeAfterFirstUseConfirm({ files, cmd }) {
-    let confirmed;
-    try {
-        confirmed = await surfaceFirstUseConfirm(cmd);
-    } catch {
-        confirmed = false;
-    }
-    // Phase 12 WR-02 — clear the in-flight sentinel BEFORE any further
-    // dispatch so subsequent enterSendMode invocations are not refused
-    // after the chip has resolved (whether the user confirmed, reset to
-    // default, timed out, or surfaceFirstUseConfirm threw).
-    firstUseConfirmPending = false;
-    if (confirmed === 'timeout') {
-        // T-12-07 fix — chip auto-hid after 30 s with no decision. Abort the
-        // send (user re-initiates when ready) but leave prefs untouched: a
-        // timeout is not a [Reset to default] click.
-        console.info('[slide.js] first-use confirm timed out — send aborted; drop the file again when ready');
-        return;
-    }
-    if (!confirmed) {
-        // User clicked [Reset to default] — restore prefs and abort. User
-        // must click ↑ Send file again to proceed with the default value.
-        try {
-            if (typeof savePrefsRef === 'function') {
-                savePrefsRef({
-                    slideAutoSendCommand: AUTO_SEND_DEFAULT,
-                    slideAutoSendCommandConfirmed: AUTO_SEND_DEFAULT,
-                });
-            }
-        } catch {}
-        return;
-    }
-    // User clicked [Confirm]. Record the confirmation against the exact
-    // string so the chip won't surface again for this value (re-arms only
-    // when the user changes the auto-send command in Settings).
-    try {
-        if (typeof savePrefsRef === 'function') {
-            savePrefsRef({ slideAutoSendCommandConfirmed: cmd });
-        }
-    } catch {}
-    enterSendModeProceed({ files, cmd });
-}
-
-// Phase 12 SLIDE-38 — extracted from enterSendMode so both the synchronous
-// happy path (default value or already-confirmed non-default) AND the
-// post-first-use-confirm async path share the same auto-type + chip +
-// pendingSendSession sequence. cmd is passed through (raw string from prefs)
-// — readAutoSendCommandBytes will re-read prefs internally, applying the
-// use-time safety gate.
-function enterSendModeProceed({ files /* cmd */ }) {
+// The auto-type + chip + pendingSendSession sequence. Kept separate from
+// enterSendMode's refusal checks so the ORDER-CRITICAL block below reads on
+// its own. readAutoSendCommandBytes reads prefs internally, applying the
+// use-time validation gate.
+function enterSendModeProceed({ files }) {
     // Plan 09-02 ships the metadata packer co-located with slide.js for
     // self-containment (file-source.js doesn't exist yet at the end of
     // this plan). Plan 09-03 will move packMetadataInline to file-source.js

@@ -36,13 +36,10 @@
 
 // ====== Module-scope state ======
 
-// Lifecycle state machine (UI-SPEC §Layout Contract verbatim — 8 states +
-// Phase 12 SLIDE-38 first-use-confirm state).
+// Lifecycle state machine (UI-SPEC §Layout Contract verbatim — 8 states).
 let lifecycle = 'hidden';   // 'hidden' | 'awaiting-wakeup' | 'awaiting-timeout'
                             // | 'active' | 'cancelled-summary' | 'sent-summary'
                             // | 'received-summary' | 'error' | 'drop-rejected-flash'
-                            // | 'first-use-confirm' (Phase 12 SLIDE-38 — confirm
-                            //   before first auto-type of a non-default value)
 let lastReason = '';        // for error state ('port lost' / 'CRC retries exhausted'
                             // / 'wire desync' / 'force_idle escape')
 let summaryData = null;     // { direction: 'sent'|'received', fileCount, totalBytes }
@@ -65,14 +62,6 @@ let summaryAutoHideHandle = null;    // 5 s for sent/received/cancelled/error st
 // re-armed on each enterAwaitingWakeup call (defensive — clearing prior arm).
 let wakeupTimeoutHandle = null;
 const WAKEUP_TIMEOUT_MS = 3000;
-// Phase 12 SLIDE-38 D-* — first-use-confirm chip state. enterFirstUseConfirm
-// arms a 30 s defensive auto-hide so the chip never pins indefinitely if the
-// user dismisses via Esc / clicks elsewhere (T-12-07 mitigation —
-// note: a timeout-dismissed chip leaves the awaiting Promise unresolved
-// in the dispatcher; flagged in 12-03-SUMMARY.md as a Phase 12.1 cleanup).
-let firstUseConfirmHandle = null;
-let firstUseConfirmCallbacks = null;   // { onConfirm, onReset, value } | null
-const FIRST_USE_CONFIRM_TIMEOUT_MS = 30000;
 
 // Injected deps (set by wireSlideChip).
 let chipElRef = null;
@@ -108,7 +97,6 @@ export function wireSlideChip(opts) {
 
     return {
         enterAwaitingWakeup,    // ({ armTimer: bool }) — Plan 11-04 wires armTimer logic
-        enterFirstUseConfirm,   // ({ value, onConfirm, onReset }) — Phase 12 SLIDE-38
         enterActive,            // () — switch to active session render
         enterCancelledSummary,  // ({ done, total }) — 5-second auto-hide
         enterSummary,           // ({ direction, fileCount, totalBytes }) — gated by prefs.slideShowSummary
@@ -123,9 +111,6 @@ export function wireSlideChip(opts) {
         // sees lc=null and the cancel-from-awaiting-timeout branch falls
         // through, leaving the chip stuck in awaiting-timeout after [Cancel].
         __getStateForTests,
-        // T-12-07 — run the 30 s first-use auto-hide body NOW (specs can't
-        // wait out the real timer).
-        __fireFirstUseConfirmTimeoutForTests: fireFirstUseConfirmTimeout,
     };
 }
 
@@ -197,21 +182,6 @@ function refreshChip() {
             chipElRef.removeAttribute('hidden');
             return;
 
-        case 'first-use-confirm': {
-            // Phase 12 SLIDE-38 / 12-UI-SPEC.md §C — locked verbatim copy.
-            // {VALUE} renders \r as the literal two-character sequence \r and
-            // \n as \n (NOT escaped to control characters or pictographs);
-            // matches the existing Phase 11 Settings hint copy idiom.
-            const v = (firstUseConfirmCallbacks && firstUseConfirmCallbacks.value) || '';
-            const visibleValue = String(v).replace(/\r/g, '\\r').replace(/\n/g, '\\n');
-            const safeValue = escapeHtml(visibleValue);
-            chipTextElRef.innerHTML =
-                `Confirm auto-send: ${safeValue}  ${confirmButtonHtml()}  ${resetButtonHtml()}`;
-            chipElRef.setAttribute('aria-label', 'Confirm auto-send command before first use');
-            wireInlineButtons();
-            chipElRef.removeAttribute('hidden');
-            return;
-        }
     }
 }
 
@@ -319,13 +289,6 @@ function retryButtonHtml() {
 function forceStartButtonHtml() {
     return '<button type="button" class="slide-inline" data-action="force-start">[Force start]</button>';
 }
-// Phase 12 SLIDE-38 — first-use-confirm chip inline buttons.
-function confirmButtonHtml() {
-    return '<button type="button" class="slide-inline" data-action="confirm">[Confirm]</button>';
-}
-function resetButtonHtml() {
-    return '<button type="button" class="slide-inline" data-action="reset">[Reset to default]</button>';
-}
 
 function wireInlineButtons() {
     if (!chipTextElRef) return;
@@ -346,38 +309,9 @@ function handleInlineAction(action) {
         if (onCancelFn) try { onCancelFn(); } catch {}
         // Plan 11-04 wires the [Retry] / [Force start] handlers; for now a no-op
         // hook out via state-change observers.
-    } else if (action === 'confirm' && firstUseConfirmCallbacks) {
-        // Phase 12 SLIDE-38 — user confirmed the non-default auto-send command.
-        // Resolve the awaiting Promise (slide.js surfaceFirstUseConfirm) with
-        // true so enterSendMode proceeds with pushTxBytes(autoSendBytes).
-        const cb = firstUseConfirmCallbacks;
-        firstUseConfirmCallbacks = null;
-        if (firstUseConfirmHandle) {
-            clearTimeout(firstUseConfirmHandle);
-            firstUseConfirmHandle = null;
-        }
-        try { cb.onConfirm && cb.onConfirm(); } catch {}
-        // Hide chip immediately — slide.js will transition through
-        // enterAwaitingWakeup (Phase 11 Compatibility-mode 3-way branch)
-        // synchronously after Promise resolution.
-        hide();
-    } else if (action === 'reset' && firstUseConfirmCallbacks) {
-        // Phase 12 SLIDE-38 — user clicked [Reset to default]. Resolve the
-        // awaiting Promise with false; slide.js will reset prefs to the
-        // DEFAULTS literal and abort the current send (user must click
-        // ↑ Send file again to actually send).
-        const cb = firstUseConfirmCallbacks;
-        firstUseConfirmCallbacks = null;
-        if (firstUseConfirmHandle) {
-            clearTimeout(firstUseConfirmHandle);
-            firstUseConfirmHandle = null;
-        }
-        hide();
-        try { cb.onReset && cb.onReset(); } catch {}
     }
     // [Retry] / [Force start] handlers: emit through stateChangeObservers
-    // so Plan 11-04's dispatcher hooks can listen. Phase 12 confirm/reset
-    // also surface here so plan-checker / instrumentation can observe.
+    // so Plan 11-04's dispatcher hooks can listen.
     for (const fn of stateChangeObservers) {
         try { fn({ kind: 'inline-action', action }); } catch {}
     }
@@ -416,55 +350,6 @@ function clearWakeupTimer() {
     if (wakeupTimeoutHandle) {
         clearTimeout(wakeupTimeoutHandle);
         wakeupTimeoutHandle = null;
-    }
-}
-
-// Phase 12 SLIDE-38 — first-use-confirm chip lifecycle (12-UI-SPEC.md §C
-// locked transitions). Surfaced from slide.js's enterSendMode BEFORE
-// pushTxBytes(autoSendBytes) when prefs.slideAutoSendCommand !==
-// prefs.slideAutoSendCommandConfirmed (i.e. the user has not yet confirmed
-// this exact non-default value). 30 s defensive auto-hide so the chip
-// never pins indefinitely if the user dismisses via Esc / clicks elsewhere
-// (T-12-07 — note the awaiting Promise is left unresolved on timeout; this
-// is a Phase 12 known limitation flagged in 12-03-SUMMARY.md).
-//
-// onConfirm: callback fired when user clicks [Confirm] — slide.js writes
-//   slideAutoSendCommandConfirmed = current value and proceeds with the send.
-// onReset: callback fired when user clicks [Reset to default] — slide.js
-//   resets prefs to DEFAULTS and aborts the send (user must click again).
-export function enterFirstUseConfirm({ value, onConfirm, onReset, onTimeout }) {
-    clearAutoHide();
-    clearWakeupTimer();
-    clearFirstUseConfirmTimer();
-    lifecycle = 'first-use-confirm';
-    firstUseConfirmCallbacks = { onConfirm, onReset, onTimeout, value };
-    samples.length = 0;
-    refreshChip();
-    firstUseConfirmHandle = setTimeout(() => {
-        firstUseConfirmHandle = null;
-        fireFirstUseConfirmTimeout();
-    }, FIRST_USE_CONFIRM_TIMEOUT_MS);
-}
-
-// T-12-07 fix (UAT-E9-04): the 30 s auto-hide previously abandoned the
-// awaiting Promise in slide.js — firstUseConfirmPending leaked and every
-// later enterSendMode was refused with "first-use confirm already in
-// progress" until reload (hit in the field on a fresh profile). The timeout
-// now reports itself via onTimeout so the caller releases the latch. Shared
-// between the real timer and the test hook.
-function fireFirstUseConfirmTimeout() {
-    clearFirstUseConfirmTimer();
-    if (!firstUseConfirmCallbacks) return;
-    const cbs = firstUseConfirmCallbacks;
-    firstUseConfirmCallbacks = null;
-    try { if (typeof cbs.onTimeout === 'function') cbs.onTimeout(); } catch {}
-    hide();
-}
-
-function clearFirstUseConfirmTimer() {
-    if (firstUseConfirmHandle) {
-        clearTimeout(firstUseConfirmHandle);
-        firstUseConfirmHandle = null;
     }
 }
 
@@ -515,7 +400,6 @@ export function flashDropRejected() {
 export function hide() {
     clearAutoHide();
     clearWakeupTimer();   // Phase 11 D-15 — clear any pending awaiting-timeout transition.
-    clearFirstUseConfirmTimer();   // Phase 12 SLIDE-38 — clear pending 30 s defensive timeout.
     lifecycle = 'hidden';
     cancelledData = null;
     summaryData = null;
@@ -545,7 +429,6 @@ export function dispose() {
     refreshTickHandle = null;
     clearAutoHide();
     clearWakeupTimer();
-    clearFirstUseConfirmTimer();   // Phase 12 SLIDE-38.
 }
 
 // ====== Test introspection (matches Phase 6/9/10 pattern) ======
@@ -557,10 +440,8 @@ export function __resetForTests() {
     cancelledData = null;
     summaryData = null;
     lastReason = '';
-    firstUseConfirmCallbacks = null;   // Phase 12 SLIDE-38 — test isolation.
     clearAutoHide();
     clearWakeupTimer();   // Phase 11 D-15 — test isolation.
-    clearFirstUseConfirmTimer();   // Phase 12 SLIDE-38 — test isolation.
     if (chipElRef) chipElRef.setAttribute('hidden', '');
     if (chipTextElRef) chipTextElRef.textContent = '';
 }
@@ -575,7 +456,5 @@ export function __getStateForTests() {
         lastReason,
         hasAutoHideTimer: summaryAutoHideHandle !== null,
         hasWakeupTimer: wakeupTimeoutHandle !== null,   // Phase 11 D-15 — test introspection.
-        hasFirstUseConfirmTimer: firstUseConfirmHandle !== null,   // Phase 12 SLIDE-38.
-        firstUseConfirmValue: firstUseConfirmCallbacks ? firstUseConfirmCallbacks.value : null,
     };
 }

@@ -87,19 +87,29 @@ test.describe('E3.4 AC-2 — Save-received-files-to-folder row moves verbatim', 
   });
 });
 
-test.describe('E3.4 AC-3 — Auto-send command row + validation cue move verbatim', () => {
-  test('input default + static hint + hidden validation hint @fast', async ({ page }) => {
+test.describe('E3.4 AC-3 — SLIDE.COM location row + validation cue', () => {
+  test('drive + name defaults, static hint, hidden validation hint @fast', async ({ page }) => {
     await ready(page);
     await openModal(page);
-    const row = dialog(page).locator('#slide-auto-send-row');
-    await expect(row.locator('#slide-auto-send-input')).toHaveValue('B:SLIDE R');
-    await expect(row.locator('#slide-auto-send-input')).toHaveAttribute('autocomplete', 'off');
-    await expect(row.locator('#slide-auto-send-input')).toHaveAttribute('spellcheck', 'false');
-    await expect(row.getByText('\\r appended automatically')).toBeVisible();
+    const row = dialog(page).locator('#slide-program-row');
+    await expect(row.locator('#slide-program-drive')).toHaveValue('A:');
+    await expect(row.locator('#slide-program-name')).toHaveValue('SLIDE.COM');
+    await expect(row.locator('#slide-program-name')).toHaveAttribute('autocomplete', 'off');
+    await expect(row.locator('#slide-program-name')).toHaveAttribute('spellcheck', 'false');
+    await expect(row.getByText('Beastty adds R or S and the Enter')).toBeVisible();
     // Validation hint present but hidden by default (JS live-toggles it — NOT a tooltip).
-    await expect(row.locator('#slide-auto-send-validation-hint')).toBeHidden();
-    await expect(row.locator('#slide-auto-send-validation-hint'))
-      .toHaveText('Auto-send command unsafe — disabled.');
+    await expect(row.locator('#slide-program-validation-hint')).toBeHidden();
+    await expect(row.locator('#slide-program-validation-hint'))
+      .toHaveText("Not a CP/M 8.3 program name — SLIDE won't start.");
+  });
+
+  test('auto-start row: default on, label and tooltip @fast', async ({ page }) => {
+    await ready(page);
+    await openModal(page);
+    const row = dialog(page).locator('#slide-auto-start-row');
+    await expect(row.locator('#slide-auto-start-checkbox')).toBeChecked();
+    await expect(row.locator('label')).toHaveText('Auto-start SLIDE on the device');
+    await expect(row.locator('.field-tip')).toContainText('A:SLIDE.COM R');
   });
 });
 
@@ -193,7 +203,9 @@ test.describe('E3.4 AC-9 — legacy pane retired; exactly one SLIDE surface', ()
     await openModal(page);
     for (const id of [
       '#slide-recv-to-folder-checkbox',
-      '#slide-auto-send-input',
+      '#slide-program-drive',
+      '#slide-program-name',
+      '#slide-auto-start-checkbox',
       '#slide-show-summary',
       '#slide-confirm-transfers-checkbox',
       '#slide-compat-select',

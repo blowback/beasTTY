@@ -34,7 +34,7 @@ test.describe('PREF-01/PREF-02/PLAT-05 — Preferences persistence', () => {
         expect(prefs.localEcho).toBe(false);
         expect(prefs.crlfMode).toBe('cr');
         expect(prefs.autoConnect).toBe(false);
-        expect(prefs.version).toBe(1);
+        expect(prefs.version).toBe(2);
     });
 
     test('theme persists across reload (round-trip)', async ({ page }) => {
@@ -143,7 +143,7 @@ test.describe('PREF-01/PREF-02/PLAT-05 — Preferences persistence', () => {
         });
         await setup(page);
         const prefs = await page.evaluate(() => window.__prefs.getPrefs());
-        expect(prefs.version).toBe(1);
+        expect(prefs.version).toBe(2);
         expect(prefs.theme).toBe('crt');   // fallen back to D-36 default
     });
 

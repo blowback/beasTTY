@@ -56,7 +56,7 @@
       --status-red:    #e04040;
       --status-gray:   rgba(255, 255, 255, 0.4);
       /* Phase 12 Plan 12-06 (Gap 2 — UAT Test 7) — strong invalid tone. Used
-         ONLY by the security-relevant auto-send command field per the user's
+         ONLY by the security-relevant SLIDE.COM program-name field per the user's
          locked design call (2026-05-09): "it's a serious matter so red is
          appropriate" — deliberate exception to the muted/destructive policy.
          Mirrors the literal #e04040 used in Phase 5 connect-button
@@ -894,7 +894,7 @@
     #command-history-overlay .ch-legend b { color: var(--chrome-fg); font-weight: 600; }
     #command-history-overlay .ch-legend .ch-sep { color: var(--chrome-muted); }
 
-    /* E3.4 — the Phase 11 #settings-slide form-control CSS (auto-send input + compat
+    /* E3.4 — the Phase 11 #settings-slide form-control CSS (the text input + compat
        select) was removed with the pane; those controls now inherit the shared
        .chrome-modal .field select / input[type="text"] rules inside #slide-config-modal. */
     #terminal { display: block; }
@@ -1212,8 +1212,8 @@
       cursor: not-allowed;
     }
 
-    /* ==== Phase 12 SLIDE-38 auto-send invalid state (E3.4 re-scoped to the modal) ==== */
-    /* The auto-send input relocated from #settings-slide into #slide-config-modal (E3.4),
+    /* ==== Invalid-state cue for the SLIDE.COM program name ==== */
+    /* The field relocated from #settings-slide into #slide-config-modal (E3.4),
        so the invalid-border rule is re-anchored on the modal id. Two ids (0,2,1,0) beat
        BOTH competing shared rules on specificity ALONE — no source-order trap:
          - base   .chrome-modal .field input[type="text"]              (0,0,3,1)  LOSES
@@ -1226,14 +1226,34 @@
        is security-relevant. Defense-in-depth ONLY — the wire-safety gate remains the
        use-time check in slide.js readAutoSendCommandBytes (the cue does NOT block savePrefs).
        Future authors: do NOT "fix" this back to muted — it is intentional. */
-    #slide-config-modal #slide-auto-send-input[data-invalid="true"] {
+    #slide-config-modal #slide-program-name[data-invalid="true"] {
       border-color: var(--chrome-invalid-strong);
     }
-    #slide-auto-send-row .validation-hint {
+    #slide-program-row .validation-hint {
       padding-top: 4px;
     }
-    #slide-auto-send-row .validation-hint[hidden] {
+    #slide-program-row .validation-hint[hidden] {
       display: none;
+    }
+    /* Drive dropdown + program name read as ONE control, so they sit together
+       and share roughly the width a single field control gets — the select
+       shrinks to its content, the name takes the rest. The `.field` descendant
+       is REQUIRED, not decoration: the shared `.chrome-modal .field select`
+       min-width:160px rule has equal specificity and comes LATER in this
+       stylesheet, so it wins on source order without the extra class. With
+       both halves at 160px the pair overflows the modal body. */
+    .chrome-modal .field-pair {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+    .chrome-modal .field .field-pair select {
+      min-width: 0;
+      flex: 0 0 auto;
+    }
+    .chrome-modal .field .field-pair input[type="text"] {
+      min-width: 0;
+      flex: 0 1 116px;
     }
 
     /* ==== Phase 12 SLIDE-36 collision row (extends Phase 9 modal <ul>) ==== */
@@ -1388,9 +1408,17 @@
       justify-content: space-between;      /* label left, control right */
       gap: 12px;
     }
-    .chrome-modal .field > label {
+    .chrome-modal .field > label,
+    .chrome-modal .field > .field-label {
       color: var(--chrome-muted);
       font-size: 13px;
+    }
+    /* Label + its ⓘ as one cell. The nested <label> inherits colour and size
+       from the wrapper, which is why the rule above lists both. */
+    .chrome-modal .field > .field-label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
     }
     .chrome-modal .field select,
     .chrome-modal .field input[type="text"] {
@@ -1598,14 +1626,15 @@
 
     /* ==== Epic E3 Story E3.4 (FR-20) — #slide-config-modal specifics ==== */
     /* Same aligned-row family as the Serial Config modal (shared .chrome-modal .field
-       chrome above). Only the width + two compound-row layouts (the auto-send control
-       column and the recv-folder action sub-row) are modal-specific. */
+       chrome above). Only the width + two compound-row layouts (the SLIDE.COM
+       location control column and the recv-folder action sub-row) are modal-specific. */
     #slide-config-modal[open] {
       max-width: 60ch;                     /* aligned rows — matches #serial-config-modal */
     }
-    /* Auto-send row: the control side stacks the input + its static hint + the (hidden)
-       validation hint in a right-aligned column, so top-align the label against it. */
-    #slide-config-modal #slide-auto-send-row {
+    /* Location row: the control side stacks the drive+name pair, its static hint and
+       the (hidden) validation hint in a right-aligned column, so top-align the label
+       against it rather than centring it against the whole stack. */
+    #slide-config-modal #slide-program-row {
       align-items: flex-start;
     }
     #slide-config-modal .field-control {
@@ -2610,18 +2639,65 @@
         </div>
       </div>
 
-      <!-- Row 2 — Auto-send command (D-06). The static "\r appended automatically" hint
-           and the Phase 12 SLIDE-38 validation hint stay INLINE (the latter is unhidden
-           by slide.js readAutoSendCommandBytes / the main.js change handler — NOT a
-           tooltip). data-invalid / aria-invalid machinery preserved (load-bearing). -->
-      <div class="field" id="slide-auto-send-row">
-        <label for="slide-auto-send-input">Auto-send command:</label>
+      <!-- Row 2 — where SLIDE.COM lives (v2; replaces the D-06 auto-send command
+           line). A drive dropdown plus the program name: Beastty appends the
+           direction letter (R to send, S to pull) and the CR itself, so ONE
+           setting serves both directions. The static hint and the validation
+           hint stay INLINE (the latter is unhidden by slide.js
+           readAutoSendCommandBytes / the main.js change handler — NOT a
+           tooltip). data-invalid / aria-invalid machinery preserved. -->
+      <div class="field" id="slide-program-row">
+        <!-- Label + ⓘ are wrapped so they read as one left-hand cell. `.field` is
+             space-between, so a bare ⓘ as the MIDDLE child floats into dead space
+             instead of sitting beside the label; and moving it last (where every
+             checkbox row puts it) would shove the controls left, breaking their
+             alignment with the Compatibility-mode select below. -->
+        <span class="field-label">
+        <label for="slide-program-name">SLIDE.COM location:</label>
+        <span class="field-info" tabindex="0" role="note" aria-label="About the SLIDE.COM location">
+          <span aria-hidden="true">ⓘ</span>
+          <span class="field-tip">Which drive holds SLIDE.COM, and what it is called there. BeasTTY transfers files with SLIDE specifically, so this names that binary — if you have renamed it, put the new name here; it still speaks the SLIDE protocol and still takes the standard R and S arguments. BeasTTY appends those itself, so type the program name only. For any other transfer program (XMODEM, KERMIT and friends) you drive the MicroBeast by hand.</span>
+        </span>
+        </span>
         <div class="field-control">
-          <input type="text" id="slide-auto-send-input" value="B:SLIDE R"
-                 autocomplete="off" spellcheck="false">
-          <div class="hint">\r appended automatically</div>
-          <div class="hint validation-hint" id="slide-auto-send-validation-hint" hidden>Auto-send command unsafe — disabled.</div>
+          <div class="field-pair">
+            <select id="slide-program-drive" aria-label="Drive holding SLIDE.COM">
+              <option value="A:">A:</option>
+              <option value="B:">B:</option>
+              <option value="C:">C:</option>
+              <option value="D:">D:</option>
+              <option value="E:">E:</option>
+              <option value="F:">F:</option>
+              <option value="G:">G:</option>
+              <option value="H:">H:</option>
+              <option value="I:">I:</option>
+              <option value="J:">J:</option>
+              <option value="K:">K:</option>
+              <option value="L:">L:</option>
+              <option value="M:">M:</option>
+              <option value="N:">N:</option>
+              <option value="O:">O:</option>
+              <option value="P:">P:</option>
+            </select>
+            <input type="text" id="slide-program-name" value="SLIDE.COM"
+                   autocomplete="off" spellcheck="false">
+          </div>
+          <div class="hint">Beastty adds R or S and the Enter</div>
+          <div class="hint validation-hint" id="slide-program-validation-hint" hidden>Not a CP/M 8.3 program name — SLIDE won't start.</div>
         </div>
+      </div>
+
+      <!-- Row 3 — Auto-start. The v1 empty-command sentinel made explicit: off
+           means Beastty types nothing and you start SLIDE on the device yourself.
+           The location above still composes the PULL command either way, which is
+           why this is a separate switch rather than a blank program name. -->
+      <div class="field check" id="slide-auto-start-row">
+        <input type="checkbox" id="slide-auto-start-checkbox" checked>
+        <label for="slide-auto-start-checkbox">Auto-start SLIDE on the device</label>
+        <span class="field-info" tabindex="0" role="note" aria-label="About auto-starting SLIDE">
+          <span aria-hidden="true">ⓘ</span>
+          <span class="field-tip">On by default. Before sending a file, Beastty types the start command at the CP/M prompt for you — with the location above, that is A:SLIDE.COM R. Turn this off if you prefer to start SLIDE on the MicroBeast yourself. Dragging files out of the pull pane still uses the location above, so pulls keep working either way.</span>
+        </span>
       </div>
 
       <!-- Row 3 — Show transfer summary chip (D-08 default ON). -->

@@ -119,14 +119,15 @@ If two or more files would collide on the Z80 side after 8.3 truncation
 auto-rename scheme (`REPORT.TXT, REPORT~1.TXT, REPORT~2.TXT, …`) and offers
 three resolutions: `Send N renamed`, `Send only first`, or `Refuse batch`.
 
-By default BeasTTY auto-types `B:SLIDE R\r` at the Z80 prompt before the
-transfer to put the Z80 into receive mode. The auto-send command is
-configurable in Settings → SLIDE file transfer; the first time you change
-it, a chip prompts you to confirm the new value.
+By default BeasTTY auto-types `A:SLIDE.COM R\r` at the Z80 prompt before the
+transfer to put the Z80 into receive mode. Tell BeasTTY where SLIDE.COM lives
+in Settings → SLIDE file transfer and it appends the direction letter itself —
+`R` here, `S` when the pull pane asks for files — so one setting serves both
+directions.
 
 ### Receiving files (Z80 → PC)
 
-When the Z80 sends a file via `B:SLIDE S FILE.TXT`, BeasTTY auto-detects the
+When the Z80 sends a file via `A:SLIDE.COM S FILE.TXT`, BeasTTY auto-detects the
 SLIDE wakeup signature (`ESC ^ S L I D E`) and downloads each file via your
 browser's Downloads tray. Settings → SLIDE file transfer lets you optionally
 save received files to a chosen folder instead.
@@ -176,8 +177,8 @@ rely on a small patch to the Z80-side `slide.asm` that emits the 7-byte
 
 To use BeasTTY with an unpatched `slide.com`:
 
-- **Sending (PC → Z80):** after BeasTTY auto-types `B:SLIDE R\r`, it waits
-  ~3 s for the wakeup. If nothing arrives, the SLIDE chip switches to
+- **Sending (PC → Z80):** after BeasTTY auto-types the start command
+  (`A:SLIDE.COM R\r` by default), it waits ~3 s for the wakeup. If nothing arrives, the SLIDE chip switches to
   `Z80 didn't respond.  [Retry]  [Cancel]  [Force start]`. Click
   **`[Force start]`** to skip the wakeup wait and begin the transfer
   anyway — `slide.com`'s receive handshake still works without the
@@ -212,15 +213,26 @@ The SLIDE sub-block in the Settings pane covers four prefs. All persist in
   pushing one download per file through the browser's Downloads tray.
   Off, you get an anchor-click download per file (with a small inter-file
   gap so Chrome's multi-download throttle doesn't fire).
-- **Auto-send command** *(default `B:SLIDE R`, `\r` appended)* — what
-  BeasTTY auto-types at the Z80 prompt before a host-initiated send.
-  Empty disables auto-type (you drive `slide.com` yourself). The first
-  time you change this away from the default, a one-shot chip prompts
-  you to confirm the new value, as a guardrail against pasted-config
-  injection. The command is also validated for safety
-  (alphanumeric, `:`, space, and `\r` only — `;`, pipes, and other
-  control characters are rejected at use time with a `Auto-send command
-  unsafe — disabled.` hint, and the auto-type is skipped).
+- **SLIDE.COM location** *(default `A:` + `SLIDE.COM`)* — a drive
+  dropdown and the program name, saying where SLIDE lives on the device.
+  BeasTTY appends the direction letter and the Enter itself: `R` to put
+  the Z80 into receive mode before a host-initiated send, `S` when the
+  pull pane asks the Z80 for files. Stating it once is what keeps the two
+  directions consistent — before this, pulls used a bare `SLIDE S` and
+  CP/M answered `SLIDE?` from any drive that wasn't the one holding
+  SLIDE.COM. The `.COM` is optional (`SLIDE` works too), and the name need
+  not be SLIDE at all: BeasTTY transfers files with SLIDE specifically, so
+  this names *that* binary — rename it to `BANANA.COM` and put that here,
+  and it still speaks the protocol and still takes `R`/`S`. (For any other
+  transfer program — XMODEM, YMODEM, KERMIT — you drive the MicroBeast by
+  hand.) The name is validated as a CP/M 8.3 filename; anything else is
+  rejected at use time
+  with a `Not a CP/M 8.3 program name — SLIDE won't start.` hint, and
+  nothing is typed at the prompt.
+- **Auto-start SLIDE on the device** *(default on)* — when off, BeasTTY
+  types nothing before a send and you start `slide.com` on the MicroBeast
+  yourself. The location above still composes the pull command, so
+  dragging files out of the pull pane keeps working either way.
 - **Show transfer summary chip** *(default on)* — when on, a small chip
   appears for ~5 s after a successful send or receive completes,
   reporting the file count, total bytes, and direction

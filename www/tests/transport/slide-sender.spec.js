@@ -2,7 +2,7 @@
 //
 // Covers:
 //   - SLIDE-07 (multi-file picker click flow)
-//   - SLIDE-13 (auto-typed `B:SLIDE R\r` BEFORE wakeup)
+//   - SLIDE-13 (auto-typed `A:SLIDE.COM R\r` BEFORE wakeup)
 //   - Phase 9 SC#5 (byte-identical round-trip via mock SLIDE-receiver bot — load-bearing)
 //   - Multi-file batch send completes through mock bot
 //   - window.__slide.__getStateForTests() introspection (D-18)
@@ -71,11 +71,12 @@ test.describe('SLIDE sender end-to-end (Phase 9 Plan 09-04)', () => {
         await expect(page.locator('#send-modal-send')).toBeEnabled();
     });
 
-    test('auto-type B:SLIDE R\\r before wakeup match @fast', async ({ page }) => {
-        // SLIDE-13 — auto-typed "B:SLIDE R\r" must appear in the writer log
+    test('auto-type A:SLIDE.COM R\\r before wakeup match @fast', async ({ page }) => {
+        // SLIDE-13 — the auto-start command must appear in the writer log
         // BEFORE the wakeup signature flips owner to 'slide'. Pitfall 3
-        // order-critical (slide.js:378-383: pushTxBytes BEFORE pendingSendSession
-        // assignment).
+        // order-critical (pushTxBytes BEFORE pendingSendSession assignment).
+        // The command is composed from the shipped default SLIDE.COM location
+        // (A: + SLIDE.COM) with the ' R' direction letter appended by slide.js.
         const content = 'X';
         await page.setInputFiles('#send-file-input', {
             name: 'x.txt',
@@ -84,16 +85,17 @@ test.describe('SLIDE sender end-to-end (Phase 9 Plan 09-04)', () => {
         });
         await page.locator('#send-modal-send').click();
 
-        // First 10 bytes in __mockWriterLog must be 'B:SLIDE R\r'.
+        // First 14 bytes in __mockWriterLog must be 'A:SLIDE.COM R\r'.
         // tx-sink batches keystrokes via a microtask; poll until the bytes
         // arrive (typical latency: 1 microtask tick).
+        const expected = [...'A:SLIDE.COM R'].map((c) => c.charCodeAt(0)).concat([0x0D]);
         await expect.poll(
             () => page.evaluate(() => {
                 const flat = window.__mockWriterLog.flatMap((e) => Array.from(e.bytes));
-                return flat.slice(0, 10);
+                return flat.slice(0, 14);
             }),
             { timeout: 2000 },
-        ).toEqual([0x42, 0x3A, 0x53, 0x4C, 0x49, 0x44, 0x45, 0x20, 0x52, 0x0D]);
+        ).toEqual(expected);
 
         // The mode must still be 'terminal' at this point (wakeup hasn't fired
         // yet because we haven't called pushSlideWakeup). pendingSendSession

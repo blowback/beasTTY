@@ -54,17 +54,20 @@ test.describe('slide-prefs — Settings layout', () => {
         await expect(page.locator('#slide-config-modal-title')).toHaveText('SLIDE File Transfer');
     });
 
-    test('contains 4 rows in order: Save-to-folder, Auto-send, Show-summary, Compatibility', async ({ page }) => {
+    test('contains 5 rows in order: Save-to-folder, Location, Auto-start, Show-summary, Compatibility', async ({ page }) => {
         await setup(page);
-        // Each of the 4 rows from D-05 (verbatim ids preserved through the move).
+        // The D-05 rows (verbatim ids preserved through the move), plus the two
+        // that replaced the single Auto-send row in prefs v2.
         await expect(page.locator('#slide-recv-folder-row')).toHaveCount(1);
-        await expect(page.locator('#slide-auto-send-row')).toHaveCount(1);
+        await expect(page.locator('#slide-program-row')).toHaveCount(1);
+        await expect(page.locator('#slide-auto-start-row')).toHaveCount(1);
         await expect(page.locator('#slide-show-summary-row')).toHaveCount(1);
         await expect(page.locator('#slide-compat-row')).toHaveCount(1);
         // Rows must be inside #slide-config-modal (single-surface containment — NFR-4).
         for (const id of [
             '#slide-recv-folder-row',
-            '#slide-auto-send-row',
+            '#slide-program-row',
+            '#slide-auto-start-row',
             '#slide-show-summary-row',
             '#slide-compat-row',
         ]) {
@@ -75,43 +78,58 @@ test.describe('slide-prefs — Settings layout', () => {
         const orderIds = await page.evaluate(() => {
             const rows = Array.from(document.querySelectorAll(
                 '#slide-config-modal #slide-recv-folder-row, ' +
-                '#slide-config-modal #slide-auto-send-row, ' +
+                '#slide-config-modal #slide-program-row, ' +
+                '#slide-config-modal #slide-auto-start-row, ' +
                 '#slide-config-modal #slide-show-summary-row, ' +
                 '#slide-config-modal #slide-compat-row'));
             return rows.map((r) => r.id);
         });
         expect(orderIds).toEqual([
             'slide-recv-folder-row',
-            'slide-auto-send-row',
+            'slide-program-row',
+            'slide-auto-start-row',
             'slide-show-summary-row',
             'slide-compat-row',
         ]);
     });
 });
 
-test.describe('slide-prefs — auto-send command', () => {
+test.describe('slide-prefs — SLIDE.COM location', () => {
 
-    test('input default value is "B:SLIDE R"', async ({ page }) => {
+    test('controls show the shipped default: A: + SLIDE.COM, auto-start on', async ({ page }) => {
         await setup(page);
-        // D-06 — input shows the literal `B:SLIDE R` (trailing \r is
-        // appended at save time, NOT displayed).
-        await expect(page.locator('#slide-auto-send-input')).toHaveValue('B:SLIDE R');
+        await expect(page.locator('#slide-program-drive')).toHaveValue('A:');
+        await expect(page.locator('#slide-program-name')).toHaveValue('SLIDE.COM');
+        await expect(page.locator('#slide-auto-start-checkbox')).toBeChecked();
     });
 
-    test('typing + change event persists slideAutoSendCommand to localStorage with trailing \\r', async ({ page }) => {
+    test('typing + change event persists slideProgramName to localStorage', async ({ page }) => {
         await setup(page);
-        await page.locator('#slide-auto-send-input').fill('A:RUN PROG.COM');
-        await page.locator('#slide-auto-send-input').dispatchEvent('change');
+        await page.locator('#slide-program-name').fill('SLIDE');
+        await page.locator('#slide-program-name').dispatchEvent('change');
         // Phase 6 D-33 — savePrefs is debounced 250 ms; poll up to 2 s for
         // the localStorage write.
         await expect.poll(
             () => page.evaluate(() => {
                 const raw = localStorage.getItem('beastty.prefs');
                 if (!raw) return null;
-                try { return JSON.parse(raw).slideAutoSendCommand; } catch { return null; }
+                try { return JSON.parse(raw).slideProgramName; } catch { return null; }
             }),
             { timeout: 2000 },
-        ).toBe('A:RUN PROG.COM\r');
+        ).toBe('SLIDE');
+    });
+
+    test('unchecking auto-start persists slideAutoStart false', async ({ page }) => {
+        await setup(page);
+        await page.locator('#slide-auto-start-checkbox').uncheck();
+        await expect.poll(
+            () => page.evaluate(() => {
+                const raw = localStorage.getItem('beastty.prefs');
+                if (!raw) return null;
+                try { return JSON.parse(raw).slideAutoStart; } catch { return null; }
+            }),
+            { timeout: 2000 },
+        ).toBe(false);
     });
 
     test('debounce delay matches Phase 6 D-33 250 ms contract', async ({ page }) => {
@@ -120,27 +138,27 @@ test.describe('slide-prefs — auto-send command', () => {
         const before = await page.evaluate(() => localStorage.getItem('beastty.prefs'));
         // Fire change immediately. The debounce should NOT fire within 50 ms
         // (Phase 6 D-33 is 250 ms; well above 50 ms).
-        await page.locator('#slide-auto-send-input').fill('UNIQUE-TOKEN');
-        await page.locator('#slide-auto-send-input').dispatchEvent('change');
+        await page.locator('#slide-program-name').fill('UNIQUE.TOK');
+        await page.locator('#slide-program-name').dispatchEvent('change');
         // After 50 ms the value should NOT yet be flushed.
         await page.waitForTimeout(50);
         const fiftyMs = await page.evaluate(() => {
             const raw = localStorage.getItem('beastty.prefs');
             if (!raw) return null;
-            try { return JSON.parse(raw).slideAutoSendCommand; } catch { return null; }
+            try { return JSON.parse(raw).slideProgramName; } catch { return null; }
         });
         // We can't strongly assert "not yet" because the value might be
         // older — assert it's NOT the new value yet.
-        expect(fiftyMs).not.toBe('UNIQUE-TOKEN\r');
+        expect(fiftyMs).not.toBe('UNIQUE.TOK');
         // After 500 ms (250 ms debounce + slack) the value SHOULD be flushed.
         await expect.poll(
             () => page.evaluate(() => {
                 const raw = localStorage.getItem('beastty.prefs');
                 if (!raw) return null;
-                try { return JSON.parse(raw).slideAutoSendCommand; } catch { return null; }
+                try { return JSON.parse(raw).slideProgramName; } catch { return null; }
             }),
             { timeout: 1500 },
-        ).toBe('UNIQUE-TOKEN\r');
+        ).toBe('UNIQUE.TOK');
         // Reference unused snapshot to confirm we captured prior state.
         expect(before === null || typeof before === 'string').toBe(true);
     });

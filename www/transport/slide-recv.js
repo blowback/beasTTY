@@ -106,6 +106,7 @@ let folderButtonElRef = null;
 let statusElRef = null;
 let helpElRef = null;
 let onFileLandedRef = null;        // S9.1b FR-8a — pull-pane refresh after a folder write lands
+let onFolderChangedRef = null;     // pull-pane rebind after Change folder… swaps the recv folder
 
 let currentFile = null;            // { name, totalBytes, chunks: Uint8Array[], bytesDone }
 let inflightDownloads = [];        // Promise[] for cancel-time settle (Plan 10-03)
@@ -164,6 +165,7 @@ export function wireSlideRecv(opts) {
     // enumerable by the pull pane. Null in tests / boot before wiring. JS-shell
     // only — no Rust/wasm/protocol touch (NFR-1).
     onFileLandedRef = opts.onFileLanded || null;
+    onFolderChangedRef = opts.onFolderChanged || null;
     // Plan 10-04 — Settings DOM event wiring + initial render + boot-time
     // permission re-request. When DOM refs are null (Plan 10-02 callsite),
     // these no-op cleanly.
@@ -290,6 +292,12 @@ async function pickFolder() {
         // of the user gesture; queryPermission returns 'granted' afterwards.
         currentPermission = 'granted';
         renderSettingsRow();
+        // The docked pull pane binds the recv folder from the SAME IDB key, but
+        // only re-reads it when it has no handle yet — once bound its refresh
+        // triggers re-enumerate the OLD handle. The new folder is already
+        // persisted above, so nudge the pane to rebind or it stays stuck on the
+        // previous folder until a reload. Best-effort (mirrors onFileLanded).
+        if (onFolderChangedRef) { try { onFolderChangedRef(); } catch { /* pane rebind is best-effort */ } }
     } catch (e) {
         // User dismissed (AbortError) — D-04 silent fall-back; no console.error.
         if (e && e.name !== 'AbortError') {

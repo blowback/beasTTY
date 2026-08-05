@@ -102,7 +102,8 @@ let validateRef = null, truncateRef = null, pushTxBytesRef = null,
     onPullRequestedRef = null,
     sendFilesRef = null,   // S9.4 — file-source send path (sanctioned fallback)
     analyzeCsumRef = null, // S10.1 — pure csum module (renderer/csum.js), injected not imported
-    parseCsumVRef = null, classifyCsumDiffRef = null; // S10.2 — CSUM -V parser + diff classifier (csum.js)
+    parseCsumVRef = null, classifyCsumDiffRef = null, // S10.2 — CSUM -V parser + diff classifier (csum.js)
+    getPullProgramRef = null; // pull-side program invocation ('A:SLIDE'), derived live from the auto-send command
 
 // Test override for the injected isSlideActive (null = use the injected one).
 // Mirrors the __setDirHandleForTests approach to unhostable browser state.
@@ -244,8 +245,16 @@ const REASON_LIMIT = 'over the 126-char CP/M command-line limit';
 // The command shape, single-sourced for both the cap arithmetic and the final
 // join — SLIDE-UAT.md UAT-E9-01 checks (a)/(b) anticipate hardware changing
 // the separator (space → comma) or prefix (B:SLIDE S); each is one line here.
-const CMD_PREFIX = 'SLIDE S ';
+//
+// The prefix is not a constant: the program invocation comes from where the
+// user says SLIDE.COM lives (prefs.slideProgramPath, injected as getPullProgram
+// per AD-3), so a SLIDE on A: is invoked as `A:SLIDE.COM S` from any drive
+// instead of a bare `SLIDE S` that CP/M answers with `SLIDE?`. Read live at
+// compose time — same reason slide.js reads the location live: a Settings
+// change must reach the wire without a page reload.
+const CMD_DIRECTION = ' S ';
 const CMD_SEP = ' ';
+function cmdPrefix() { return getPullProgramRef() + CMD_DIRECTION; }
 
 const FSA_OPTS = { mode: 'readwrite' };
 
@@ -313,6 +322,10 @@ export function wirePullPane(opts) {
         // analyzeCsum.
         parseCsumV: parseCsumVRef,
         classifyCsumDiff: classifyCsumDiffRef,
+        // The pull command's program invocation, read live at compose time.
+        // main.js closes over prefs.slideProgramPath(getPrefs()); the pane never
+        // imports prefs (AD-3). Unguarded like the validators.
+        getPullProgram: getPullProgramRef,
     } = opts);
 
     // Derive child refs from the injected root (no cross-module document reach).
@@ -438,6 +451,10 @@ export function wirePullPane(opts) {
     return {
         render,
         refresh: triggerRefresh,   // FR-8a transfer-done trigger (main.js onFileLanded).
+        rebind: bindFromIdb,       // Settings ▸ Change folder… — force a fresh IDB read so
+                                   // the pane follows the newly-picked recv folder (main.js
+                                   // onFolderChanged). refresh() alone re-enumerates the OLD
+                                   // handle once bound; only a rebind re-reads the handle.
         beginReview,               // S9.2 entry point (now also the S9.3 drop path).
         onSelectionDrag,           // S9.3 — selection drag state from main.js (AC-8);
                                    // doubles as the test entry point (specs call it directly).
@@ -481,6 +498,12 @@ function __timerTickForTests() { return triggerRefresh(); }
 async function bindFromIdb() {
     const gen = ++epoch;
     resetDiffBaseline();   // a (re)bind is a fresh baseline — nothing is "fresh"
+    // A rebind can point at a DIFFERENT folder (Settings ▸ Change folder…), so
+    // any open review/detail overlay references files from the OLD folder —
+    // drop it, or a stale sub-state hangs over the new listing.
+    state.review = null;
+    state.detail = null;
+    detailRecords = [];
     let handle = null;
     try {
         if (idbRef && typeof idbRef.getRecvDirHandle === 'function') {
@@ -1444,19 +1467,22 @@ function mergeDirColumns(raws) {
 // uppercases, this also rejects lowercase tokens, which are prose in a CP/M
 // listing, not filenames). Exact-duplicate valid tokens collapse to the first
 // occurrence (whether the first was included or cap-skipped). command is
-// CMD_PREFIX + names joined by CMD_SEP, or null when nothing is valid (no
-// code path may transmit a bare 'SLIDE S' — FR-7).
+// cmdPrefix() + names joined by CMD_SEP, or null when nothing is valid (no
+// code path may transmit a bare 'SLIDE S' — FR-7). The prefix is resolved ONCE
+// per compose so the cap arithmetic and the final join cannot disagree even if
+// the pref changed mid-call.
 function composeFromText(text) {
     const tokens = [];
     const names = [];
     const seen = new Set();
+    const prefix = cmdPrefix();
     // AC-7 — once appending a name (with its joining separator) would push the
     // command past MAX_COMMAND_CHARS, that name and every later valid one are
     // skipped. Dedupe applies first: a duplicate of an included name collapses,
     // it doesn't burn budget. cmdLen tracks the composed length so the cap
     // arithmetic and the final join can never disagree on the command shape.
     let capReached = false;
-    let cmdLen = CMD_PREFIX.length;
+    let cmdLen = prefix.length;
     const raws = mergeDirColumns(text.split(/\s+/).filter((t) => t.length > 0));
     for (const raw of raws) {
         const v = validateRef(raw);
@@ -1477,7 +1503,7 @@ function composeFromText(text) {
     return {
         tokens,
         validCount: names.length,
-        command: names.length > 0 ? CMD_PREFIX + names.join(CMD_SEP) : null,
+        command: names.length > 0 ? prefix + names.join(CMD_SEP) : null,
     };
 }
 

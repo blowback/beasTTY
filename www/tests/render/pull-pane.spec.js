@@ -17,6 +17,14 @@ const PANE = '#pull-pane';
 const CARD = '#pull-pane .pp-card';
 const BLANK_MSG = '#pull-pane-blank-msg';
 
+// The pull command's program invocation is no longer hardcoded — it comes from
+// where the user says SLIDE.COM lives (prefs.slideProgramPath), so SLIDE is
+// invoked from that drive instead of whichever one CP/M happens to be on.
+// These specs boot on the shipped defaults (A: + SLIDE.COM), giving
+// 'A:SLIDE.COM S'. One constant so a default change is a one-line edit; the
+// composition itself is pinned by its own describe below.
+const PFX = 'A:SLIDE.COM S';
+
 // An in-page fake FileSystemDirectoryHandle. Built inside page.evaluate so its
 // methods survive (functions don't cross the evaluate boundary). `permission`
 // governs queryPermission; `grantsTo` is what requestPermission resolves to;
@@ -426,7 +434,7 @@ test.describe('E9 S9.2 — pull pane: selection → SLIDE S review', () => {
         expect(ok).toBe(true);
         expect(await view(page)).toBe('review');
         const rv = await reviewState(page);
-        expect(rv.command).toBe('SLIDE S GAME.COM DUMP.BIN');
+        expect(rv.command).toBe(`${PFX} GAME.COM DUMP.BIN`);
         expect(rv.validCount).toBe(2);
         // 5 rows — the exact-duplicate GAME.COM collapsed into the first occurrence.
         await expect(page.locator('#pull-pane-toklist .pp-tok')).toHaveCount(5);
@@ -439,7 +447,7 @@ test.describe('E9 S9.2 — pull pane: selection → SLIDE S review', () => {
         expect(await skipped.nth(1).locator('.pp-info').getAttribute('title')).toBe(TOOLTIP_83);
         expect(await skipped.nth(2).locator('.pp-info').getAttribute('title')).toContain(':');
         // Composed line with the mint › prefix; confirm counts valid names; caption swaps.
-        await expect(page.locator('#pull-pane-cmdtext')).toHaveText('SLIDE S GAME.COM DUMP.BIN');
+        await expect(page.locator('#pull-pane-cmdtext')).toHaveText(`${PFX} GAME.COM DUMP.BIN`);
         await expect(page.locator('#pull-pane-confirm')).toHaveText('Pull 2 files');
         await expect(page.locator('#pull-pane-confirm')).toBeEnabled();
         await expect(page.locator('#pull-pane-cap-label')).toHaveText('Review — pull to this folder');
@@ -450,7 +458,7 @@ test.describe('E9 S9.2 — pull pane: selection → SLIDE S review', () => {
         await page.evaluate(() => window.__pullPane.beginReview('GAME.COM DUMP.BIN'));
         await page.locator('#pull-pane-confirm').click();
         expect(await txPushes(page)).toBe(1);
-        expect(await ringBytes(page)).toEqual(ascii('SLIDE S GAME.COM DUMP.BIN').concat([0x0D]));
+        expect(await ringBytes(page)).toEqual(ascii(`${PFX} GAME.COM DUMP.BIN`).concat([0x0D]));
         // Review exits back to the content view.
         expect(await view(page)).not.toBe('review');
         expect(await reviewState(page)).toBe(null);
@@ -462,7 +470,7 @@ test.describe('E9 S9.2 — pull pane: selection → SLIDE S review', () => {
         await page.evaluate(async () => (await import('/input/keyboard.js')).setCrlfMode('crlf'));
         await page.evaluate(() => window.__pullPane.beginReview('GAME.COM'));
         await page.locator('#pull-pane-confirm').click();
-        expect(await ringBytes(page)).toEqual(ascii('SLIDE S GAME.COM').concat([0x0D, 0x0A]));
+        expect(await ringBytes(page)).toEqual(ascii(`${PFX} GAME.COM`).concat([0x0D, 0x0A]));
         await page.evaluate(async () => (await import('/input/keyboard.js')).setCrlfMode('cr'));
         await disarmTxCapture(page);
     });
@@ -692,7 +700,7 @@ test.describe('E9 S9.3 — pull pane: drop-to-pull', () => {
         await dispatchDrag(page, 'drop', 'GAME.COM');
         await dragState(page, { active: false });
         expect(await view(page)).toBe('review');
-        expect((await reviewState(page)).command).toBe('SLIDE S GAME.COM');
+        expect((await reviewState(page)).command).toBe(`${PFX} GAME.COM`);
         expect((await paneState(page)).dropAffordance).toBe(false);
         await expect(page.locator(CARD)).not.toHaveClass(/\bdrop\b/);
         // Drop while the review is open replaces the review content (AC-3).
@@ -701,15 +709,15 @@ test.describe('E9 S9.3 — pull pane: drop-to-pull', () => {
         await dispatchDrag(page, 'drop', 'DUMP.BIN');
         await dragState(page, { active: false });
         expect(await view(page)).toBe('review');
-        expect((await reviewState(page)).command).toBe('SLIDE S DUMP.BIN');
-        await expect(page.locator('#pull-pane-cmdtext')).toHaveText('SLIDE S DUMP.BIN');
+        expect((await reviewState(page)).command).toBe(`${PFX} DUMP.BIN`);
+        await expect(page.locator('#pull-pane-cmdtext')).toHaveText(`${PFX} DUMP.BIN`);
     });
 
     test('drop falls back to the drag-state stash when dataTransfer text is empty @fast', async ({ page }) => {
         await bindFake(page, { name: 'MicroBeastPull', permission: 'granted', files: [] });
         await dragState(page, { active: true, text: 'GAME.COM DUMP.BIN' });
         await dispatchDrag(page, 'drop', null);   // empty DataTransfer
-        expect((await reviewState(page)).command).toBe('SLIDE S GAME.COM DUMP.BIN');
+        expect((await reviewState(page)).command).toBe(`${PFX} GAME.COM DUMP.BIN`);
         await dragState(page, { active: false });
     });
 
@@ -752,7 +760,7 @@ test.describe('E9 S9.3 — pull pane: drop-to-pull', () => {
         await page.evaluate(() =>
             window.__pullPane.beginReview('A: VLOAD    COM : VPEEK    COM'));
         let rv = await reviewState(page);
-        expect(rv.command).toBe('SLIDE S VLOAD.COM VPEEK.COM');
+        expect(rv.command).toBe(`${PFX} VLOAD.COM VPEEK.COM`);
         expect(rv.validCount).toBe(2);
         await expect(page.locator('#pull-pane-toklist .pp-tok')).toHaveCount(2);
         await expect(page.locator('#pull-pane-toklist .pp-tok.ok .nm'))
@@ -761,14 +769,14 @@ test.describe('E9 S9.3 — pull pane: drop-to-pull', () => {
         await page.evaluate(() =>
             window.__pullPane.beginReview('GAME.COM VPEEK    COM'));
         rv = await reviewState(page);
-        expect(rv.command).toBe('SLIDE S GAME.COM VPEEK.COM');
+        expect(rv.command).toBe(`${PFX} GAME.COM VPEEK.COM`);
         // Lowercase prose never joins (the joined form fails the uppercase
         // idempotence check), and a join that would exceed 8.3 shape is left split.
         await page.evaluate(() =>
             window.__pullPane.beginReview('read me TOOLONGNAME COM'));
         rv = await reviewState(page);
         // TOOLONGNAME (9 chars) can't join; COM alone is still a valid bare name.
-        expect(rv.command).toBe('SLIDE S COM');
+        expect(rv.command).toBe(`${PFX} COM`);
         const skipped = page.locator('#pull-pane-toklist .pp-tok.skip .nm');
         await expect(skipped).toHaveText(['read', 'me', 'TOOLONGNAME']);
         await page.locator('#pull-pane-cancel').click();
@@ -824,7 +832,7 @@ test.describe('E9 S9.3 — pull pane: drop-to-pull', () => {
         // Confirm → exactly ONE push: ASCII command + configured terminator (cr).
         await page.locator('#pull-pane-confirm').click();
         expect(await txPushes(page)).toBe(1);
-        expect(await ringBytes(page)).toEqual(ascii('SLIDE S GAME.COM DUMP.BIN').concat([0x0D]));
+        expect(await ringBytes(page)).toEqual(ascii(`${PFX} GAME.COM DUMP.BIN`).concat([0x0D]));
         expect(await view(page)).toBe('list');
         // Confirm also handed the batch size to the SLIDE dispatcher (the
         // injected onPullRequested → setExpectedRecvFiles), so the transfer
@@ -856,36 +864,45 @@ test.describe('E9 S9.3 — pull pane: drop-to-pull', () => {
         await dispatchDrag(page, 'drop', 'GAME.COM');
         await dragState(page, { active: false });
         await page.locator('#pull-pane-confirm').click();
-        expect(await ringBytes(page)).toEqual(ascii('SLIDE S GAME.COM').concat([0x0D, 0x0A]));
+        expect(await ringBytes(page)).toEqual(ascii(`${PFX} GAME.COM`).concat([0x0D, 0x0A]));
         await page.evaluate(async () => (await import('/input/keyboard.js')).setCrlfMode('cr'));
         await disarmTxCapture(page);
     });
 
     test('length cap (AC-7): boundary at 126 chars — last fit included, overflow skipped with reason @fast', async ({ page }) => {
-        // 'SLIDE S ' (8) + nine 12-char names joined (116) = 124; + ' A' = 126
-        // (exactly at the cap → included); 'B' would make 128 → skipped, along
-        // with every later valid token. A duplicate of an included name
-        // collapses without burning budget.
-        const nine = Array.from({ length: 9 }, (_, i) => `AAAAAAA${i}.COM`);
+        // 'A:SLIDE.COM S ' (14) + eight 12-char names joined (103) = 117, then
+        // an 8-char name (+1 separator) = 126 — exactly at the cap, so that
+        // ninth name is the last fit and is included; 'A' (+2) would make 128
+        // → skipped, along with every later valid token. A duplicate of an
+        // included name collapses without burning budget. The prefix length is
+        // part of this arithmetic: it feeds the cap, so a longer program
+        // invocation buys fewer names — which is why the tail is sized to the
+        // prefix rather than being a round nine 12-char names.
+        const eight = Array.from({ length: 8 }, (_, i) => `AAAAAAA${i}.COM`);
+        // 8 chars, and DOTTED on purpose: mergeDirColumns joins a dotless
+        // <=8-char token to a dotless <=3-char follower ('BBBBBBBB' + 'A' would
+        // become one 'BBBBBBBB.A' token and blow the arithmetic).
+        const lastFit = 'BBBB.BBB';   // lands the command exactly on 126
+        const nine = [...eight, lastFit];
         const text = [...nine, 'A', 'AAAAAAA0.COM', 'B', 'C.TXT'].join(' ');
         await page.evaluate((t) => window.__pullPane.beginReview(t), text);
         const rv = await reviewState(page);
-        expect(rv.command).toBe(`SLIDE S ${nine.join(' ')} A`);
+        expect(rv.command).toBe(`${PFX} ${nine.join(' ')}`);
         expect(rv.command.length).toBe(126);
-        expect(rv.validCount).toBe(10);
-        // 12 rows: 10 included + B + C.TXT (the duplicate collapsed, no row).
+        expect(rv.validCount).toBe(9);
+        // 12 rows: 9 included + A + B + C.TXT (the duplicate collapsed, no row).
         await expect(page.locator('#pull-pane-toklist .pp-tok')).toHaveCount(12);
         const skipped = page.locator('#pull-pane-toklist .pp-tok.skip');
-        await expect(skipped.locator('.nm')).toHaveText(['B', 'C.TXT']);
+        await expect(skipped.locator('.nm')).toHaveText(['A', 'B', 'C.TXT']);
         expect(await skipped.nth(0).locator('.pp-info').getAttribute('title')).toBe(REASON_LIMIT);
         expect(await skipped.nth(1).locator('.pp-info').getAttribute('title')).toBe(REASON_LIMIT);
-        await expect(page.locator('#pull-pane-confirm')).toHaveText('Pull 10 files');
+        await expect(page.locator('#pull-pane-confirm')).toHaveText('Pull 9 files');
         await page.locator('#pull-pane-cancel').click();
         // The drop-affordance footer count is cap-aware too (composeFromText).
         await bindFake(page, { name: 'MicroBeastPull', permission: 'granted', files: [] });
         await dragState(page, { active: true, text });
         await dispatchDrag(page, 'dragenter', text);
-        await expect(page.locator('#pull-pane-foot')).toHaveText('⤓ Drop to pull 10 files');
+        await expect(page.locator('#pull-pane-foot')).toHaveText('⤓ Drop to pull 9 files');
         await dragState(page, { active: false });
     });
 });
@@ -1446,5 +1463,82 @@ test.describe('E9 S9.4 — pull pane: multi-select reverse drag', () => {
         expect(await selected(page)).toEqual(['A.COM']);
         expect(await page.evaluate(() => window.__pullPane.__getStateForTests().dragOutArmed)).toBe(false);
         await page.evaluate(() => window.__pullPane.__setSlideActiveForTests(null));
+    });
+});
+
+// ── Pull-command program invocation, read from the SLIDE.COM location ──
+//
+// Bug (reported from hardware 2026-08-05): with SLIDE configured as `A:slide`,
+// a drag-to-pull from the B: drive emitted `B>SLIDE S WOTBEAST.FTH` and CP/M
+// answered `SLIDE?` — the pane's command prefix was hardcoded to a bare
+// `SLIDE S` and never consulted the setting saying where SLIDE lives.
+//
+// The composition is pure (prefs.slideProgramPath, pinned by
+// tests/transport/slide-program-location.spec.js); these specs pin that it
+// reaches the composed command, the wire, and the length cap.
+test.describe('pull command: program invocation from the SLIDE.COM location', () => {
+    test.beforeEach(async ({ page }) => { await setup(page); });
+
+    const setLocation = (page, drive, name) => page.evaluate(
+        (loc) => window.__prefs.savePrefs({
+            slideProgramDrive: loc.drive, slideProgramName: loc.name,
+        }), { drive, name });
+
+    test('a Settings change reaches the composed command with no reload @fast', async ({ page }) => {
+        // The reported case end-to-end: point the location at A:, compose, and
+        // the command carries the drive so CP/M finds SLIDE from any drive.
+        await setLocation(page, 'A:', 'SLIDE');
+        await page.evaluate(() => window.__pullPane.beginReview('WOTBEAST.FTH'));
+        expect((await reviewState(page)).command).toBe('A:SLIDE S WOTBEAST.FTH');
+        // Live-read, not a boot snapshot — a second change takes effect too.
+        await page.evaluate(() => window.__pullPane.__resetForTests());
+        await setLocation(page, 'B:', 'SLIDE.COM');
+        await page.evaluate(() => window.__pullPane.beginReview('WOTBEAST.FTH'));
+        expect((await reviewState(page)).command).toBe('B:SLIDE.COM S WOTBEAST.FTH');
+    });
+
+    test('the location reaches the wire, not just the review @fast', async ({ page }) => {
+        await armTxCapture(page);
+        await setLocation(page, 'A:', 'SLIDE');
+        await page.evaluate(() => window.__pullPane.beginReview('WOTBEAST.FTH'));
+        await page.locator('#pull-pane-confirm').click();
+        expect(await ringBytes(page)).toEqual(ascii('A:SLIDE S WOTBEAST.FTH').concat([0x0D]));
+        await disarmTxCapture(page);
+    });
+
+    test('auto-start off still composes the pull command @fast', async ({ page }) => {
+        // Auto-start governs only what Beastty types to START SLIDE on a send.
+        // The location is a fact about the disk, so pulls keep working.
+        await page.evaluate(() => window.__prefs.savePrefs({
+            slideAutoStart: false, slideProgramDrive: 'B:', slideProgramName: 'SLIDE',
+        }));
+        await page.evaluate(() => window.__pullPane.beginReview('GAME.COM'));
+        expect((await reviewState(page)).command).toBe('B:SLIDE S GAME.COM');
+    });
+
+    test('an unusable location falls back to a bare SLIDE, never worse than before @fast', async ({ page }) => {
+        // Only reachable via a hand-edited blob (the controls cannot produce
+        // it) — the pull side degrades to the pre-v2 command rather than
+        // composing something CP/M would choke on.
+        await setLocation(page, 'A:', 'SLIDE;RM');
+        await page.evaluate(() => window.__pullPane.beginReview('GAME.COM'));
+        expect((await reviewState(page)).command).toBe('SLIDE S GAME.COM');
+    });
+
+    test('a longer program invocation buys fewer names at the 126-char cap @fast', async ({ page }) => {
+        // The cap is on the whole command line, so the prefix must feed the
+        // arithmetic — otherwise a drive-qualified program silently overruns
+        // the CCP line buffer. 'B:SLIDE S ' is 10 chars, so 116 remain.
+        await setLocation(page, 'B:', 'SLIDE');
+        const nine = Array.from({ length: 9 }, (_, i) => `AAAAAAA${i}.COM`);
+        await page.evaluate((t) => window.__pullPane.beginReview(t), nine.join(' '));
+        const rv = await reviewState(page);
+        expect(rv.command.length).toBe(126);
+        expect(rv.validCount).toBe(9);
+        // The same nine names do NOT all fit behind the longer default prefix.
+        await page.evaluate(() => window.__pullPane.__resetForTests());
+        await setLocation(page, 'A:', 'SLIDE.COM');
+        await page.evaluate((t) => window.__pullPane.beginReview(t), nine.join(' '));
+        expect((await reviewState(page)).validCount).toBe(8);
     });
 });

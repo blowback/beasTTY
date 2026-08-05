@@ -31,7 +31,9 @@ import {
     resetPrefs,
     subscribe as prefsSubscribe,
     getPrefs,
-    isAutoSendSafe,                 // Phase 12 SLIDE-38 — Settings input validation cue
+    isValidProgramName,             // SLIDE.COM location — Settings input validation cue
+    slideProgramPath,               // composed program invocation, e.g. 'A:SLIDE.COM'
+    DEFAULTS as PREF_DEFAULTS,      // for the drive dropdown's fallback selection
     BUILD_UNKNOWN_SHA,              // shared "unbuilt" stamp — one wording across About/bar/fallback
 } from './state/prefs.js';
 const prefs = loadPrefs();
@@ -44,7 +46,13 @@ const prefs = loadPrefs();
 // Tests that need to drive a runtime prefs change (e.g. Compatibility mode
 // 3-way branching in slide-compatibility.spec.js) mutate via this ref so
 // the dispatcher picks up the change without a page reload.
-window.__prefs = { savePrefs, resetPrefs, getPrefs, subscribe: prefsSubscribe, live: prefs };
+window.__prefs = {
+    savePrefs, resetPrefs, getPrefs, subscribe: prefsSubscribe, live: prefs,
+    // Pure helper hooks, mirroring the window.__slide introspection surface —
+    // the location grammar and its composition are driven directly by spec.
+    __slideProgramPathForTests: slideProgramPath,
+    __isValidProgramNameForTests: isValidProgramName,
+};
 
 import init, { Terminal, Slide } from './pkg/beastty_core.js';
 import {
@@ -103,7 +111,6 @@ import {
     forceExitRecvMode as dispatcherForceExitRecvMode,   // Plan 10-05 Rule 1 — mode-flag sync hook
     __resetForTests as __slideResetForTests,
     __getStateForTests as __slideGetStateForTests,
-    __isAutoSendSafeForTests as __slideIsAutoSendSafeForTests,   // Phase 12 SLIDE-38
     cancelSlideSend,                                              // Phase 12 UAT Gap D — send-side cancel
     isSendActive as slideSendActive,                              // production send-session predicate
 } from './transport/slide.js';
@@ -351,11 +358,11 @@ function projectAboutBuild() {
 }
 const openAbout = makeModalOpener(aboutModalEl, 'about-close', projectAboutBuild);
 // E3.4 (FR-20) — SLIDE File Transfer modal; initialFocus = Save-to-folder checkbox.
-// onOpen re-projects the auto-send validity cue from the LIVE stored command (not the
+// onOpen re-projects the program-name validity cue from the LIVE stored value (not the
 // boot snapshot — the hint lives in this modal and the use-time gate fires while closed).
 const slideConfigModalEl = document.getElementById('slide-config-modal');
 const openSlideConfig = makeModalOpener(slideConfigModalEl, 'slide-recv-to-folder-checkbox',
-    () => syncAutoSendValidity(getPrefs()?.slideAutoSendCommand || ''));
+    () => syncProgramNameValidity(getPrefs()?.slideProgramName || ''));
 // Phase 4 Plan 03 — Debug TX strip refs. E7.1 — the Settings-pane #local-echo /
 // #crlf-* refs + their listeners retired with <details id="settings">; Local echo
 // and Enter-key-sends are now menu-authoritative (Settings menu → keyboard.js
@@ -675,6 +682,16 @@ const pullPane = wirePullPane({
     // classifier, the story's two sanctioned injected-opt additions.
     parseCsumV,
     classifyCsumDiff,
+    // The pull command's program invocation, derived from the SAME setting that
+    // states where SLIDE lives for the send direction. Without this the pane
+    // composed a bare `SLIDE S …`, which CP/M answers with `SLIDE?` whenever the
+    // current drive isn't the one holding SLIDE.COM. getPrefs() (not the boot
+    // snapshot) so a Settings edit takes effect without a reload — the same
+    // live-read slide.js does for the send side.
+    // A location that fails its grammar (hand-edited blob, or a v1 value the
+    // migration could not read) leaves the pull side with nothing to compose,
+    // so fall back to a bare 'SLIDE' — the pre-v2 behaviour, never worse.
+    getPullProgram: () => slideProgramPath(getPrefs()) || 'SLIDE',
 });
 window.__pullPane = pullPane;   // Playwright hook (mirrors window.__statusBar)
 
@@ -1061,21 +1078,18 @@ const slideChipApi = wireSlideChip({
 // read loop. Pitfall 8 — Slide constructor depends on `await init()` having
 // resolved, which happened at main.js:79.
 //
-// Phase 11 Plan 11-03 — extended opts: prefs (D-09 auto-send sourced from
-// prefs.slideAutoSendCommand) + pastePump (D-12 cancelPaste at SLIDE wakeup
-// completion) + slideChip (D-15 chip lifecycle hooks at enterSendMode /
+// Phase 11 Plan 11-03 — extended opts: prefs (D-09; the auto-start command is
+// composed from the SLIDE.COM location) + pastePump (D-12 cancelPaste at SLIDE
+// wakeup completion) + slideChip (D-15 chip lifecycle hooks at enterSendMode /
 // enterRecvMode / exitSendMode / exitRecvMode).
 wireSlideDispatcher({
     term,
     txSink: { setWireOwner, getWireOwner, writeSlideFrame, writeSlideFrameAwaitable },
     slideCtor: Slide,
     wasm,
-    prefs,                                      // Phase 11 D-09 — auto-send from prefs.slideAutoSendCommand
+    prefs,                                      // Phase 11 D-09 — auto-start composed from the SLIDE.COM location
     pastePump: { cancelPaste: cancelPastePump }, // Phase 11 D-12 — cancelPaste at SLIDE wakeup
     slideChip: slideChipApi,                    // Phase 11 — chip lifecycle hooks
-    savePrefs,                                  // Phase 12 SLIDE-38 — first-use-confirm chip writes
-                                                //   slideAutoSendCommandConfirmed on [Confirm] /
-                                                //   resets prefs on [Reset to default]
     wrapperEl: terminalWrapper,                 // Phase 12 UAT Niggle 1 — refocus terminal-wrapper
                                                 //   after cancelSlideSend so [data-focused] border re-paints
 });
@@ -1116,6 +1130,10 @@ wireSlideRecv({
     // E9 S9.1b FR-8a — refresh the pull pane once a pulled file lands in the folder.
     // wirePullPane ran earlier in boot (above), so pullPane.refresh exists here.
     onFileLanded: () => { try { pullPane.refresh(); } catch { /* pane best-effort */ } },
+    // Change folder… swaps the recv folder in IDB — rebind the pane so it follows
+    // the new folder instead of staying stuck on the old one (refresh alone
+    // re-enumerates the already-bound stale handle).
+    onFolderChanged: () => { try { pullPane.rebind(); } catch { /* pane best-effort */ } },
 });
 
 // Phase 11 Plan 11-03 — resolve the thunk-holder now that cancelSlideRecv's
@@ -1132,30 +1150,32 @@ cancelSlideRecvLazy = cancelSlideRecv;
 // Compatibility mode <select> change handler restores #terminal-wrapper
 // focus per Phase 4 D-16 sacred. The Compatibility-mode 3-way branching
 // behavior is delivered by Plan 11-04.
-const slideAutoSendInput = document.getElementById('slide-auto-send-input');
+const slideProgramDriveSelect = document.getElementById('slide-program-drive');
+const slideProgramNameInput = document.getElementById('slide-program-name');
+const slideAutoStartCheckbox = document.getElementById('slide-auto-start-checkbox');
 const slideShowSummaryCheckbox = document.getElementById('slide-show-summary');
 const slideConfirmTransfersCheckbox = document.getElementById('slide-confirm-transfers-checkbox');
 const slideCompatSelect = document.getElementById('slide-compat-select');
 
-// Phase 12 SLIDE-38 / E4.2 review — project an auto-send command's safety onto its
-// input cue (#slide-auto-send-input [data-invalid]/[aria-invalid]) and the inline
-// validation hint. Single source for all four sync sites (boot hydration, the input
-// change handler, applyPrefs on reset, AND openSlideConfig) so the three formerly
-// hand-copied toggles can't drift. Re-projecting on modal OPEN is what makes the
-// diagnostic reachable when it matters: the hint lives inside #slide-config-modal, so
-// the use-time gate that fires during a receive (slide.js, modal closed) is never seen
-// live — but any user who opens Settings ▸ SLIDE File Transfer to inspect/fix the
-// command now always sees its current unsafe state. `cmdWithCr` is the stored form
-// (trailing \r included); isAutoSendSafe is no-throw-wrapped so a validator error
-// never blocks the paint. Visual ONLY — never blocks savePrefs (save-time validation
-// is forbidden; slide.js readAutoSendCommandBytes is the wire-safety boundary).
-function syncAutoSendValidity(cmdWithCr) {
-    const inputEl = document.getElementById('slide-auto-send-input');
-    const hintEl = document.getElementById('slide-auto-send-validation-hint');
-    let safe = true;
-    try { safe = isAutoSendSafe(cmdWithCr); } catch { safe = true; }
+// Project the SLIDE.COM location's validity onto the name input's cue
+// (#slide-program-name [data-invalid]/[aria-invalid]) and the inline validation
+// hint. Single source for all four sync sites (boot hydration, the change
+// handler, applyPrefs on reset, AND openSlideConfig) so they can't drift.
+// Re-projecting on modal OPEN is what makes the diagnostic reachable when it
+// matters: the hint lives inside #slide-config-modal, so a use-time rejection
+// during a transfer (slide.js, modal closed) is never seen live — but any user
+// who opens Settings ▸ SLIDE File Transfer to fix it always sees the current
+// state. Only the NAME can be invalid; the drive comes from a dropdown.
+// isValidProgramName is no-throw-wrapped so a validator error never blocks the
+// paint. Visual ONLY — never blocks savePrefs (slide.js readAutoSendCommandBytes
+// remains the wire-safety boundary).
+function syncProgramNameValidity(name) {
+    const inputEl = document.getElementById('slide-program-name');
+    const hintEl = document.getElementById('slide-program-validation-hint');
+    let valid = true;
+    try { valid = isValidProgramName(name); } catch { valid = true; }
     if (inputEl) {
-        if (safe) {
+        if (valid) {
             inputEl.removeAttribute('data-invalid');
             inputEl.removeAttribute('aria-invalid');
         } else {
@@ -1163,40 +1183,38 @@ function syncAutoSendValidity(cmdWithCr) {
             inputEl.setAttribute('aria-invalid', 'true');
         }
     }
-    if (hintEl) hintEl.hidden = safe;
+    if (hintEl) hintEl.hidden = valid;
 }
 
-if (slideAutoSendInput) {
-    // Display value WITHOUT trailing \r — D-06: \r is appended at save time, not displayed.
-    const stored = prefs.slideAutoSendCommand || '';
-    slideAutoSendInput.value = stored.endsWith('\r') ? stored.slice(0, -1) : stored;
+if (slideProgramDriveSelect) {
+    slideProgramDriveSelect.value = prefs.slideProgramDrive || PREF_DEFAULTS.slideProgramDrive;
+    slideProgramDriveSelect.addEventListener('change', (e) => {
+        savePrefs({ slideProgramDrive: e.target.value });
+    });
+}
 
-    // Phase 12 SLIDE-38 — boot-time data-invalid sync. If the persisted value
-    // is unsafe (e.g. user reloaded after typing a bad command in a previous
-    // session), set the visual cue immediately on first paint so the user sees the
-    // rejection state without waiting for a Send-file click (UAT Gap A — hint too).
-    syncAutoSendValidity(stored);
+if (slideProgramNameInput) {
+    slideProgramNameInput.value = prefs.slideProgramName || '';
+    // Boot-time cue: a persisted invalid name (hand-edited blob, or a v1 value
+    // the migration could not read) shows its rejection state on first paint
+    // rather than waiting for a Send-file click.
+    syncProgramNameValidity(slideProgramNameInput.value);
 
-    slideAutoSendInput.addEventListener('change', (e) => {
-        const v = e.target.value;
-        // D-06 — append \r at save time. Empty string disables auto-type per
-        // SLIDE-13 semantic (preserves Phase 9 D-14 logic; Plan 11-03 swaps
-        // the source from a hardcoded constant to prefs.slideAutoSendCommand).
-        const cmdWithCr = v.length === 0 ? '' : v + '\r';
+    slideProgramNameInput.addEventListener('change', (e) => {
+        // CP/M is case-insensitive and its CCP folds the line to uppercase
+        // anyway, so store the canonical uppercase form — that is what the
+        // validator, the composed command, and the pull pane all expect.
+        const name = e.target.value.trim().toUpperCase();
+        e.target.value = name;
+        syncProgramNameValidity(name);
+        savePrefs({ slideProgramName: name });
+    });
+}
 
-        // Phase 12 SLIDE-38 — Settings input visual cue (12-UI-SPEC §E). Visual
-        // ONLY — savePrefs below still persists an unsafe value (save-time
-        // validation is forbidden; slide.js readAutoSendCommandBytes is the wire
-        // boundary). UAT Gap A wants the hint on blur too, not just at use-time.
-        syncAutoSendValidity(cmdWithCr);
-
-        // Persist + re-arm first-use confirmation (any change to the auto-send
-        // command resets slideAutoSendCommandConfirmed to '' so the next
-        // session-start surfaces the chip per 12-UI-SPEC §C transition table).
-        savePrefs({
-            slideAutoSendCommand: cmdWithCr,
-            slideAutoSendCommandConfirmed: '',
-        });
+if (slideAutoStartCheckbox) {
+    slideAutoStartCheckbox.checked = prefs.slideAutoStart !== false;
+    slideAutoStartCheckbox.addEventListener('change', (e) => {
+        savePrefs({ slideAutoStart: !!e.target.checked });
     });
 }
 
@@ -1263,7 +1281,6 @@ if (serialAssertRtsCheckbox) {
 window.__slide = {
     __resetForTests: __slideResetForTests,
     __getStateForTests: __slideGetStateForTests,
-    __isAutoSendSafeForTests: __slideIsAutoSendSafeForTests,   // Phase 12 SLIDE-38
     dispatchInbound,
     enterSendMode: enterSlideSendMode,        // Phase 9 test hook
     setExpectedRecvFiles,                     // E9 — batch-hint test hook
@@ -1528,6 +1545,9 @@ const PREF_CONTROL_MIRRORS = [
     { id: 'slide-confirm-transfers-checkbox',      key: 'slideConfirmTransfers',    kind: 'boolDefault' },
     { id: 'slide-recv-to-folder-checkbox',         key: 'slideRecvToFolder',        kind: 'bool' },
     { id: 'slide-show-summary',                    key: 'slideShowSummary',         kind: 'bool' },
+    { id: 'slide-auto-start-checkbox',             key: 'slideAutoStart',           kind: 'boolDefault' },
+    { id: 'slide-program-drive',                   key: 'slideProgramDrive',        kind: 'select',
+      allowed: ['A:', 'B:', 'C:', 'D:', 'E:', 'F:', 'G:', 'H:', 'I:', 'J:', 'K:', 'L:', 'M:', 'N:', 'O:', 'P:'] },
     { id: 'slide-compat-select',                   key: 'slideCompatibilityMode',   kind: 'select',
       allowed: ['auto', 'wakeup-required', 'force-start'] },
 ];
@@ -1596,17 +1616,15 @@ function applyPrefs(p) {
     // confirm-transfers, and the three SLIDE-modal controls. chrome.js / keyboard.js own
     // the change listeners; applyPrefs only mirrors the stored value.
     applyControlMirrors(p);
-    // slide-auto-send-input is NOT a pure mirror (strips the trailing \r + re-syncs the
-    // validity cue), so it stays explicit below.
-    const slideAutoSendRef = document.getElementById('slide-auto-send-input');
-    if (slideAutoSendRef) {
-        // Display value strips the trailing \r (appended at save time — D-06), mirroring
-        // the boot hydration above.
-        const cmd = p.slideAutoSendCommand || '';
-        slideAutoSendRef.value = cmd.endsWith('\r') ? cmd.slice(0, -1) : cmd;
-        // Re-sync the SLIDE-38 validity cue so a reset to the (safe) default clears any
-        // stale [data-invalid] border + hint left by a previously-typed unsafe command.
-        syncAutoSendValidity(cmd);
+    // slide-program-name is NOT a pure mirror (it re-syncs the validity cue too),
+    // so it stays explicit below.
+    const slideProgramNameRef = document.getElementById('slide-program-name');
+    if (slideProgramNameRef) {
+        const name = p.slideProgramName || '';
+        slideProgramNameRef.value = name;
+        // Re-sync the validity cue so a reset to the (valid) default clears any
+        // stale [data-invalid] border + hint left by a previously-typed bad name.
+        syncProgramNameValidity(name);
     }
     // Serial-config form: mirror stored values so a fresh load shows the
     // persisted config in the Connection-pane form. The Phase 5 D-08
