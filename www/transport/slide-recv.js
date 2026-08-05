@@ -628,6 +628,11 @@ export async function cancelSlideRecv() {
     if (cancelInFlight) return;
     if (!isSlideActive()) return;
     cancelInFlight = true;
+    // Clear the previous cancel's answer up front — otherwise a cancel that
+    // never reaches its Step 3 assignment (it threw, or __resetForTests cut it
+    // short) leaves the LAST cancel's `true` standing and a reader concludes
+    // "the peer echoed" about a cancel that was never answered.
+    lastCancelEchoArrived = null;
 
     // Absolute timeout escape hatch (ADR-003 §3 — 2 s wraps the whole sequence).
     const absoluteTimeout = setTimeout(() => {

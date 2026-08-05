@@ -1291,6 +1291,11 @@ export async function cancelSlideSend() {
         return;
     }
     sendCancelInFlight = true;
+    // Clear the previous cancel's answer up front — otherwise a cancel that
+    // never reaches its Step 3 assignment (it threw, or __resetForTests cut it
+    // short) leaves the LAST cancel's `true` standing and a reader concludes
+    // "the peer echoed" about a cancel that was never answered.
+    lastCancelEchoArrived = null;
 
     const absoluteTimeout = setTimeout(() => {
         console.warn('[slide.js] send-cancel absolute timeout (2s); force_idle');
@@ -1688,6 +1693,19 @@ function pumpNextDataChunkIfReady() {
 /// without owner='slide' silent-dropping it.
 function maybeExitSendMode() {
     if (!slide) return;
+    // E11 S11.4 follow-up — while cancelSlideSend is running, IT owns the exit
+    // (Step 5 → forceExitSendMode, with the 2 s hatch behind it). Without this
+    // guard the CancelPending arm below fires on the first inbound chunk that
+    // lands after slide.cancel() — an in-flight ACK, or slide.asm's
+    // `msg_cancelled` text — flipping mode to 'terminal'. The peer's CTRL_CAN
+    // echo then arrives with mode already 'terminal', so dispatchInbound routes
+    // it to dispatchTerminalMode and the SM never sees it: the Step 3 wait
+    // times out, lastCancelEchoArrived reads false and force_idle runs on a
+    // cancel the Z80 answered perfectly. It also stopped a cancelled transfer
+    // reporting "Sent N files" via exitSendMode's summary. The recv twin
+    // (maybeExitRecvMode) never had the CancelPending arm, which is why only
+    // the send side lost its echo.
+    if (sendCancelInFlight) return;
     const st = slide.state();
     if (st === STATE_DONE || st === STATE_ERROR || st === STATE_CANCEL_PEND) {
         exitSendMode();
