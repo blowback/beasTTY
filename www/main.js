@@ -692,6 +692,11 @@ const pullPane = wirePullPane({
     // migration could not read) leaves the pull side with nothing to compose,
     // so fall back to a bare 'SLIDE' — the pre-v2 behaviour, never worse.
     getPullProgram: () => slideProgramPath(getPrefs()) || 'SLIDE',
+    // Settings ▸ Confirm file transfers, the SAME pref file-source.js reads to
+    // decide whether a send opens its confirm modal — so both directions
+    // behave alike. Live-read at drop time (not the boot snapshot) so a
+    // Settings change applies without a reload.
+    isConfirmEnabled: () => getPrefs()?.slideConfirmTransfers !== false,
 });
 window.__pullPane = pullPane;   // Playwright hook (mirrors window.__statusBar)
 

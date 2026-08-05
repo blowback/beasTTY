@@ -103,7 +103,8 @@ let validateRef = null, truncateRef = null, pushTxBytesRef = null,
     sendFilesRef = null,   // S9.4 — file-source send path (sanctioned fallback)
     analyzeCsumRef = null, // S10.1 — pure csum module (renderer/csum.js), injected not imported
     parseCsumVRef = null, classifyCsumDiffRef = null, // S10.2 — CSUM -V parser + diff classifier (csum.js)
-    getPullProgramRef = null; // pull-side program invocation ('A:SLIDE'), derived live from the auto-send command
+    getPullProgramRef = null, // pull-side program invocation ('A:SLIDE.COM'), read live from the SLIDE.COM location
+    isConfirmEnabledRef = null; // Settings ▸ Confirm file transfers — optional, defaults ON (see confirmEnabledNow)
 
 // Test override for the injected isSlideActive (null = use the injected one).
 // Mirrors the __setDirHandleForTests approach to unhostable browser state.
@@ -326,6 +327,10 @@ export function wirePullPane(opts) {
         // main.js closes over prefs.slideProgramPath(getPrefs()); the pane never
         // imports prefs (AD-3). Unguarded like the validators.
         getPullProgram: getPullProgramRef,
+        // Settings ▸ Confirm file transfers. OPTIONAL, unlike the validators —
+        // absent means "confirm", so a missing injection cannot turn the
+        // review off by accident.
+        isConfirmEnabled: isConfirmEnabledRef,
     } = opts);
 
     // Derive child refs from the injected root (no cross-module document reach).
@@ -1423,6 +1428,15 @@ function slideActiveNow() {
     return isSlideActiveRef();
 }
 
+// Settings ▸ Confirm file transfers, read live at drop time so a Settings
+// change applies without a reload. Unlike the validators this opt is OPTIONAL
+// and defaults to ON: a mis-wired composition root should keep the
+// confirmation step, not start transmitting without one.
+function confirmEnabledNow() {
+    if (typeof isConfirmEnabledRef !== 'function') return true;
+    return isConfirmEnabledRef() !== false;
+}
+
 // mergeDirColumns — rewrite the raw token stream so a dragged CP/M DIR listing
 // reads as filenames. DIR prints columnar 'NAME     EXT' fields (no dot) with
 // ':' between columns and a leading drive prefix ('A:'), so the plain
@@ -1520,7 +1534,25 @@ export function beginReview(text) {
     // detail-open DROP never reaches here — onPaneDrop routes it to the
     // CSUM -V diff (S10.2, runDiffDrop) instead.
     if (state.detail) return false;
-    state.review = composeFromText(String(text ?? ''));
+    const rv = composeFromText(String(text ?? ''));
+    // Settings ▸ Confirm file transfers — off means a drop pulls straight away,
+    // matching what the same pref already does on the send side
+    // (file-source.js processFiles skips its confirm modal). This trades FR-5's
+    // always-review-a-parse guarantee for consistency between the two
+    // directions, which is the user's call to make.
+    //
+    // Two cases still open the review instead of doing nothing visible:
+    // nothing parsed as a filename (there is no command to send at all — FR-7
+    // forbids a bare `SLIDE S`), and transmitPull refusing because no port is
+    // connected or a SLIDE session owns the wire — the review stays up so the
+    // user can connect and press [Pull N] themselves.
+    if (!confirmEnabledNow() && rv.validCount > 0 && transmitPull(rv)) {
+        // No review was ever opened; exitReview still un-blooms the rail and
+        // re-renders the content view, which is what a completed pull needs.
+        exitReview();
+        return true;
+    }
+    state.review = rv;
     renderReview();
     render();
     return true;
@@ -1576,11 +1608,14 @@ function renderReview() {
 // wire-owner flip and send half a command. getEnterBytes reads the CR/LF pref
 // at confirm time, so a Settings change mid-session is honored (same live-read
 // as keyboard Enter).
-function onReviewConfirm() {
-    const rv = state.review;
-    if (!rv || !rv.command) return;          // zero-valid — button is disabled anyway
-    if (slideActiveNow()) return;            // FR-11 — refuse; review stays open
-    if (!isWriterReadyRef()) return;         // no port — refuse; connect, then confirm
+// transmitPull — the confirmed-pull byte path, shared by the review's [Pull N]
+// button and the confirm-disabled drop that skips the review entirely. Returns
+// false without transmitting when the pull cannot happen right now; both
+// callers treat that as "leave the review up" rather than failing silently.
+function transmitPull(rv) {
+    if (!rv || !rv.command) return false;    // zero-valid — button is disabled anyway
+    if (slideActiveNow()) return false;      // FR-11 — refuse; review stays open
+    if (!isWriterReadyRef()) return false;   // no port — refuse; connect, then confirm
     const cmd = new TextEncoder().encode(rv.command);
     const enter = getEnterBytesRef();
     const bytes = new Uint8Array(cmd.length + enter.length);
@@ -1593,7 +1628,11 @@ function onReviewConfirm() {
         try { onPullRequestedRef(rv.validCount); } catch { /* hint only — never blocks the pull */ }
     }
     pushTxBytesRef(bytes);
-    exitReview();
+    return true;
+}
+
+function onReviewConfirm() {
+    if (transmitPull(state.review)) exitReview();
 }
 
 function onReviewCancel() { exitReview(); }   // transmits nothing (FR-5)

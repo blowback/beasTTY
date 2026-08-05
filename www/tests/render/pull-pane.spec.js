@@ -1542,3 +1542,99 @@ test.describe('pull command: program invocation from the SLIDE.COM location', ()
         expect((await reviewState(page)).validCount).toBe(8);
     });
 });
+
+// ── Settings ▸ Confirm file transfers governs the pull review ──
+//
+// The pref already skips the confirm modal on the SEND side (file-source.js
+// processFiles); the pull side used to review unconditionally. Off now means a
+// drop pulls straight away — with two deliberate exceptions that would
+// otherwise make a drop look like it did nothing.
+test.describe('pull review: Settings ▸ Confirm file transfers', () => {
+    test.beforeEach(async ({ page }) => { await setup(page); });
+
+    const setConfirm = (page, on) => page.evaluate(
+        (v) => window.__prefs.savePrefs({ slideConfirmTransfers: v }), on);
+
+    test('ON (default): a drop opens the review and transmits nothing yet @fast', async ({ page }) => {
+        await armTxCapture(page);
+        await bindFake(page, { name: 'MicroBeastPull', permission: 'granted', files: [] });
+        await dragState(page, { active: true, text: 'GAME.COM' });
+        await dispatchDrag(page, 'drop', 'GAME.COM');
+        await dragState(page, { active: false });
+        expect(await view(page)).toBe('review');
+        expect(await ringBytes(page)).toEqual([]);
+        await disarmTxCapture(page);
+    });
+
+    test('OFF: a drop pulls immediately — no review, bytes straight out @fast', async ({ page }) => {
+        await armTxCapture(page);
+        await setConfirm(page, false);
+        await bindFake(page, { name: 'MicroBeastPull', permission: 'granted', files: [] });
+        await dragState(page, { active: true, text: 'GAME.COM DUMP.BIN' });
+        await dispatchDrag(page, 'drop', 'GAME.COM DUMP.BIN');
+        await dragState(page, { active: false });
+        expect(await view(page)).not.toBe('review');
+        expect(await reviewState(page)).toBe(null);
+        expect(await ringBytes(page)).toEqual(
+            ascii(`${PFX} GAME.COM DUMP.BIN`).concat([0x0D]));
+        await disarmTxCapture(page);
+    });
+
+    test('OFF: the batch-size hint still reaches the chip @fast', async ({ page }) => {
+        // The hint must precede the command bytes either way — the Z80's wakeup
+        // follows the command, so a skipped review must not skip the hint.
+        await armTxCapture(page);
+        await setConfirm(page, false);
+        await page.evaluate(() => window.__pullPane.beginReview('GAME.COM DUMP.BIN'));
+        expect(await page.evaluate(
+            () => window.__slide.__getStateForTests().expectedRecvFiles)).toBe(2);
+        await disarmTxCapture(page);
+    });
+
+    test('OFF: a drop that parses to nothing still opens the review @fast', async ({ page }) => {
+        // FR-7 — there is no command to send, so silence would just look broken.
+        await armTxCapture(page);
+        await setConfirm(page, false);
+        await page.evaluate(() => window.__pullPane.beginReview('just some prose here'));
+        expect(await view(page)).toBe('review');
+        expect((await reviewState(page)).command).toBe(null);
+        await expect(page.locator('#pull-pane-nothing')).toBeVisible();
+        expect(await ringBytes(page)).toEqual([]);
+        await disarmTxCapture(page);
+    });
+
+    test('OFF: with no port connected the review stays up so it can be confirmed later @fast', async ({ page }) => {
+        // No armTxCapture — no writer is registered, so transmitPull refuses.
+        await setConfirm(page, false);
+        await page.evaluate(() => window.__pullPane.beginReview('GAME.COM'));
+        expect(await view(page)).toBe('review');
+        expect((await reviewState(page)).command).toBe(`${PFX} GAME.COM`);
+        // Connect, and the review's own [Pull 1 file] still works.
+        await armTxCapture(page);
+        await page.locator('#pull-pane-confirm').click();
+        expect(await ringBytes(page)).toEqual(ascii(`${PFX} GAME.COM`).concat([0x0D]));
+        await disarmTxCapture(page);
+    });
+
+    test('OFF: a SLIDE session still suspends the pull entirely (FR-11) @fast', async ({ page }) => {
+        await armTxCapture(page);
+        await setConfirm(page, false);
+        await page.evaluate(() => window.__pullPane.__setSlideActiveForTests(true));
+        expect(await page.evaluate(() => window.__pullPane.beginReview('GAME.COM'))).toBe(false);
+        expect(await view(page)).not.toBe('review');
+        expect(await ringBytes(page)).toEqual([]);
+        await page.evaluate(() => window.__pullPane.__setSlideActiveForTests(null));
+        await disarmTxCapture(page);
+    });
+
+    test('the pref is read live — no reload between toggles @fast', async ({ page }) => {
+        await armTxCapture(page);
+        await setConfirm(page, false);
+        await page.evaluate(() => window.__pullPane.beginReview('GAME.COM'));
+        expect(await view(page)).not.toBe('review');
+        await setConfirm(page, true);
+        await page.evaluate(() => window.__pullPane.beginReview('DUMP.BIN'));
+        expect(await view(page)).toBe('review');
+        await disarmTxCapture(page);
+    });
+});
