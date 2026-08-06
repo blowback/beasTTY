@@ -147,6 +147,16 @@ test.describe('PLAT-05/D-34 — Auto-connect on load', () => {
 // __preGrantPortCount hook, so this spec wedges without the filter-don't-find fix
 // in wireSerial's boot scan.
 test.describe('E11 S11.1 — ambiguous boot match (two identical adapters)', () => {
+    // Review fix — a positive "the boot scan has finished" signal. #menu-connect-item
+    // ships with data-state="disconnected" in the static markup (index.html:1716), so
+    // asserting that attribute is satisfied before a single line of main.js has run
+    // and proves nothing about the boot scan. The multi-adapter cue is only ever
+    // painted BY that scan (onBootDeviceRecognized → showBootReady), so waiting on it
+    // is what makes "nothing opened / nothing logged" a real assertion instead of a
+    // race the test can win by being early.
+    const MULTI_CUE = '2 MicroBeasts detected — click Connect to choose';
+    const bootScanDone = (page) => expect(page.locator('#port-status')).toHaveText(MULTI_CUE);
+
     // AC-1 — the scan must not stash an arbitrary first match.
     //
     // lastPortRef is not exported and this story adds no hook to read it, so the
@@ -162,6 +172,7 @@ test.describe('E11 S11.1 — ambiguous boot match (two identical adapters)', () 
             portPreset: PORT_PRESET,
             preGrantPortCount: 2,
         });
+        await bootScanDone(page);
         await expect(page.locator('#menu-connect-item')).toHaveAttribute('data-state', 'disconnected');
         // Dispatch 'disconnect' at the FIRST granted port — the one the old
         // ports.find() stashed.
@@ -195,6 +206,7 @@ test.describe('E11 S11.1 — ambiguous boot match (two identical adapters)', () 
             portPreset: PORT_PRESET,
             preGrantPortCount: 2,
         });
+        await bootScanDone(page);
         await expect(page.locator('#menu-connect-item')).toHaveAttribute('data-state', 'disconnected');
         expect(await page.evaluate(() => window.__mockOpenCount || 0)).toBe(0);
         // No entry at all — not merely "not auto-connect-failed".
@@ -215,6 +227,7 @@ test.describe('E11 S11.1 — ambiguous boot match (two identical adapters)', () 
             portPreset: PORT_PRESET,
             preGrantPortCount: 2,
         });
+        await bootScanDone(page);
         await expect(page.locator('#menu-connect-item')).toHaveAttribute('data-state', 'disconnected');
         await page.evaluate(() => window.__menuBar.open('connection'));
         await page.click('#menu-connect-item');

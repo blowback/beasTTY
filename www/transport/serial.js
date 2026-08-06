@@ -298,6 +298,11 @@ export async function wireSerial(opts) {
             // just indistinguishable. The user's next Connect click runs the ordinary
             // picker and is honoured first time.
         } else if (lastPortRef && state === 'disconnected') {
+            // Review fix — mirrors connectMicroBeast: only the open() rejection is
+            // eligible for the in-use classification. setSignals()/getWriter() run
+            // after the port is already ours.
+            let openSucceeded = false;
+            let acquiredWriter = null;
             try {
                 // Silent open — mirrors connectMicroBeast body but skips
                 // requestPort() (no Chromium picker, no user gesture).
@@ -311,12 +316,14 @@ export async function wireSerial(opts) {
                     }
                     : PRESET_CONFIG;
                 await lastPortRef.open(cfg);
+                openSucceeded = true;
                 // Phase 12.1 Plan 12-08 — RTS gated on prefs.serialAssertRtsOnConnect.
                 await lastPortRef.setSignals({
                     dataTerminalReady: false,
                     requestToSend: (getPrefs() && getPrefs().serialAssertRtsOnConnect !== false) ? true : false,
                 });
-                writer = lastPortRef.writable.getWriter();
+                acquiredWriter = lastPortRef.writable.getWriter();
+                writer = acquiredWriter;
                 registerWriter(writer);
                 port = lastPortRef;
                 lastConfig = cfg;
@@ -324,13 +331,14 @@ export async function wireSerial(opts) {
                 setState('connected');
                 runReadLoop(lastPortRef);
             } catch (err) {
+                if (openSucceeded) await closeHalfOpenPort(lastPortRef, acquiredWriter);
                 // Pitfall 3 fall-back — log + standard "click Connect" path.
                 // E11 S11.1 (AC-5) — a port another tab is holding is the single
                 // most likely reason this open() fails, and it has a specific
                 // repair, so it goes through the shared classifier and reads the
                 // same here as it does on the click path. Everything else keeps
                 // the "Auto-connect failed: …" framing, which is accurate for it.
-                if (isPortInUse(err)) {
+                if (openSucceeded === false && isPortInUse(err)) {
                     reportOpenFailure(err);
                 } else {
                     lastConnectError = `Auto-connect failed: ${err.message}`;   // E4.1 fix (#4)
@@ -528,25 +536,56 @@ export async function requestMicroBeastPort() {
 // granted list entirely (same checkpoint), so the boot scan never finds it to
 // open. S11.2 adds a same-origin BroadcastChannel, which is the first thing that
 // could actually answer "is another Beastty tab holding this?" — see the story.
+//
+// ONLY ask this about a port.open() rejection. setSignals() rejects with the SAME
+// NetworkError name when the operation fails (Web Serial spec), and every caller
+// runs it immediately after a successful open — at which point THIS tab is the one
+// holding the device, so blaming another tab is guaranteed wrong. Callers track
+// whether open() itself resolved and pass that in.
 function isPortInUse(err) {
     return err && (err.name === 'InvalidStateError' || err.name === 'NetworkError');
 }
+
+// D-29 — verbatim. It never advises closing the other tab: E11's whole point is two
+// tabs open at once, and the real repairs are to pick the other MicroBeast or to
+// free this one deliberately. Shared so the click, auto-connect and auto-reconnect
+// paths cannot drift.
+const PORT_IN_USE_MSG = 'That MicroBeast is already connected in another Beastty tab. Choose a different one, or disconnect it there first.';
 
 // The one place an open() rejection becomes user-facing copy. Lifted out of
 // connectMicroBeast's catch (E11 S11.1) so the auto-connect path classifies
 // identically — a port another tab is holding reads the same whether the user
 // clicked Connect or the app tried to open it on boot.
-function reportOpenFailure(err) {
-    if (isPortInUse(err)) {
-        // D-29 — verbatim. It never advises closing the other tab: E11's whole
-        // point is two tabs open at once, and the real repairs are to pick the
-        // other MicroBeast or to free this one deliberately.
-        lastConnectError = 'That MicroBeast is already connected in another Beastty tab. Choose a different one, or disconnect it there first.';
+//
+// `fromOpen` — false when the rejection came from a step AFTER open() resolved
+// (setSignals). Those never mean "another tab has it"; see isPortInUse.
+function reportOpenFailure(err, { fromOpen = true } = {}) {
+    if (fromOpen && isPortInUse(err)) {
+        lastConnectError = PORT_IN_USE_MSG;
         appendErrorLog('port-in-use', lastConnectError);
     } else {
         lastConnectError = `Could not open port: ${err.message}`;
         appendErrorLog('open-failed', lastConnectError);
     }
+}
+
+// Review fix — open() resolved but a later step (setSignals, getWriter) threw.
+// `port` is assigned only on the success paths, so at this moment THIS tab holds
+// the device open with no reference teardown() can reach: it stays open until the
+// page reloads, locked against every other tab. It also breaks our own D-04 retry —
+// a second open() on a still-open port rejects InvalidStateError, which isPortInUse()
+// reads as "another Beastty tab", so the user is sent hunting for a tab that does
+// not exist. Roll the half-built connection back to nothing instead.
+//
+// `acquiredWriter` is passed explicitly rather than read off the module-level
+// `writer`: the reconnect paths can still be holding the PREVIOUS connection's
+// writer when they get here, and that one is not ours to release.
+async function closeHalfOpenPort(p, acquiredWriter = null) {
+    if (acquiredWriter) {
+        try { acquiredWriter.releaseLock(); } catch { /* ignore */ }
+        if (writer === acquiredWriter) { writer = null; unregisterWriter(); }
+    }
+    try { await p.close(); } catch { /* ignore — the reference is dropped either way */ }
 }
 
 // `preselectedPort` (E4 review fix) — when the caller has already run the picker
@@ -567,8 +606,14 @@ export async function connectMicroBeast(configOverride, preselectedPort) {
     }
 
     const config = configOverride || readFormConfig();
+    // Review fix — only an open() rejection can mean another page holds the device.
+    // setSignals() below rejects with the same NetworkError name, and by then THIS
+    // tab has the port open, so it must not be classified as in-use.
+    let openSucceeded = false;
+    let acquiredWriter = null;
     try {
         await selectedPort.open(config);
+        openSucceeded = true;
         // Phase 5 D-11 — de-assert DTR after open (Pitfall #12).
         // Phase 12.1 Plan 12-08 — RTS gated on prefs.serialAssertRtsOnConnect
         // (default true). Asserts RTS on connect for Z80-side UART hardware
@@ -583,15 +628,19 @@ export async function connectMicroBeast(configOverride, preselectedPort) {
         // stamp captured here BEFORE any byte arrives so the filename reflects
         // when the session started, not when the user clicks Download.
         if (sessionLogRef) sessionLogRef.reset();
+        // Grab writer + register with tx-sink so keypresses and pastes reach the wire (D-21).
+        // Review fix — moved inside the try: a throw here used to escape
+        // connectMicroBeast entirely as an unhandled rejection, leaving the port open
+        // and the UI stuck on 'connecting' with no way back short of a reload.
+        acquiredWriter = selectedPort.writable.getWriter();
+        writer = acquiredWriter;
+        registerWriter(writer);
     } catch (err) {
-        reportOpenFailure(err);
+        if (openSucceeded) await closeHalfOpenPort(selectedPort, acquiredWriter);
+        reportOpenFailure(err, { fromOpen: !openSucceeded });
         setState('disconnected');   // E4.1 fix (#4) — status bar reads lastConnectError on this transition
         return;
     }
-
-    // Grab writer + register with tx-sink so keypresses and pastes reach the wire (D-21).
-    writer = selectedPort.writable.getWriter();
-    registerWriter(writer);
 
     port = selectedPort;
     lastPortRef = selectedPort;
@@ -965,14 +1014,22 @@ function onNavSerialDisconnect(ev) {
 // a transient open() rejection; second failure lands in port-lost + reopen-failed.
 async function handleReconnect(target) {
     setState('reconnecting');
+    let openSucceeded = false;
     try {
         await target.open(lastConfig || PRESET_CONFIG);
+        openSucceeded = true;
         // Phase 12.1 Plan 12-08 — RTS gated on prefs.serialAssertRtsOnConnect.
         await target.setSignals({
             dataTerminalReady: false,
             requestToSend: (getPrefs() && getPrefs().serialAssertRtsOnConnect !== false) ? true : false,
         });
     } catch (firstErr) {
+        // Review fix — if setSignals was what threw, the port is still OPEN. Handing
+        // it to retryOpenOnce like that guarantees the retry's open() rejects
+        // InvalidStateError, which isPortInUse() classifies as "another Beastty tab" —
+        // the exact wrong answer, 500ms after a fault that had nothing to do with
+        // another tab. Close it so the retry is a genuine second attempt.
+        if (openSucceeded) await closeHalfOpenPort(target);
         // D-04 — single silent retry after exactly 500ms.
         setTimeout(() => retryOpenOnce(target), 500);
         return;
@@ -984,24 +1041,50 @@ async function handleReconnect(target) {
 // the device is not cleanly ready; we surface reopen-failed (code string below)
 // and land in port-lost so the user can click Reconnect explicitly.
 async function retryOpenOnce(target) {
+    let openSucceeded = false;
     try {
         await target.open(lastConfig || PRESET_CONFIG);
+        openSucceeded = true;
         // Phase 12.1 Plan 12-08 — RTS gated on prefs.serialAssertRtsOnConnect.
         await target.setSignals({
             dataTerminalReady: false,
             requestToSend: (getPrefs() && getPrefs().serialAssertRtsOnConnect !== false) ? true : false,
         });
     } catch (retryErr) {
+        // Review fix — same half-open rollback as the first attempt. There is no
+        // third try, so without this the port stays open for the rest of the page's
+        // life and the user's explicit Reconnect click fails too.
+        if (openSucceeded) await closeHalfOpenPort(target);
         setState('port-lost');
-        appendErrorLog('reopen-failed', `Reconnect failed: ${retryErr.message}`);
+        // Review fix (E11 S11.1 AC-5, third path) — a replugged adapter that another
+        // Beastty tab grabbed first is the most likely reason a reconnect re-open
+        // fails, and it reads the same here as on the click / auto-connect paths
+        // rather than dumping the raw Chromium DOMException text. lastConnectError is
+        // deliberately NOT set: this lands in 'port-lost' (whose readout is its own
+        // label) and a stale message would resurface on the next 'disconnected'.
+        appendErrorLog('reopen-failed', (openSucceeded === false && isPortInUse(retryErr))
+            ? PORT_IN_USE_MSG
+            : `Reconnect failed: ${retryErr.message}`);
         return;
     }
     await finishReconnect(target);
 }
 
 async function finishReconnect(target) {
-    writer = target.writable.getWriter();
-    registerWriter(writer);
+    // Review fix — the port is open by the time we get here, so a throw from
+    // getWriter/registerWriter would escape as an unhandled rejection (both callers
+    // await this from a setTimeout or an event handler) and strand the open port.
+    let acquiredWriter = null;
+    try {
+        acquiredWriter = target.writable.getWriter();
+        writer = acquiredWriter;
+        registerWriter(writer);
+    } catch (err) {
+        await closeHalfOpenPort(target, acquiredWriter);
+        setState('port-lost');
+        appendErrorLog('reopen-failed', `Reconnect failed: ${err.message}`);
+        return;
+    }
     port = target;
     lastPortRef = target;
     // Phase 6 Plan 05 (D-29) — reconnect is a new session per the per-connection

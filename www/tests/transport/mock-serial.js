@@ -83,6 +83,15 @@ export const SERIAL_MOCK = `
     }
     getInfo() { return { ...this._info }; }
     async open(config) {
+      // Web Serial spec — open() on a port that is not closed rejects
+      // InvalidStateError. Modelled here because the half-open rollback review fix
+      // turns on exactly this: a port left open by a failed setSignals() makes the
+      // NEXT open() reject with a name isPortInUse() reads as "another tab".
+      if (this._opened) {
+        const e = new Error("Failed to execute 'open' on 'SerialPort': The port is already open.");
+        e.name = 'InvalidStateError';
+        throw e;
+      }
       this._opened = true;
       this._config = config;
       const reader = new MockReader(this);
@@ -98,7 +107,19 @@ export const SERIAL_MOCK = `
       this.readable = null;
       this.writable = null;
     }
-    async setSignals(s) { this._lastSignals = s; }
+    // __forceSetSignalsReject — when set on window to a { name, message } shape,
+    // setSignals() rejects with a DOMException-shaped error. Exercises the
+    // open-succeeded-then-a-later-step-threw paths, which are the only way the port
+    // can be left open with nothing referencing it.
+    async setSignals(s) {
+      const shape = window.__forceSetSignalsReject;
+      if (shape && this._opened) {
+        const e = new Error(shape.message);
+        e.name = shape.name;
+        throw e;
+      }
+      this._lastSignals = s;
+    }
     async getSignals() {
       return { dataCarrierDetect: false, clearToSend: true, ringIndicator: false, dataSetReady: true };
     }
