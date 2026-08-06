@@ -10,10 +10,15 @@ permissions:
   pages: write
   id-token: write
 
-# Allow only one concurrent deployment
+# Allow only one concurrent deployment, and let an in-flight one FINISH.
+# cancel-in-progress was true until 2026-08-06. GitHub's own template says not to
+# cancel Pages deployments: killing one part-way can leave a half-started build
+# jamming the queue for this site. Two quick pushes in a row was all it would
+# have taken. (Not the cause of the 2026-08-06 failures — only two pushes
+# happened, neither cancelled — but a live hazard either way.)
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -21,7 +26,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/configure-pages@v5
+      - uses: actions/configure-pages@v6
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -37,9 +42,28 @@ jobs:
       - name: Add .nojekyll
         run: touch www/.nojekyll
 
-      - uses: actions/upload-pages-artifact@v3
+      # 2026-08-06 — bumped v3 -> v5. Three deploys in a row died at the
+      # 10-minute timeout: GitHub accepted the deployment, marked it started
+      # within 3 seconds, then the Pages builder never finished. Build, upload
+      # and handover were all fine ("Found 1 artifact(s)"), and nothing here had
+      # changed — no workflow edit since April, no action release in the window,
+      # 2.6 MB of ordinary files, no symlinks, no Rust changes.
+      #
+      # What WAS odd is that these three actions were a mismatched set. v5 of
+      # this action uploads via actions/upload-artifact@v7; v3 used a long
+      # retired one. deploy-pages@v5 can still read the artifact's METADATA from
+      # the old backend — which is why the log found it — while the builder that
+      # has to fetch the actual bytes cannot. That fits the symptom exactly.
+      # All three are now on the current matched set.
+      #
+      # include-hidden-files: v4 made this action skip dotfiles by default, and
+      # www/.nojekyll is one. It is a no-op under Actions deployment (Jekyll
+      # never runs) but keeping it means the published tree is byte-identical to
+      # the one that last deployed successfully, so only ONE thing changes here.
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: ./www
+          include-hidden-files: true
 
   deploy:
     needs: build
