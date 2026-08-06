@@ -117,13 +117,8 @@ test.describe('SESS-02/SESS-03 — Clipboard', () => {
     test('paste preprocessing strips 0x00–0x1F except CR/LF/Tab', async ({ page }) => {
         await setup(page);
         // Mix control bytes: 0x00 (NUL — drop), 0x07 (BEL — drop), 0x09 Tab (keep),
-        // 0x0A LF (keep), 0x0D CR (keep).
-        //
-        // The LF survives the strip and is then rewritten to 0x0D by the default
-        // Paste line ending — that is the point of the setting, and it is what the
-        // MicroBeast needs to see a line break at all. What this case asserts is
-        // the STRIP: NUL and BEL gone, Tab and the break kept, everything else
-        // through untouched.
+        // 0x0A LF (keep), 0x0D CR (keep). Avoid 0x0D so the CR/LF rewrite doesn't
+        // alter byte counts in this assertion.
         await page.evaluate(() => window.__setClipboardContents('A\x00B\tC\nD\x07E'));
         await connectMockSerial(page);
         await page.evaluate(() => window.__pasteFromClipboard());
@@ -133,18 +128,17 @@ test.describe('SESS-02/SESS-03 — Clipboard', () => {
         const log = await page.evaluate(() => window.__mockWriterLog);
         const allBytes = log.flatMap((e) => e.bytes);
         const text = String.fromCharCode(...allBytes);
-        expect(text).toBe('AB\tC\rDE');
+        expect(text).toBe('AB\tC\nDE');
     });
 
-    test('paste applies the line-break rewrite per pasteLineEnding', async ({ page }) => {
+    test('paste applies CR/LF rewrite per Phase 4 crlfMode', async ({ page }) => {
         await setup(page);
-        // Switch Paste line ending to LF — the pump rewrites the break to 0x0A.
-        // This used to drive Settings ▸ Enter key sends, because the pump read
-        // getCrlfMode(); paste has had its own setting since the paste-text-loss
-        // fix, and the Enter key path is none of the pump's business.
+        // Switch CR/LF mode to LF — Phase 5 paste-pump rewrites 0x0D → 0x0A.
+        // E7.1 — set via the Settings ▸ Enter key sends submenu (the #crlf-* radios
+        // retired with <details id="settings">).
         await page.evaluate(() => window.__menuBar.open('settings'));
-        await page.click('#dropdown-settings .menu-item[data-submenu="paste-eol"]');
-        await page.click('#dropdown-settings .submenu[data-submenu-panel="paste-eol"] .menu-item[data-value="lf"]');
+        await page.click('#dropdown-settings .menu-item[data-submenu="crlf"]');
+        await page.click('#dropdown-settings .submenu[data-submenu-panel="crlf"] .menu-item[data-value="lf"]');
         await page.evaluate(() => window.__menuBar.close());
         await page.evaluate(() => window.__setClipboardContents('A\rB'));
         await connectMockSerial(page);

@@ -24,10 +24,6 @@ const LOCAL_ECHO = '#dropdown-settings .menu-item[data-pref="localEcho"]';
 const AUTO_CONNECT = '#menu-autoconnect-item';
 const crlfRadio = (v) =>
   `#dropdown-settings .submenu[data-submenu-panel="crlf"] .menu-item[data-value="${v}"]`;
-const pasteEolRadio = (v) =>
-  `#dropdown-settings .submenu[data-submenu-panel="paste-eol"] .menu-item[data-value="${v}"]`;
-const pasteSpeedRadio = (v) =>
-  `#dropdown-settings .submenu[data-submenu-panel="paste-speed"] .menu-item[data-value="${v}"]`;
 
 // Boot with an optional seeded prefs blob (the reset re-projection oracle). loadPrefs()
 // runs at boot (main.js:36), so a seeded blob flows into the initial menu projection.
@@ -189,36 +185,5 @@ test.describe('E3.3 AC-2 — reset re-projects every prefs-driven menu row', () 
     await page.click('#dropdown-settings .menu-item[data-submenu="crlf"]');
     await expect(page.locator(crlfRadio('cr'))).toHaveAttribute('data-checked', 'true');
     await expect(page.locator(crlfRadio('lf'))).toHaveAttribute('data-checked', 'false');
-  });
-
-  test('committed reset re-projects the two paste rows too @fast', async ({ page }) => {
-    // The paste settings ride the same projectPrefs subscriber as the rows above.
-    // Seeded non-default so a reset is observable in BOTH radios; pasteSpeed 0 is
-    // seeded deliberately, being the value a truthy projector guard would skip.
-    await ready(page, { prefs: { version: 2, pasteLineEnding: 'raw', pasteSpeed: 0 } });
-
-    await page.evaluate(() => window.__menuBar.open('settings'));
-    await page.click('#dropdown-settings .menu-item[data-submenu="paste-eol"]');
-    await expect(page.locator(pasteEolRadio('raw'))).toHaveAttribute('data-checked', 'true');
-    await page.click('#dropdown-settings .menu-item[data-submenu="paste-speed"]');
-    await expect(page.locator(pasteSpeedRadio('0'))).toHaveAttribute('data-checked', 'true');
-
-    await page.click(RESET);
-    await expect(page.locator(RESET_LBL)).toHaveText(CONFIRM);
-    await page.click(RESET);
-
-    const p = await page.evaluate(() => window.__prefs.getPrefs());
-    expect(p.pasteLineEnding).toBe('cr');
-    expect(p.pasteSpeed).toBe(240);
-    await page.evaluate(() => window.__menuBar.open('settings'));
-    await page.click('#dropdown-settings .menu-item[data-submenu="paste-eol"]');
-    await expect(page.locator(pasteEolRadio('cr'))).toHaveAttribute('data-checked', 'true');
-    await expect(page.locator(pasteEolRadio('raw'))).toHaveAttribute('data-checked', 'false');
-    await page.click('#dropdown-settings .menu-item[data-submenu="paste-speed"]');
-    await expect(page.locator(pasteSpeedRadio('240'))).toHaveAttribute('data-checked', 'true');
-    await expect(page.locator(pasteSpeedRadio('0'))).toHaveAttribute('data-checked', 'false');
-    // applyPrefs is the single writer of the live pump state on the reset path.
-    expect(await page.evaluate(() => window.__pastePump.getPasteLineEnding())).toBe('cr');
-    expect(await page.evaluate(() => window.__pastePump.getPasteSpeed())).toBe(240);
   });
 });

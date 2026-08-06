@@ -125,11 +125,6 @@ import {
     cancelPaste as cancelPastePump,
     isActive as pastePumpIsActive,
     wirePastePump,
-    setPasteLineEnding,
-    setPasteSpeed,
-    getPasteLineEnding,
-    getPasteSpeed,
-    getPasteRate,
     __getStateForTests as __pastePumpGetStateForTests,
 } from './input/paste-pump.js';
 import {
@@ -616,12 +611,6 @@ const menuBar = wireMenuBar({
     // menu handler calls the setter AND savePrefs, exactly as the legacy handlers do.
     setLocalEcho,
     setCrlfMode,
-    // Settings ▸ Paste line ending / Paste speed — the paste-pump's live setters,
-    // injected on the same AD-3 terms as the keyboard setters above (menu-bar may
-    // not import input/*). Separate from setCrlfMode by design: Enter key sends
-    // governs the Enter key, these govern pasted text, and neither reads the other.
-    setPasteLineEnding,
-    setPasteSpeed,
     // Settings ▸ Wrap long lines — drives the wasm core's deferred autowrap. Injected
     // as a closure over the module-scope `term` (menu-bar may import ONLY canvas.js +
     // prefs.js — AD-3, and must never import the core). persist ≠ apply: the menu
@@ -1080,12 +1069,9 @@ const pasteToast = wirePasteToast({
 // toast's Promise<boolean>.
 wireClipboard({
     confirmLargePaste: (byteCount) => pasteToast.confirmLargePaste(byteCount, {
-        // The pump's own effective rate, not the baud. Pacing no longer tracks
-        // the wire — at the default 240 B/s a paste takes many times as long as
-        // the baud implies — so a baud-derived estimate would understate every
-        // paced paste by an order of magnitude. getPasteRate already carries the
-        // wire clamp, so this stays right on a slow connection too.
-        getRate: () => getPasteRate(),
+        // Plan 06-06 (PREF-01) wires the Settings serial-config baud as the
+        // authoritative source. For now the form select element is the live value.
+        getBaud: () => parseInt(serialBaud.value, 10) || 19200,
     }),
 });
 window.__copySelection = copySelection;
@@ -1101,12 +1087,6 @@ window.__pastePump = {
     // E11 retro — exposes gapMs so a spec can see the pacing follow the port's
     // baud. It could not before, which is part of why setBaudForPump sat dead.
     __getStateForTests: __pastePumpGetStateForTests,
-    // The two paste settings + the rate they produce, so a spec can read what the
-    // menu rows actually applied (persist ≠ apply is only checkable if the live
-    // side is readable). Getters only — the menu is the write surface.
-    getPasteLineEnding,
-    getPasteSpeed,
-    getPasteRate,
 };
 // Epic E7 Story E7.1 (AD-2) — paste-toast introspection for the
 // paste-toast.spec.js chromium suite. Public state-entry/confirm methods are
@@ -1853,16 +1833,6 @@ function applyPrefs(p) {
     // resetPrefs() fan-out it restores OFF. menuBar.projectPrefs re-derives only the row.
     setDebugPanelVisible(p.showDebugPanel);
     setCrlfMode(p.crlfMode);
-    // Settings ▸ Paste line ending / Paste speed — applyPrefs is the SINGLE writer
-    // of the pump's live settings on the boot + resetPrefs() fan-out (mirrors
-    // setCrlfMode above); the menu rows own them on click (persist ≠ apply). Both
-    // setters validate their argument and keep the current value on a reject, so a
-    // corrupt stored blob leaves the pump on its defaults rather than throwing.
-    // wirePastePump runs well above this (the pump is wired before wireSerial), and
-    // the pump's module-scope defaults match DEFAULTS, so there is no window in
-    // which a paste could use unset pacing.
-    setPasteLineEnding(p.pasteLineEnding);
-    setPasteSpeed(p.pasteSpeed);
     // Settings ▸ Wrap long lines — applyPrefs is the SINGLE writer of the core's
     // wrap mode on the boot + resetPrefs() fan-out (mirrors setLocalEcho/setCrlfMode
     // above). The menu toggle owns it on click (persist ≠ apply); this restores the
