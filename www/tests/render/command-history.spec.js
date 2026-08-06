@@ -266,3 +266,146 @@ test.describe('E8.1 AC-6 — persistence + safe degrade', () => {
     expect(s.history).toEqual([]);
   });
 });
+
+// ============================================================================
+// E8 escape hatch (2026-08-06) — toggleEnabled() is the pref flip behind the
+// Ctrl+Shift+Insert / Ctrl+Alt+H chord. It writes the SAME commandHistoryEnabled
+// pref the Settings ▸ Command history checkbox drives, so there is one notion of
+// "on"; these tests pin the round-trip, the persistence, and the two real chords.
+test.describe('E8 escape hatch — toggleEnabled() + the chords that call it', () => {
+  // ready() above waits only on window.__commandHistory (wired early in main.js).
+  // The chord tests also read the toast and the TX sink, both exposed further down
+  // the composition root, so wait for those too rather than assume the boot order.
+  async function readyWithToast(page) {
+    await ready(page);
+    await page.waitForFunction(() => window.__toast && window.__txSink);
+  }
+
+  test('toggleEnabled() returns the NEW value and flips the pref @fast', async ({ page }) => {
+    await ready(page);
+    expect((await state(page)).enabled).toBe(true);            // default
+
+    expect(await page.evaluate(() => window.__commandHistory.toggleEnabled())).toBe(false);
+    expect(await page.evaluate(() => window.__prefs.getPrefs().commandHistoryEnabled)).toBe(false);
+    expect((await state(page)).enabled).toBe(false);
+
+    expect(await page.evaluate(() => window.__commandHistory.toggleEnabled())).toBe(true);
+    expect(await page.evaluate(() => window.__prefs.getPrefs().commandHistoryEnabled)).toBe(true);
+    expect((await state(page)).enabled).toBe(true);
+  });
+
+  test('an off-flip really disables capture (not just the pref) @fast', async ({ page }) => {
+    await ready(page);
+    await page.evaluate(() => window.__commandHistory.toggleEnabled());   // → off
+    await typeStr(page, 'DIR');
+    await pressKey(page, 'enter');
+    expect(await history(page)).toEqual([]);
+  });
+
+  test('a chord-flipped off state survives reload @fast', async ({ page }) => {
+    await ready(page);
+    // Press the real chord, not toggleEnabled() — the acceptance criterion is about
+    // what a keypress leaves behind, so going through the handler is the whole point.
+    await page.keyboard.press('Control+Shift+Insert');   // → off
+    await page.waitForTimeout(300);   // > the 250 ms savePrefs debounce
+    await page.reload();
+    await page.waitForFunction(() => window.__commandHistory);
+    expect((await state(page)).enabled).toBe(false);
+  });
+
+  test('Ctrl+Shift+Insert flips the pref, toasts, and sends no bytes @fast', async ({ page }) => {
+    await readyWithToast(page);
+    await page.evaluate(() => {
+      window.__toast.__resetForTests();
+      window.__txSink.resetTx();
+    });
+
+    await page.keyboard.press('Control+Shift+Insert');
+
+    expect(await page.evaluate(() => window.__prefs.getPrefs().commandHistoryEnabled)).toBe(false);
+    expect(await page.evaluate(() => window.__toast.__getStateForTests()))
+      .toMatchObject({ visible: true, text: 'Command history off' });
+    expect(await page.evaluate(() => window.__txSink.formatHexStrip())).toBe('');
+  });
+
+  test('Ctrl+Alt+H flips it back on — the second chord is not a decoration @fast', async ({ page }) => {
+    await readyWithToast(page);
+    await page.evaluate(() => {
+      window.__prefs.savePrefs({ commandHistoryEnabled: false });
+      window.__toast.__resetForTests();
+      window.__txSink.resetTx();
+    });
+
+    await page.keyboard.press('Control+Alt+KeyH');
+
+    expect(await page.evaluate(() => window.__prefs.getPrefs().commandHistoryEnabled)).toBe(true);
+    expect(await page.evaluate(() => window.__toast.__getStateForTests()))
+      .toMatchObject({ visible: true, text: 'Command history on' });
+    // Without the intercept this chord would encode 0x08 (Ctrl-H → backspace).
+    expect(await page.evaluate(() => window.__txSink.formatHexStrip())).toBe('');
+  });
+
+  test('three chords inside the toast window leave the latest state only @fast', async ({ page }) => {
+    await readyWithToast(page);
+    await page.evaluate(() => window.__toast.__resetForTests());
+
+    await page.keyboard.press('Control+Shift+Insert');   // → off
+    await page.keyboard.press('Control+Shift+Insert');   // → on
+    await page.keyboard.press('Control+Shift+Insert');   // → off
+
+    expect(await page.evaluate(() => window.__prefs.getPrefs().commandHistoryEnabled)).toBe(false);
+    const t = await page.evaluate(() => window.__toast.__getStateForTests());
+    expect(t.text).toBe('Command history off');
+    // Only proves a timer is pending — hasAutoHideTimer is a boolean, equally true for
+    // one pending timer or three. The re-arm itself is pinned by the next test.
+    expect(t.hasAutoHideTimer).toBe(true);
+  });
+
+  // Holding a chord down delivers a stream of keydowns with e.repeat === true. Without
+  // the guard the pref flips once per repeat — tens of times a second — and where it
+  // lands depends on when the operator lets go.
+  test('holding the chord flips the pref once, not once per auto-repeat @fast', async ({ page }) => {
+    await readyWithToast(page);
+    await page.evaluate(() => window.__toast.__resetForTests());
+    const before = await page.evaluate(() => window.__prefs.getPrefs().commandHistoryEnabled);
+
+    await page.keyboard.press('Control+Shift+Insert');   // the press itself
+    await page.evaluate(() => {                          // the repeats that follow it
+      const wrap = document.getElementById('terminal-wrapper');
+      // SEVEN, not an even count: press + 7 repeats = 8 flips, which lands back on the
+      // ORIGINAL value if the guard is missing. An even repeat count makes the total
+      // odd and the test passes whether or not the guard exists — decoration, not a pin.
+      for (let i = 0; i < 7; i++) {
+        wrap.dispatchEvent(new KeyboardEvent('keydown', {
+          key: 'Insert', code: 'Insert', ctrlKey: true, shiftKey: true,
+          repeat: true, bubbles: true, cancelable: true,
+        }));
+      }
+    });
+
+    expect(await page.evaluate(() => window.__prefs.getPrefs().commandHistoryEnabled)).toBe(!before);
+    expect(await page.evaluate(() => window.__toast.__getStateForTests().text))
+      .toBe('Command history off');
+  });
+
+  // The discriminating test for re-arm-vs-stack: space the presses so that a first,
+  // uncleared timer would have hidden the toast while a correctly re-armed one is
+  // still showing. Also the only assertion that reads the DOM rather than module
+  // state, so renaming #toast / #toast-text can no longer leave the suite green.
+  test('a second chord re-arms the hide timer rather than stacking behind the first @fast', async ({ page }) => {
+    await readyWithToast(page);
+    await page.evaluate(() => window.__toast.__resetForTests());
+
+    await page.keyboard.press('Control+Shift+Insert');   // t=0     → would hide at 2.0 s
+    await page.waitForTimeout(1500);
+    await page.keyboard.press('Control+Shift+Insert');   // t=1.5 s → must hide at 3.5 s
+    await page.waitForTimeout(900);                      // t=2.4 s
+
+    // Re-armed: still up, 0.6 s to go. Stacked: the t=0 timer fired 0.4 s ago.
+    expect(await page.evaluate(() => window.__toast.__getStateForTests().visible)).toBe(true);
+    expect(await page.evaluate(() => ({
+      hidden: document.getElementById('toast').hasAttribute('hidden'),
+      text: document.getElementById('toast-text').textContent,
+    }))).toEqual({ hidden: false, text: 'Command history on' });
+  });
+});

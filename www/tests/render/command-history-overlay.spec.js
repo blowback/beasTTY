@@ -140,6 +140,84 @@ test.describe('E8.2 AC-2 — trigger is inert otherwise: ↑/↓ pass through as
     expect((await ostate(page)).isOpen).toBe(false);
     expect(await hex(page)).toBe('1B 41');
   });
+
+  // E8 escape hatch (2026-08-06) — the per-keypress bypass. Every precondition for
+  // opening is TRUE here (enabled, empty line, non-empty history); holding Ctrl+Shift
+  // is the only thing keeping the overlay shut. Seeding history first matters: with an
+  // empty store this test would pass for the reason the block above already covers.
+  //
+  // Nothing implements this — it emerges from three independent "be inert" decisions
+  // agreeing (the closed-branch trigger returns on any modifier without preventDefault;
+  // keyboard.js has no Ctrl+Shift+Arrow intercept; key.rs matches (ArrowUp, _) so
+  // modifiers never change the bytes). Pinned here because tightening any one of the
+  // three would break the bypass with no other test noticing.
+  test('Ctrl+Shift+↑ forwards ESC A verbatim with the overlay armed @fast', async ({ page }) => {
+    await ready(page);
+    await seed(page, ['LIST', 'RUN']);          // every open-precondition satisfied
+    await waitForEncoder(page);
+    expect(await page.evaluate(() => window.__commandHistory.isLineEmpty())).toBe(true);
+    await resetTx(page);
+
+    await page.keyboard.press('Control+Shift+ArrowUp');
+
+    expect((await ostate(page)).isOpen).toBe(false);
+    expect(await hidden(page)).toBe(true);
+    expect(await hex(page)).toBe('1B 41');
+  });
+
+  test('Ctrl+Shift+↓ forwards ESC B verbatim with the overlay armed @fast', async ({ page }) => {
+    await ready(page);
+    await seed(page, ['LIST', 'RUN']);
+    await waitForEncoder(page);
+    await resetTx(page);
+
+    await page.keyboard.press('Control+Shift+ArrowDown');
+
+    expect((await ostate(page)).isOpen).toBe(false);
+    expect(await hidden(page)).toBe(true);
+    expect(await hex(page)).toBe('1B 42');
+  });
+});
+
+// ============================================================================
+// E8 escape hatch (2026-08-06) — the open branch already swallows every
+// Ctrl/Alt/Meta chord (renderer/command-history.js). That is the required
+// "ignored while open" behaviour for both arms of the toggle chord, so neither
+// needed a line of code here; these tests are what stop that from being reopened.
+test.describe('E8 escape hatch — chords are inert while the overlay is open', () => {
+  test('Ctrl+Shift+↑ neither navigates nor reaches the wire while open @fast', async ({ page }) => {
+    await ready(page);
+    await seed(page, ['LIST', 'RUN', 'DIR']);
+    await page.keyboard.press('ArrowUp');       // open; highlight 0 = DIR (newest)
+    expect((await ostate(page)).highlight).toBe(0);
+    await resetTx(page);
+
+    await page.keyboard.press('Control+Shift+ArrowUp');
+
+    const s = await ostate(page);
+    expect(s.isOpen).toBe(true);                // still open
+    expect(s.highlight).toBe(0);                // NOT read as a plain ↑ navigate
+    expect(await hex(page)).toBe('');           // and no ESC A leaked to the wire
+  });
+
+  test('the toggle chord does not flip the pref or toast while open @fast', async ({ page }) => {
+    await ready(page);
+    await seed(page, ['LIST']);
+    await page.evaluate(() => window.__toast.__resetForTests());
+    await page.keyboard.press('ArrowUp');
+    expect((await ostate(page)).isOpen).toBe(true);
+    await resetTx(page);
+
+    // Both arms of the chord, because they take different paths through the predicate
+    // and only one of them was pinned here originally.
+    await page.keyboard.press('Control+Shift+Insert');
+    await page.keyboard.press('Control+Alt+KeyH');
+
+    expect((await ostate(page)).isOpen).toBe(true);
+    expect(await page.evaluate(() => window.__prefs.getPrefs().commandHistoryEnabled)).toBe(true);
+    expect(await page.evaluate(() => window.__toast.__getStateForTests().visible)).toBe(false);
+    expect(await hex(page)).toBe('');
+  });
 });
 
 // ============================================================================

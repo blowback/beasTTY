@@ -182,6 +182,16 @@ import {
     __resetForTests as __pasteToastResetForTests,
     __getStateForTests as __pasteToastGetStateForTests,
 } from './renderer/paste-toast.js';
+// E8 command-history escape hatch (2026-08-06) — generic one-line notice toast.
+// Distinct from paste-toast above: that module is a paste state machine with no
+// "just say this" entry point. Its only caller today is keyboard.js's
+// Ctrl+Shift+Insert / Ctrl+Alt+H handler (savePrefs fires no subscribers, so the
+// handler has to announce the flip itself).
+import {
+    wireToast,
+    __resetForTests as __toastResetForTests,
+    __getStateForTests as __toastGetStateForTests,
+} from './renderer/toast.js';
 // Epic E0 Story E0.1 (AD-10) — shared focus-retention helper. retainFocus is
 // imported directly by the chrome modules that own controls (see chrome.js);
 // main.js only surfaces its test hooks as window.__focus for the Playwright
@@ -425,6 +435,10 @@ const serialReconnectHint = document.getElementById('serial-reconnect-hint');
 const pasteToastEl        = document.getElementById('paste-toast');
 const pasteToastTextEl    = document.getElementById('paste-toast-text');
 const pasteTestBtn        = document.getElementById('paste-test');
+// E8 command-history escape hatch — generic notice-toast refs (bottom-centre, a
+// sibling of the #paste-toast / #slide-chip transient cluster inside #terminal-wrapper).
+const toastEl             = document.getElementById('toast');
+const toastTextEl         = document.getElementById('toast-text');
 // Epic E8 Story E8.2 — the command-history recall overlay element (sibling of the
 // #paste-toast / #slide-chip transient-overlay cluster inside #terminal-wrapper).
 const commandHistoryOverlayEl = document.getElementById('command-history-overlay');
@@ -993,6 +1007,19 @@ function sampleBell() {
     // visibilitychange listener registered in chrome.js wireChrome().
 }
 
+// ---- E8 command-history escape hatch (2026-08-06) — wire the notice toast ----
+// wireToast itself depends on nothing but its two DOM elements. The one real ordering
+// constraint is BEFORE wireKeyboard (below), whose opts take toast.show — and which
+// also takes commandHistory.toggleEnabled, so the E8.1 engine has to be wired by then
+// too. Both are above this line already; this position simply sits between.
+const toast = wireToast({ toastEl, toastTextEl });
+window.__toast = {
+    show: toast.show,
+    hide: toast.hide,
+    __resetForTests: __toastResetForTests,
+    __getStateForTests: __toastGetStateForTests,
+};
+
 // ---- Phase 4 Plan 02 — keyboard input wiring ----
 // wireKeyboard attaches its keydown + compositionstart/update/end listeners
 // to #terminal-wrapper. chrome.js's keydown listener attached FIRST (inside
@@ -1012,6 +1039,11 @@ wireKeyboard({
     drainHostReply,
     requestFrame,
     captureHistory: commandHistory.capture,   // E8.1 — typed-keystroke feed (observation-only)
+    // E8 escape hatch — Ctrl+Shift+Insert / Ctrl+Alt+H. The pref flip and the toast
+    // are injected rather than imported so keyboard.js keeps its single-direction
+    // dependency shape (AD-3): it already receives captureHistory the same way.
+    toggleCommandHistory: commandHistory.toggleEnabled,
+    showToast: toast.show,
 });
 
 // Phase 5 Wave 5 — wire paste-pump's local-echo feed path (D-22). MUST be

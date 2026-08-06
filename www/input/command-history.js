@@ -76,6 +76,7 @@ export function wireCommandHistory(opts) {
         commit,
         clear,
         trimToCap,
+        toggleEnabled,
         dispose,
         __getStateForTests,
         __resetForTests,
@@ -197,6 +198,23 @@ function trimToCap() {
     const history = Array.isArray(p.commandHistory) ? p.commandHistory : [];
     const cap = capOf(p);
     if (history.length > cap) savePrefs({ commandHistory: history.slice(0, cap) });
+}
+
+// E8 escape hatch (2026-08-06) — flip commandHistoryEnabled and return the new value.
+// The keyboard chord (Ctrl+Shift+Insert / Ctrl+Alt+H) and the Settings ▸ Command history
+// checkbox write the SAME pref, so there is one notion of "on"; the checkbox re-projects
+// from prefs the next time the menu opens. Lives here because this module already owns
+// the feature's other prefs writes (clear, trimToCap), and — like them — it emits no byte.
+//
+// Read prefs fresh (AD-4). "Anything but an explicit false is on" is the same reading
+// capture() and the overlay's trigger use, so a blob predating E8.1 (key absent) flips
+// to off, which is what an operator pressing the chord is asking for. savePrefs does NOT
+// fan out to subscribers — the caller shows the toast.
+function toggleEnabled() {
+    const p = getPrefs();
+    const next = !(p ? p.commandHistoryEnabled !== false : true);
+    savePrefs({ commandHistoryEnabled: next });
+    return next;
 }
 
 // wireXxx shape parity (AD-2). No listeners/subscriptions to tear down; the

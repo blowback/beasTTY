@@ -16,6 +16,10 @@ import { test, expect } from '@playwright/test';
 // Canonical event (the physical keys the LABEL implies) + a near-miss that must NOT
 // match, per chord label. The predicates read only these five fields, so a plain object
 // is a faithful stand-in for a KeyboardEvent.
+//
+// `hit`/`miss` may be a single probe or an ARRAY of them — a label advertising two
+// chords (the command-history toggle) has to prove BOTH arms, or half the label could
+// rot unnoticed.
 const PROBES = {
   'Ctrl+Alt+T':   { hit: { ctrlKey: true, altKey: true, code: 'KeyT' },
                     miss: { ctrlKey: true, altKey: true, shiftKey: true, code: 'KeyT' } },   // Alt+Shift+T ≠ chord
@@ -29,6 +33,18 @@ const PROBES = {
                     miss: { ctrlKey: true, code: 'KeyC' } },                                 // bare Ctrl+C encodes 0x03
   'Ctrl+Shift+V': { hit: { ctrlKey: true, shiftKey: true, code: 'KeyV' },
                     miss: { ctrlKey: true, code: 'KeyV' } },                                 // bare Ctrl+V encodes 0x16
+  'Ctrl+Shift+Esc': { hit: { ctrlKey: true, shiftKey: true, code: 'Escape' },
+                      miss: { code: 'Escape' } },                                            // bare Esc must reach VT52 workloads
+  'Ctrl+Shift+Insert / Ctrl+Alt+H': {
+    hit: [{ ctrlKey: true, shiftKey: true, code: 'Insert' },
+          { ctrlKey: true, altKey: true, code: 'KeyH' }],
+    // Bare Insert is a silent drop (keyboard.js D-17) and bare Ctrl+H encodes 0x08 —
+    // neither may be swallowed by this chord. Ctrl+Shift+H is a third near-miss:
+    // the two arms must not blur into "Ctrl + any of Shift/Alt + Insert/H".
+    miss: [{ code: 'Insert' },
+           { ctrlKey: true, code: 'KeyH' },
+           { ctrlKey: true, shiftKey: true, code: 'KeyH' }],
+  },
 };
 
 test('every matchable chord label agrees with its predicate @fast', async ({ page }) => {
@@ -42,10 +58,11 @@ test('every matchable chord label agrees with its predicate @fast', async ({ pag
       const p = probes[r.keys];
       if (!p) { out.missingProbe.push(r.keys); continue; }
       out.checked.push(r.keys);
+      const asList = (v) => (Array.isArray(v) ? v : [v]);
       // Truthiness, not strict === true: the handlers use these predicates in an `if`,
       // and `a && b && c` legitimately short-circuits to a falsy non-boolean.
-      if (!r.match(p.hit)) out.hitFail.push(r.keys);
-      if (r.match(p.miss)) out.missFail.push(r.keys);
+      if (asList(p.hit).some((ev) => !r.match(ev))) out.hitFail.push(r.keys);
+      if (asList(p.miss).some((ev) => r.match(ev))) out.missFail.push(r.keys);
     }
     return out;
   }, PROBES);
@@ -57,9 +74,10 @@ test('every matchable chord label agrees with its predicate @fast', async ({ pag
   expect(result.hitFail).toEqual([]);
   // Predicate accepts a near-miss its label does not advertise → over-broad handler.
   expect(result.missFail).toEqual([]);
-  // Sanity: we actually exercised the six mechanical chords.
+  // Sanity: we actually exercised all eight mechanical chords.
   expect(result.checked.sort()).toEqual(
-    ['Ctrl+-', 'Ctrl+0', 'Ctrl+=', 'Ctrl+Alt+T', 'Ctrl+Shift+C', 'Ctrl+Shift+V'].sort(),
+    ['Ctrl+-', 'Ctrl+0', 'Ctrl+=', 'Ctrl+Alt+T', 'Ctrl+Shift+C', 'Ctrl+Shift+V',
+     'Ctrl+Shift+Esc', 'Ctrl+Shift+Insert / Ctrl+Alt+H'].sort(),
   );
 });
 
@@ -72,6 +90,9 @@ test('registry covers every FR-24 chord the modal advertises @fast', async ({ pa
   for (const combo of [
     'Ctrl+Alt+T', 'Ctrl+=', 'Ctrl+-', 'Ctrl+0',
     'Ctrl+Shift+C', 'Ctrl+Shift+V', 'Esc', 'Ctrl+W / Ctrl+N / Ctrl+T',
+    // E8 escape hatch (2026-08-06) — the toggle chords and the informational
+    // ↑/↓ bypass row that documents the per-keypress escape.
+    'Ctrl+Shift+Esc', 'Ctrl+Shift+Insert / Ctrl+Alt+H', 'Ctrl+Shift+↑ / Ctrl+Shift+↓',
   ]) {
     expect(labels).toContain(combo);
   }

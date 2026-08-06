@@ -54,7 +54,16 @@ import {
 // E6.1 fix (code-review #7) — Ctrl+Shift+C / Ctrl+Shift+V predicates single-sourced in
 // the shortcut registry the Help ▸ Keyboard Shortcuts modal renders from, so the chords
 // this handler matches and the chords the modal advertises can never diverge.
-import { matchCopy, matchPaste } from './shortcuts.js';
+// E8 escape hatch (2026-08-06) — matchCommandHistoryToggle is the new chord pair;
+// matchClearSelection is the Ctrl+Shift+Esc guard that used to sit inline below,
+// moved into the registry so the Help modal stops omitting it. Same five conditions,
+// reordered to the registry's modifiers-first shape — a relocation, not a redesign.
+import {
+    matchCopy,
+    matchPaste,
+    matchClearSelection,
+    matchCommandHistoryToggle,
+} from './shortcuts.js';
 
 // D-04 — frozen KeyCode tag table (mirrors crates/beastty-core/src/key.rs:141-159).
 // Any drift silently produces wrong TX bytes; the Wave 3 Playwright suite
@@ -104,6 +113,15 @@ let requestFrameFn = null;
 // engine never emits a byte). Null when unwired, so the keydown path — and the
 // full test suite — behaves byte-for-byte as before if it is not injected.
 let captureHistoryFn = null;
+// E8 escape hatch — the Ctrl+Shift+Insert / Ctrl+Alt+H handler's two collaborators.
+// toggleCommandHistoryFn is command-history.js's toggleEnabled (flips the persisted
+// pref, returns the new boolean); showToastFn is renderer/toast.js's show(text).
+// savePrefs does not fan out to subscribers, so this handler is what tells the
+// operator anything happened — nothing else will. Both optional (null when unwired),
+// matching captureHistory above — but note the chord is swallowed either way, so
+// captureHistory's byte-for-byte-when-unwired property does NOT hold for these two.
+let toggleCommandHistoryFn = null;
+let showToastFn = null;
 
 // --- Public setters/getters ----------------------------------------------
 
@@ -188,12 +206,16 @@ export function wireKeyboard(opts) {
         drainHostReply,
         requestFrame,
         captureHistory,        // E8.1 — optional; command-history.js capture(info)
+        toggleCommandHistory,  // E8 escape hatch — optional; command-history.js toggleEnabled()
+        showToast,             // E8 escape hatch — optional; toast.js show(text)
     } = opts;
     termRef = term;
     sampleBellFn = sampleBell;
     drainHostReplyFn = drainHostReply;
     requestFrameFn = requestFrame;
     captureHistoryFn = captureHistory || null;
+    toggleCommandHistoryFn = toggleCommandHistory || null;
+    showToastFn = showToast || null;
 
     // --- Composition (IME) listeners — D-06 -----------------------------
     terminalWrapper.addEventListener('compositionstart', () => {
@@ -231,7 +253,7 @@ export function wireKeyboard(opts) {
         // without sending 0x1B to the remote. Bare Esc is preserved for VT52
         // workloads (CP/M, vi, MicroBeast TUIs); the chord is unambiguously
         // UI-only and Chromium does not reserve it on a focused page.
-        if (e.code === 'Escape' && e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey) {
+        if (matchClearSelection(e)) {
             e.preventDefault();
             selectionClear();
             return;
@@ -289,6 +311,36 @@ export function wireKeyboard(opts) {
         if (matchPaste(e)) {
             e.preventDefault();
             pasteFromClipboard();
+            return;
+        }
+
+        // E8 escape hatch — Ctrl+Shift+Insert / Ctrl+Alt+H flip the persisted
+        // commandHistoryEnabled pref, so a full-screen program that wants ↑/↓ for
+        // itself (BIOS menu, editor) can have them back without a trip to
+        // Settings ▸ Command history. Same pref the Settings checkbox drives —
+        // there is no session-only copy of "is history active".
+        //
+        // preventDefault + return unconditionally, before the deps are consulted:
+        // the chord must put zero bytes on the wire either way. (Bare Insert is a
+        // silent drop at packKeyCode, but Ctrl+Alt+H would otherwise encode 0x08.)
+        // This is the one intercept that swallows a key an unwired build would still
+        // encode — the byte-for-byte-when-unwired note on captureHistoryFn above does
+        // NOT extend to it.
+        //
+        // e.repeat is dropped AFTER the preventDefault: holding the chord down
+        // auto-repeats keydown at the OS repeat rate, and without this the pref would
+        // flip tens of times per second and the toast would flicker between states.
+        // One press, one flip.
+        //
+        // While the recall overlay is open this is never reached — the overlay's
+        // keydown listener runs first and swallows every Ctrl/Alt/Meta chord.
+        if (matchCommandHistoryToggle(e)) {
+            e.preventDefault();
+            if (e.repeat) return;
+            if (toggleCommandHistoryFn) {
+                const enabled = toggleCommandHistoryFn();
+                if (showToastFn) showToastFn(enabled ? 'Command history on' : 'Command history off');
+            }
             return;
         }
 

@@ -421,6 +421,35 @@
       outline-offset: 2px;
     }
 
+    /* ==== Generic transient notice toast (E8 command-history escape hatch) ==== */
+    /* BOTTOM-CENTRE — a fourth anchor, distinct from the top-right #slide-chip, the
+       dead-centre #paste-toast and the bottom-right #scrollback-indicator. It shares
+       the bottom edge with the scrollback chip, but a short notice centred in an
+       80-column canvas clears it. Neutral shell (AD-9): var(--chrome-*) tokens only,
+       1px hairline, NO [data-theme="crt"] branch, NO box-shadow.
+       The [hidden] rule is spelled out (as it is for #paste-toast / #slide-chip /
+       #scrollback-indicator) rather than left to the UA stylesheet: any author
+       `display` on #toast added later would silently beat the UA rule and leave the
+       toast permanently visible. */
+    #toast {
+      position: absolute;
+      left: 50%;
+      bottom: 8px;
+      transform: translateX(-50%);
+      z-index: 5;
+      font-family: inherit;
+      font-size: 12px;
+      padding: 6px 10px;
+      background: var(--chrome-bg);
+      color: var(--chrome-fg);
+      border: 1px solid var(--chrome-border);
+      border-radius: 4px;
+      cursor: default;
+      white-space: nowrap;
+      max-width: calc(100% - 16px);
+    }
+    #toast[hidden] { display: none; }
+
     /* ==== Epic E9 Story S9.1a — stage flex-row + docked pull pane ==== */
     /* The stage holds the canvas and the gutter pane in a flex ROW. The canvas
        (#terminal-wrapper) keeps margin:16px auto and NEVER shrinks (flex-shrink:0),
@@ -2174,6 +2203,18 @@
       <span id="paste-toast-text"></span>
       <button type="button" class="paste-inline" data-action="paste" hidden>[Paste]</button>
       <button type="button" class="paste-inline" data-action="cancel" hidden>[Cancel]</button>
+    </div>
+    <!-- E8 command-history escape hatch (2026-08-06) — generic transient notice
+         toast, bottom-centre. Owned by renderer/toast.js. Its first (and currently
+         only) caller is keyboard.js's Ctrl+Shift+Insert / Ctrl+Alt+H handler, which
+         flips a persisted pref: savePrefs fires no subscribers, so this toast is the
+         entire feedback that the chord landed. role=status + aria-live=polite +
+         aria-atomic=true so a screen reader announces the whole line, and toast.js
+         rewrites aria-label alongside the text so the two never disagree. -->
+    <div id="toast" hidden
+         role="status" aria-live="polite" aria-atomic="true"
+         aria-label="Notification">
+      <span id="toast-text"></span>
     </div>
     <!-- Epic E8 Story E8.2 (FR-7…18 / AD-9/10/12) — command-history recall overlay.
          A PASSIVE visual layer with a FAKE caret (.ch-txt div + .cur span, never a

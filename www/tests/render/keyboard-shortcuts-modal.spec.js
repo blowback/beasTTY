@@ -24,6 +24,12 @@ const REQUIRED = [
   'Ctrl+Shift+V',     // paste
   'Esc',              // cancel chain
   'Ctrl+W / Ctrl+N / Ctrl+T',   // reserved combos
+  // E8 escape hatch (2026-08-06). The body is rendered from SHORTCUT_GROUPS, so these
+  // three rows exist without a line of hand-written HTML — which is the point: the
+  // toggle chords and the ↑/↓ bypass were both undocumented before this change.
+  'Ctrl+Shift+Esc',                  // clear selection (was live but unregistered)
+  'Ctrl+Shift+Insert / Ctrl+Alt+H',  // toggle command history
+  'Ctrl+Shift+↑ / Ctrl+Shift+↓',     // informational — per-keypress history bypass
 ];
 
 async function ready(page) {
@@ -92,6 +98,10 @@ test.describe('E6.1 AC-2 — lists all five required shortcut groups + header', 
     // Copy + Paste actions named (FR-24 "copy/paste").
     await expect(body).toContainText('Copy selection');
     await expect(body).toContainText('Paste');
+    // E8 escape hatch — the group heading and the two actions it names.
+    await expect(body).toContainText('Command history');
+    await expect(body).toContainText('Turn command history on / off');
+    await expect(body).toContainText('without opening the recall overlay');
     // Header present (a title + a Close affordance).
     await expect(dialog(page).locator('#keyboard-shortcuts-modal-title'))
       .toHaveText('Keyboard Shortcuts');
