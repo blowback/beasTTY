@@ -194,7 +194,7 @@ development_status:
   # E11 ships — it covers the tab hidden MID-transfer, which S11.3's request-time check cannot.
   # Two of the four are pre-existing defects this design surfaced (e11-1, e11-4).
   epic-e11: in-progress
-  e11-1-two-tabs-two-beasts-per-tab-port-identity: ready-for-dev
+  e11-1-two-tabs-two-beasts-per-tab-port-identity: review
   e11-2-cross-tab-link-identity-nonce-blob-transport: backlog
   e11-3-drag-filename-onto-the-other-beast: backlog
   e11-4-hidden-tab-never-invents-a-failure: done

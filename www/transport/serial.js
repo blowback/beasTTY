@@ -232,20 +232,44 @@ export async function wireSerial(opts) {
     // D-05 / D-31 — on boot, read stored preset + scan getPorts() + stash match.
     // Does NOT auto-open — user clicks Connect explicitly.
     const stored = readStoredPreset();
+    // E11 S11.1 (AC-1/AC-2/AC-3) — how many granted ports the scan below matched.
+    // Read by the auto-connect branch and pushed to the status-bar cue. 0 when the
+    // scan found nothing or getPorts() threw.
+    let bootMatchCount = 0;
     try {
         const ports = await navigator.serial.getPorts();
-        const match = ports.find((p) => {
+        // E11 S11.1 (AC-1) — filter, don't find. Two MicroBeasts expose the same
+        // VID/PID and getInfo() carries nothing else (:45-46), so ports.find()
+        // returned the same arbitrary first match in every tab — and the
+        // skip-the-picker auto-connect below then opened it, which in the two-tab
+        // case is the port the other tab owns. Same predicate, same stored-preset
+        // fallback; only the arity changed.
+        const matches = ports.filter((p) => {
             const i = p.getInfo();
             const vid = stored ? stored.usbVendorId : VID_MICROBEAST;
             const pid = stored ? stored.usbProductId : PID_MICROBEAST;
             return i.usbVendorId === vid && i.usbProductId === pid;
         });
-        if (match) {
-            lastPortRef = match;
+        bootMatchCount = matches.length;
+        if (bootMatchCount === 1) {
+            lastPortRef = matches[0];
+        }
+        // More than one match leaves lastPortRef null on purpose: with nothing open
+        // there is no fact that says which adapter was this tab's, so every reader
+        // of lastPortRef should behave as if none was recognised (the auto-connect
+        // target below, and onNavSerialDisconnect's port-lost trigger at :864 —
+        // unplugging either adapter must not drop a still-disconnected tab into
+        // port-lost). The user picks explicitly instead; the cue says so.
+        if (bootMatchCount > 0) {
             // E4.1 fix (#3) — push the "device recognized, click Connect" cue to the
             // status bar (the relocated home of #port-status); serial.js no longer
             // writes any connection DOM (fix #8 removed the portStatusEl projection).
-            if (onBootDeviceRecognizedFn) onBootDeviceRecognizedFn();
+            // E11 S11.1 (AC-3) — carries the count so the bar can say how many were
+            // seen. It must come from THIS filter pass, not countMicroBeastAdapters(),
+            // which is hardcoded to the CP2102N VID/PID (:611) and would read zero
+            // while this scan matched two, after a "Show all serial devices" connect
+            // to a clone on FTDI/CH340.
+            if (onBootDeviceRecognizedFn) onBootDeviceRecognizedFn(bootMatchCount);
         }
     } catch (err) {
         console.warn('[serial] getPorts restore skipped:', err);
@@ -259,7 +283,21 @@ export async function wireSerial(opts) {
     // against a user-click. Off by default per D-36; only daily-driver users
     // who opt in via the Settings checkbox reach this branch.
     if (prefsRef && prefsRef.autoConnect === true) {
-        if (lastPortRef && state === 'disconnected') {
+        if (bootMatchCount > 1) {
+            // E11 S11.1 (AC-2) — ambiguous boot match: decline, and decline quietly.
+            //
+            // Opening nothing is the whole point — there is no "right" port to skip
+            // the picker for. Logging nothing is equally deliberate: the disconnected
+            // readout is composed lastConnectError > boot cue > 'Not connected'
+            // (status-bar.js:163-168), so an entry here would hide the "N MicroBeasts
+            // detected — click Connect to choose" instruction behind a failure that
+            // did not happen, and would light the amber recent-errors affordance and
+            // the red-border Connect signal with it. Explicitly NOT the
+            // `else if (!lastPortRef)` arm below, whose message ("no granted port
+            // found") is false here as well as noisy: the ports were found, they are
+            // just indistinguishable. The user's next Connect click runs the ordinary
+            // picker and is honoured first time.
+        } else if (lastPortRef && state === 'disconnected') {
             try {
                 // Silent open — mirrors connectMicroBeast body but skips
                 // requestPort() (no Chromium picker, no user gesture).
@@ -287,8 +325,17 @@ export async function wireSerial(opts) {
                 runReadLoop(lastPortRef);
             } catch (err) {
                 // Pitfall 3 fall-back — log + standard "click Connect" path.
-                lastConnectError = `Auto-connect failed: ${err.message}`;   // E4.1 fix (#4)
-                appendErrorLog('auto-connect-failed', lastConnectError);
+                // E11 S11.1 (AC-5) — a port another tab is holding is the single
+                // most likely reason this open() fails, and it has a specific
+                // repair, so it goes through the shared classifier and reads the
+                // same here as it does on the click path. Everything else keeps
+                // the "Auto-connect failed: …" framing, which is accurate for it.
+                if (isPortInUse(err)) {
+                    reportOpenFailure(err);
+                } else {
+                    lastConnectError = `Auto-connect failed: ${err.message}`;   // E4.1 fix (#4)
+                    appendErrorLog('auto-connect-failed', lastConnectError);
+                }
                 setState('disconnected');   // status bar reads lastConnectError on this transition
             }
         } else if (!lastPortRef) {
@@ -449,6 +496,59 @@ export async function requestMicroBeastPort() {
     return navigator.serial.requestPort(requestOpts);
 }
 
+// E11 S11.1 (AC-5) — does this open() rejection mean another page is holding the
+// device? Two distinct shapes reach here and both must answer yes:
+//
+//   InvalidStateError — the SAME-PAGE check. Per the Web Serial spec this is
+//     open()'s "this SerialPort is already open" rejection, and that is its only
+//     documented cause on open(), so the name alone is narrow enough. The old code
+//     also required the message to contain "in use" or "already open"; that was a
+//     second check on a string Chromium authors, and it is why a real rejection
+//     worded "Failed to open serial port." fell through to the generic message.
+//
+//   NetworkError — the CROSS-TAB shape, and the one that actually fires in the
+//     field. A second tab holds a DIFFERENT SerialPort object whose state is
+//     closed, so its open() sails past the same-page check and fails at device
+//     acquisition instead. VERIFIED on hardware 2026-08-06 (two Chrome tabs, one
+//     MicroBeast): DOMException, name 'NetworkError', message "Failed to execute
+//     'open' on 'SerialPort': Failed to open serial port." The old classifier
+//     covered only InvalidStateError, and the spec that "proved" it forced that
+//     name by hand (errors.spec.js:83-100) — so this branch had never once fired
+//     for the case it was written for.
+//
+// Every other name falls through to the generic "Could not open port: …" on
+// purpose. This message names a specific cause and a specific repair; it must not
+// become the answer to every open failure.
+//
+// Known limit, recorded rather than papered over: Chromium reports acquisition
+// failures generically, so a PRESENT adapter held by some other program (minicom,
+// screen) also arrives as NetworkError and will read as "another Beastty tab".
+// Nothing in the Web Serial API distinguishes the two. A device that is simply
+// absent does NOT reach here — getPorts() drops an unplugged device from the
+// granted list entirely (same checkpoint), so the boot scan never finds it to
+// open. S11.2 adds a same-origin BroadcastChannel, which is the first thing that
+// could actually answer "is another Beastty tab holding this?" — see the story.
+function isPortInUse(err) {
+    return err && (err.name === 'InvalidStateError' || err.name === 'NetworkError');
+}
+
+// The one place an open() rejection becomes user-facing copy. Lifted out of
+// connectMicroBeast's catch (E11 S11.1) so the auto-connect path classifies
+// identically — a port another tab is holding reads the same whether the user
+// clicked Connect or the app tried to open it on boot.
+function reportOpenFailure(err) {
+    if (isPortInUse(err)) {
+        // D-29 — verbatim. It never advises closing the other tab: E11's whole
+        // point is two tabs open at once, and the real repairs are to pick the
+        // other MicroBeast or to free this one deliberately.
+        lastConnectError = 'That MicroBeast is already connected in another Beastty tab. Choose a different one, or disconnect it there first.';
+        appendErrorLog('port-in-use', lastConnectError);
+    } else {
+        lastConnectError = `Could not open port: ${err.message}`;
+        appendErrorLog('open-failed', lastConnectError);
+    }
+}
+
 // `preselectedPort` (E4 review fix) — when the caller has already run the picker
 // (chooseMicroBeast, to keep user activation fresh across a teardown), pass the port
 // here to skip requestPort() and go straight to open().
@@ -484,16 +584,7 @@ export async function connectMicroBeast(configOverride, preselectedPort) {
         // when the session started, not when the user clicks Download.
         if (sessionLogRef) sessionLogRef.reset();
     } catch (err) {
-        // D-29 — InvalidStateError ("port is in use" / "already open") is a
-        // distinct user-facing message (another Beastty tab owns the port).
-        const msg = (err.message || '').toLowerCase();
-        if (err.name === 'InvalidStateError' && (msg.includes('in use') || msg.includes('already open'))) {
-            lastConnectError = 'MicroBeast is in use by another Beastty tab — close it to connect here.';
-            appendErrorLog('port-in-use', lastConnectError);
-        } else {
-            lastConnectError = `Could not open port: ${err.message}`;
-            appendErrorLog('open-failed', lastConnectError);
-        }
+        reportOpenFailure(err);
         setState('disconnected');   // E4.1 fix (#4) — status bar reads lastConnectError on this transition
         return;
     }

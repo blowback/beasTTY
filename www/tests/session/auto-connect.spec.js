@@ -28,12 +28,14 @@ const PORT_PRESET = JSON.stringify({ usbVendorId: 0x10c4, usbProductId: 0xea60 }
 
 // Order matters: hook flags MUST run BEFORE SERIAL_MOCK so the mock IIFE sees
 // them when it inspects window.__preGrantPort / window.__forceOpenReject.
-async function setupWithMock(page, { prefs, portPreset, preGrantPort, forceOpenReject } = {}) {
-    if (preGrantPort || forceOpenReject !== undefined) {
+async function setupWithMock(page, { prefs, portPreset, preGrantPort, preGrantPortCount, forceOpenReject, rejectOpenWith } = {}) {
+    if (preGrantPort || preGrantPortCount || forceOpenReject !== undefined) {
         await page.addInitScript((opts) => {
             if (opts.preGrantPort) window.__preGrantPort = true;
+            // E11 S11.1 — opt-in multi-adapter pre-grant (mock-serial.js:125-146).
+            if (opts.preGrantPortCount) window.__preGrantPortCount = opts.preGrantPortCount;
             if (typeof opts.forceOpenReject === 'string') window.__forceOpenReject = opts.forceOpenReject;
-        }, { preGrantPort, forceOpenReject });
+        }, { preGrantPort, preGrantPortCount, forceOpenReject });
     }
     if (prefs || portPreset) {
         await page.addInitScript((opts) => {
@@ -42,6 +44,23 @@ async function setupWithMock(page, { prefs, portPreset, preGrantPort, forceOpenR
         }, { prefs, portPreset });
     }
     await page.addInitScript(SERIAL_MOCK);
+    // E11 S11.1 (AC-5) — reject the pre-granted port's open() with a specific
+    // DOMException shape so the AUTO-CONNECT catch is exercised, not just the click
+    // path. Added AFTER SERIAL_MOCK on purpose: init scripts run in the order they
+    // were added, and the mock's IIFE has to have installed (and pre-granted) before
+    // there is a port to patch. __forceOpenReject cannot serve here — it throws a
+    // plain Error, and the classifier keys on err.name.
+    if (rejectOpenWith) {
+        await page.addInitScript((shape) => {
+            const p = navigator.serial._grantedPorts[0];
+            if (!p) return;
+            p.open = async () => {
+                const e = new Error(shape.message);
+                e.name = shape.name;
+                throw e;
+            };
+        }, rejectOpenWith);
+    }
     await page.goto('/');
     await page.locator('#terminal-wrapper').focus();
     await page.waitForFunction(() => document.getElementById('terminal').width > 0);
@@ -111,5 +130,124 @@ test.describe('PLAT-05/D-34 — Auto-connect on load', () => {
         // <= 1 covers both the auto-connect-only path and the user-click-only
         // path; > 1 would mean the race gate failed and we double-opened.
         expect(openedTimes).toBeLessThanOrEqual(1);
+    });
+});
+
+// Epic E11 Story S11.1 — two tabs, two beasts.
+//
+// The failure these cases pin: the boot getPorts() scan used ports.find(), which
+// returns the SAME first match in every tab. getInfo() carries only VID/PID
+// (serial.js:45-46), so two identical CP2102N adapters are indistinguishable —
+// there is no "the right one" to pick, yet the scan stashed one in lastPortRef
+// anyway and the auto-connect branch then opened it. In the two-tab case that is
+// the port the other tab owns.
+//
+// The repair is to filter rather than find, and to leave lastPortRef null when the
+// match is ambiguous. Both cases below drive a two-adapter boot through the opt-in
+// __preGrantPortCount hook, so this spec wedges without the filter-don't-find fix
+// in wireSerial's boot scan.
+test.describe('E11 S11.1 — ambiguous boot match (two identical adapters)', () => {
+    // AC-1 — the scan must not stash an arbitrary first match.
+    //
+    // lastPortRef is not exported and this story adds no hook to read it, so the
+    // assertion goes through a reader that is observable: onNavSerialDisconnect
+    // (serial.js:862) enters 'port-lost' when the vanished port === lastPortRef.
+    // The event is dispatched at _grantedPorts[0] DELIBERATELY — that is the port
+    // ports.find() used to stash, so before the fix this boots straight into
+    // port-lost. __simulateUnplug targets _grantedPorts[length - 1] and would let
+    // the case pass for the wrong reason (mock-serial.js:125-146).
+    test('AC-1 — unplugging either adapter does not drop a disconnected tab into port-lost', async ({ page }) => {
+        await setupWithMock(page, {
+            prefs: PREFS_AUTOCONNECT_OFF,
+            portPreset: PORT_PRESET,
+            preGrantPortCount: 2,
+        });
+        await expect(page.locator('#menu-connect-item')).toHaveAttribute('data-state', 'disconnected');
+        // Dispatch 'disconnect' at the FIRST granted port — the one the old
+        // ports.find() stashed.
+        await page.evaluate(() => {
+            const ev = new Event('disconnect', { bubbles: true });
+            Object.defineProperty(ev, 'target', { value: navigator.serial._grantedPorts[0] });
+            navigator.serial.dispatchEvent(ev);
+        });
+        // With nothing open and two identical adapters attached, the tab genuinely
+        // does not know which one was its own — so it stays disconnected.
+        await expect.poll(
+            () => page.locator('#menu-connect-item').getAttribute('data-state'),
+            { timeout: 2000 },
+        ).toBe('disconnected');
+    });
+
+    // AC-2 — auto-connect declines, and declines QUIETLY.
+    //
+    // The "no error entry" half is not cosmetic. status-bar.js:163-168 composes the
+    // disconnected readout as lastConnectError > boot cue > 'Not connected', so any
+    // entry logged here hides AC-3's "2 MicroBeasts detected" instruction behind a
+    // failure that did not happen. It also lights the amber "▲ N recent errors"
+    // affordance and the red-border Connect signal.
+    //
+    // Before the fix this boots to 'connected' (auto-connect opened the first
+    // match); the naive repair instead falls into the existing `else if
+    // (!lastPortRef)` arm, which logs 'auto-connect-failed'. Both are caught here.
+    test('AC-2 — autoConnect on + ambiguous match: nothing opened, nothing logged', async ({ page }) => {
+        await setupWithMock(page, {
+            prefs: PREFS_AUTOCONNECT_ON,
+            portPreset: PORT_PRESET,
+            preGrantPortCount: 2,
+        });
+        await expect(page.locator('#menu-connect-item')).toHaveAttribute('data-state', 'disconnected');
+        expect(await page.evaluate(() => window.__mockOpenCount || 0)).toBe(0);
+        // No entry at all — not merely "not auto-connect-failed".
+        await expect(page.locator('#error-log')).not.toContainText('auto-connect-failed');
+        // The amber "▲ N recent errors" affordance must stay dark too — a boot that
+        // logged nothing wrong must not light it (status-bar.js:220-225).
+        const errors = await page.evaluate(() => window.__statusBar.__getStateForTests());
+        expect(errors.hasErrors).toBe('false');
+        expect(errors.errors).toBe('▲ 0 recent errors');
+    });
+
+    // AC-2, second half — declining must not cost the user their first click.
+    // The Connect click path never skipped the picker (connectMicroBeast:455-467),
+    // so it is honoured first time and lands on the port the user chose.
+    test('AC-2 — the subsequent Connect click still goes through the picker and is honoured', async ({ page }) => {
+        await setupWithMock(page, {
+            prefs: PREFS_AUTOCONNECT_ON,
+            portPreset: PORT_PRESET,
+            preGrantPortCount: 2,
+        });
+        await expect(page.locator('#menu-connect-item')).toHaveAttribute('data-state', 'disconnected');
+        await page.evaluate(() => window.__menuBar.open('connection'));
+        await page.click('#menu-connect-item');
+        await expect(page.locator('#menu-connect-item')).toHaveAttribute('data-state', 'connected', { timeout: 5000 });
+    });
+
+    // AC-5 — the same rules on both paths. The click path builds its message inside
+    // connectMicroBeast's catch; the auto-connect catch had its own, and produced the
+    // generic "Auto-connect failed: …" for a port another tab was holding. One
+    // classifier, called from both, so the user reads the same sentence either way.
+    test('AC-5 — the auto-connect path reports the in-use failure with the same message', async ({ page }) => {
+        await setupWithMock(page, {
+            prefs: PREFS_AUTOCONNECT_ON,
+            portPreset: PORT_PRESET,
+            preGrantPortCount: 1,
+            rejectOpenWith: { name: 'NetworkError', message: 'Failed to open serial port.' },
+        });
+        await expect(page.locator('#menu-connect-item')).toHaveAttribute('data-state', 'disconnected');
+        await expect(page.locator('#error-log')).toContainText(
+            'That MicroBeast is already connected in another Beastty tab. Choose a different one, or disconnect it there first.',
+        );
+        await expect(page.locator('#error-log')).not.toContainText('Auto-connect failed');
+    });
+
+    // AC-4 — the common case is provably untouched. One adapter still stashes,
+    // still auto-connects, and still reports no error.
+    test('AC-4 — exactly one adapter still auto-connects unchanged', async ({ page }) => {
+        await setupWithMock(page, {
+            prefs: PREFS_AUTOCONNECT_ON,
+            portPreset: PORT_PRESET,
+            preGrantPortCount: 1,
+        });
+        await page.waitForSelector('#menu-connect-item[data-state="connected"]', { state: 'attached', timeout: 5000 });
+        await expect(page.locator('#error-log')).not.toContainText('auto-connect-failed');
     });
 });

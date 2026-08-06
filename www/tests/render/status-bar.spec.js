@@ -411,3 +411,64 @@ test.describe('E4.3 AC-4 — focus retention on the bar\'s first interactive con
     expect(registered).toBe(true);
   });
 });
+
+// ===== E11 S11.1 — the boot recognition cue when more than one adapter is attached =====
+//
+// The failure these cases pin: the boot getPorts() scan fired onBootDeviceRecognized
+// with no count, so the readout said "{device} — click Connect" — a cue that implies
+// one specific recognised device — even with two identical CP2102N adapters attached
+// and no way to tell them apart. The count has to come from the boot scan's OWN
+// stored-preset filter pass, not from countMicroBeastAdapters() (which is hardcoded
+// to 10c4:ea60 and would read "0 MicroBeasts detected" after a "Show all serial
+// devices" connect to a clone). So this spec wedges without the count-carrying
+// onBootDeviceRecognized signal.
+//
+// Verbatim, em-dash U+2014, and n is only ever >= 2 on this branch — there is no
+// pluralisation to test because there is no pluralisation logic.
+const MULTI_CUE  = '2 MicroBeasts detected — click Connect to choose';
+const SINGLE_CUE = 'MicroBeast (CP2102N 10c4:ea60) — click Connect';
+
+// ready() with the opt-in multi-adapter pre-grant. Order matters and is not
+// optional: the flag must be installed BEFORE SERIAL_MOCK, because the mock IIFE
+// reads it as it installs (auto-connect.spec.js:31-44).
+async function readyWithAdapters(page, count) {
+  await page.addInitScript((n) => { window.__preGrantPortCount = n; }, count);
+  await ready(page);
+}
+
+test.describe('E11 S11.1 AC-3 — the boot cue states the count when the match is ambiguous', () => {
+  test('two granted adapters → "2 MicroBeasts detected — click Connect to choose"', async ({ page }) => {
+    await readyWithAdapters(page, 2);
+    await expect(page.locator(TEXT)).toHaveText(MULTI_CUE);
+  });
+
+  test('AC-4 — exactly one granted adapter still reads "{device} — click Connect"', async ({ page }) => {
+    await readyWithAdapters(page, 1);
+    await expect(page.locator(TEXT)).toHaveText(SINGLE_CUE);
+  });
+
+  test('no granted adapter still reads "Not connected" — no cue at all', async ({ page }) => {
+    await ready(page);
+    await expect(page.locator(TEXT)).toHaveText(STATUS_TEXT.disconnected);
+  });
+
+  test('the count is readable through the existing __getStateForTests snapshot', async ({ page }) => {
+    await readyWithAdapters(page, 2);
+    const st = await page.evaluate(() => window.__statusBar.__getStateForTests());
+    expect(st.bootMatchCount).toBe(2);
+    expect(st.text).toBe(MULTI_CUE);
+  });
+
+  // The clear-on-'connected'-not-'connecting' rule (status-bar.js:126-134) exists for
+  // the cancelled-picker case and must survive the count: a cancelled picker keeps
+  // the multi cue, a real connect drops it.
+  test('a cancelled picker keeps the multi cue; connecting does not clear it', async ({ page }) => {
+    await readyWithAdapters(page, 2);
+    await project(page, 'connecting');
+    await project(page, 'disconnected');
+    await expect(page.locator(TEXT)).toHaveText(MULTI_CUE);
+    await project(page, 'connected');
+    await project(page, 'disconnected');
+    await expect(page.locator(TEXT)).toHaveText(STATUS_TEXT.disconnected);
+  });
+});

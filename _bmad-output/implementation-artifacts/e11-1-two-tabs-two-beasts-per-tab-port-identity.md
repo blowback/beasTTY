@@ -4,7 +4,7 @@ baseline_commit: d570904188906065f448a6de47e75734c138e5cb
 
 # Story 11.1: Two tabs, two beasts — per-tab port identity
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -114,26 +114,26 @@ Widen the classifier to cover the cross-tab shape as well as the same-page one, 
 
 ## Tasks / Subtasks
 
-- [ ] **T1 — Boot scan: filter, don't find (AC-1, AC-3, AC-4)**
-  - [ ] `serial.js:237-242`: `ports.find(...)` → `ports.filter(...)`, same predicate, same stored-preset fallback.
-  - [ ] One match → `lastPortRef = matches[0]` and fire the cue as today. More than one → leave `lastPortRef` null and fire the cue with the count. Zero → unchanged (no cue).
-  - [ ] Widen the `onBootDeviceRecognized` signal to carry the count. Keep it null-guarded and inert on a harness that omits it.
-- [ ] **T2 — Auto-connect declines quietly (AC-2)**
-  - [ ] Add an explicit ambiguous branch to `serial.js:261-301` that opens nothing, logs nothing, and does not set `lastConnectError`. It must not fall into the existing `else if (!lastPortRef)` arm, whose message ("no granted port found") is now false as well as noisy.
-  - [ ] Leave the single-match and no-match arms exactly as they are.
-- [ ] **T3 — Count-aware boot cue (AC-3, AC-4, AC-8)**
-  - [ ] `main.js:1449`: pass the count through to `statusBar.showBootReady(...)`.
-  - [ ] `status-bar.js:298-301` + `:161-168`: store the count alongside `bootDeviceReady`, render the multi variant when > 1, keep the existing single-match string and the existing "clear on `connected`, not on `connecting`" rule (`:132-136` — it exists for a reason; the cancelled-picker case).
-  - [ ] Expose the count via the existing `__getStateForTests` snapshot (that is the sanctioned way to read it — no `window.__*` hook).
-- [ ] **T4 — In-use message + classifier (AC-5, AC-6)**
-  - [ ] Replace the `serial.js:491` literal with the verbatim string.
-  - [ ] Lift the classifier out of `connectMicroBeast`'s catch into one small helper and call it from the auto-connect catch too, so both paths produce the same message from the same rules.
-  - [ ] Widen it to the cross-tab rejection shape per §(c) — after T5's checkpoint tells you what that shape is.
-  - [ ] `errors.spec.js:99` asserts `'another Beastty tab'`, which survives the rewording; confirm rather than assume, and add an assertion on the new advice.
-- [ ] **T5 — Hardware checkpoint (AC-6)** — two tabs, two beasts, record the real `err.name` / `err.message`. Run this **before** finalising T4's classifier.
-- [ ] **T6 — Fixture + specs (AC-7)**
-  - [ ] `mock-serial.js`: an opt-in multi-port pre-grant hook alongside `__preGrantPort`, following its existing "flags set before the mock IIFE runs" convention (`auto-connect.spec.js:31-37`). Default path untouched.
-  - [ ] Specs for AC-1..AC-5. Ambiguous-boot and auto-connect cases belong with `auto-connect.spec.js` (session project); the in-use classifier case belongs with `errors.spec.js` (transport project); the cue rendering belongs with `status-bar.spec.js` (render project). Each proven red first.
+- [x] **T1 — Boot scan: filter, don't find (AC-1, AC-3, AC-4)**
+  - [x] `serial.js:237-242`: `ports.find(...)` → `ports.filter(...)`, same predicate, same stored-preset fallback.
+  - [x] One match → `lastPortRef = matches[0]` and fire the cue as today. More than one → leave `lastPortRef` null and fire the cue with the count. Zero → unchanged (no cue).
+  - [x] Widen the `onBootDeviceRecognized` signal to carry the count. Keep it null-guarded and inert on a harness that omits it.
+- [x] **T2 — Auto-connect declines quietly (AC-2)**
+  - [x] Add an explicit ambiguous branch to `serial.js:261-301` that opens nothing, logs nothing, and does not set `lastConnectError`. It must not fall into the existing `else if (!lastPortRef)` arm, whose message ("no granted port found") is now false as well as noisy.
+  - [x] Leave the single-match and no-match arms exactly as they are.
+- [x] **T3 — Count-aware boot cue (AC-3, AC-4, AC-8)**
+  - [x] `main.js:1449`: pass the count through to `statusBar.showBootReady(...)`.
+  - [x] `status-bar.js:298-301` + `:161-168`: store the count alongside `bootDeviceReady`, render the multi variant when > 1, keep the existing single-match string and the existing "clear on `connected`, not on `connecting`" rule (`:132-136` — it exists for a reason; the cancelled-picker case).
+  - [x] Expose the count via the existing `__getStateForTests` snapshot (that is the sanctioned way to read it — no `window.__*` hook).
+- [x] **T4 — In-use message + classifier (AC-5, AC-6)**
+  - [x] Replace the `serial.js:491` literal with the verbatim string.
+  - [x] Lift the classifier out of `connectMicroBeast`'s catch into one small helper and call it from the auto-connect catch too, so both paths produce the same message from the same rules.
+  - [x] Widen it to the cross-tab rejection shape per §(c) — after T5's checkpoint tells you what that shape is.
+  - [x] `errors.spec.js:99` asserts `'another Beastty tab'`, which survives the rewording; confirm rather than assume, and add an assertion on the new advice.
+- [x] **T5 — Hardware checkpoint (AC-6)** — two tabs, two beasts, record the real `err.name` / `err.message`. Run this **before** finalising T4's classifier.
+- [x] **T6 — Fixture + specs (AC-7)**
+  - [x] `mock-serial.js`: an opt-in multi-port pre-grant hook alongside `__preGrantPort`, following its existing "flags set before the mock IIFE runs" convention (`auto-connect.spec.js:31-37`). Default path untouched.
+  - [x] Specs for AC-1..AC-5. Ambiguous-boot and auto-connect cases belong with `auto-connect.spec.js` (session project); the in-use classifier case belongs with `errors.spec.js` (transport project); the cue rendering belongs with `status-bar.spec.js` (render project). Each proven red first.
 
 ## Dev Notes
 
@@ -240,11 +240,159 @@ Three Playwright projects, and the split matters:
 
 ### Agent Model Used
 
+claude-opus-5 (dev-story workflow, 2026-08-06)
+
 ### Debug Log References
+
+**Red-first evidence (all runs `--retries=0`).** The 13 new cases were run against
+unfixed code before any production edit:
+
+- 6 red / 3 green on the first pass (`-g "E11 S11.1"`). The 3 green are the
+  deliberate regression pins — AC-4's single-adapter cue, AC-4's single-adapter
+  auto-connect, and the no-adapter "Not connected" case — which must stay green
+  from start to finish and did.
+- AC-1 red proof: the boot booted straight into `port-lost`, because
+  `ports.find()` had stashed `_grantedPorts[0]` and the dispatched `disconnect`
+  event targets that same port. This case is dispatched by hand rather than
+  through `__simulateUnplug()` on purpose — that hook targets
+  `_grantedPorts[length - 1]`, which is NOT the stashed port, so it would have
+  passed for the wrong reason before the fix.
+- AC-2 red proof: `Expected "disconnected" / Received "connected"` — auto-connect
+  had opened the first of two indistinguishable adapters.
+- AC-5 red proof (3 cases): `"open-failed: Could not open port: Failed to open
+  serial port."`
+
+**Unplanned finding — the message-substring guard, proven not theorised.** The
+AC-5 same-page case was written with `err.name = 'InvalidStateError'` and
+Chromium's real wording, `'Failed to open serial port.'` It went red. That is
+the second problem Dev Notes §3 names, demonstrated: the old classifier required
+`msg.includes('in use' | 'already open')` on top of a correct name, so a
+correctly-named rejection worded any other way fell through to the generic
+message. Both halves of the D-29 branch could fail independently, and the only
+spec covering it (`errors.spec.js:83-100`) hand-fed a message that satisfied the
+substring, so neither half was ever exercised honestly. The substring guard is
+gone; the classifier keys on `err.name` alone.
+
+**Flaky diagnosis, not acceptance.** The full run reported 5 flaky, none of them
+new cases. All 5 re-ran 32/32 green in isolation at `--retries=0`, and the
+captured failure was `window.__menuBar` undefined at
+`slide-collisions.spec.js:40` — the documented wasm-boot starvation race under
+parallel load, not this story's boot-scan change.
+
+**Arithmetic check on the suite total.** Baseline at `d570904` was 735 passed /
+1 skipped — 736 cases. Final run: 747 passed + 1 flaky + 1 skipped = 749 =
+736 + the 13 new cases. No pre-existing case was silently lost or renamed.
+(The earlier intermediate run reported 743 + 5 flaky + 1 skipped — the same 749.)
+The one flake was `paste.spec.js:39` @slow, a pre-existing timing-sensitive
+pacing assertion; `paste.spec.js` re-ran 9/9 green isolated at `--retries=0`.
+
+**T5 — hardware checkpoint (AC-6), run by Ant 2026-08-06.** Two Chrome tabs, one
+MicroBeast; tab A connected through Beastty, tab B pointed at the same port from
+the DevTools console. Observed verbatim:
+
+```
+name = NetworkError
+message = "Failed to execute 'open' on 'SerialPort': Failed to open serial port."
+ctor = DOMException
+```
+
+Correction §(c) is confirmed on hardware, not merely predicted: the cross-tab
+rejection is `NetworkError`, so the shipped `InvalidStateError`-only branch had
+never once fired for the case it was written for. The classifier keys on the
+observed name.
+
+**Second checkpoint run — failed earlier than expected, and that is the finding.**
+Asked for the granted-but-absent shape, the run returned
+`TypeError: Cannot read properties of undefined (reading 'open')` — i.e.
+`getPorts()` returned an EMPTY array. Chromium drops an unplugged device from the
+granted list entirely, so an absent device never reaches `open()` from the boot
+path at all and cannot be misclassified. Recorded as observed; it says nothing
+about a present-but-wedged adapter, which was not exercised and is written up as
+a known limit in the Completion Notes rather than claimed either way.
 
 ### Completion Notes List
 
+**What landed.** Three pre-existing `serial.js` defects, no FRs, no new surface.
+
+1. **The boot scan filters instead of finding** (AC-1). `ports.find()` returned the
+   same arbitrary first match in every tab; with more than one match `lastPortRef`
+   is now left null, because with nothing open there is no fact saying which
+   adapter was this tab's. Exactly one match behaves as before.
+2. **Auto-connect declines quietly on an ambiguous match** (AC-2). A dedicated arm
+   ahead of the existing ones: opens nothing, logs nothing, sets no
+   `lastConnectError`. It deliberately does not reach the `else if (!lastPortRef)`
+   arm, whose "no granted port found" message is false here — the ports were
+   found, they are just indistinguishable.
+3. **The boot cue states the count** (AC-3). The count comes from the boot scan's
+   own stored-preset filter pass, travels through the existing
+   `onBootDeviceRecognized` opt, and renders verbatim.
+4. **The in-use message names both real repairs** (AC-5), from one classifier
+   shared by the click and auto-connect paths.
+
+**Two findings beyond the story's brief.**
+
+**(a) The message-substring guard was an independent second defect, and it is the
+reason the D-29 branch was doubly dead.** Dev Notes §3 flags it as a risk; writing
+the AC-5 same-page case with Chromium's real wording proved it. The old branch
+required a correct `err.name` AND a message containing "in use" / "already open".
+Chromium's actual text is "Failed to execute 'open' on 'SerialPort': Failed to
+open serial port." — which satisfies neither substring. So even a *correctly
+named* same-page rejection fell through to the generic "Could not open port: …".
+The only spec covering the branch (`errors.spec.js:83-100`) hand-fed the message
+`'port is in use'`, satisfying a guard no real rejection satisfies. Both halves
+were wrong and the spec concealed both. The classifier now keys on `err.name`
+alone, and a spec pins that a name it does not know stays generic.
+
+**(b) Known limit — the in-use message can overclaim, and no Web Serial API can
+fix it here.** The checkpoint confirms cross-tab is `NetworkError`, but Chromium
+reports acquisition failures generically: a PRESENT adapter held by another
+program (minicom, screen) also arrives as `NetworkError` and will read "already
+connected in another Beastty tab". Nothing in `getInfo()` or the rejection
+distinguishes them. Three things bound the risk, and none of them removes it:
+
+- An ABSENT device cannot be misclassified — `getPorts()` drops an unplugged
+  device from the granted list entirely (checkpoint run 2), so the boot scan never
+  finds it to open.
+- The alternative is worse: reverting to a message substring is what caused (a).
+- AC-5 locks the copy verbatim, so rewording is out of scope for this story.
+
+**Carried into S11.2, named rather than left implicit:** S11.2 introduces a
+same-origin `BroadcastChannel`, which is the first mechanism in the codebase that
+could actually answer "is another Beastty tab holding this port?" — turning a
+guess into a fact and letting the message be earned rather than assumed. Worth
+deciding there, with the copy, not silently inheriting this behaviour.
+
+**Test fixture.** `__preGrantPortCount` is opt-in and unset by default,
+deliberately: 30+ transport specs index `_grantedPorts[0]` while
+`__simulateUnplug` / `__simulateReplug` / `__mockReaderPush` target
+`_grantedPorts[length - 1]`. With one port those are the same object; with two
+they are not. The AC-1 spec dispatches its `disconnect` event by hand at
+`_grantedPorts[0]` for exactly this reason — routing it through
+`__simulateUnplug()` would have hit the *other* port and passed before the fix.
+
+**Scope held.** No new DOM node, CSS rule, preference, module or dependency
+(AC-8). AD-3 intact — `status-bar.js` imports nothing new and still does not
+import `serial.js`; the count arrives through the injected opt. API growth is
+exactly the four sanctioned items: one argument on `onBootDeviceRecognized` /
+`showBootReady`, one `__getStateForTests` field (`bootMatchCount`), one
+`mock-serial.js` hook, one internal classifier helper (`isPortInUse` +
+`reportOpenFailure` — one concept, split for readability, neither exported).
+No `window.__*` hook, no new `serial.js` export, nothing Rust/wasm.
+
+**Hardware.** AC-6 verified on real hardware by Ant, 2026-08-06 — this story does
+not carry an unverified checkpoint (E9 retro action #2 satisfied).
+
 ### File List
+
+- `www/transport/serial.js` — boot scan filter-not-find + ambiguous-match handling; ambiguous auto-connect arm; `isPortInUse` / `reportOpenFailure` classifier shared by both open paths; verbatim in-use copy.
+- `www/renderer/status-bar.js` — `bootMatchCount` state, count-aware `showBootReady(count)`, multi-adapter cue in `composeText`, count in `__getStateForTests`, reset in `__resetForTests`.
+- `www/main.js` — `onBootDeviceRecognized` opt forwards the count to `statusBar.showBootReady`.
+- `www/tests/transport/mock-serial.js` — opt-in `__preGrantPortCount` multi-adapter pre-grant; default path unchanged.
+- `www/tests/session/auto-connect.spec.js` — `preGrantPortCount` + `rejectOpenWith` setup options; 5 new cases (AC-1, AC-2 ×2, AC-5 auto-connect path, AC-4).
+- `www/tests/render/status-bar.spec.js` — 5 new cases for the boot cue (AC-3, AC-4, no-adapter, snapshot, cancelled-picker rule).
+- `www/tests/transport/errors.spec.js` — 3 new classifier cases (same-page, cross-tab with the checkpoint-observed shape, negative control).
+- `_bmad-output/implementation-artifacts/sprint-status.yaml` — story status.
+- `_bmad-output/implementation-artifacts/e11-1-two-tabs-two-beasts-per-tab-port-identity.md` — this record.
 
 ## Code Review
 
@@ -254,4 +402,5 @@ _Fill on completion — findings count, what was fixed, what was skipped and why
 
 | Date | Change |
 |---|---|
+| 2026-08-06 | Implemented → review. Boot scan filters instead of finding (ambiguous match leaves `lastPortRef` null); auto-connect gained an ambiguous arm that opens nothing and logs nothing; the boot cue carries the scan's own match count; the in-use classifier lifted into one helper shared by both open paths, keyed on `err.name` alone, with the verbatim copy. T5 checkpoint run on hardware by Ant: the cross-tab rejection is `NetworkError` / "Failed to execute 'open' on 'SerialPort': Failed to open serial port.", confirming correction §(c) — the shipped `InvalidStateError` branch had never fired for its own case. Two findings beyond the brief: (a) the `msg.includes` guard was an independent second defect — Chromium's real message satisfies neither substring, so even a correctly-named same-page rejection fell through, and the one spec covering it hand-fed a message no real rejection produces; (b) a present-but-wedged adapter is indistinguishable from a cross-tab hold at the API level, recorded as a known limit and carried to S11.2 where `BroadcastChannel` could answer it for real. 13 new specs, each proven red first. Suite 747 passed / 1 pre-existing flaky / 1 skipped = 749 = baseline 736 + 13. |
 | 2026-08-06 | Story created (ready-for-dev). Three corrections to the epic recorded: AC-2 is about the auto-connect path (the Connect click already shows the picker); the boot cue's count must come from the boot scan's own stored-preset filter, not `countMicroBeastAdapters()`; and the in-use classifier keys on `InvalidStateError`, which is the same-page shape, so the real cross-tab rejection is probably `NetworkError` and needs a hardware checkpoint (AC-6) before the classifier is finalised. |

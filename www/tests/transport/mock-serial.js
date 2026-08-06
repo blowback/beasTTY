@@ -128,13 +128,29 @@ export const SERIAL_MOCK = `
   //                      one MockSerialPort into _grantedPorts so navigator.serial
   //                      .getPorts() returns a match at boot (auto-connect path
   //                      depends on a previously-granted port being discoverable).
+  // __preGrantPortCount — E11 S11.1 (AC-7). Set to N before SERIAL_MOCK installs
+  //                      to seed N identical CP2102N ports, so the boot getPorts()
+  //                      scan sees an ambiguous match with no hardware. OPT-IN and
+  //                      unset by default, and that is deliberate: 30+ transport
+  //                      specs index _grantedPorts[0] while __simulateUnplug /
+  //                      __simulateReplug / __mockReaderPush all target
+  //                      _grantedPorts[length - 1]. With one port those are the
+  //                      same object; with two they are not, so raising the default
+  //                      grant count would silently re-point every one of those
+  //                      hooks at a different port. Takes precedence over
+  //                      __preGrantPort, which is the N = 1 case.
+  //                      In a two-port spec, say which port you mean: [0] and
+  //                      "the last one" are no longer the same object.
   // __forceOpenReject  — when set on window to a string message, override
   //                      MockSerialPort.prototype.open to reject with that
   //                      message. Used by the open-reject branch test.
   // __mockOpenCount    — incremented on every successful open(). Used by the
   //                      Pitfall 3 race-guard regression to assert <= 1.
   window.__mockOpenCount = 0;
-  if (window.__preGrantPort) {
+  const preGrantCount = (Number.isInteger(window.__preGrantPortCount) && window.__preGrantPortCount > 0)
+    ? window.__preGrantPortCount
+    : (window.__preGrantPort ? 1 : 0);
+  for (let i = 0; i < preGrantCount; i++) {
     serial._grantedPorts.push(new MockSerialPort(DEFAULT_INFO));
   }
   const _origOpen = MockSerialPort.prototype.open;

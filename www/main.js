@@ -1446,7 +1446,10 @@ await wireSerial({
     // E4.1 fix (#3) — when the boot getPorts() scan finds an already-granted
     // MicroBeast, show the "…— click Connect" cue in the status bar (statusBar is
     // wired above, so the ref exists by the time this async boot scan runs).
-    onBootDeviceRecognized: () => statusBar.showBootReady(),
+    // E11 S11.1 (AC-3, AD-3) — carries the scan's own match count so the bar can
+    // render the multi-adapter variant. status-bar.js still imports nothing from
+    // serial.js; the count travels through this injected opt like everything else.
+    onBootDeviceRecognized: (count) => statusBar.showBootReady(count),
     // E4.3 (FR-28, AD-6) — imperative push to the status-bar recent-errors affordance
     // on every appendErrorLog. Mirrors onBootDeviceRecognized: serial.js owns the
     // errorLog mutation and fires this; the closure calls statusBar.setErrorCount

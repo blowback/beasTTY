@@ -97,6 +97,13 @@ let lastState = 'disconnected';
 // plain idle label while a cancelled picker keeps the cue.
 let bootDeviceReady = false;
 
+// E11 S11.1 (AC-3) — how many granted adapters that boot scan matched, pushed
+// alongside bootDeviceReady by showBootReady(). 1 is the ordinary single-adapter
+// case (and the safe default for a caller that pushes no count); > 1 means the
+// scan could not tell them apart, and the cue says how many rather than naming a
+// device it cannot identify.
+let bootMatchCount = 1;
+
 // ====== Baud/framing composition (prefs read AT USE-TIME — never cached across a
 // savePrefs; AD-4 — savePrefs does not fan out) ======
 
@@ -163,6 +170,13 @@ function composeText(state) {
     if (state === 'disconnected') {
         const err = getConnectionErrorFn ? getConnectionErrorFn() : null;
         if (err) return err;
+        // E11 S11.1 (AC-3) — with more than one match there is no device to name:
+        // two MicroBeasts are indistinguishable, so state the count and point at
+        // the picker instead. Verbatim, em-dash U+2014. The count is only ever >= 2
+        // on this branch, so the plural is always right — no pluralisation logic.
+        if (bootDeviceReady && bootMatchCount > 1) {
+            return `${bootMatchCount} MicroBeasts detected — click Connect to choose`;
+        }
         if (bootDeviceReady) return `${deviceLabel()} — click Connect`;
         return CONN_STATUS_LABELS.disconnected;
     }
@@ -295,8 +309,12 @@ export function wireStatusBar(opts) {
         // recognizes an already-granted MicroBeast, so a returning user sees the
         // "…— click Connect" cue instead of a bare "Not connected". Only re-paints
         // while disconnected (a live connection's readout must win).
-        showBootReady() {
+        // E11 S11.1 (AC-3) — `count` is the boot scan's own match count. Absent or
+        // <= 1 keeps the existing single-device cue byte-for-byte, so a harness that
+        // pushes no argument behaves exactly as before.
+        showBootReady(count) {
             bootDeviceReady = true;
+            bootMatchCount = (typeof count === 'number' && count > 1) ? count : 1;
             if (lastState === 'disconnected') projectConnection('disconnected');
         },
         // Expose the projection so tests can drive discrete states deterministically
@@ -339,6 +357,8 @@ export function __getStateForTests() {
         dotState: dotElRef ? dotElRef.dataset.state : null,
         text: textElRef ? textElRef.textContent : null,
         hasSubscription: connUnsub !== null,
+        // E11 S11.1 (AC-3) — the boot scan's match count behind the cue.
+        bootMatchCount,
         // E4.2 right group
         build: buildElRef ? buildElRef.textContent : null,
         zoom: zoomElRef ? zoomElRef.textContent : null,
@@ -352,6 +372,7 @@ export function __resetForTests() {
     if (connUnsub) { connUnsub(); connUnsub = null; }
     lastState = 'disconnected';
     bootDeviceReady = false;
+    bootMatchCount = 1;
     if (dotElRef) dotElRef.dataset.state = 'disconnected';
     if (textElRef) textElRef.textContent = CONN_STATUS_LABELS.disconnected;
     // E4.2 — build reverts to its placeholder (no synchronous source); zoom

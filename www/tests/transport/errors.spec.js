@@ -99,6 +99,72 @@ test.describe('D-27..D-29 + D-37 — Error log & lifecycle', () => {
         await expect(page.locator('#error-log')).toContainText('another Beastty tab');
     });
 
+    // ===== E11 S11.1 AC-5 — the in-use message, and the shape it is classified on =====
+    //
+    // Two failures pinned here. First, the copy: the message told the user to CLOSE
+    // the other tab, which is the exact configuration E11 needs them to keep open —
+    // the right advice is to pick the other MicroBeast, or free this one deliberately.
+    // Second, the classifier: it keyed only on InvalidStateError, which per the Web
+    // Serial spec is the SAME-PAGE "this SerialPort is already open" check. A second
+    // tab holds a DIFFERENT SerialPort object whose state is closed, so its open()
+    // sails past that check and fails at device acquisition instead. The case above
+    // forces InvalidStateError by hand and so had never exercised the real cross-tab
+    // shape at all. So these specs wedge without the widened classifier and the
+    // reworded message.
+    const IN_USE_MSG = 'That MicroBeast is already connected in another Beastty tab. Choose a different one, or disconnect it there first.';
+
+    // Force the picker to hand back a port whose open() rejects with a given shape.
+    async function rejectOpenWith(page, name, message) {
+        await page.evaluate(({ name, message }) => {
+            const origRequest = navigator.serial.requestPort.bind(navigator.serial);
+            navigator.serial.requestPort = () => origRequest().then((p) => {
+                p.open = async () => {
+                    const e = new Error(message);
+                    e.name = name;
+                    throw e;
+                };
+                return p;
+            });
+        }, { name, message });
+        await page.evaluate(() => window.__menuBar.open('connection'));
+        await page.click('#menu-connect-item');
+    }
+
+    test('AC-5 — the same-page shape produces the verbatim message and never says "close"', async ({ page }) => {
+        await setup(page);
+        await rejectOpenWith(page, 'InvalidStateError', 'Failed to open serial port.');
+        await expect(page.locator('#error-log')).toContainText('port-in-use');
+        await expect(page.locator('#error-log')).toContainText(IN_USE_MSG);
+        // The advice this story exists to remove. E11 needs the other tab OPEN.
+        await expect(page.locator('#error-log')).not.toContainText('close it to connect here');
+    });
+
+    // AC-6 — the name and message below are what Chromium ACTUALLY threw on the
+    // 2026-08-06 two-tab checkpoint, not what the spec text predicts. Recorded in
+    // the story's Debug Log.
+    const CROSS_TAB_MSG = "Failed to execute 'open' on 'SerialPort': Failed to open serial port.";
+
+    test('AC-5 — the cross-tab shape produces the SAME message, not the generic open failure', async ({ page }) => {
+        await setup(page);
+        await rejectOpenWith(page, 'NetworkError', CROSS_TAB_MSG);
+        await expect(page.locator('#error-log')).toContainText('port-in-use');
+        await expect(page.locator('#error-log')).toContainText(IN_USE_MSG);
+        // Before the widening this fell through to "Could not open port: …".
+        await expect(page.locator('#error-log')).not.toContainText('Could not open port');
+    });
+
+    test('AC-5 — a genuinely different open failure is still NOT called an in-use failure', async ({ page }) => {
+        await setup(page);
+        // The classifier keys on err.name and nothing else, so this pins the other
+        // half of that: a name it does not know stays generic. Without it, widening
+        // to cover the cross-tab shape could quietly turn the in-use message into
+        // the answer to every open failure.
+        await rejectOpenWith(page, 'UnknownError', 'device disappeared');
+        await expect(page.locator('#error-log')).toContainText('open-failed');
+        await expect(page.locator('#error-log')).toContainText('Could not open port: device disappeared');
+        await expect(page.locator('#error-log')).not.toContainText('another Beastty tab');
+    });
+
     test('multiple CP2102N adapters on reconnect shows multiple-adapters code', async ({ page }) => {
         await setup(page);
         await page.evaluate(() => window.__menuBar.open('connection'));
