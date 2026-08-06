@@ -4,7 +4,7 @@ baseline_commit: 010aa81fb5679c278dc4ff9bbe0c107d4c48c6b1
 
 # Story 10.2: Drag `CSUM -V` output onto the detail view — record diff + diagnosis
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -155,7 +155,18 @@ claude-fable-5 (Fable 5)
 - _bmad-output/implementation-artifacts/e10-2-drag-csum-v-output-record-diff-diagnosis.md
 - _bmad-output/implementation-artifacts/sprint-status.yaml
 
+## Code Review
+
+**Backfilled 2026-08-06 during the E11 retrospective, and deliberately thin — read the limit before relying on it.**
+
+The review was run and the story closed on Ant's confirmation ("e10-2 is done and has been reviewed"). Its **findings were never written into this record at the time**, and no review-labelled commit exists to reconstruct them from: the two commits following `0492ab0` are `22ce53e` (a large mixed commit — SLIDE binary location, prefs, chip, index.html) and `f0ef476` (drag-from-terminal honouring the transfer-confirmation pref), neither scoped or titled as an S10.2 review. Attributing either to this review would be a guess.
+
+So this section records **that a review happened and what its outcome was — accepted, story closed — and nothing about what it found.** No finding count, no fixed/recorded split. Anyone auditing E10's review coverage should treat this story as unevidenced rather than clean.
+
+This is the E8 retro action #1 failure mode repeating on a story that slipped through between milestones: the convention is that the section is filled at write time, not backfilled, precisely because a backfill this late can only record the fact of the review and not its content.
+
 ## Change Log
 
+- 2026-08-06 — Status review → **done** (Ant's call during the E11 retrospective; the E10 epic retrospective is being skipped). Code Review section backfilled as a fact-of-review record only — see the limit stated there. Epic E10 closes with this story.
 - 2026-07-24 — Story created (ultimate context engine analysis completed — comprehensive developer guide created; parser grammar pinned from csumhost.c printf formats + the real pc.txt capture; classifier precedence, host-record stowing, and bloom composition decided and documented). Status: ready-for-dev.
 - 2026-07-24 — T1–T6 implemented (pure `parseCsumV` + `classifyCsumDiff` injected per AD-3; detail-open drop routes to the in-place record diff with caption / count line / one-line diagnosis; detail footer affordance live; bloom composition amendments; 14 new specs + the two S10.1 interim pins updated; EXPERIENCE.md / DESIGN.md dated amendments). Suite 513 passed + 6 flaky (boot-race under parallel load; 91/91 serial) + 1 skipped. Status: review.
