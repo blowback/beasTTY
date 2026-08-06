@@ -145,6 +145,11 @@ import {
     __resetForTests as __slideRecvResetForTests,
     __getStateForTests as __slideRecvGetStateForTests,
 } from './transport/slide-recv.js';
+// Epic E11 Story S11.2 — the cross-tab peer link (BroadcastChannel identity +
+// authorisation + blob handover). wirePeerLink slots AFTER wireSlideRecv (whose
+// state its busy check reads) and BEFORE wireFileSource. Reason CODES only; the
+// words that go with them are S11.3's.
+import { wirePeerLink } from './transport/peer-link.js';
 // Phase 11 Plan 11-02 — SLIDE chip module (Wave 1). wireSlideChip slots AFTER
 // wireFileSource; chip lifecycle integration with the dispatcher (auto-driven
 // state transitions on session start / file-complete / session-complete /
@@ -1140,6 +1145,52 @@ wireSlideRecv({
     // re-enumerates the already-bound stale handle).
     onFolderChanged: () => { try { pullPane.rebind(); } catch { /* pane best-effort */ } },
 });
+
+// ---- Epic E11 Story S11.2 — the cross-tab peer link ----
+// Sited here because its busy check reads slide state that wireSlideRecv above
+// has just wired, and because wireFileSource (below) needs nothing from it.
+// Every dependency is a lazy thunk per the main.js:479 / :1148 idiom, so boot
+// ordering cannot bite: nothing is read until a peer actually asks.
+//
+// No provideFiles yet. This tab can accept a request and will then answer
+// pull-failed, because reading a file back OUT of the bound pull folder is
+// S11.3's work (the handles are module-private to pull-pane.js). Accepting and
+// then failing is the honest shape — the four self-checks below all passed.
+const peerLink = wirePeerLink({
+    // The predicate the whole app already uses for "is there a writer?" — a
+    // writer exists only after a successful open() + registerWriter, so this is
+    // narrower and more honest than serial.getState().
+    isConnected: () => isWriterReady(),
+    // The COMPOSITE session predicate, not slide-recv's recv-only isSlideActive().
+    // hasPendingSendSession covers the window between auto-typing the SLIDE
+    // command and the Z80's wakeup, during which the wire owner is still
+    // 'terminal' and this tab is nonetheless committed; mode 'send' | 'recv'
+    // covers a running session either way; wire ownership covers a send session,
+    // which never hands slide-recv a slideRef at all. Same shape as
+    // file-source.js isSessionActive (:270-279) — a recv-only predicate leaking
+    // into a send path is a mistake this codebase has already made three times.
+    isBusy: () => {
+        let st = null;
+        try { st = __slideGetStateForTests(); } catch { return true; }
+        const inSession = !!st?.hasPendingSendSession || st?.mode === 'send' || st?.mode === 'recv';
+        return inSession || getWireOwner() === 'slide';
+    },
+    // The pane's own predicate, surfaced on its API this story (S11.2 T6) rather
+    // than re-composed here or read out of a test hook.
+    hasBoundFolder: () => pullPane.isBound(),
+    // Injected so peer-link.js stays DOM-free (AC-1) and so the hidden case is
+    // testable without hiding a real tab. This is a request-time precondition
+    // and does NOT contradict S11.4: hiding a tab MID-transfer still cancels
+    // nothing (chrome.js:209-224) — that is a different moment.
+    isVisible: () => document.visibilityState === 'visible',
+});
+// Playwright hook. Not optional: echo-swallow.js returns its hooks from
+// wireEchoSwallow only, and slide-bridge.spec.js:440-447 is a spec that gave up
+// asserting against it as a direct result. The returned API already carries
+// __getStateForTests / __resetForTests and REFUSAL_CODES, so a spec can assert
+// against the frozen set without importing the module — and, unlike a property
+// attached here, the vocabulary survives a re-wire (specs re-wire constantly).
+window.__peerLink = peerLink;
 
 // Phase 11 Plan 11-03 — resolve the thunk-holder now that cancelSlideRecv's
 // internal state (slideRef + dispatcherForceExitRef) is wired by wireSlideRecv.

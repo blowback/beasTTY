@@ -463,6 +463,8 @@ export function wirePullPane(opts) {
         beginReview,               // S9.2 entry point (now also the S9.3 drop path).
         onSelectionDrag,           // S9.3 — selection drag state from main.js (AC-8);
                                    // doubles as the test entry point (specs call it directly).
+        isBound,                   // S11.2 — the "usable pull folder?" fact, for peer-link's
+                                   // no-folder self-check (the pane owns the idea; see below).
         dispose,
         __getStateForTests,
         __resetForTests,
@@ -1646,6 +1648,18 @@ function exitReview() {
     render();
 }
 
+// E11 S11.2 — "has this tab got a usable pull folder?", the pane's own predicate,
+// surfaced on the returned API so peer-link can answer a peer's status query
+// without composing a second version of it in main.js. state.view is one of
+// first-run | permission | empty | list, so this one expression already covers
+// both "no handle" and "handle without permission". Read-at-use, no-throw; the
+// shape is getSendGate()'s (file-source.js:218). The pane owns the user-facing
+// "pull folder" idea, which is why the fact lives here — peer-link's no-folder
+// refusal is the one whose S11.3 sentence sends the user to this pane.
+export function isBound() {
+    return state.view === 'empty' || state.view === 'list';
+}
+
 // ====== Render (projects state via data-view / [hidden] only — no inline styles) ======
 
 function render() {
@@ -1666,7 +1680,7 @@ function render() {
     // Header — bound states show the folder name; first-run shows the generic label.
     if (fnameEl) fnameEl.textContent = folderName || 'Pull pane';
 
-    const bound = view === 'empty' || view === 'list';   // folder bound + readable
+    const bound = isBound();   // folder bound + readable
 
     // Caption + counts. Review forces the caption visible with the review
     // caption and hides the file count (mockup Frame C).

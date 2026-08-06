@@ -530,12 +530,24 @@ export async function requestMicroBeastPort() {
 //
 // Known limit, recorded rather than papered over: Chromium reports acquisition
 // failures generically, so a PRESENT adapter held by some other program (minicom,
-// screen) also arrives as NetworkError and will read as "another Beastty tab".
-// Nothing in the Web Serial API distinguishes the two. A device that is simply
-// absent does NOT reach here — getPorts() drops an unplugged device from the
-// granted list entirely (same checkpoint), so the boot scan never finds it to
-// open. S11.2 adds a same-origin BroadcastChannel, which is the first thing that
-// could actually answer "is another Beastty tab holding this?" — see the story.
+// screen), or an OS permission denial (on Linux, a user not in dialout/uucp),
+// also arrives as NetworkError and will read as "another Beastty tab". Nothing in
+// the Web Serial API distinguishes them. A device that is simply absent does NOT
+// reach here — getPorts() drops an unplugged device from the granted list
+// entirely (same checkpoint), so the boot scan never finds it to open.
+//
+// E11 S11.2 settled what the cross-tab link can do about this, and the answer is
+// LESS than this comment used to promise: a peer link can FALSIFY the claim but
+// never CONFIRM it. With no other Beastty tab alive the message is certainly
+// wrong; with one alive it may be holding the OTHER beast while something outside
+// the browser holds this one, so the message is still a guess. Turning a guess
+// into a narrower guess needs a second user-facing sentence, and every such
+// sentence is fixed verbatim in a story (UX-DR7). There is no copy on record, so
+// the message below is deliberately unchanged and this comment no longer promises
+// a repair that is not coming. transport/peer-link.js deliberately ships no
+// "is any other tab alive?" probe either — nothing in E11 needs a peer roster,
+// and the fact alone is useless until someone decides what the second message
+// says. Whoever writes that copy owns the change here.
 //
 // ONLY ask this about a port.open() rejection. setSignals() rejects with the SAME
 // NetworkError name when the operation fails (Web Serial spec), and every caller
