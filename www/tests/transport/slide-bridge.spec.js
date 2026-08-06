@@ -178,6 +178,34 @@ test.describe('slide-bridge — paste-pump gate', () => {
     });
 });
 
+// Drives a real SEND session and stalls it mid-stream so the tab can be hidden
+// while mode === 'send'. Copied from slide-hidden-tab-clamp.spec.js per the
+// self-contained-spec-file convention in this file's header (do NOT
+// cross-import). The bot takes the Z80's RECEIVER role here, the inverse of
+// commonReset's default.
+async function enterStalledSend(page) {
+    await page.evaluate(() => {
+        window.__mockSlideBot.setRole('recv');
+        window.__fileSource.__resetForTests();
+        window.__mockSlideBot.setStallAfterAcks(1);
+    });
+    await page.setInputFiles('#send-file-input', {
+        name: 'big.bin',
+        mimeType: 'application/octet-stream',
+        buffer: Buffer.from('Y'.repeat(2000)),
+    });
+    await page.locator('#send-modal-send').click();
+    await expect.poll(
+        () => page.evaluate(() => window.__mockWriterLog.length > 0),
+        { timeout: 2000 },
+    ).toBe(true);
+    await page.evaluate(() => window.__mockSlideBot.pushSlideWakeup());
+    await expect.poll(
+        () => page.evaluate(() => window.__slide.__getStateForTests().mode),
+        { timeout: 5000 },
+    ).toBe('send');
+}
+
 test.describe('slide-bridge — visibilitychange', () => {
 
     test.beforeEach(async ({ page }) => { await setup(page); });
@@ -224,6 +252,43 @@ test.describe('slide-bridge — visibilitychange', () => {
                     e.bytes && e.bytes.some((b) => b === 0x18))),
             { timeout: 3000 },
         ).toBe(true);
+    });
+
+    // E11 post-epic fix — raised by S11.4's code review, re-carried by S11.2
+    // and S11.3, closed here. main.js handed wireChrome slide-recv's RECV-ONLY
+    // isSlideActive plus a recv-only cancel, so this whole branch was blind to
+    // send sessions: closing the tab mid-send emitted nothing and left the Z80
+    // waiting. Nothing caught it because every pagehide case above enters recv
+    // mode. So this spec wedges without the COMPOSITE isSlideActive predicate
+    // in main.js's wireChrome call — proven red on the recv-only version, where
+    // the branch never ran and no byte reached the wire at all.
+    //
+    // Honest limit, so nobody reads this case as covering more than it does:
+    // the fix's second half — routing the cancel by direction so a send session
+    // reaches cancelSlideSend instead of cancelSlideRecv's own !isSlideActive()
+    // short-circuit — is NOT independently pinned. Reverting that half alone
+    // leaves this case GREEN (verified), because the raw writeSlideFrame(0x18)
+    // that D-13 deliberately pairs with the cancel is sufficient on its own
+    // here: the mock bot echoes CTRL_CAN per slide.asm respond_to_cancel and
+    // the state machine unwinds on the echo. The mode assertion therefore pins
+    // that the session ENDS, not which of the two mechanisms ended it.
+    // Isolating the cancel needs a bot that swallows the raw byte; no fixture
+    // offers that today.
+    test('pagehide emits CTRL_CAN and cancels during a SEND session', async ({ page }) => {
+        await commonReset(page);
+        await enterStalledSend(page);
+        await page.evaluate(() => { window.__mockWriterLog.length = 0; });
+        await page.evaluate(() => { window.dispatchEvent(new Event('pagehide')); });
+        await expect.poll(
+            () => page.evaluate(() =>
+                window.__mockWriterLog.some((e) =>
+                    e.bytes && e.bytes.some((b) => b === 0x18))),
+            { timeout: 3000 },
+        ).toBe(true);
+        await expect.poll(
+            () => page.evaluate(() => window.__slide.__getStateForTests().mode),
+            { timeout: 8000 },
+        ).toBe('terminal');
     });
 
     test('visibilitychange does NOT emit CTRL_CAN while idle', async ({ page }) => {

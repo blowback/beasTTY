@@ -454,6 +454,19 @@ let cancelSlideRecvLazy = () => { /* no-op until wireSlideRecv runs */ };
 // cancelSlideRecv mirrors the wireSlideChip onCancel pattern from Plan
 // 11-03 — the function reference is always defined but its internal state is
 // only populated after wireSlideRecv runs.
+//
+// E11 post-epic fix (raised by S11.4's code review, re-carried by S11.2 and
+// S11.3) — both refs below used to be the RECV-ONLY pair, so closing the tab
+// mid-SEND emitted nothing and left the Z80 waiting on a transfer that had
+// gone away. slide-recv's isSlideActive() only sees sessions that were handed
+// a slideRef, which send sessions never are (slide.js enterSendModeInternal),
+// and cancelSlideRecv's own !isSlideActive() guard short-circuits in send
+// mode — so the predicate said "idle" and the cancel would have been a no-op
+// even if it had said otherwise. S11.4 made pagehide the SOLE hide-time
+// trigger, which made this the only remaining teardown protection.
+// The predicate is the composite already used at the pull-pane wiring below
+// (wire ownership covers the enterSendModeProceed window before mode flips);
+// the cancel routes by direction exactly as wireSlideChip's onCancel does.
 wireChrome({
     terminalWrapper, bellOverlay, requestFrame,
     // Epic E1 Story E1.3 (AD-13) — the two Clear buttons moved OUT of chrome.js
@@ -466,8 +479,16 @@ wireChrome({
     pushZoom,                                   // E1.5 (AD-6) — feed the status bar from the zoom chord
     prefs,                                      // Phase 6 Plan 06 — "show all serial devices" checkbox initial state
     savePrefs,                                  // Phase 6 Plan 06 — persist the show-all toggle + the Ctrl+Alt+T chord theme change
-    isSlideActive: isSlideActive,               // Phase 11 D-13 — predicate gate for CTRL_CAN branch
-    cancelSlideRecv: () => cancelSlideRecvLazy(),  // Phase 11 D-13 — thunk-holder; resolved below
+    // Phase 11 D-13 — the predicate deciding whether the CTRL_CAN branch runs.
+    // COMPOSITE, not slide-recv's recv-only isSlideActive(): see the note above.
+    isSlideActive: () => isSlideActive() || getWireOwner() === 'slide',
+    // Phase 11 D-13 — dispatches by direction. Send goes to cancelSlideSend
+    // (imported, resolved at module load); recv goes through the thunk-holder
+    // resolved after wireSlideRecv runs below.
+    cancelSlideRecv: () => {
+        if (slideSendActive()) cancelSlideSend();
+        else cancelSlideRecvLazy();
+    },
     txSink: { writeSlideFrame, writeSlideFrameAwaitable },  // Phase 11 D-13 — fire-and-forget CTRL_CAN
 });
 
