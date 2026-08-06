@@ -88,6 +88,37 @@ test.describe('XPORT-05 + D-08 — Serial config form', () => {
             .toHaveText('Config changed — Disconnect and Connect to apply');
     });
 
+    // E11 retrospective (2026-08-06) — the dormant-hook sweep, finally run.
+    // paste-pump exported setBaudForPump with a comment claiming serial.js
+    // called it on config-driven connect. NOTHING called it, in production or in
+    // any spec, since the day it was written — so the pump's pacing interval
+    // stayed at computeGap(19200) ≈ 18 ms for the life of the page no matter
+    // what the user picked here. Pasting on a 9600 connection therefore pushed
+    // 32 bytes every ~18 ms (~1730 B/s) at a wire carrying ~960 B/s: a steady
+    // overrun, by the one module whose entire job is to stay under the byte
+    // rate. The case above proves the PORT gets the right baud; nothing proved
+    // the paste pump did.
+    // So this spec wedges without serial.js actually calling setBaudForPump.
+    test('the paste pump paces to the connected baud, not a hardcoded 19200', async ({ page }) => {
+        await setup(page);
+        // Baseline first, or a wrong-but-plausible gap could pass unnoticed.
+        const atBoot = await page.evaluate(() => window.__pastePump.__getStateForTests().gapMs);
+        expect(atBoot).toBe(19);   // computeGap(19200), rounded
+
+        await openForm(page);
+        await page.locator('#serial-baud').selectOption('9600');
+        await closeForm(page);
+        await page.evaluate(() => window.__menuBar.open('connection'));
+        await page.click('#menu-connect-item');
+        await expect(page.locator('#menu-connect-item')).toHaveAttribute('data-state', 'connected');
+
+        // computeGap(9600) = round(32 / (960 * 0.9) * 1000) = 37 ms — slower
+        // than 19200's, which is the whole point.
+        const at9600 = await page.evaluate(() => window.__pastePump.__getStateForTests().gapMs);
+        expect(at9600).toBe(37);
+        expect(at9600).toBeGreaterThan(atBoot);
+    });
+
     test('connect honors non-default config values', async ({ page }) => {
         await setup(page);
         // Change baud + parity BEFORE clicking Connect. Set them in the form, then

@@ -31,9 +31,10 @@
 //       toggling [hidden]/data-* + dispose() + __getStateForTests /
 //       __resetForTests; main.js exposes the API as window.__menuBar.
 // AD-3: menu-bar.js may import only canvas.js setters + prefs.js directly.
-//       For this shell story neither is needed (items are placeholders); the
-//       sole opt is terminalWrapper (a <select> restore target for retainFocus
-//       in later menu stories — titles/buttons need no restore target).
+//       (Neither was needed in the E1.1 shell story, when the items were still
+//       placeholders; the later View stories use both.) terminalWrapper is an
+//       opt — a <select> restore target for retainFocus.
+//       [comment corrected in the E11 retro sweep, 2026-08-06]
 // AD-10 / NFR-1 ("Sacred"): every interactive control registers retainFocus so
 //       opening a menu never steals keyboard focus from #terminal-wrapper.
 
@@ -928,10 +929,10 @@ function refreshLiveRegion() {
     }
 }
 
-// Wire the placeholder rows inside one dropdown. Behaviour by variant (AC-2/AC-3):
+// Wire the rows inside one dropdown. Behaviour by variant (AC-2/AC-3):
 //   - disabled       → inert (no toggle, no close)
 //   - checkable      → toggle data-checked + leading ✓ glyph, KEEP menu open
-//   - radio-submenu  → submenu placeholder (real submenu = E1.4/E1.5); KEEP open
+//   - radio-submenu  → opens its submenu (filled by E1.4/E1.5); KEEP open
 //   - action         → close the menu
 function wireDropdownItems(dropdown) {
     const items = dropdown.querySelectorAll('.menu-item');
@@ -1081,7 +1082,7 @@ function applyZoom(mutate) {
     mutate();
     savePrefs({ fontZoom: getActiveZoom() });        // AD-4 — persist (same key as the chord)
     if (clearSelectionRef) clearSelectionRef();      // D-19 — selection clears on zoom change
-    if (pushZoomRef) pushZoomRef(getActiveZoom());   // AD-6 — status-bar push (no-op until E4)
+    if (pushZoomRef) pushZoomRef(getActiveZoom());   // AD-6 — status-bar push (live since E4)
 }
 
 // Route a data-action to its behaviour. Zoom + Clear Screen close the menu after
@@ -1422,11 +1423,10 @@ function reanchorFocus(focused) {
 // site each); projectPrefs owns ONLY the View menu projection and must NEVER
 // call a canvas setter.
 //
-// Those submenus are structural placeholders today (E1.4 fills theme/phosphor;
-// E1.5 fills font/zoom), so this is a SAFE, IDEMPOTENT no-op that touches only
-// present DOM. Standing up the subscription + the no-throw/idempotence contract
-// NOW means resetPrefs() already re-projects the View menu the instant E1.4/E1.5
-// add real state — they only fill the body below.
+// Those submenus were structural placeholders when this was written; E1.4
+// (theme/phosphor) and E1.5 (font/zoom) have since filled them, so this now
+// re-projects real state. It remains SAFE and IDEMPOTENT and touches only
+// present DOM.  [comment corrected in the E11 retro sweep, 2026-08-06]
 //
 // Contract (relied on by E1.4/E1.5): reads prefs at USE-TIME (the blob
 // resetPrefs passes, else getPrefs()) — never caches the ref (AD-4); never

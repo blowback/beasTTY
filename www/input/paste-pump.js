@@ -105,8 +105,15 @@ export function onPortLost() {
 }
 
 export function setBaudForPump(baud) {
-    // Wave 5 opportunistic recompute. Called from serial.js on config-driven connect.
-    // D-13 — pace target recomputes on baud change.
+    // D-13 — the pacing target recomputes on baud change. Called from serial.js's
+    // setLastConfig(), which is the single place the open port's config is
+    // recorded, so this cannot drift out of step with the port again.
+    //
+    // E11 retrospective (2026-08-06) — this comment used to assert that
+    // serial.js called it. Nothing did, in production or in a test, since the
+    // day it was written: gapMs stayed at computeGap(19200) for the life of the
+    // page regardless of the configured baud, so pasting on a slower connection
+    // overran the wire the pump exists to stay under. Now actually wired.
     gapMs = computeGap(baud);
 }
 
@@ -181,6 +188,14 @@ function applyCrlfRewrite(bytes) {
 // CRLF_MODES re-export suppresses the "unused import" linter warning and makes
 // the table identity visible from this module for any future diagnostic/test.
 export { CRLF_MODES };
+
+// E11 retrospective (2026-08-06) — the pacing interval was unobservable from a
+// spec, which is part of why setBaudForPump could sit dead for so long without
+// anything noticing. gapMs is the whole point of this module; it should be
+// readable.
+export function __getStateForTests() {
+    return { gapMs, queued: Math.max(0, queue.length - cursor), active: isActive() };
+}
 
 function fireProgress(status, extra = {}) {
     for (const fn of progressObservers) fn({ status, ...extra });

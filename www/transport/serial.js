@@ -21,15 +21,14 @@
 //     www/renderer/canvas.js:37-51 (module-scope state).
 
 import { registerWriter, unregisterWriter } from '../input/tx-sink.js';
-import { onPortLost as pastePumpOnPortLost } from '../input/paste-pump.js';
+import { onPortLost as pastePumpOnPortLost, setBaudForPump } from '../input/paste-pump.js';
 // Phase 8 D-05 + D-06 — route inbound bytes through the SLIDE dispatcher
 // instead of directly to term.feed. dispatchInbound is byte-transparent in
 // terminal mode (the post-feed invariant at lines 454-462 below is unchanged).
-import { dispatchInbound, slidePumpOnPortLost } from './slide.js';
-// Phase 11 Plan 11-03 — D-11 session-log gate predicate at the read-loop
-// append call site so binary SLIDE frame bytes never reach the per-connection
-// log during an active session (T-11-03-log-leak mitigation).
-import { isTransferRunning } from './slide.js';
+// isTransferRunning — Phase 11 Plan 11-03 D-11: the session-log check at the
+// read-loop append call site, so SLIDE frame bytes never reach the
+// per-connection log during an active session (T-11-03-log-leak mitigation).
+import { dispatchInbound, slidePumpOnPortLost, isTransferRunning } from './slide.js';
 // Live read of prefs.showAllSerialDevices at picker time. Cannot use the
 // boot-time `prefsRef` snapshot because savePrefs replaces the cached object —
 // prefsRef would still point at the original blob and miss subsequent toggles.
@@ -58,6 +57,25 @@ let reader = null;
 let writer = null;
 let state = 'disconnected';
 let lastConfig = null;
+// E11 retrospective (2026-08-06) — the ONE place lastConfig is written, so the
+// paste pump's pacing can never again drift out of step with the open port.
+//
+// paste-pump exported setBaudForPump with the comment "Called from serial.js on
+// config-driven connect". It was not. Nothing called it, in production or in a
+// test, since the day it was written — so gapMs stayed at computeGap(19200) for
+// the life of the page no matter what the user picked in the serial config
+// modal. Pasting on a 9600 connection therefore pushed 32 bytes every ~18 ms
+// (~1730 B/s) at a wire that carries ~960 B/s, i.e. a steady overrun, while the
+// pump's whole reason for existing is to stay under the byte rate.
+//
+// Found by the E9 retro's dormant-hook sweep, finally run. The hook was dead
+// AND its comment asserted it was live, which is why neither reading the call
+// site nor reading the definition would have caught it — only asking "who
+// actually calls this?" did.
+function setLastConfig(cfg) {
+    lastConfig = cfg;
+    if (cfg && typeof cfg.baudRate === 'number') setBaudForPump(cfg.baudRate);
+}
 let lastPortRef = null;
 let shuttingDown = false;   // Gap 1 fix — set true in beforeunload so runReadLoop's
                             // outer while(p.readable) does not re-acquire a fresh reader
@@ -326,7 +344,7 @@ export async function wireSerial(opts) {
                 writer = acquiredWriter;
                 registerWriter(writer);
                 port = lastPortRef;
-                lastConfig = cfg;
+                setLastConfig(cfg);
                 if (sessionLogRef) sessionLogRef.reset();   // D-29 — fresh per-connection buffer.
                 setState('connected');
                 runReadLoop(lastPortRef);
@@ -656,7 +674,7 @@ export async function connectMicroBeast(configOverride, preselectedPort) {
 
     port = selectedPort;
     lastPortRef = selectedPort;
-    lastConfig = config;
+    setLastConfig(config);
     persistVidPid(selectedPort);    // D-31 — Wave 4 implements; Wave 2 stubs it locally.
 
     // E4.3 fix — a successful Connect resolves whatever the prior failures were, so

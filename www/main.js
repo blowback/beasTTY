@@ -125,6 +125,7 @@ import {
     cancelPaste as cancelPastePump,
     isActive as pastePumpIsActive,
     wirePastePump,
+    __getStateForTests as __pastePumpGetStateForTests,
 } from './input/paste-pump.js';
 import {
     wireFileSource,
@@ -1001,9 +1002,9 @@ function sampleBell() {
 // functions are assigned so injected refs are defined (would TDZ if moved
 // earlier). Plan 04-03 wires the Settings-pane toggles (local-echo checkbox,
 // CR/LF radios, Reset TX button) and registers the TX observer against the
-// Debug pane's hex-strip <pre>; Plan 04-02 leaves the observer un-registered
-// so the TX strip stays at its placeholder text until Plan 04-03 adds the
-// DOM element.
+// Debug pane's hex-strip <pre>. (Plan 04-03 shipped — the observer IS registered
+// and the TX strip is live; this note used to say it was still pending.)
+// [comment corrected in the E11 retro sweep, 2026-08-06]
 wireKeyboard({
     term,
     terminalWrapper,
@@ -1051,6 +1052,9 @@ window.__pastePump = {
     enqueuePaste,
     cancelPaste: cancelPastePump,
     isActive: pastePumpIsActive,
+    // E11 retro — exposes gapMs so a spec can see the pacing follow the port's
+    // baud. It could not before, which is part of why setBaudForPump sat dead.
+    __getStateForTests: __pastePumpGetStateForTests,
 };
 // Epic E7 Story E7.1 (AD-2) — paste-toast introspection for the
 // paste-toast.spec.js chromium suite. Public state-entry/confirm methods are
@@ -1841,9 +1845,10 @@ applyPrefs(prefs);   // Apply once at boot so initial chrome state matches loade
 // chrome state (single-writer per canvas setter), menuBar.projectPrefs
 // re-projects the View submenu's menu DOM. The two never fight — projectPrefs
 // touches only View *item* state, never a canvas setter (AD-14 no double-apply).
-// A no-op today (View submenus are placeholders — E1.4/E1.5 fill the body), but
-// the subscription + idempotent/no-throw contract lands now. Called once at
-// boot for parity with applyPrefs(prefs) above.
+// Was a no-op when written (the View submenus were placeholders then); E1.4 and
+// E1.5 shipped their bodies, so projectPrefs does real work now. The
+// idempotent/no-throw contract still holds. Called once at boot for parity with
+// applyPrefs(prefs) above.  [comment corrected in the E11 retro sweep, 2026-08-06]
 prefsSubscribe(menuBar.projectPrefs);
 menuBar.projectPrefs(prefs);
 
