@@ -117,7 +117,7 @@ test.describe('SESS-02/SESS-03 — Clipboard', () => {
     test('paste preprocessing strips 0x00–0x1F except CR/LF/Tab', async ({ page }) => {
         await setup(page);
         // Mix control bytes: 0x00 (NUL — drop), 0x07 (BEL — drop), 0x09 Tab (keep),
-        // 0x0A LF (keep), 0x0D CR (keep).
+        // 0x0A LF (keep).
         //
         // The LF survives the strip and is then rewritten to 0x0D by the default
         // Paste line ending — that is the point of the setting, and it is what the
@@ -173,6 +173,53 @@ test.describe('SESS-02/SESS-03 — Clipboard', () => {
         // Click Paste.
         await page.locator('#paste-toast button[data-action="paste"]').click();
         await page.waitForFunction(() => window.__mockWriterLog.length > 0, { timeout: 5000 });
+    });
+
+    test('the confirm counts WIRE bytes, not clipboard bytes', async ({ page }) => {
+        // In 'crlf' every line break becomes two bytes, so the payload that goes out
+        // is longer than the text on the clipboard. 1000 lines of 'AAA' is 4000
+        // clipboard bytes — under the threshold — but 5000 on the wire. Counting the
+        // clipboard copy skipped the confirm entirely AND, when it did fire, quoted
+        // a size the paste was never going to be.
+        await setup(page);
+        await page.waitForFunction(() => window.__menuBar && typeof window.__menuBar.open === 'function');
+        await page.evaluate(() => window.__menuBar.open('settings'));
+        await page.click('#dropdown-settings .menu-item[data-submenu="paste-eol"]');
+        await page.click('#dropdown-settings .submenu[data-submenu-panel="paste-eol"] .menu-item[data-value="crlf"]');
+        await page.evaluate(() => window.__menuBar.close());
+
+        await page.evaluate(() => window.__setClipboardContents('AAA\n'.repeat(1000)));
+        await connectMockSerial(page);
+        await page.evaluate(() => { window.__pendingPasteResult = window.__pasteFromClipboard(); });
+        await expect(page.locator('#paste-toast-text')).toContainText('About to paste 5,000 B');
+        await page.locator('#paste-toast button[data-action="cancel"]').click();
+    });
+
+    test('changing Paste speed while the confirm is open does not re-pace the run', async ({ page }) => {
+        // The confirm is awaited and the Settings menu stays usable underneath it.
+        // The quote is taken from a pacing snapshot and the run uses the SAME
+        // snapshot, so a speed picked in between governs the NEXT paste, not this
+        // one — otherwise the user could be quoted 240 B/s and served Full speed.
+        await setup(page);
+        await page.waitForFunction(() => window.__menuBar && typeof window.__menuBar.open === 'function');
+        await page.evaluate(() => window.__setClipboardContents('A'.repeat(5000)));
+        await connectMockSerial(page);
+        await page.evaluate(() => { window.__pendingPasteResult = window.__pasteFromClipboard(); });
+        await expect(page.locator('#paste-toast-text')).toContainText('About to paste 5,000 B');
+
+        // Switch to Full speed WHILE the confirm is up, then accept.
+        await page.evaluate(() => window.__menuBar.open('settings'));
+        await page.click('#dropdown-settings .menu-item[data-submenu="paste-speed"]');
+        await page.click('#dropdown-settings .submenu[data-submenu-panel="paste-speed"] .menu-item[data-value="0"]');
+        await page.evaluate(() => window.__menuBar.close());
+        expect(await page.evaluate(() => window.__pastePump.getPasteSpeed())).toBe(0);
+
+        await page.locator('#paste-toast button[data-action="paste"]').click();
+        await page.waitForFunction(() => window.__mockWriterLog.length >= 4, { timeout: 5000 });
+        const sizes = await page.evaluate(() => window.__mockWriterLog.map((e) => e.bytes.length));
+        // The quoted 240 B/s pacing is what actually ran: 8-byte writes, not 32.
+        expect(Math.max(...sizes)).toBeLessThanOrEqual(8);
+        await page.evaluate(() => window.__pastePump.cancelPaste());
     });
 
     test('Cancel on confirm chip discards pending bytes', async ({ page }) => {

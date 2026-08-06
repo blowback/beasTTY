@@ -181,8 +181,12 @@ let crlfPanelEl = null;            // [data-submenu-panel="crlf"] — active rad
 // line ending governs pasted text, and neither reads the other.
 let setPasteLineEndingRef = null;
 let setPasteSpeedRef = null;
-let pasteEolPanelEl = null;        // [data-submenu-panel="paste-eol"] — active radio derived from prefs.pasteLineEnding
-let pasteSpeedPanelEl = null;      // [data-submenu-panel="paste-speed"] — active radio derived from prefs.pasteSpeed
+// The matching GETTERS. The two radios are projected from what the pump actually
+// holds, not from the stored pref — see projectPasteSettings.
+let getPasteLineEndingRef = null;
+let getPasteSpeedRef = null;
+let pasteEolPanelEl = null;        // [data-submenu-panel="paste-eol"] — active radio derived from the pump's live mode
+let pasteSpeedPanelEl = null;      // [data-submenu-panel="paste-speed"] — active radio derived from the pump's live speed
 // E8.3 (FR-19/FR-20) — the two Command-history rows this module projects.
 let commandHistoryItemEl = null;   // #menu-command-history-item — checkable, derived from prefs.commandHistoryEnabled
 let cmdHistorySizePanelEl = null;  // [data-submenu-panel="cmdhistory-size"] — active radio derived from prefs.commandHistorySize
@@ -401,6 +405,8 @@ export function wireMenuBar(opts = {}) {
     // injected via opts on the same AD-3 terms as the keyboard setters above.
     setPasteLineEndingRef = opts.setPasteLineEnding || null;
     setPasteSpeedRef = opts.setPasteSpeed || null;
+    getPasteLineEndingRef = opts.getPasteLineEnding || null;
+    getPasteSpeedRef = opts.getPasteSpeed || null;
     setWrapRef = opts.setWrap || null;   // Settings ▸ Wrap long lines — core term.set_wrap (AD-3)
     setDebugPanelVisibleRef = opts.setDebugPanelVisible || null;   // E5.1 (FR-23, AD-3)
     // E3.3 (FR-21/FR-22, AD-3) — reset action + reserved-Ctrl modal opener, injected
@@ -1289,29 +1295,30 @@ function projectCommandHistory(prefs) {
 }
 
 // Settings ▸ Paste line ending + Paste speed projector: both radios re-derived
-// together from prefs at USE-TIME. Same read-at-use / no-throw / idempotent
-// contract as the siblings, and it NEVER calls a pump setter (applyPrefs stays
-// the single writer on the boot + reset paths). String() because setRadioChecked
-// compares data-value strings; `!= null` rather than a truthy test because
-// pasteSpeed 0 (full speed) is a legal value that must still project.
+// together at USE-TIME. Same read-at-use / no-throw / idempotent contract as the
+// siblings, and it NEVER calls a pump setter (applyPrefs stays the single writer
+// on the boot + reset paths).
+//
+// It projects the PUMP's live values, not the stored prefs, so a checkmark cannot
+// contradict what the next paste will do. Reading the pref got both directions
+// wrong. A REJECTED pref (a pasteSpeed of '' or the string '60') leaves the pump on
+// its default while the pref says otherwise — and String('60') even matches a real
+// row, so the menu would tick 60 for a pump running at 240. An ACCEPTED pref the
+// panel does not offer (setPasteSpeed takes any integer 0..20000; the panel offers
+// five) left whatever was ticked before standing, so a pump at 20 B/s showed 240.
+// Projecting from the getter makes both cases true by construction: a rejected
+// value projects the default (which IS live), and an accepted-but-unoffered one
+// ticks nothing, which is the honest rendering of "the live value is not on this
+// menu". prefs are the fallback only for a harness that injects no getters.
+//
+// String() because setRadioChecked compares data-value strings; `!= null` rather
+// than a truthy test because pasteSpeed 0 (Full speed) is a legal value.
 function projectPasteSettings(prefs) {
     const p = prefs || getPrefs();
-    if (!p) return;
-    if (p.pasteLineEnding) setRadioCheckedIfOffered(pasteEolPanelEl, p.pasteLineEnding);
-    if (p.pasteSpeed != null) setRadioCheckedIfOffered(pasteSpeedPanelEl, String(p.pasteSpeed));
-}
-
-// setRadioChecked, but a no-op when the panel offers no such row. A stored blob
-// can carry a value the pump's validator rejects — a pasteSpeed of '' or a
-// pasteLineEnding of 'nonsense' — and when it does the live setting stays on its
-// default, so the menu must go on showing the DEFAULT. Passing the rejected value
-// straight to setRadioChecked would instead clear every checkmark in the panel,
-// leaving a radio group with nothing selected and no clue which value is live.
-function setRadioCheckedIfOffered(panel, value) {
-    if (!panel) return;
-    const v = String(value);
-    if (!panel.querySelector(`.menu-item[data-value="${CSS.escape(v)}"]`)) return;
-    setRadioChecked(panel, v);
+    const eol = getPasteLineEndingRef ? getPasteLineEndingRef() : (p ? p.pasteLineEnding : null);
+    const speed = getPasteSpeedRef ? getPasteSpeedRef() : (p ? p.pasteSpeed : null);
+    if (pasteEolPanelEl && eol) setRadioChecked(pasteEolPanelEl, String(eol));
+    if (pasteSpeedPanelEl && speed != null) setRadioChecked(pasteSpeedPanelEl, String(speed));
 }
 
 // E3.1 (FR-17, AC-4/AC-5) — project the Download Session Log row from the live RX

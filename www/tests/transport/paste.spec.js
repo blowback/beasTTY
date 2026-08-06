@@ -225,7 +225,7 @@ test.describe('XPORT-09 + D-12..D-23/D-41 — Paste pump', () => {
     // menu-bar.spec.js + paste-toast.spec.js).
     //
     // Uses a 4 KB paste so the pump runs long enough (4096 / 32 = 128 chunks
-    // × 18 ms ≈ 2.3 s at 19200 baud) for the assertions to land while the pump
+    // × 19 ms ≈ 2.4 s at 19200 baud) for the assertions to land while the pump
     // is still active — short pastes finish in <100 ms which races the
     // toContainText('Pasting') assertion against 'Paste complete'. Full speed is
     // picked explicitly: at the paced default the same 4 KB takes ~17 s, which is
@@ -336,6 +336,12 @@ test.describe('Paste speed — paced chunking', () => {
         // the MINIMUM sample is the best estimate of what was actually asked for.
         for (const ms of afterFull) expect(ms).toBeGreaterThanOrEqual(400 * 0.9);
         expect(Math.min(...afterShort)).toBeGreaterThanOrEqual(1650 * 0.9);
+        // The one ceiling in this file, and it stays: 2000 ms is what the reverted
+        // flat-gap shape charges here, and nothing else in the suite discriminates
+        // it (the floor above passes at 2000 too). It is safe to assert because it
+        // measures ONE timer — the delta between two adjacent writes, not elapsed
+        // time down a chain — and takes the MINIMUM of the two samples, so a single
+        // late timer cannot fail it.
         expect(Math.min(...afterShort)).toBeLessThan(1850);   // 2000 = the flat-gap bug
     });
 
@@ -424,6 +430,94 @@ test.describe('Paste speed — paced chunking', () => {
         expect(await page.evaluate(() => window.__pastePump.__getStateForTests().chunkSize)).toBe(32);
     });
 
+    test('the paced chunk size satisfies the CRLF-pair invariant @fast', async ({ page }) => {
+        // PACED_CHUNK_SIZE >= 2 is what stops the chunk-end scan returning an empty
+        // chunk when a CRLF pair will not fit under the cap — the pump would then
+        // spin on it forever. Both operands are compile-in constants, so nothing at
+        // runtime can break it; it is an invariant on the source and belongs in a
+        // test, not in a module-evaluation throw that could only ever have booted
+        // the app to a blank page.
+        await setup(page);
+        const { chunkSize } = await page.evaluate(() => window.__pastePump.__getStateForTests());
+        expect(chunkSize).toBeGreaterThanOrEqual(2);
+        expect(chunkSize).toBe(8);
+    });
+
+    test('the reported rate admits the 4 ms timer floor @fast', async ({ page }) => {
+        // Nested setTimeout cannot go below 4 ms, so throughput tops out at one
+        // chunk per 4 ms whatever the wire can carry: 32 B / 4 ms = 8000 B/s at Full
+        // speed. A 115200 connection's byte rate is 10368 B/s, and quoting that in
+        // the confirm would promise a paste 30% faster than the pump can run it.
+        await setup(page);
+        await setPasteSpeed(page, '0');
+        await openForm(page);
+        await page.locator('#serial-baud').selectOption('115200');
+        await closeForm(page);
+        await connect(page);
+
+        const pacing = await page.evaluate(() => window.__pastePump.__getStateForTests());
+        expect(pacing.gapMs).toBe(4);      // already floored — the getter just never said so
+        expect(pacing.rate).toBe(8000);
+    });
+
+    // Appending to a run in flight adopts the SLOWER of the two pacings. Freezing
+    // exists so a mid-paste switch cannot burst the remainder onto the wire; it must
+    // not also trap a user who pastes, sees garbage, slows the setting down and
+    // pastes again before the first run has drained.
+    test('a paste appended after picking a SLOWER speed adopts it @slow', async ({ page }) => {
+        await setup(page);
+        await connect(page);
+        await setPasteSpeed(page, '0');
+        await page.locator('#debug').evaluate((el) => { el.open = true; });
+        await page.evaluate(() => { window.__mockWriterLog.length = 0; });
+
+        // 3 KB at Full speed is ~94 writes of 32 B ≈ 1.8 s — still running while the
+        // menu is driven, and short enough that the tail at the slower speed does
+        // not turn this into a minute-long test.
+        await page.locator('#input').fill('X'.repeat(3000));
+        await page.locator('#paste-test').click();
+        await expect(page.locator('#paste-toast')).toBeVisible();
+
+        await setPasteSpeed(page, '480');
+        expect(await page.evaluate(() => window.__pastePump.isActive())).toBe(true);
+        await page.locator('#input').fill('Y'.repeat(400));
+        await page.locator('#paste-test').click();
+        await expect(page.locator('#paste-toast-text')).toContainText('Paste complete', { timeout: 30_000 });
+
+        const writes = await page.evaluate(() => window.__mockWriterLog.map((e) => e.bytes));
+        // It really did start at Full speed…
+        expect(Math.max(...writes.map((w) => w.length))).toBe(32);
+        // …and every write carrying an appended byte is under the paced cap.
+        const appended = writes.filter((w) => w.includes(0x59));
+        expect(appended.length).toBeGreaterThan(0);
+        expect(Math.max(...appended.map((w) => w.length))).toBeLessThanOrEqual(8);
+    });
+
+    test('a paste appended after picking a FASTER speed does NOT adopt it @slow', async ({ page }) => {
+        // The other direction, which must not change: adopting the faster pacing
+        // mid-run is exactly the burst freezing exists to prevent.
+        await setup(page, { prefs: { version: 2, pasteSpeed: 60 } });
+        await connect(page);
+        await page.locator('#debug').evaluate((el) => { el.open = true; });
+        await page.evaluate(() => { window.__mockWriterLog.length = 0; });
+
+        await page.locator('#input').fill('X'.repeat(240));   // 30 chunks × 133 ms ≈ 4 s
+        await page.locator('#paste-test').click();
+        await expect(page.locator('#paste-toast')).toBeVisible();
+
+        await setPasteSpeed(page, '0');
+        expect(await page.evaluate(() => window.__pastePump.isActive())).toBe(true);
+        await page.locator('#input').fill('Y'.repeat(64));
+        await page.locator('#paste-test').click();
+        await expect(page.locator('#paste-toast-text')).toContainText('Paste complete', { timeout: 30_000 });
+
+        const writes = await page.evaluate(() => window.__mockWriterLog.map((e) => e.bytes));
+        expect(Math.max(...writes.map((w) => w.length))).toBeLessThanOrEqual(8);
+        expect(writes.flat().length).toBe(304);
+        // Full speed still governs the paste after this one.
+        expect(await page.evaluate(() => window.__pastePump.__getStateForTests().chunkSize)).toBe(32);
+    });
+
     test('a SLIDE transfer starting mid-paste stops the pump without advancing progress @fast', async ({ page }) => {
         // enqueuePaste asks isTransferRunning() only at the door. If a transfer
         // starts after that, tx-sink silently discards every remaining write
@@ -461,6 +555,14 @@ test.describe('Paste speed — paced chunking', () => {
         // The pump does not pay the gap after its last chunk, so the measured run
         // is a little under that. What matters is that the two agree: the confirm
         // used to quote bytes ÷ baud and be wrong by an order of magnitude.
+        //
+        // Every assertion here is ONE-SIDED, and deliberately. This run is a chain
+        // of ~114 nested setTimeouts, each of which can fire late and none of which
+        // can fire early, so a wall-clock ceiling is a flake waiting for a loaded
+        // runner while proving nothing the floor does not. The quote is pinned to
+        // the model exactly (toBe(6)); the only comparison against the clock that
+        // survives is "the quote does not OVERSTATE the run", which a slow runner
+        // can only make more true.
         await setup(page);
         await connect(page);
         await page.locator('#debug').evaluate((el) => { el.open = true; });
@@ -471,7 +573,6 @@ test.describe('Paste speed — paced chunking', () => {
         await expect(page.locator('#paste-toast-text')).toContainText('Paste complete', { timeout: 30_000 });
         const elapsed = await page.evaluate((t) => performance.now() - t, t0);
         expect(elapsed).toBeGreaterThanOrEqual(5583 * 0.9);
-        expect(elapsed).toBeLessThan(5583 * 1.6);   // generous — a loaded runner only ever runs late
 
         // What the confirm would quote for the same payload, using the same live
         // pump readings main.js injects into it.
@@ -487,6 +588,10 @@ test.describe('Paste speed — paced chunking', () => {
             return s;
         });
         expect(quoted).toBe(6);
-        expect(Math.abs(quoted * 1000 - elapsed) / elapsed).toBeLessThan(0.15);
+        // The old bug quoted 779 ÷ 1728 ≈ 0.45 s (floored to 1) for this payload,
+        // which toBe(6) catches outright. This adds the direction that still means
+        // something against the clock: 6 s must not be a promise the run beats by a
+        // wide margin. Overshoot on a loaded runner only widens the slack.
+        expect(quoted * 1000).toBeLessThanOrEqual(elapsed * 1.15);
     });
 });

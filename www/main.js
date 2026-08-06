@@ -623,6 +623,11 @@ const menuBar = wireMenuBar({
     // governs the Enter key, these govern pasted text, and neither reads the other.
     setPasteLineEnding,
     setPasteSpeed,
+    // The matching getters. menu-bar projects the two radios from what the pump
+    // ACCEPTED rather than from the stored pref, so a checkmark can never claim a
+    // value the pump rejected (or one it took that the menu does not offer).
+    getPasteLineEnding,
+    getPasteSpeed,
     // Settings ▸ Wrap long lines — drives the wasm core's deferred autowrap. Injected
     // as a closure over the module-scope `term` (menu-bar may import ONLY canvas.js +
     // prefs.js — AD-3, and must never import the core). persist ≠ apply: the menu
@@ -1080,16 +1085,21 @@ const pasteToast = wirePasteToast({
 // stays DOM-agnostic: it calls the injected confirmLargePaste, which returns the
 // toast's Promise<boolean>.
 wireClipboard({
-    confirmLargePaste: (byteCount, breaks) => pasteToast.confirmLargePaste(byteCount, {
+    confirmLargePaste: (byteCount, breaks, pacing) => pasteToast.confirmLargePaste(byteCount, {
         // The estimate reads the PUMP, not the baud. Since Paste speed became a
         // setting the pacing no longer tracks the wire — the default 240 B/s is a
         // seventh of what a 19200 connection carries — so a baud-derived figure
         // would promise a paste many times faster than it runs. Both terms are
         // needed: the byte rate BETWEEN breaks, and the extra pause each break
-        // costs, which on short lines is the larger of the two. getPasteRate
-        // already carries the wire clamp, so this stays right on a slow link too.
-        getRate: () => getPasteRate(),
-        getBreakPauseMs: () => getPasteBreakPauseMs(),
+        // costs, which on short lines is the larger of the two.
+        //
+        // `pacing` is the snapshot clipboard.js will hand straight to enqueuePaste,
+        // so the quote describes the run rather than whatever the settings say by
+        // the time the user clicks [Paste]. The live getters are the fallback for a
+        // caller that passes no snapshot; both already carry the wire clamp, so this
+        // stays right on a slow link too.
+        getRate: () => (pacing ? pacing.reportedRate : getPasteRate()),
+        getBreakPauseMs: () => (pacing ? pacing.lineExtraMs : getPasteBreakPauseMs()),
         breaks,
     }),
 });
@@ -1864,7 +1874,7 @@ function applyPrefs(p) {
     // setCrlfMode above); the menu rows own them on click (persist ≠ apply). Both
     // setters validate their argument and keep the current value on a reject, so a
     // corrupt stored blob leaves the pump on its defaults rather than throwing.
-    // wirePastePump runs well above this (:1052, before wireSerial), and the pump's
+    // wirePastePump runs well above this (before wireSerial), and the pump's
     // module-scope defaults match DEFAULTS, so there is no window in which a paste
     // could use unset pacing.
     setPasteLineEnding(p.pasteLineEnding);

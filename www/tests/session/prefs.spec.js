@@ -21,6 +21,12 @@ async function setup(page) {
     await page.goto('/');
     await page.locator('#terminal-wrapper').focus();
     await page.waitForFunction(() => document.getElementById('terminal').width > 0);
+    // The canvas has a width well before wireMenuBar assigns window.__menuBar, and
+    // most cases here drive the Settings menu straight after setup(). Observed
+    // failing once as "Cannot read properties of undefined (reading 'open')" and
+    // passing on retry — the boot-race guard the other suites already use.
+    await page.waitForFunction(
+        () => window.__menuBar && typeof window.__menuBar.open === 'function');
 }
 
 // window.__pastePump is assigned late in main.js, after the handles setup()
@@ -275,6 +281,62 @@ test.describe('PREF-01/PREF-02/PLAT-05 — Preferences persistence', () => {
                 .toHaveAttribute('data-checked', 'true');
         });
     }
+
+    // The menu radio is projected from what the pump ACCEPTED, not from the stored
+    // pref. These are the two ways those disagree.
+    const speedRadio = (v) =>
+        `#dropdown-settings .submenu[data-submenu-panel="paste-speed"] .menu-item[data-value="${v}"]`;
+
+    async function openPasteSpeedSubmenu(page) {
+        await page.evaluate(() => window.__menuBar.open('settings'));
+        await page.click('#dropdown-settings .menu-item[data-submenu="paste-speed"]');
+    }
+
+    test('a stored pasteSpeed the pump ACCEPTS but the menu does not offer ticks nothing', async ({ page }) => {
+        // setPasteSpeed takes any integer in 0..20000; the panel offers five values.
+        // A stored 20 therefore runs the pump at 20 B/s. Ticking 240 because 20 does
+        // not match a row would put a checkmark on a value that is not live — the
+        // one thing a radio group must never do. Nothing ticked says, accurately,
+        // "the live speed is not on this menu".
+        await page.addInitScript(() => localStorage.setItem(
+            'beastty.prefs', JSON.stringify({ version: 2, pasteSpeed: 20 })));
+        await setup(page);
+        await pumpReady(page);
+        expect(await page.evaluate(() => window.__pastePump.getPasteSpeed())).toBe(20);
+        await openPasteSpeedSubmenu(page);
+        for (const v of ['0', '480', '240', '120', '60']) {
+            await expect(page.locator(speedRadio(v))).toHaveAttribute('data-checked', 'false');
+        }
+    });
+
+    test('a stored pasteSpeed of the STRING "60" is rejected and the menu still shows 240', async ({ page }) => {
+        // '60' matches a row's data-value, so projecting the raw pref would tick 60.
+        // setPasteSpeed rejects the type before the value, so the pump stays at 240 —
+        // the checkmark would have been a straight lie about the next paste.
+        await page.addInitScript(() => localStorage.setItem(
+            'beastty.prefs', JSON.stringify({ version: 2, pasteSpeed: '60' })));
+        await setup(page);
+        await pumpReady(page);
+        expect(await page.evaluate(() => window.__pastePump.getPasteSpeed())).toBe(240);
+        await openPasteSpeedSubmenu(page);
+        await expect(page.locator(speedRadio('240'))).toHaveAttribute('data-checked', 'true');
+        await expect(page.locator(speedRadio('60'))).toHaveAttribute('data-checked', 'false');
+    });
+
+    test('a stored pasteLineEnding of the STRING-shaped nonsense leaves CR ticked', async ({ page }) => {
+        // Same contract on the other radio: setPasteLineEnding validates by
+        // hasOwnProperty against the terminator table, so 'toString' (a prototype
+        // key) is rejected and the pump stays on CR. The menu must agree.
+        await page.addInitScript(() => localStorage.setItem(
+            'beastty.prefs', JSON.stringify({ version: 2, pasteLineEnding: 'toString' })));
+        await setup(page);
+        await pumpReady(page);
+        expect(await page.evaluate(() => window.__pastePump.getPasteLineEnding())).toBe('cr');
+        await page.evaluate(() => window.__menuBar.open('settings'));
+        await page.click('#dropdown-settings .menu-item[data-submenu="paste-eol"]');
+        await expect(page.locator('#dropdown-settings .submenu[data-submenu-panel="paste-eol"] .menu-item[data-value="cr"]'))
+            .toHaveAttribute('data-checked', 'true');
+    });
 
     test('fontZoom persists across reload', async ({ page }) => {
         await setup(page);

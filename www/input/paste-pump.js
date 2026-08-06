@@ -3,7 +3,8 @@
 // Public API: enqueuePaste, cancelPaste, isActive, onProgress, onPortLost,
 //             wirePastePump, setBaudForPump, setPasteLineEnding, setPasteSpeed,
 //             getPasteLineEnding, getPasteSpeed, getPasteRate,
-//             getPasteBreakPauseMs, countLineBreaks.
+//             getPasteBreakPauseMs, countLineBreaks, wireByteLength,
+//             pacingForNextPaste.
 //
 // Sources:
 //   - 05-CONTEXT.md D-12..D-23.
@@ -51,11 +52,12 @@ const CHUNK_SIZE = 32;
 // room to drain between writes.
 const PACED_CHUNK_SIZE = 8;
 
-// The chunk-end scan below assumes a CRLF pair always fits when it starts a
-// chunk, which holds for any cap >= 2. Asserted rather than defended against, so
-// a future edit to the constant fails loudly instead of looping forever on a
-// zero-length chunk.
-if (PACED_CHUNK_SIZE < 2) throw new Error('PACED_CHUNK_SIZE must be >= 2');
+// INVARIANT: PACED_CHUNK_SIZE >= 2. The chunk-end scan below assumes a CRLF pair
+// always fits when it starts a chunk, and a cap of 1 would make it return an
+// empty chunk and loop forever. It is an invariant on the SOURCE — both operands
+// are compile-in constants, so no runtime input can break it. A module-evaluation
+// throw could therefore never fire, and if it somehow did it would boot the app to
+// a blank page. tests/transport/paste.spec.js asserts the paced chunk size instead.
 
 // A line break costs a full-screen editor a redraw where an ordinary character
 // costs a buffer insert, so a chunk that ends in a terminator earns an extra
@@ -96,15 +98,19 @@ let lineEnding = 'cr';           // prefs.pasteLineEnding — applied via setPas
 let pasteSpeed = 240;            // prefs.pasteSpeed, bytes/sec (0 = full speed)
 
 // Pacing FROZEN at enqueue for the paste currently in flight. A mid-paste switch
-// to a different speed — Full speed above all — must not re-pace the bytes
-// already queued, or picking it during a large paste would dump the remainder on
-// the wire in one burst, which is the failure this module exists to prevent. The
-// new value applies to the next paste. Seeded from the defaults above so they are
-// never unset.
+// to a FASTER speed — Full speed above all — must not re-pace the bytes already
+// queued, or picking it during a large paste would dump the remainder on the wire
+// in one burst, which is the failure this module exists to prevent. A SLOWER
+// speed does reach bytes appended after the switch (see enqueuePaste). Seeded
+// from the defaults above so they are never unset.
 let runPaced = true;
 let runChunkSize = PACED_CHUNK_SIZE;
 let runRate = 240;
 let runLineExtraMs = 132;
+// Which line-ending mode produced the bytes now queued. displayCopy needs it:
+// 'raw' promises the clipboard bytes pass through untouched, and that promise
+// covers the local echo as well as the wire.
+let runLineEnding = 'cr';
 
 let queue = new Uint8Array(0);
 let cursor = 0;
@@ -127,7 +133,12 @@ export function wirePastePump(opts) {
     requestFrameFn = requestFrame;
 }
 
-export function enqueuePaste(bytes) {
+// `pacing` is an optional snapshot from pacingForNextPaste(), taken by a caller
+// that already QUOTED it to the user. clipboard.js does exactly that: it takes
+// one, shows the large-paste confirm, awaits it — the Settings menu is not blocked
+// while the confirm is up — and hands the same snapshot back here, so the quote and
+// the run cannot disagree. Everyone else takes a snapshot at this instant.
+export function enqueuePaste(bytes, pacing) {
     if (isTransferRunning()) {
         // Phase 11 Plan 11-03 D-12 — paste-pump refusal during an active SLIDE
         // session. Subsequent Ctrl+Shift+V attempts during the SLIDE session
@@ -138,11 +149,20 @@ export function enqueuePaste(bytes) {
         return;
     }
     if (!(bytes instanceof Uint8Array)) bytes = new Uint8Array(bytes);
+    const startingFresh = !isActive();
+    const asked = pacing || pacingFromSettings();
+    // Starting a run freezes what it asked for. Appending to a run already in
+    // flight adopts the SLOWER of the two TIMING terms: a user who pastes at Full
+    // speed, sees garbage, picks 60 B/s and pastes again before the first drains
+    // must get the 60 B/s on the new bytes — but the reverse must never speed a run
+    // up mid-flight, which is the burst freezing exists to prevent.
+    const timing = startingFresh ? asked : slowerPacing(pacingOfCurrentRun(), asked);
     // D-23 — line-break rewrite BEFORE enqueue (not mid-pump), so what sits in
     // the queue is exactly what goes on the wire and the chunker can split at
-    // the real terminators.
-    const rewritten = normaliseLineBreaks(bytes);
-    const startingFresh = !isActive();
+    // the real terminators. The MODE always comes from `asked`, never from the
+    // in-flight run: it belongs to the text being pasted, and it is the mode whose
+    // wire length the caller may already have quoted.
+    const rewritten = normaliseLineBreaks(bytes, asked.lineEnding);
     // Drop bytes already consumed; append new bytes.
     const remaining = queue.subarray(cursor);
     const merged = new Uint8Array(remaining.length + rewritten.length);
@@ -150,9 +170,7 @@ export function enqueuePaste(bytes) {
     merged.set(rewritten, remaining.length);
     queue = merged;
     cursor = 0;
-    // Freeze only when this call STARTS a run. Appending to a paste already in
-    // flight keeps that paste's pacing (see runPaced above).
-    if (startingFresh) freezePacing();
+    applyPacing({ ...timing, lineEnding: asked.lineEnding });
     if (!timer && cursor < queue.length) {
         fireProgress('started', { total: queue.length });
         writeOneChunk();
@@ -196,7 +214,14 @@ export function setBaudForPump(baud) {
     // day it was written: the gap stayed at the 19200 figure for the life of the
     // page regardless of the configured baud, so pasting on a slower connection
     // overran the wire the pump exists to stay under. Now actually wired.
-    if (typeof baud !== 'number' || !Number.isFinite(baud) || baud <= 0) return;
+    if (typeof baud !== 'number' || !Number.isFinite(baud) || baud <= 0) {
+        // Say so. A silent `return` is how this hook stayed dead for months in the
+        // first place — nothing broke visibly, pacing just quietly stayed on the
+        // 19200 figure. main.js reads baud with parseInt elsewhere, so a string
+        // '9600' is a plausible mis-wire, and it must not fail quietly again.
+        console.warn('[paste-pump] setBaudForPump ignored a baud that is not a positive number:', baud);
+        return;
+    }
     baudRate = baud;
 }
 
@@ -231,12 +256,33 @@ export function setPasteSpeed(bytesPerSecond) {
 export function getPasteSpeed() { return pasteSpeed; }
 
 // The byte rate the NEXT paste will pace to, between line breaks — the requested
-// speed clamped to the wire, or the wire itself at full speed. Floored at 1 so no
-// caller can divide by zero on an absurd baud. The large-paste confirm quotes
-// this; before the paste-speed setting it estimated from baud alone, which is now
-// wrong by an order of magnitude at the paced default.
+// speed clamped to the wire AND to the 4 ms timer floor, or the wire itself at
+// full speed. Floored at 1 so no caller can divide by zero on an absurd baud. The
+// large-paste confirm quotes this; before the paste-speed setting it estimated
+// from baud alone, which is now wrong by an order of magnitude at the paced default.
 export function getPasteRate() {
-    return Math.max(1, Math.round(effectiveRate()));
+    return reportableRate(effectiveRate(), pasteSpeed === 0 ? CHUNK_SIZE : PACED_CHUNK_SIZE);
+}
+
+// The pacing a paste enqueued RIGHT NOW would run at, as one snapshot. Callers that
+// quote a duration to the user take this, show their confirm, and hand the same
+// object to enqueuePaste — see enqueuePaste. While a run is in flight this is the
+// slower of that run's frozen pacing and the current settings, which is exactly
+// what an appended paste will get.
+export function pacingForNextPaste() {
+    const fresh = pacingFromSettings();
+    return isActive() ? slowerPacing(pacingOfCurrentRun(), fresh) : fresh;
+}
+
+// How many bytes `bytes` becomes on the WIRE once its line breaks are rewritten to
+// `mode`'s terminator. In 'crlf' every break costs two bytes where the clipboard
+// spent one, so the payload is longer than the clipboard text — ~2.4% on 40-char
+// lines, more on short ones. The large-paste estimate and the threshold it is
+// tested against both have to count the wire copy.
+export function wireByteLength(bytes, mode = lineEnding) {
+    const term = PASTE_LINE_ENDINGS[mode];
+    if (!term) return bytes.length;               // 'raw' — clipboard bytes untouched
+    return measureNormalised(bytes, term.length);
 }
 
 // The extra pause the NEXT paste will add after each line break, in ms — 0 at
@@ -283,12 +329,64 @@ function lineExtraFor(rate) {
     return Math.max(MIN_LINE_EXTRA_MS, Math.round((PACED_CHUNK_SIZE / rate) * 1000) * LINE_EXTRA_CHUNKS);
 }
 
-// Capture the pacing a run will use, at the moment it is enqueued. See runPaced.
-function freezePacing() {
-    runPaced = pasteSpeed !== 0;
-    runChunkSize = runPaced ? PACED_CHUNK_SIZE : CHUNK_SIZE;
-    runRate = effectiveRate();
-    runLineExtraMs = runPaced ? lineExtraFor(runRate) : 0;
+// The rate to REPORT for a run of `chunkSize` writes at `rate`. gapForBytes floors
+// every gap at MIN_GAP_MS, so real throughput can never exceed one chunk per 4 ms
+// however high the requested rate: 2000 B/s paced, 8000 B/s at full speed. Full
+// speed on a 115200 wire asks for 10368 B/s and gets 8000, so that is the figure
+// to quote. Floored at 1 so no caller can divide by zero.
+function reportableRate(rate, chunkSize) {
+    return Math.max(1, Math.round(Math.min(rate, (chunkSize / MIN_GAP_MS) * 1000)));
+}
+
+// Everything about how one paste will run, captured at a single instant, from the
+// CURRENT settings. Snapshotting rather than re-reading is what lets the confirm
+// estimate and the run itself be the same numbers: the Settings menu stays usable
+// while the confirm is up, and a speed change between the two used to leave the
+// quote out by up to ~30×.
+function pacingFromSettings() {
+    const paced = pasteSpeed !== 0;
+    const chunkSize = paced ? PACED_CHUNK_SIZE : CHUNK_SIZE;
+    const rate = effectiveRate();
+    return {
+        paced,
+        chunkSize,
+        rate,
+        lineExtraMs: paced ? lineExtraFor(rate) : 0,
+        lineEnding,
+        reportedRate: reportableRate(rate, chunkSize),
+    };
+}
+
+// The in-flight run's pacing in the same shape. lineEnding is the LIVE one on
+// purpose: pacing is frozen for a run, but the line-break rewrite belongs to the
+// text being pasted, so bytes appended now get the mode the user has set now.
+function pacingOfCurrentRun() {
+    return {
+        paced: runPaced,
+        chunkSize: runChunkSize,
+        rate: runRate,
+        lineExtraMs: runLineExtraMs,
+        lineEnding,
+        reportedRate: reportableRate(runRate, runChunkSize),
+    };
+}
+
+// The slower of two pacings. Paced is always the slower SHAPE (8-byte writes plus
+// break pauses) even where the two rates tie; otherwise the lower rate wins, and
+// the longer break pause breaks a tie.
+function slowerPacing(a, b) {
+    if (a.paced !== b.paced) return a.paced ? a : b;
+    if (a.rate !== b.rate) return a.rate < b.rate ? a : b;
+    return a.lineExtraMs >= b.lineExtraMs ? a : b;
+}
+
+// Install a snapshot as the pacing the pump runs at. See runPaced.
+function applyPacing(p) {
+    runPaced = p.paced;
+    runChunkSize = p.chunkSize;
+    runRate = p.rate;
+    runLineExtraMs = p.lineExtraMs;
+    runLineEnding = p.lineEnding;
 }
 
 function isTerminator(b) { return b === 0x0D || b === 0x0A; }
@@ -308,7 +406,7 @@ function chunkEnd(start) {
             // writes — the pause would land between the CR and its LF. If the LF
             // does not fit under the cap, end the chunk BEFORE the CR instead.
             // That cannot produce an empty chunk: a pair starting at `start`
-            // always fits (PACED_CHUNK_SIZE >= 2, asserted at the top).
+            // always fits (PACED_CHUNK_SIZE >= 2 — the invariant stated at the top).
             return (i + 2 <= limit) ? i + 2 : i;
         }
         return i + 1;
@@ -378,7 +476,16 @@ function writeOneChunk() {
 //
 // The result is always the same length as the input, and a chunk with no bare CR
 // is returned as-is with no copy at all.
+//
+// 'raw' is exempt. That mode promises the clipboard bytes pass through untouched,
+// and the echo is part of the promise: a transcript that overstrikes one row with
+// bare CRs ("Loading 10%\rLoading 20%\r") is doing that on the MicroBeast, so
+// showing it locally as a run of scrolling rows would be a different picture from
+// the one the user is looking at on the hardware. Only the modes that REWROTE the
+// breaks get the substitution — and in 'lf' there are no CRs and in 'crlf' every CR
+// is followed by its LF, so 'cr' is the only mode where it changes anything.
 function displayCopy(start, end) {
+    if (runLineEnding === 'raw') return queue.subarray(start, end);
     let needsCopy = false;
     for (let i = start; i < end; i++) {
         if (queue[i] === 0x0D && queue[i + 1] !== 0x0A) { needsCopy = true; break; }
@@ -403,18 +510,11 @@ function displayCopy(start, end) {
 // precedent): pass 1 measures, pass 2 writes. Both walk the input with the same
 // three-way test, in the same order — \r\n first, then a bare terminator, then
 // an ordinary byte.
-function normaliseLineBreaks(bytes) {
-    const term = PASTE_LINE_ENDINGS[lineEnding];
+function normaliseLineBreaks(bytes, mode = lineEnding) {
+    const term = PASTE_LINE_ENDINGS[mode];
     if (!term) return bytes;                      // 'raw' — clipboard bytes untouched
 
-    let outLen = 0;
-    for (let i = 0; i < bytes.length; ) {
-        if (bytes[i] === 0x0D && bytes[i + 1] === 0x0A) { outLen += term.length; i += 2; }
-        else if (bytes[i] === 0x0D || bytes[i] === 0x0A) { outLen += term.length; i += 1; }
-        else { outLen += 1; i += 1; }
-    }
-
-    const out = new Uint8Array(outLen);
+    const out = new Uint8Array(measureNormalised(bytes, term.length));
     let w = 0;
     for (let i = 0; i < bytes.length; ) {
         if (bytes[i] === 0x0D && bytes[i + 1] === 0x0A) { out.set(term, w); w += term.length; i += 2; }
@@ -422,6 +522,18 @@ function normaliseLineBreaks(bytes) {
         else { out[w++] = bytes[i]; i += 1; }
     }
     return out;
+}
+
+// Pass 1 of the above, on its own so wireByteLength can size the wire copy without
+// building it — and so the two can never walk the input by different rules.
+function measureNormalised(bytes, termLen) {
+    let n = 0;
+    for (let i = 0; i < bytes.length; ) {
+        if (bytes[i] === 0x0D && bytes[i + 1] === 0x0A) { n += termLen; i += 2; }
+        else if (bytes[i] === 0x0D || bytes[i] === 0x0A) { n += termLen; i += 1; }
+        else { n += 1; i += 1; }
+    }
+    return n;
 }
 
 // E11 retrospective (2026-08-06) — the pacing interval was unobservable from a

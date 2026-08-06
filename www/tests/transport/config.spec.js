@@ -94,7 +94,7 @@ test.describe('XPORT-05 + D-08 — Serial config form', () => {
     // any spec, since the day it was written — so the pump's pacing interval
     // stayed at its 19200 figure of 19 ms for the life of the page no matter
     // what the user picked here. Pasting on a 9600 connection therefore pushed
-    // 32 bytes every 19 ms (~1680 B/s) at a wire carrying ~860 B/s: a steady
+    // 32 bytes every 19 ms (~1680 B/s) at a wire carrying 960 B/s: a steady
     // overrun, by the one module whose entire job is to stay under the byte
     // rate. The case above proves the PORT gets the right baud; nothing proved
     // the paste pump did.

@@ -46,7 +46,7 @@ let lifecycle = 'hidden';   // 'hidden' | 'confirm' | 'pumping' | 'complete'
                             // | 'cancelled' | 'cancelled-port-lost'
 
 // Per-state data.
-let confirmData = null;     // { formattedN, seconds, rate } for the 'confirm' render
+let confirmData = null;     // { formattedN, seconds, rate, betweenBreaks } for 'confirm'
 let confirmResolver = null; // (ok:boolean) => void — resolves confirmLargePaste's Promise
 let pumpingData = null;     // { total, pct } for the 'pumping' render
 let portLostUnsent = 0;     // bytes-unsent for the 'cancelled-port-lost' render
@@ -167,8 +167,16 @@ export function confirmLargePaste(byteCount, opts) {
         // whatever it says, and only a MISSING getter takes FALLBACK_RATE.
         const rate = Math.max(1, getRate ? getRate() : FALLBACK_RATE);
         const breakPauseMs = getBreakPauseMs ? Math.max(0, getBreakPauseMs()) : 0;
-        const seconds = Math.max(1, Math.round(byteCount / rate + (breaks * breakPauseMs) / 1000));
-        confirmData = { formattedN: byteCount.toLocaleString(), seconds, rate };
+        const breakTermMs = breaks * breakPauseMs;
+        const seconds = Math.max(1, Math.round(byteCount / rate + breakTermMs / 1000));
+        // When the break pauses contributed, the quoted seconds are NOT bytes ÷ rate
+        // and the sentence has to say which rate it is quoting — see refresh().
+        confirmData = {
+            formattedN: byteCount.toLocaleString(),
+            seconds,
+            rate,
+            betweenBreaks: breakTermMs > 0,
+        };
         confirmResolver = resolve;
         clearAutoHide();
         lifecycle = 'confirm';
@@ -257,16 +265,23 @@ function refresh() {
             return;
 
         case 'confirm': {
-            const { formattedN, seconds, rate } = confirmData || { formattedN: '0', seconds: 0, rate: FALLBACK_RATE };
+            const { formattedN, seconds, rate, betweenBreaks } =
+                confirmData || { formattedN: '0', seconds: 0, rate: FALLBACK_RATE, betweenBreaks: false };
             // Carried over from clipboard.js's showLargePasteConfirm (06-UI-SPEC
             // §Large-paste inline confirm chip), with the trailing figure changed
             // from the baud to the pump's byte rate — the baud stopped predicting
-            // how long a paste takes once Paste speed became a setting. The quoted
-            // seconds already include the per-break pauses; the quoted rate is the
-            // between-breaks rate, which is what the menu row offers. The bracketed
-            // [Paste]/[Cancel] affordance is the persistent-button pair beside the text.
+            // how long a paste takes once Paste speed became a setting.
+            //
+            // The qualifier is not decoration. Where the per-break pauses counted,
+            // the seconds are NOT byteCount ÷ rate — 5,000 B at 240 B/s with 125
+            // breaks is 37 s, and "~37 s at 240 B/s" invites the reader to divide
+            // and conclude the sentence is lying. "between line breaks" is the same
+            // wording the menu row carries, and it is what makes the pair add up.
+            // With no break term (Full speed, or a payload with no breaks) the two
+            // numbers DO divide, so the plain form is the honest one.
+            const rateText = betweenBreaks ? `${rate} B/s between line breaks` : `${rate} B/s`;
             toastTextElRef.textContent =
-                `About to paste ${formattedN} B (~${seconds} s at ${rate} B/s).`;
+                `About to paste ${formattedN} B (~${seconds} s at ${rateText}).`;
             setButton(pasteBtnRef, true);
             setButton(cancelBtnRef, true);
             toastElRef.setAttribute('aria-label', `Confirm paste of ${formattedN} bytes — Paste or Cancel`);

@@ -144,6 +144,29 @@ test.describe('Local echo — a pasted block echoes as separate lines', () => {
         });
     }
 
+    test('ending As-is: a bare CR overstrikes the row instead of opening a new one', async ({ page }) => {
+        // 'As-is' promises the clipboard bytes pass through untouched, and the echo
+        // is part of that promise. A transcript that uses a bare CR to redraw one
+        // line in place ("Loading 10%\rLoading 20%\r") is doing exactly that on the
+        // MicroBeast; showing it locally as a column of scrolling rows would put a
+        // different picture on the screen from the one the hardware is drawing.
+        // The CR→LF display substitution belongs to the modes that REWROTE the
+        // breaks, and to those only.
+        await setup(page);
+        await setLocalEcho(page, true);
+        await page.evaluate(() => window.__menuBar.open('settings'));
+        await page.click('#dropdown-settings .menu-item[data-submenu="paste-eol"]');
+        await page.click('#dropdown-settings .submenu[data-submenu-panel="paste-eol"] .menu-item[data-value="raw"]');
+        await page.evaluate(() => window.__menuBar.close());
+        await page.locator('#terminal-wrapper').focus();
+
+        await pasteAndSettle(page, 'ABCD\\x0DZ');
+        const grid = await page.evaluate(() => Array.from(window.__testGridView()));
+        expect(grid[0]).toBe(0x5A);           // 'Z' overwrote the 'A' at column 0
+        expect(grid[8]).toBe(0x42);           // 'B' still standing beside it
+        expect(grid[ROW]).not.toBe(0x5A);     // and nothing was drawn on the next row
+    });
+
     test('a CRLF pair split across two writes still renders ONE new row', async ({ page }) => {
         // Reachable at Full speed, where the chunker does not stop at terminators,
         // so a CR can end one write and its LF open the next. The display copy

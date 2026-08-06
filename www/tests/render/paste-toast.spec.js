@@ -62,7 +62,13 @@ test.describe('E7.1 — paste toast: large-paste confirm', () => {
         // line breaks add 125 × 132 ms = 16.5 s of pauses on top. Quoting the byte
         // term alone would promise 21 s for a paste that takes 37. Asserted
         // exactly, not with toContainText — the whole point is the number.
-        await expect(page.locator(TEXT)).toHaveText('About to paste 5,000 B (~37 s at 240 B/s).');
+        //
+        // "between line breaks" is what stops the sentence contradicting itself:
+        // 5000 ÷ 240 is 21, not 37, so without the qualifier the reader can divide
+        // the two figures and catch the toast out. It is the same wording the menu
+        // row carries, and it only appears when the break pauses actually counted.
+        await expect(page.locator(TEXT)).toHaveText(
+            'About to paste 5,000 B (~37 s at 240 B/s between line breaks).');
         await expect(page.locator(`${TOAST} button[data-action="paste"]`)).toBeVisible();
         await expect(page.locator(`${TOAST} button[data-action="cancel"]`)).toBeVisible();
         expect(await page.evaluate(() => window.__pasteToast.__getStateForTests().lifecycle)).toBe('confirm');
@@ -70,7 +76,9 @@ test.describe('E7.1 — paste toast: large-paste confirm', () => {
 
     test('at Full speed the estimate drops the break term entirely @fast', async ({ page }) => {
         // Full speed has no break pause, so getBreakPauseMs reports 0 and the
-        // estimate collapses to bytes ÷ rate: 5000 / 1728 ≈ 2.9 s.
+        // estimate collapses to bytes ÷ rate: 5000 / 1728 ≈ 2.9 s. With no break
+        // term the two figures divide, so the sentence drops the qualifier too —
+        // it is there to explain a discrepancy, and here there is none.
         await page.evaluate(() => {
             window.__pasteToast.confirmLargePaste(5000,
                 { getRate: () => 1728, getBreakPauseMs: () => 0, breaks: 125 });
