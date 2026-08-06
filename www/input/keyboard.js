@@ -22,11 +22,16 @@ import { encode_key_raw } from '../pkg/beastty_core.js';
 import { pushTxBytes } from './tx-sink.js';
 import { isActive as pastePumpIsActive, cancelPaste } from './paste-pump.js';
 // Phase 10 Plan 10-03 — SLIDE-cancel arm in the Esc disambiguation chain.
-// isSlideActive() is the gate; cancelSlideRecv() runs the ADR-003 §3 5-step
-// CTRL_CAN sequence (200/500/100/2000 ms). Inserted BETWEEN the existing
+// isRecvSessionActive() decides the arm; cancelSlideRecv() runs the ADR-003 §3
+// 5-step CTRL_CAN sequence (200/500/100/2000 ms). Inserted BETWEEN the existing
 // selection-drag-cancel arm (Phase 6 D-19) and paste-cancel arm (Phase 5 D-18)
 // per CONTEXT.md §"Esc disambiguation slot" lock.
-import { isSlideActive, cancelSlideRecv } from '../transport/slide-recv.js';
+//
+// This is one of the two places that SHOULD ask a direction-specific question
+// rather than slide.js's isTransferRunning(): Esc has to pick WHICH cancel to
+// run, and the two directions have different cancel functions. The pair of
+// arms below is deliberate, not an oversight — see the E11 retrospective.
+import { isRecvSessionActive, cancelSlideRecv } from '../transport/slide-recv.js';
 // UAT-E9-03 (2026-07-24) — the recv-side predicate above never sees SEND
 // sessions (slide-recv gets no slideRef for them), so Esc during a send was
 // inert: it fell through to the encode path and tx-sink silently dropped the
@@ -243,15 +248,15 @@ export function wireKeyboard(opts) {
         }
 
         // Phase 10 D-disambiguation: slot 2 of 4 in the Esc-only disambiguation chain (slot 3 of 5 if Ctrl+Shift+Esc is counted). Inserted between selection-drag-cancel (existing slot 1 / chain pos 2) and paste-cancel (existing slot 2 / chain pos 4).
-        if (e.code === 'Escape' && isSlideActive()) {
+        if (e.code === 'Escape' && isRecvSessionActive()) {
             e.preventDefault();
             cancelSlideRecv();
             return;
         }
 
-        // UAT-E9-03 — same Esc slot, SEND direction. isSlideActive() above is
-        // recv-only; a send session is visible only via the dispatcher's
-        // mode. Without this arm, Esc during a send session did nothing
+        // UAT-E9-03 — same Esc slot, SEND direction. The arm above is
+        // receive-only by design; a send session is visible only via the
+        // dispatcher's mode. Without this arm, Esc during a send session did nothing
         // (encode → tx-sink owner-drop) and a wedged send could only be
         // cancelled from the chip's [Cancel] button.
         if (e.code === 'Escape' && slideSendActive()) {

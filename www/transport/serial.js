@@ -29,7 +29,7 @@ import { dispatchInbound, slidePumpOnPortLost } from './slide.js';
 // Phase 11 Plan 11-03 — D-11 session-log gate predicate at the read-loop
 // append call site so binary SLIDE frame bytes never reach the per-connection
 // log during an active session (T-11-03-log-leak mitigation).
-import { isSlideActive } from './slide-recv.js';
+import { isTransferRunning } from './slide.js';
 // Live read of prefs.showAllSerialDevices at picker time. Cannot use the
 // boot-time `prefsRef` snapshot because savePrefs replaces the cached object —
 // prefsRef would still point at the original blob and miss subsequent toggles.
@@ -798,7 +798,14 @@ async function runReadLoop(p) {
                 // are unchanged. The 7-byte ESC^SLIDE wakeup signature is
                 // already consumed by the dispatcher BEFORE this point so
                 // signature bytes never reach the log either.
-                if (sessionLogRef && !isSlideActive()) sessionLogRef.append(value);
+                //
+                // E11 retrospective (2026-08-06) — this used to ask
+                // slide-recv's receive-only predicate, so the log was paused
+                // for receives and left running for SENDS: every ACK and reply
+                // the Z80 emitted during a file send leaked into the user's
+                // session log as noise. That is the exact leak D-11 names, half
+                // implemented. Now asks the both-directions question.
+                if (sessionLogRef && !isTransferRunning()) sessionLogRef.append(value);
             }
         } catch (err) {
             handleReadError(err);

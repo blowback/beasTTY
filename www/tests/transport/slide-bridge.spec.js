@@ -93,6 +93,26 @@ test.describe('slide-bridge — session-log pause', () => {
         expect(during).toBe(before);
     });
 
+    // E11 retrospective (2026-08-06). The case above only ever exercised the
+    // RECEIVE direction, and the check it pins was asking slide-recv's
+    // receive-only predicate — so during a SEND the log was never paused at all
+    // and every ACK and reply the Z80 emitted mid-transfer leaked into the
+    // user's session log as noise. That is exactly the leak D-11 names, half
+    // implemented, and it survived because no case had ever driven a send.
+    // So this spec wedges without serial.js asking isTransferRunning().
+    test('session-log append paused during a SEND session too', async ({ page }) => {
+        await commonReset(page);
+        await enterStalledSend(page);
+        const before = await page.evaluate(() => window.__sessionLog.getCurrentBytes());
+        // The stalled send leaves the bot mid-protocol; push terminal-looking
+        // bytes through the same read loop the log taps. They are SLIDE session
+        // traffic by timing, and must not be logged.
+        await page.evaluate(() => window.__mockReaderPush(new Uint8Array([0x68, 0x69, 0x21])));
+        await page.waitForTimeout(300);
+        const during = await page.evaluate(() => window.__sessionLog.getCurrentBytes());
+        expect(during).toBe(before);
+    });
+
     test('session-log append resumes after session ends', async ({ page }) => {
         await commonReset(page);
         await enterMidStream(page, 4096);
@@ -152,12 +172,40 @@ test.describe('slide-bridge — paste-pump gate', () => {
         ).toBe(false);
     });
 
+    // E11 retrospective (2026-08-06). The case below only exercised the RECEIVE
+    // direction. paste-pump was asking slide-recv's receive-only predicate, so
+    // during a SEND the paste was accepted: the pump went active, the user
+    // watched a paste-progress chip advance, and tx-sink silently dropped every
+    // byte because the wire owner was 'slide'. A paste that visibly runs and
+    // transmits nothing is worse than one that is refused.
+    // So this spec wedges without paste-pump asking isTransferRunning().
+    test('enqueuePaste no-ops during a SEND session too', async ({ page }) => {
+        await commonReset(page);
+        await enterStalledSend(page);
+        // 2000 bytes, NOT a token 3. A paste that fits in one 32-byte chunk is
+        // written and completed synchronously inside enqueuePaste, so isActive()
+        // reads false immediately afterwards whether the refusal fired or not —
+        // the first draft of this case passed against the unfixed code for
+        // exactly that reason. A multi-chunk paste leaves the pump running, so
+        // isActive() actually distinguishes refused from accepted.
+        await page.evaluate(() => {
+            window.__pastePump.enqueuePaste(new TextEncoder().encode('Z'.repeat(2000)));
+        });
+        expect(await page.evaluate(() => window.__pastePump.isActive())).toBe(false);
+        // And nothing reached the wire — 0x5A is 'Z'.
+        await page.waitForTimeout(200);
+        const sawPasteBytes = await page.evaluate(() =>
+            (window.__mockWriterLog || []).some((e) =>
+                e.bytes && e.bytes.some((b) => b === 0x5A)));
+        expect(sawPasteBytes).toBe(false);
+    });
+
     test('enqueuePaste no-ops while session active', async ({ page }) => {
         await commonReset(page);
         await enterMidStream(page, 4096);
         // Snapshot writer log length BEFORE the paste attempt.
         const writerLogBefore = await page.evaluate(() => window.__mockWriterLog.length);
-        // Try to enqueue a paste — D-12 guards with `if (isSlideActive()) return;`.
+        // Try to enqueue a paste — D-12 guards on whether a transfer is running.
         await page.evaluate(() => {
             window.__pastePump.enqueuePaste(new Uint8Array([0x41, 0x42, 0x43]));   // 'ABC'
         });

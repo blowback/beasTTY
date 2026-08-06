@@ -431,18 +431,39 @@ test.describe('AC-4 this beast refuses first', () => {
             .toBe(1);
     });
 
-    test('AC-4 the busy predicate is the COMPOSITE one, never recv-only', async ({ page }) => {
-        // A recv-only predicate leaking into a send path has happened three
-        // times in this codebase. Read the composition root's own wiring: the
-        // predicate handed to peer-drop must name hasPendingSendSession and the
-        // wire owner, not just slide-recv's isSlideActive.
-        const src = await page.evaluate(() => fetch('/main.js').then((r) => r.text()));
-        const call = src.slice(src.indexOf('const peerDrop = wirePeerDrop('));
+    test('AC-4 the busy predicate covers BOTH directions, never recv-only', async ({ page }) => {
+        // A receive-only predicate leaking into a send path happened seven times
+        // in this codebase. The E11 retrospective (2026-08-06) moved the four
+        // parts out of main.js and into ONE shared slide.js function, so this
+        // case now checks the rule where it actually lives — in two halves:
+        //
+        //   (a) the composition root hands peer-drop that shared function, and
+        //       nothing narrower;
+        //   (b) the shared function still names all four parts.
+        //
+        // Checking (b) alone would pass while main.js quietly went back to a
+        // recv-only predicate; checking (a) alone would pass while the shared
+        // function was hollowed out. Both, or the case proves nothing.
+        const [mainSrc, slideSrc] = await page.evaluate(() => Promise.all([
+            fetch('/main.js').then((r) => r.text()),
+            fetch('/transport/slide.js').then((r) => r.text()),
+        ]));
+
+        // (a) — the wiring
+        const call = mainSrc.slice(mainSrc.indexOf('const peerDrop = wirePeerDrop('));
         const isBusyArm = call.slice(call.indexOf('isBusy:'), call.indexOf('getPrefs,'));
-        expect(isBusyArm).toContain('hasPendingSendSession');
-        expect(isBusyArm).toContain("mode === 'send'");
-        expect(isBusyArm).toContain("mode === 'recv'");
-        expect(isBusyArm).toContain("getWireOwner() === 'slide'");
+        expect(isBusyArm).toContain('isTransferRunning');
+        expect(isBusyArm).not.toContain('isRecvSessionActive');
+
+        // (b) — the shared function's four parts
+        const fnStart = slideSrc.indexOf('export function isTransferRunning()');
+        expect(fnStart).toBeGreaterThan(-1);
+        const fnBody = slideSrc.slice(fnStart, slideSrc.indexOf('\n}', fnStart));
+        expect(fnBody).toContain("mode === 'send'");
+        expect(fnBody).toContain("mode === 'recv'");
+        expect(fnBody).toContain('pendingSendSession');
+        expect(fnBody).toContain('isRecvSessionActive()');
+        expect(fnBody).toContain("getWireOwner() === 'slide'");
     });
 });
 

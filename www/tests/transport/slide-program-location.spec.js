@@ -261,6 +261,18 @@ test('auto-start off types nothing, but the location still composes the pull com
         slideAutoStart: false, slideProgramDrive: 'B:', slideProgramName: 'SLIDE',
     }));
     expect(await sendAndReadWire(page)).not.toContain('B:SLIDE R');
+    // sendAndReadWire leaves a QUEUED send behind — with auto-start off nothing
+    // is typed, so no wakeup arrives and pendingSendSession stays set (the chip
+    // sits in awaiting-wakeup with its Cancel). Clear it before touching the
+    // pull side, because this case is about pref composition, not about what
+    // happens when a pull is composed on top of a queued send.
+    //
+    // Added by the E11 retrospective's predicate consolidation (2026-08-06):
+    // pull-pane's suspension check used to miss the queued-send window that
+    // peer-link's already covered, and unifying them onto isTransferRunning()
+    // closed it. Without this reset the case fails for a reason that has
+    // nothing to do with what it is testing.
+    await page.evaluate(() => window.__slide.__resetForTests());
     // The pull side is unaffected — that is why auto-start is its own switch
     // rather than a blank program name.
     await page.evaluate(() => window.__pullPane.beginReview('GAME.COM'));

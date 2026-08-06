@@ -41,7 +41,7 @@ import { matchThemeToggle, matchZoomIn, matchZoomOut, matchZoomReset } from '../
 // wireChrome from opts; remain null when wireChrome is called from older
 // boot paths or test harnesses that don't pass the new opts (the branch
 // gates on the predicate so a null ref is a no-op).
-let isSlideActiveRef = null;
+let isTransferRunningRef = null;
 let cancelSlideRecvRef = null;
 let txSinkRef = null;
 
@@ -104,11 +104,18 @@ export function wireChrome(opts) {
         prefs,
         savePrefs,
         // Phase 11 Plan 11-04 D-13 / SLIDE-31 — fire-and-forget CTRL_CAN
-        // emission on hide / pagehide during active SLIDE session. All three
+        // emission on hide / pagehide during an active SLIDE session. All three
         // refs are optional; missing refs disable the branch (production
         // main.js boot wires all three, tests that don't pass them retain
         // pre-Phase-11 visibilitychange behaviour).
-        isSlideActive,
+        //
+        // E11 retrospective (2026-08-06) — the first opt was named
+        // `isSlideActive` and main.js was handing it slide-recv's RECEIVE-only
+        // function, so this whole branch was blind to send sessions. Renamed to
+        // match what it must actually be given: an answer covering both
+        // directions. cancelSlideRecv keeps its name but is now handed a thunk
+        // that dispatches by direction — see main.js's wireChrome call.
+        isTransferRunning,
         cancelSlideRecv,
         txSink,
     } = opts;
@@ -116,7 +123,7 @@ export function wireChrome(opts) {
     // Phase 11 Plan 11-04 D-13 — bind module-scope refs for the SLIDE
     // best-effort CTRL_CAN branch (visibilitychange + pagehide listeners
     // below).
-    isSlideActiveRef = isSlideActive || null;
+    isTransferRunningRef = isTransferRunning || null;
     cancelSlideRecvRef = cancelSlideRecv || null;
     txSinkRef = txSink || null;
     // Epic E1 Story E1.4 — bind the chord's surviving side-effect refs
@@ -237,10 +244,10 @@ export function wireChrome(opts) {
     // 5-step cancel state machine) AND writing 0x18 is intentional double
     // safety: the state machine emits its own CTRL_CAN via slide.cancel(),
     // and the writeSlideFrame is a last-ditch direct-to-wire call for the case
-    // where the SM has already moved past CancelPending. The isSlideActiveRef()
+    // where the SM has already moved past CancelPending. The transfer-running
     // guard plus D-15's cancelInFlight latch make repeat calls no-ops.
     window.addEventListener('pagehide', () => {
-        if (isSlideActiveRef && isSlideActiveRef()) {
+        if (isTransferRunningRef && isTransferRunningRef()) {
             try { if (cancelSlideRecvRef) cancelSlideRecvRef(); } catch {}
             try { if (txSinkRef && txSinkRef.writeSlideFrame) txSinkRef.writeSlideFrame(new Uint8Array([0x18])); } catch {}
         }

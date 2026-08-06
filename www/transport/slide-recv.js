@@ -371,10 +371,24 @@ export function setSlideRef(slide) {
     slideRef = slide;
 }
 
-// ===== isSlideActive — Esc-disambiguation gate (Plan 10-03 imports) =====
+// ===== isRecvSessionActive — RECEIVE-ONLY, and the name now says so =====
 // Returns true when slideRef && state in {WaitingRdy(1), HeaderPhase(2),
 // DataPhase(3), FinPending(4), CancelPending(5)}. Plan 10-03 imports this
 // from keyboard.js to disambiguate Esc-cancel-recv from Esc-to-VT52.
+//
+// RENAMED from `isSlideActive` (E11 retrospective, 2026-08-06). The old name
+// read as "is a SLIDE transfer running?", which it does NOT answer: a SEND
+// session is never handed a slideRef, so this returns false throughout every
+// send. Seven call sites across E9-E11 had to know that folklore and compose
+// around it; six did and one did not, which left the tab-close teardown blind
+// to sends until b9827ab. Renaming is the actual repair — a name that answers
+// a narrower question than it appears to is a trap that reliably catches
+// someone eventually.
+//
+// If you want "is a SLIDE transfer running, either direction?" you want
+// isTransferRunning() from slide.js. Use THIS one only when you genuinely
+// need the receive direction specifically — e.g. deciding which cancel
+// function to call (keyboard.js's Esc chain does exactly that, correctly).
 //
 // Phase 10 review WR-02 — wrap state() in try/catch defensively. Now that
 // exitRecvMode nulls slideRef this should be unreachable, but if a future
@@ -382,7 +396,7 @@ export function setSlideRef(slide) {
 // state() on a freed wasm instance would panic across the FFI boundary
 // (RESEARCH Pitfall 4 — uncatchable across wasm-bindgen). Defensive return
 // keeps the Esc-cancel guard graceful.
-export function isSlideActive() {
+export function isRecvSessionActive() {
     if (!slideRef) return false;
     try {
         const st = slideRef.state();
@@ -623,10 +637,10 @@ function delay(ms) {
 // Idempotency guards (T-10-cancel-race):
 //   - cancelInFlight boolean (module-scope) — second call returns early.
 //   - slide.cancel() also idempotent (Phase 7 D-06; state.rs:332-348).
-//   - !isSlideActive() guard — no-op if no active recv session.
+//   - !isRecvSessionActive() guard — no-op if no active recv session.
 export async function cancelSlideRecv() {
     if (cancelInFlight) return;
-    if (!isSlideActive()) return;
+    if (!isRecvSessionActive()) return;
     cancelInFlight = true;
     // Clear the previous cancel's answer up front — otherwise a cancel that
     // never reaches its Step 3 assignment (it threw, or __resetForTests cut it
@@ -788,7 +802,7 @@ function forceExitRecvMode() {
 // slidePumpOnPortLost — port lost mid-recv (T-10-port-lost / SLIDE-32 / D-14).
 // Phase 11 Plan 11-03 — full body per CONTEXT D-14. Symmetric with
 // pastePumpOnPortLost; called from serial.js teardown / handleReadError /
-// onNavSerialDisconnect. 2-layer idempotency: isSlideActive() predicate +
+// onNavSerialDisconnect. 2-layer idempotency: isRecvSessionActive() predicate +
 // slideRef.force_idle internal guards (Phase 7 D-08 escape hatch).
 //
 // Body (verbatim from CONTEXT D-14):
@@ -802,7 +816,7 @@ function forceExitRecvMode() {
 //     buffers, currentFile, sessionFolderFallback so next reload + reconnect
 //     starts cleanly)
 export function slidePumpOnPortLost() {
-    if (!isSlideActive()) return;
+    if (!isRecvSessionActive()) return;
     try {
         if (slideRef && typeof slideRef.force_idle === 'function') {
             slideRef.force_idle();

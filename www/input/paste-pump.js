@@ -10,12 +10,20 @@
 
 import { pushTxBytes } from './tx-sink.js';
 import { getLocalEcho, getCrlfMode, CRLF_MODES } from './keyboard.js';
-// Phase 11 Plan 11-03 D-12 — paste-pump gate during active SLIDE session
-// (SLIDE-33 / T-11-03-paste-leak mitigation). enqueuePaste no-ops while
-// isSlideActive() returns true. The matching cancelPaste() is invoked at
-// SLIDE wakeup-completion in www/transport/slide.js (D-12 surface 1) so an
+// Phase 11 Plan 11-03 D-12 — paste is refused during an active SLIDE session
+// (SLIDE-33 / T-11-03-paste-leak mitigation). enqueuePaste no-ops while a
+// transfer is running. The matching cancelPaste() is invoked at SLIDE
+// wakeup-completion in www/transport/slide.js (D-12 surface 1) so an
 // in-flight large paste interrupts via the existing Phase 5 D-18 cancel chip.
-import { isSlideActive } from '../transport/slide-recv.js';
+//
+// E11 retrospective (2026-08-06) — this used to import slide-recv's
+// receive-only predicate, so it refused pastes during a RECEIVE and allowed
+// them during a SEND. The bytes then went to tx-sink, which drops them
+// because the wire owner is 'slide' — so the user got a paste-progress chip
+// advancing over a paste that transmitted nothing at all. D-12's intent was
+// always "during an active SLIDE session"; now it asks the question that
+// actually means that.
+import { isTransferRunning } from '../transport/slide.js';
 
 // Compile-in constants — D-14 (32B / 18ms @ 19200 targets 90% of 1920 B/s byte rate).
 const CHUNK_SIZE = 32;
@@ -44,7 +52,7 @@ export function wirePastePump(opts) {
 }
 
 export function enqueuePaste(bytes) {
-    if (isSlideActive()) {
+    if (isTransferRunning()) {
         // Phase 11 Plan 11-03 D-12 — paste-pump gate during active SLIDE
         // session. Subsequent Ctrl+Shift+V attempts during the SLIDE session
         // no-op silently (no user surface — chip already says SLIDE is

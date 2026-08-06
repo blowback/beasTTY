@@ -595,9 +595,10 @@ async function handleDrop(payload) {
     // is spent. Order matters: not-connected is the more fundamental fault, so
     // it is named first (chooseRefusal's ordering rule, applied locally).
     if (!destConnectedNow()) { notice(COPY.destNotConnected); return; }
-    // The COMPOSITE predicate, never slide-recv's recv-only isSlideActive(). A
-    // recv-only predicate leaking into a send path has happened three times in
-    // this codebase; main.js keeps the composite in one place and injects it.
+    // slide.js's isTransferRunning(), never a receive-only predicate. A
+    // receive-only predicate leaking into a send path happened seven times in
+    // this codebase before the E11 retrospective consolidated it into one
+    // function; main.js injects that one function here.
     if (destBusyNow()) { notice(COPY.destBusy); return; }
 
     // AC-5 — one modal, the EXISTING preference, no second ceremony.

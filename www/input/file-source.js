@@ -52,6 +52,11 @@ let sendGateDisabled = true;                            // closed until a writer
 let sendGateTitle = 'Connect to a serial port first';  // mirrored onto the menu row's tooltip
 let enterSendModeFn = null;
 let getSlideStateFn = null;
+// E11 retrospective (2026-08-06) — the one shared answer to "is a transfer
+// running?", injected per AD-3 rather than imported (this module takes
+// enterSendMode the same way). Replaces a local three-part copy of the
+// composite that had drifted from the other four in the codebase.
+let isTransferRunningFn = null;
 let isWriterReadyFn = null;   // Phase 9 WR-03 — gate button on writer registration
 let slideChipRef = null;      // Phase 11 Plan 11-03 D-10 — chip flash on drop-during-active-session
 // E3.1 review fix (#6) — fired when the send gate flips, so the File ▸ Send File…
@@ -85,6 +90,7 @@ export function wireFileSource(opts) {
         modalSendBtn,     // #send-modal-send
         enterSendMode,    // imported from transport/slide.js (injected)
         getSlideState,    // () => window.__slide.__getStateForTests() (injected)
+        isTransferRunning,   // E11 retro — () => slide.isTransferRunning() (injected)
         isWriterReady,    // Phase 9 WR-03 — () => txSink.isWriterReady() (injected)
         slideChip,        // Phase 11 Plan 11-03 D-10 — chip flash on drop-during-active-session (injected)
         // Phase 12 SLIDE-36 — three new modal action buttons (collision-mode footer):
@@ -105,6 +111,7 @@ export function wireFileSource(opts) {
     sendBtnRef = modalSendBtn;
     enterSendModeFn = enterSendMode;
     getSlideStateFn = getSlideState;
+    isTransferRunningFn = isTransferRunning;
     isWriterReadyFn = isWriterReady ?? null;
     slideChipRef = slideChip || null;
     onSendGateChangeFn = onSendGateChange || null;   // E3.1 review fix (#6)
@@ -268,14 +275,17 @@ function isFileDrag(ev) {
 }
 
 function isSessionActive() {
-    if (!getSlideStateFn) return false;
-    let st;
-    try { st = getSlideStateFn(); } catch { return false; }
-    // 'recv' included so a drop during an active pull gets the same
-    // "Transfer in progress" chip flash instead of a confirm modal whose
-    // Send click enterSendMode then refuses (wire owner is 'slide') with
-    // only a console.warn — matching updateSendGate's WR-02 arm.
-    return !!st?.hasPendingSendSession || st?.mode === 'send' || st?.mode === 'recv';
+    // 'recv' is included (inside isTransferRunning) so a drop during an active
+    // pull gets the same "Transfer in progress" chip flash instead of a confirm
+    // modal whose Send click enterSendMode then refuses (wire owner is 'slide')
+    // with only a console.warn — matching updateSendGate's WR-02 arm.
+    //
+    // E11 retrospective (2026-08-06) — this was a local copy of the composite
+    // that omitted the wire-owner part the other versions had. Fail-closed on a
+    // missing dependency (an unwired harness refuses the drop rather than
+    // accepting one it cannot honour).
+    if (!isTransferRunningFn) return false;
+    try { return !!isTransferRunningFn(); } catch { return false; }
 }
 
 function onDragEnter(ev) {

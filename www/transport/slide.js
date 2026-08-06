@@ -43,7 +43,7 @@ import { pushTxBytes, getWireOwner, isWriterReady } from '../input/tx-sink.js';
 // drained recv events to no-op; Plan 10-03 routes EVT_HEADER_RECEIVED /
 // EVT_RECV_DATA / EVT_RECV_FILE_DONE through onRecvEvent, and re-issues
 // setSlideRef on every enterRecvMode so slide-recv has the live wasm Slide.
-import { onRecvEvent, setSlideRef as setSlideRecvRef, isSlideActive, slidePumpOnPortLost as slideRecvPumpOnPortLost, notifyRecvStateTransition } from './slide-recv.js';
+import { onRecvEvent, setSlideRef as setSlideRecvRef, isRecvSessionActive, slidePumpOnPortLost as slideRecvPumpOnPortLost, notifyRecvStateTransition } from './slide-recv.js';
 // Phase 11 Plan 11-04 SLIDE-14 — auto-type echo swallow filter (CONTEXT C-03).
 // Sits BEFORE the wakeup matcher in dispatchTerminalMode's byte loop. After
 // the host auto-types a command (e.g. "B:SLIDE R\r"), CP/M echoes those bytes
@@ -484,6 +484,48 @@ export function __resetForTests() {
 export function isSendActive() {
     return mode === 'send';
 }
+
+/// THE answer to "is a SLIDE transfer running right now?", in EITHER
+/// direction. If that is your question, call this and nothing else.
+///
+/// Added by the E11 retrospective (2026-08-06) to end a recurring defect
+/// rather than work around it a seventh time. Before this, every caller
+/// hand-rolled the composite from two or three parts, and the versions had
+/// drifted into four shapes across the codebase:
+///
+///   - `isRecvSessionActive()` alone           — blind to every SEND session
+///   - `... || getWireOwner() === 'slide'` — misses the pending-send window
+///   - the full three-part `hasPendingSendSession || mode ... || wire owner`
+///   - `getWireOwner() === 'slide'` alone — misses the pending-send window
+///
+/// Six sites got their variant right and one did not, which left the
+/// tab-close teardown blind to sends (fixed in b9827ab). The four parts, and
+/// why each is needed — remove any one and a real window opens up:
+///
+///   1. mode === 'send' / 'recv' — a session the dispatcher is actively in.
+///   2. pendingSendSession — the window after the SLIDE command has been
+///      auto-typed but before the Z80's wakeup flips `mode`. Bytes are
+///      already committed; the wire is spoken for.
+///   3. isRecvSessionActive() — a receive the wasm state machine still holds.
+///      Not redundant with (1): the dispatcher can leave recv mode while
+///      slide-recv is still settling its final writes.
+///   4. wire owner === 'slide' — the tx-sink's own view. Set across both
+///      enterRecvMode and enterSendModeProceed, so it covers the moments
+///      either side of a mode flip.
+///
+/// Deliberately cheap: no wasm crossing except isRecvSessionActive()'s
+/// already-guarded state() read, so it is safe on keydown-hot paths.
+///
+/// Want one direction specifically — e.g. to choose WHICH cancel to call?
+/// Then you want isSendActive() or slide-recv's isRecvSessionActive(), and
+/// you should say in a comment why the direction matters. keyboard.js's Esc
+/// chain is the worked example.
+export function isTransferRunning() {
+    if (mode === 'send' || mode === 'recv') return true;
+    if (pendingSendSession !== null) return true;
+    if (isRecvSessionActive()) return true;
+    return getWireOwner() === 'slide';   // direct tx-sink import (:39), not txSinkRef
+}
 export function __getStateForTests() {
     // Phase 9 D-18 — extended introspection. Phase 8's three fields preserved;
     // sender-mode fields appear only when slide+ctx are populated so receiver
@@ -601,7 +643,7 @@ function dispatchTerminalMode(value) {
                 // completion. In-flight large paste is interrupted via the
                 // existing Phase 5 D-18 cancel chip (`Paste cancelled`).
                 // Subsequent enqueuePaste calls during the active session are
-                // gated separately by the isSlideActive() early-return in
+                // refused separately by the isTransferRunning() early-return in
                 // www/input/paste-pump.js (Edit 6 of this plan).
                 try {
                     if (pastePumpRef && typeof pastePumpRef.cancelPaste === 'function') {
@@ -899,7 +941,7 @@ function exitRecvMode() {
     // dereference the stale Slide after the next enterRecvMode's slide.free()
     // frees its wasm memory (RESEARCH Pitfall 4 — wasm-bindgen panics across
     // FFI are uncatchable; null the ref instead). The recv module's
-    // isSlideActive / cancelSlideRecv are defensive against a null ref.
+    // isRecvSessionActive / cancelSlideRecv are defensive against a null ref.
     setSlideRecvRef(null);
     // Slide instance lifecycle: leave the Done/Error instance non-null until
     // the next enterRecvMode replaces it (subsequent feed_byte/feed_chunk on
@@ -1155,7 +1197,7 @@ function enterSendModeInternal({ metadata, fileBytes, fileNames }) {
 // onCancel callback. Without this, force-start (and any wakeup-completion)
 // active-state cancellation was a dead button — chip stayed visible until
 // page reload because main.js routed onCancel only to cancelSlideRecv,
-// whose !isSlideActive() guard short-circuits in send mode (slide-recv.js
+// whose !isRecvSessionActive() guard short-circuits in send mode (slide-recv.js
 // never sees a slideRef in send sessions).
 //
 // 5-step ADR-003 dance, 2 s absolute timeout escape:

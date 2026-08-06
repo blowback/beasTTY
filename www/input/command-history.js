@@ -17,8 +17,10 @@
 // (PRD OQ-4), with no paste-detection logic.
 //
 // Direct-import allowlist (AD-3): state/prefs.js (AD-4 — getPrefs/savePrefs) and
-// input/tx-sink.js (AD-5 — getWireOwner, sibling import per the keyboard.js:22
-// precedent). NO wasm/Rust import (NFR-1); no pushTxBytes (no emission).
+// transport/slide.js (isTransferRunning, sibling-ish import per the keyboard.js:22
+// and paste-pump.js precedents). NO wasm/Rust import (NFR-1); no pushTxBytes
+// (no emission). The tx-sink import this module used to carry for AD-5's
+// getWireOwner is gone — that check now lives inside isTransferRunning().
 //
 // Sources:
 //   - _bmad-output/planning-artifacts/epics-command-history.md#Story E8.1 (ACs).
@@ -28,7 +30,13 @@
 //   - crates/beastty-core/src/key.rs — Backspace→0x08, Ctrl-U→0x15, Ctrl-X→0x18.
 
 import { getPrefs, savePrefs, DEFAULTS } from '../state/prefs.js';
-import { getWireOwner } from './tx-sink.js';
+// E11 retrospective (2026-08-06) — capture used to suspend on
+// `getWireOwner() === 'slide'` alone, which is true once a session owns the
+// wire but NOT in the window after the SLIDE command has been auto-typed and
+// before the Z80's wakeup arrives. Keystrokes in that window were mirrored
+// into history as if they were the user's own command line. isTransferRunning()
+// covers that window (and both directions) in one place.
+import { isTransferRunning } from '../transport/slide.js';
 
 // Control-byte constants (crates/beastty-core/src/key.rs). Backspace is always
 // 0x08 (BS, not DEL); Ctrl-letter is upper−0x40 → Ctrl-U 0x15, Ctrl-X 0x18.
@@ -52,8 +60,8 @@ let mirror = '';
 
 export function wireCommandHistory(opts) {
     // No injected deps in E8.1: enable/size/store are all read fresh from
-    // getPrefs() at use-time (AD-4), and the SLIDE gate is read from getWireOwner()
-    // directly (AD-5). opts is accepted for shape parity with the other wireXxx
+    // getPrefs() at use-time (AD-4), and whether a transfer is running is asked
+    // of isTransferRunning() directly. opts is accepted for shape parity with the other wireXxx
     // modules and forward-compatibility with E8.2/E8.3.
     void opts;
 
@@ -85,7 +93,7 @@ function capture(info) {
     // degrade), and suspended while a SLIDE transfer owns the wire (the hook is
     // upstream of tx-sink's SLIDE gate, so the engine must check the owner itself).
     if (!p || p.commandHistoryEnabled === false) return;
-    if (getWireOwner() === 'slide') return;
+    if (isTransferRunning()) return;
 
     const { mods, bytes, wasEnter } = info;
 

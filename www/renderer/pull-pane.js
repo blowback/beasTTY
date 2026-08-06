@@ -1445,9 +1445,9 @@ function ordinal(n) {
 // The session predicate, test-overridable. Checked at beginReview AND
 // re-checked at confirm — a transfer that started while the review sat open
 // must not have keystrokes injected under it (SLIDE owns the wire). The
-// injected predicate (main.js) covers BOTH directions: slide-recv's
-// isSlideActive for recv sessions plus tx-sink wire ownership for send
-// sessions, which slide-recv never sees. tx-sink's own silent drop when the
+// injected predicate (main.js) is slide.js's isTransferRunning(), which covers
+// BOTH directions in one place — this opt keeps its S9.2-era name only because
+// 20 specs drive it through __setSlideActiveForTests. tx-sink's own silent drop when the
 // wire owner is 'slide' (tx-sink.js:50) remains a backstop, not the mechanism.
 function slideActiveNow() {
     if (slideActiveOverride !== null) return slideActiveOverride;

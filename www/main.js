@@ -113,6 +113,11 @@ import {
     __getStateForTests as __slideGetStateForTests,
     cancelSlideSend,                                              // Phase 12 UAT Gap D — send-side cancel
     isSendActive as slideSendActive,                              // production send-session predicate
+    // E11 retrospective (2026-08-06) — THE answer to "is a transfer running?",
+    // either direction. Replaces four hand-rolled composites in this file.
+    // Reach for a direction-specific predicate only when you need to know WHICH
+    // way the bytes are going, and say why in a comment.
+    isTransferRunning,
 } from './transport/slide.js';
 import {
     enqueuePaste,
@@ -139,7 +144,7 @@ import {
 import {
     wireSlideRecv,
     cancelSlideRecv,
-    isSlideActive,
+    isRecvSessionActive,
     slidePumpOnPortLost as slideRecvPumpOnPortLost,
     recoverHardFail as slideRecvRecoverHardFail,
     __resetForTests as __slideRecvResetForTests,
@@ -436,8 +441,8 @@ let scrollStateRef = null;
 // wireSlideChip uses the same pattern further below; the holder is
 // reassigned to the real cancelSlideRecv after wireSlideRecv runs (line
 // ~510). Until then, calls into cancelSlideRecvLazy() are no-ops — but
-// during boot no SLIDE session can be active anyway (isSlideActive() returns
-// false until enterRecvMode flips it), so the thunk is never called before
+// during boot no SLIDE session can be active anyway (isTransferRunning()
+// returns false until a session starts), so the thunk is never called before
 // it's bound.
 let cancelSlideRecvLazy = () => { /* no-op until wireSlideRecv runs */ };
 
@@ -448,7 +453,7 @@ let cancelSlideRecvLazy = () => { /* no-op until wireSlideRecv runs */ };
 //
 // Phase 11 Plan 11-04 D-13 / SLIDE-31 — visibilitychange + pagehide listeners
 // in chrome.js need three additional refs to emit fire-and-forget CTRL_CAN
-// during active SLIDE session: isSlideActive (predicate gate),
+// during an active SLIDE session: the is-a-transfer-running predicate,
 // cancelSlideRecvLazy (thunk-holder declared above before wireSlideRecv
 // runs), txSink (writeSlideFrame for the 0x18 byte). The thunk for
 // cancelSlideRecv mirrors the wireSlideChip onCancel pattern from Plan
@@ -458,9 +463,9 @@ let cancelSlideRecvLazy = () => { /* no-op until wireSlideRecv runs */ };
 // E11 post-epic fix (raised by S11.4's code review, re-carried by S11.2 and
 // S11.3) — both refs below used to be the RECV-ONLY pair, so closing the tab
 // mid-SEND emitted nothing and left the Z80 waiting on a transfer that had
-// gone away. slide-recv's isSlideActive() only sees sessions that were handed
-// a slideRef, which send sessions never are (slide.js enterSendModeInternal),
-// and cancelSlideRecv's own !isSlideActive() guard short-circuits in send
+// gone away. slide-recv's isRecvSessionActive() only sees sessions handed a
+// slideRef, which send sessions never are (slide.js enterSendModeInternal),
+// and cancelSlideRecv's own guard short-circuits in send
 // mode — so the predicate said "idle" and the cancel would have been a no-op
 // even if it had said otherwise. S11.4 made pagehide the SOLE hide-time
 // trigger, which made this the only remaining teardown protection.
@@ -480,8 +485,8 @@ wireChrome({
     prefs,                                      // Phase 6 Plan 06 — "show all serial devices" checkbox initial state
     savePrefs,                                  // Phase 6 Plan 06 — persist the show-all toggle + the Ctrl+Alt+T chord theme change
     // Phase 11 D-13 — the predicate deciding whether the CTRL_CAN branch runs.
-    // COMPOSITE, not slide-recv's recv-only isSlideActive(): see the note above.
-    isSlideActive: () => isSlideActive() || getWireOwner() === 'slide',
+    // Both directions — see the note above for why that matters here.
+    isTransferRunning,
     // Phase 11 D-13 — dispatches by direction. Send goes to cancelSlideSend
     // (imported, resolved at module load); recv goes through the thunk-holder
     // resolved after wireSlideRecv runs below.
@@ -683,11 +688,10 @@ const pullPane = wirePullPane({
     terminalWrapper,
     // S9.2 (FR-4/5/7/11, AD-3) — selection→SLIDE S compose/inject deps. The two
     // filename functions are the ONLY validators (no local rules in the pane).
-    // The suspension predicate must cover BOTH transfer directions: slide-recv's
-    // isSlideActive sees only recv sessions (send sessions never hand slide-recv
-    // a slideRef — slide.js enterSendModeInternal), so wire ownership covers
-    // send. Without it, a confirm during a send session is silently dropped by
-    // tx-sink's owner check and the review closes as if transmitted.
+    // The suspension predicate must cover BOTH transfer directions, which is
+    // exactly what isTransferRunning() is for. Without the send half, a confirm
+    // during a send session is silently dropped by tx-sink's owner check and the
+    // review closes as if it had been transmitted.
     // isWriterReady mirrors WR-03 (the top-bar send button): confirm refuses
     // before a port is connected instead of writing bytes only the diagnostics
     // ring will ever see. getEnterBytes reads the CR/LF pref live at confirm
@@ -696,7 +700,7 @@ const pullPane = wirePullPane({
     validateCpmFilename,
     truncateCpm83,
     pushTxBytes,
-    isSlideActive: () => isSlideActive() || getWireOwner() === 'slide',
+    isSlideActive: isTransferRunning,
     isWriterReady,
     getEnterBytes: () => CRLF_MODES[getCrlfMode()],
     // E9 — confirmed-pull batch size → SLIDE dispatcher, so the transfer chip
@@ -1040,7 +1044,7 @@ wireClipboard({
 window.__copySelection = copySelection;
 window.__pasteFromClipboard = pasteFromClipboard;
 // Phase 11 Plan 11-05 — expose paste-pump for slide-bridge.spec.js paste-gate
-// tests. enqueuePaste no-ops while isSlideActive() returns true (Plan 11-03
+// tests. enqueuePaste no-ops while a transfer is running (Plan 11-03
 // D-12 / SLIDE-33); the gate is verified by asserting writer-log absence of
 // the paste bytes during an active SLIDE session.
 window.__pastePump = {
@@ -1109,7 +1113,7 @@ const slideChipApi = wireSlideChip({
     getSlideState: __slideGetStateForTests,    // imported from transport/slide.js (existing)
     // Phase 12 UAT Gap D — chip [Cancel] dispatches by current SLIDE mode.
     // Send-side cancel (cancelSlideSend) was previously absent — onCancel
-    // routed only to cancelSlideRecv whose !isSlideActive() guard
+    // routed only to cancelSlideRecv whose receive-only guard
     // short-circuits in send mode, leaving force-start (and any
     // wakeup-completion) active-state cancels as dead buttons.
     onCancel: () => {
@@ -1208,20 +1212,16 @@ const peerLink = wirePeerLink({
     // writer exists only after a successful open() + registerWriter, so this is
     // narrower and more honest than serial.getState().
     isConnected: () => isWriterReady(),
-    // The COMPOSITE session predicate, not slide-recv's recv-only isSlideActive().
-    // hasPendingSendSession covers the window between auto-typing the SLIDE
+    // isTransferRunning() — the shared both-directions predicate. Its four parts
+    // and why each is needed are documented at its definition in slide.js; the
+    // one that matters most here is the window between auto-typing the SLIDE
     // command and the Z80's wakeup, during which the wire owner is still
-    // 'terminal' and this tab is nonetheless committed; mode 'send' | 'recv'
-    // covers a running session either way; wire ownership covers a send session,
-    // which never hands slide-recv a slideRef at all. Same shape as
-    // file-source.js isSessionActive (:270-279) — a recv-only predicate leaking
-    // into a send path is a mistake this codebase has already made three times.
-    isBusy: () => {
-        let st = null;
-        try { st = __slideGetStateForTests(); } catch { return true; }
-        const inSession = !!st?.hasPendingSendSession || st?.mode === 'send' || st?.mode === 'recv';
-        return inSession || getWireOwner() === 'slide';
-    },
+    // 'terminal' and this tab is nonetheless committed. file-source.js's
+    // isSessionActive now asks the same function rather than keeping its own
+    // copy, so the two cannot drift apart again.
+    // Fail-closed: if the shared predicate ever throws, report BUSY rather than
+    // hand out a beast that might be mid-transfer.
+    isBusy: () => { try { return isTransferRunning(); } catch { return true; } },
     // The pane's own predicate, surfaced on its API in S11.2 rather than
     // re-composed here or read out of a test hook.
     //
@@ -1290,15 +1290,12 @@ const peerDrop = wirePeerDrop({
     // confirm → enterSendMode route an ordinary local-file send takes.
     sendFiles,
     isConnected: () => isWriterReady(),
-    // The SAME composite predicate wirePeerLink is given above, deliberately not
-    // slide-recv's recv-only isSlideActive(). A recv-only predicate leaking into
-    // a send path is a mistake this codebase has already made three times.
-    isBusy: () => {
-        let st = null;
-        try { st = __slideGetStateForTests(); } catch { return true; }
-        const inSession = !!st?.hasPendingSendSession || st?.mode === 'send' || st?.mode === 'recv';
-        return inSession || getWireOwner() === 'slide';
-    },
+    // The SAME shared predicate wirePeerLink is given above. A receive-only
+    // predicate leaking into a send path is a mistake this codebase made seven
+    // times before the E11 retrospective consolidated it into one function.
+    // Fail-closed: if the shared predicate ever throws, report BUSY rather than
+    // hand out a beast that might be mid-transfer.
+    isBusy: () => { try { return isTransferRunning(); } catch { return true; } },
     // Live at drop time (not the boot snapshot) so a Settings change applies
     // without a reload — the file-source.js:451-452 shape.
     getPrefs,
@@ -1469,10 +1466,18 @@ window.__slide = {
 };
 // Phase 10 Plan 10-03 — explicit per-property assignment matches CONTEXT lock
 // (locked grep targets `window.__slide.cancelRecv = cancelSlideRecv` and
-// `window.__slide.isActive = isSlideActive`) so future plans (and the
-// plan-checker grep gates) can find the wiring without parsing object literals.
+// `window.__slide.isActive = ...`) so future plans (and the plan-checker grep
+// gates) can find the wiring without parsing object literals.
+//
+// E11 retrospective (2026-08-06) — the second target's right-hand side changed
+// name. The Phase 10 lock was a planning-time grep target for a phase that
+// closed long ago, and nothing in www/tests or scripts/ reads either property,
+// so this is a rename rather than a broken contract. `isActive` now reports the
+// BOTH-directions answer, which is what its name always implied; the
+// receive-only one is exposed beside it under a name that says what it is.
 window.__slide.cancelRecv = cancelSlideRecv;
-window.__slide.isActive = isSlideActive;   // Phase 10 — Playwright introspection
+window.__slide.isActive = isTransferRunning;         // both directions
+window.__slide.isRecvActive = isRecvSessionActive;   // receive only
 window.__slideRecv = {
     __resetForTests: __slideRecvResetForTests,
     __getStateForTests: __slideRecvGetStateForTests,
@@ -1527,6 +1532,10 @@ wireFileSource({
     modalSendBtn: sendModalSendButton,
     enterSendMode: enterSlideSendMode,        // imported from transport/slide.js (Plan 09-02)
     getSlideState: __slideGetStateForTests,    // imported from transport/slide.js (Plan 09-02)
+    // E11 retro — file-source's isSessionActive used to re-derive the composite
+    // from the snapshot above, and its copy had drifted (no wire-owner part).
+    // It now asks the one shared function, injected here per AD-3.
+    isTransferRunning,
     isWriterReady,                            // Phase 9 WR-03 — gate top-bar button on writer registration
     slideChip: slideChipApi,                  // Phase 11 D-10 — chip flash on drop-during-active-session
     // Phase 12 SLIDE-36 — three new modal buttons (hidden by default;
