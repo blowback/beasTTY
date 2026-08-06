@@ -171,6 +171,18 @@ let setLocalEchoRef = null;
 let setCrlfModeRef = null;
 let localEchoItemEl = null;        // #menu-local-echo-item — checkable, derived from prefs.localEcho
 let crlfPanelEl = null;            // [data-submenu-panel="crlf"] — active radio derived from prefs.crlfMode
+// Settings ▸ Paste line ending / Paste speed injected setters — paste-pump.js's
+// live setters, injected for the same AD-3 reason as the keyboard setters above
+// (menu-bar may not import input/*). Same persist ≠ apply contract: savePrefs
+// does not fan out, so the menu MUST call the setter too or the checkmark moves
+// while the next paste still uses the old value. Both optional — a harness that
+// omits them keeps persist + glyph working. These settings are deliberately
+// INDEPENDENT of crlfMode above: Enter key sends governs the Enter key, Paste
+// line ending governs pasted text, and neither reads the other.
+let setPasteLineEndingRef = null;
+let setPasteSpeedRef = null;
+let pasteEolPanelEl = null;        // [data-submenu-panel="paste-eol"] — active radio derived from prefs.pasteLineEnding
+let pasteSpeedPanelEl = null;      // [data-submenu-panel="paste-speed"] — active radio derived from prefs.pasteSpeed
 // E8.3 (FR-19/FR-20) — the two Command-history rows this module projects.
 let commandHistoryItemEl = null;   // #menu-command-history-item — checkable, derived from prefs.commandHistoryEnabled
 let cmdHistorySizePanelEl = null;  // [data-submenu-panel="cmdhistory-size"] — active radio derived from prefs.commandHistorySize
@@ -385,6 +397,10 @@ export function wireMenuBar(opts = {}) {
     // glyph working but leaves the live keyboard.js state change inert until reload.
     setLocalEchoRef = opts.setLocalEcho || null;
     setCrlfModeRef = opts.setCrlfMode || null;
+    // Settings ▸ Paste line ending / Paste speed — paste-pump.js live setters,
+    // injected via opts on the same AD-3 terms as the keyboard setters above.
+    setPasteLineEndingRef = opts.setPasteLineEnding || null;
+    setPasteSpeedRef = opts.setPasteSpeed || null;
     setWrapRef = opts.setWrap || null;   // Settings ▸ Wrap long lines — core term.set_wrap (AD-3)
     setDebugPanelVisibleRef = opts.setDebugPanelVisible || null;   // E5.1 (FR-23, AD-3)
     // E3.3 (FR-21/FR-22, AD-3) — reset action + reserved-Ctrl modal opener, injected
@@ -501,6 +517,13 @@ export function wireMenuBar(opts = {}) {
     localEchoItemEl = document.getElementById('menu-local-echo-item');
     crlfPanelEl = document.querySelector('.submenu[data-submenu-panel="crlf"]');
     projectLocalEcho();
+    // Settings ▸ Paste line ending + Paste speed — same by-data discovery, then
+    // an initial paint from prefs so both radios are correct BEFORE the first
+    // Settings-menu open (never trust the HTML data-checked literals: a stored
+    // blob can hold any of the offered values).
+    pasteEolPanelEl = document.querySelector('.submenu[data-submenu-panel="paste-eol"]');
+    pasteSpeedPanelEl = document.querySelector('.submenu[data-submenu-panel="paste-speed"]');
+    projectPasteSettings();
     // Settings ▸ Wrap long lines — same by-id discovery + initial paint from prefs
     // so the glyph is correct BEFORE the first Settings-menu open.
     wrapLinesItemEl = document.getElementById('menu-wrap-lines-item');
@@ -843,6 +866,30 @@ function onRadioSelect(panel, item) {
         setCrlfModeRef?.(value);
         savePrefs({ crlfMode: value });          // AD-4 — persist
         setRadioChecked(panel, value);
+    } else if (group === 'paste-eol') {
+        // Settings ▸ Paste line ending. Same shape as the crlf branch above and
+        // deliberately independent of it — this drives paste-pump.js, that one
+        // drives keyboard.js, and the two can hold different values. persist ≠
+        // apply, so call the injected setter AND savePrefs; the setter's
+        // validator accepts only cr/lf/crlf/raw, which the radio data-values are.
+        // NOT a D-19 selection-clear trigger, no CRT restriction.
+        setPasteLineEndingRef?.(value);
+        savePrefs({ pasteLineEnding: value });    // AD-4 — persist
+        setRadioChecked(panel, value);
+    } else if (group === 'paste-speed') {
+        // Settings ▸ Paste speed. A numeric preset, so convert + validate before
+        // persisting (the cmdhistory-size branch below is the shape) — but here
+        // 0 is a legal value meaning "as fast as the wire allows", so the guard
+        // is >= 0, not > 0. persist ≠ apply: the setter re-paces the pump, which
+        // takes effect on the NEXT paste — a run already in flight keeps the
+        // pacing it froze at enqueue, so picking Full speed mid-paste cannot
+        // dump the remainder on the wire in one burst.
+        const speed = Number(value);
+        if (Number.isInteger(speed) && speed >= 0) {
+            setPasteSpeedRef?.(speed);
+            savePrefs({ pasteSpeed: speed });      // AD-4 — persist
+            setRadioChecked(panel, value);
+        }
     } else if (group === 'cmdhistory-size') {
         // E8.3 (AC-3) — Command-history size preset. data-value is a string; the pref
         // is a number, so convert + validate (positive integer) before persisting.
@@ -1193,6 +1240,7 @@ function projectMenuOnOpen() {
         projectWrapLines();
         projectStripCtrl();
         projectCommandHistory();   // toggle glyph + size radio
+        projectPasteSettings();    // Paste line ending + Paste speed radios
         const p = getPrefs();
         if (crlfPanelEl && p && p.crlfMode) setRadioChecked(crlfPanelEl, p.crlfMode);
     }
@@ -1238,6 +1286,32 @@ function projectCommandHistory(prefs) {
     projectCheckable(commandHistoryItemEl, 'commandHistoryEnabled', prefs);
     const p = prefs || getPrefs();
     if (cmdHistorySizePanelEl && p && p.commandHistorySize) setRadioChecked(cmdHistorySizePanelEl, String(p.commandHistorySize));
+}
+
+// Settings ▸ Paste line ending + Paste speed projector: both radios re-derived
+// together from prefs at USE-TIME. Same read-at-use / no-throw / idempotent
+// contract as the siblings, and it NEVER calls a pump setter (applyPrefs stays
+// the single writer on the boot + reset paths). String() because setRadioChecked
+// compares data-value strings; `!= null` rather than a truthy test because
+// pasteSpeed 0 (full speed) is a legal value that must still project.
+function projectPasteSettings(prefs) {
+    const p = prefs || getPrefs();
+    if (!p) return;
+    if (p.pasteLineEnding) setRadioCheckedIfOffered(pasteEolPanelEl, p.pasteLineEnding);
+    if (p.pasteSpeed != null) setRadioCheckedIfOffered(pasteSpeedPanelEl, String(p.pasteSpeed));
+}
+
+// setRadioChecked, but a no-op when the panel offers no such row. A stored blob
+// can carry a value the pump's validator rejects — a pasteSpeed of '' or a
+// pasteLineEnding of 'nonsense' — and when it does the live setting stays on its
+// default, so the menu must go on showing the DEFAULT. Passing the rejected value
+// straight to setRadioChecked would instead clear every checkmark in the panel,
+// leaving a radio group with nothing selected and no clue which value is live.
+function setRadioCheckedIfOffered(panel, value) {
+    if (!panel) return;
+    const v = String(value);
+    if (!panel.querySelector(`.menu-item[data-value="${CSS.escape(v)}"]`)) return;
+    setRadioChecked(panel, v);
 }
 
 // E3.1 (FR-17, AC-4/AC-5) — project the Download Session Log row from the live RX
@@ -1451,6 +1525,11 @@ export function projectPrefs(prefs) {
     projectWrapLines(p); // Settings ▸ Wrap long lines — resetPrefs() restores the unchecked default row
     projectStripCtrl(p); // Settings ▸ Strip ctrl codes from logs — resetPrefs() restores the unchecked default row
     if (crlfPanelEl && p.crlfMode) setRadioChecked(crlfPanelEl, p.crlfMode);
+    // Settings ▸ Paste line ending + Paste speed — re-project both radios so
+    // resetPrefs() restores the defaults (CR, 240 B/s) in the menu DOM. Placed
+    // before the View guard so a View-less harness still gets the reset
+    // re-projection. Never calls a pump setter (applyPrefs owns that on reset).
+    projectPasteSettings(p);
     // E8.3 (AC-5) — re-project the Settings ▸ Command history toggle + size radio so
     // resetPrefs() (AD-14) restores the defaults (enabled checked, size 100) in the menu
     // DOM. This IS the reset story — no bespoke reset handler. Placed before the View

@@ -76,6 +76,27 @@ const DEFAULTS = Object.freeze({
     commandHistory: [],            // E8.1 (FR-21) — persisted command store, newest-first. Top-level
                                    //   array so the defensive spread-merge replaces it wholesale (not the
                                    //   nested-object merge path). CURRENT_VERSION NOT bumped.
+    pasteLineEnding: 'cr',         // Settings ▸ Paste line ending — what every line break in PASTED
+                                   //   text is rewritten to before it reaches the wire
+                                   //   ('cr' | 'lf' | 'crlf' | 'raw'). Deliberately SEPARATE from
+                                   //   crlfMode above: that one governs the Enter key, this one governs
+                                   //   paste, and neither reads the other. Clipboard text on Linux
+                                   //   arrives LF-only, which the MicroBeast does not accept as a line
+                                   //   break — hence the 'cr' default. 'raw' passes the clipboard bytes
+                                   //   through untouched. Validated at its consumer (paste-pump.js
+                                   //   setPasteLineEnding), as crlfMode is at setCrlfMode — prefs.js has
+                                   //   no field validation. CURRENT_VERSION NOT bumped per Phase 6 D-32
+                                   //   defensive merge, same as every pref above.
+    pasteSpeed: 240,               // Settings ▸ Paste speed — bytes/sec the paste pump aims for BETWEEN
+                                   //   line breaks, with 0 meaning "as fast as the wire allows" (the
+                                   //   pre-fix behaviour, kept for targets that can take it). Each line
+                                   //   break costs an additional pause on top. A full-speed paste writes
+                                   //   32 bytes at a time into a 16-byte UART FIFO, so the back half of
+                                   //   a single write is lost however slow the average rate; at any
+                                   //   paced speed the pump drops to 8-byte writes that stop at line
+                                   //   terminators. 240 is an estimate pending real hardware, not a
+                                   //   measurement. Validated at its consumer (paste-pump.js
+                                   //   setPasteSpeed). CURRENT_VERSION NOT bumped.
     serialAssertRtsOnConnect: true,
         // Phase 12.1 Plan 12-08 — gates connect-time setSignals.requestToSend
         // (true = assert RTS on every port.open(); false = de-assert RTS as

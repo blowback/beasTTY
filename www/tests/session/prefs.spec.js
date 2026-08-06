@@ -23,6 +23,13 @@ async function setup(page) {
     await page.waitForFunction(() => document.getElementById('terminal').width > 0);
 }
 
+// window.__pastePump is assigned late in main.js, after the handles setup()
+// waits on — the paste cases need their own boot-race guard.
+async function pumpReady(page) {
+    await page.waitForFunction(
+        () => window.__pastePump && typeof window.__pastePump.getPasteSpeed === 'function');
+}
+
 test.describe('PREF-01/PREF-02/PLAT-05 — Preferences persistence', () => {
     test('first load with no beastty.prefs applies D-36 defaults @fast', async ({ page }) => {
         await setup(page);
@@ -33,8 +40,30 @@ test.describe('PREF-01/PREF-02/PLAT-05 — Preferences persistence', () => {
         expect(prefs.serial).toEqual({ baud: 19200, dataBits: 8, stopBits: 1, parity: 'none', flowControl: 'none' });
         expect(prefs.localEcho).toBe(false);
         expect(prefs.crlfMode).toBe('cr');
+        // Paste has its own line-ending setting, separate from crlfMode above —
+        // and it is paced by default, because pasting at wire speed loses text.
+        expect(prefs.pasteLineEnding).toBe('cr');
+        expect(prefs.pasteSpeed).toBe(240);
         expect(prefs.autoConnect).toBe(false);
         expect(prefs.version).toBe(2);
+    });
+
+    test('the pump boots on the same values DEFAULTS carries @fast', async ({ page }) => {
+        // applyPrefs is the single writer of the pump's live settings, but it runs
+        // AFTER wirePastePump — so if the pump's module-scope defaults ever drift
+        // from DEFAULTS there is a window where a paste uses the wrong pacing, and
+        // nothing else would notice. Pin them equal.
+        await setup(page);
+        await pumpReady(page);
+        const { prefs, pump } = await page.evaluate(() => ({
+            prefs: window.__prefs.getPrefs(),
+            pump: {
+                lineEnding: window.__pastePump.getPasteLineEnding(),
+                speed: window.__pastePump.getPasteSpeed(),
+            },
+        }));
+        expect(pump.lineEnding).toBe(prefs.pasteLineEnding);
+        expect(pump.speed).toBe(prefs.pasteSpeed);
     });
 
     test('theme persists across reload (round-trip)', async ({ page }) => {
@@ -171,6 +200,81 @@ test.describe('PREF-01/PREF-02/PLAT-05 — Preferences persistence', () => {
         await setup(page);
         expect(await page.evaluate(() => window.__prefs.getPrefs().crlfMode)).toBe('lf');
     });
+
+    test('pasteLineEnding persists across reload and re-applies to the pump', async ({ page }) => {
+        await setup(page);
+        await page.evaluate(() => window.__menuBar.open('settings'));
+        await page.click('#dropdown-settings .menu-item[data-submenu="paste-eol"]');
+        await page.click('#dropdown-settings .submenu[data-submenu-panel="paste-eol"] .menu-item[data-value="crlf"]');
+        await page.evaluate(() => window.__menuBar.close());
+        await page.waitForTimeout(300);   // > 250 ms debounce window
+        await page.reload();
+        await setup(page);
+        await pumpReady(page);
+        expect(await page.evaluate(() => window.__prefs.getPrefs().pasteLineEnding)).toBe('crlf');
+        // applyPrefs re-applied it on the boot path — the stored value governs the
+        // next paste, not just the checkmark.
+        expect(await page.evaluate(() => window.__pastePump.getPasteLineEnding())).toBe('crlf');
+        await expect(page.locator('#dropdown-settings .submenu[data-submenu-panel="paste-eol"] .menu-item[data-value="crlf"]'))
+            .toHaveAttribute('data-checked', 'true');
+    });
+
+    test('pasteSpeed persists across reload and re-applies to the pump', async ({ page }) => {
+        await setup(page);
+        await page.evaluate(() => window.__menuBar.open('settings'));
+        await page.click('#dropdown-settings .menu-item[data-submenu="paste-speed"]');
+        await page.click('#dropdown-settings .submenu[data-submenu-panel="paste-speed"] .menu-item[data-value="60"]');
+        await page.evaluate(() => window.__menuBar.close());
+        await page.waitForTimeout(300);
+        await page.reload();
+        await setup(page);
+        await pumpReady(page);
+        expect(await page.evaluate(() => window.__prefs.getPrefs().pasteSpeed)).toBe(60);
+        expect(await page.evaluate(() => window.__pastePump.getPasteSpeed())).toBe(60);
+        // A full 8-byte chunk owes round(8 / 60 × 1000) = 133 ms, and a break adds
+        // max(50, 133 × 4) = 532 ms on top.
+        expect(await page.evaluate(() => window.__pastePump.__getStateForTests()))
+            .toMatchObject({ gapMs: 133, lineExtraMs: 532 });
+    });
+
+    test('an out-of-range stored pasteSpeed falls back to the default', async ({ page }) => {
+        // prefs.js has no field validation (D-32) — the pump validates at its
+        // consumer, as setCrlfMode does. A blob carrying 99999 must leave the pump
+        // on its default rather than pacing at a nonsense rate or throwing.
+        await page.addInitScript(() => localStorage.setItem(
+            'beastty.prefs', JSON.stringify({ version: 2, pasteSpeed: 99999 })));
+        await setup(page);
+        await pumpReady(page);
+        expect(await page.evaluate(() => window.__pastePump.getPasteSpeed())).toBe(240);
+        expect(await page.evaluate(() => window.__pastePump.__getStateForTests().gapMs)).toBe(33);
+    });
+
+    // Number(null), Number(''), Number(false) and Number([]) are ALL 0, and 0 is
+    // a legal pasteSpeed meaning Full speed — the one value that turns the pacing
+    // fix off. A validator that coerced before testing would silently accept every
+    // one of these from a stored blob. The setter rejects the TYPE first.
+    for (const [label, stored] of [
+        ['null', null],
+        ['an empty string', ''],
+        ['false', false],
+        ['an empty array', []],
+        ['a non-integer', 240.5],
+    ]) {
+        test(`a stored pasteSpeed of ${label} is rejected, not coerced to Full speed`, async ({ page }) => {
+            await page.addInitScript(
+                (blob) => localStorage.setItem('beastty.prefs', blob),
+                JSON.stringify({ version: 2, pasteSpeed: stored }));
+            await setup(page);
+            await pumpReady(page);
+            expect(await page.evaluate(() => window.__pastePump.getPasteSpeed())).toBe(240);
+            expect(await page.evaluate(() => window.__pastePump.__getStateForTests().chunkSize)).toBe(8);
+            // And the menu shows the default, not the rejected value.
+            await page.evaluate(() => window.__menuBar.open('settings'));
+            await page.click('#dropdown-settings .menu-item[data-submenu="paste-speed"]');
+            await expect(page.locator('#dropdown-settings .submenu[data-submenu-panel="paste-speed"] .menu-item[data-value="240"]'))
+                .toHaveAttribute('data-checked', 'true');
+        });
+    }
 
     test('fontZoom persists across reload', async ({ page }) => {
         await setup(page);

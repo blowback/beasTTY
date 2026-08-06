@@ -23,6 +23,11 @@ async function ready(page) {
     () => window.__keyboardState && typeof window.__keyboardState.getLocalEcho === 'function',
   );
   await page.waitForFunction(() => typeof window.__testGridView === 'function');
+  // window.__pastePump is assigned LATE in main.js (after __testGridView), so the
+  // Paste line ending / Paste speed cases need their own handle in the guard.
+  await page.waitForFunction(
+    () => window.__pastePump && typeof window.__pastePump.getPasteSpeed === 'function',
+  );
 }
 
 const LOCAL_ECHO = '#dropdown-settings .menu-item[data-pref="localEcho"]';
@@ -294,5 +299,117 @@ test.describe('Settings ▸ Strip ctrl codes from logs', () => {
     await page.evaluate(() => window.__prefs.resetPrefs());
     await expect(page.locator(STRIP)).toHaveAttribute('data-checked', 'false');
     expect(await page.evaluate(() => window.__prefs.getPrefs().stripCtrlLogs)).toBe(false);
+  });
+});
+
+// Settings ▸ Paste line ending + Paste speed — the two paste settings. Same
+// radio-submenu contract as Enter key sends above, driving paste-pump.js instead
+// of keyboard.js. The point of the pair being separate rows is that they can hold
+// different values from Enter key sends without either affecting the other; the
+// byte-level proof of that lives in tests/input/paste-line-ending.spec.js.
+const PASTE_EOL_PARENT = '#dropdown-settings .menu-item[data-submenu="paste-eol"]';
+const pasteEolRadio = (v) =>
+  `#dropdown-settings .submenu[data-submenu-panel="paste-eol"] .menu-item[data-value="${v}"]`;
+const PASTE_SPEED_PARENT = '#dropdown-settings .menu-item[data-submenu="paste-speed"]';
+const pasteSpeedRadio = (v) =>
+  `#dropdown-settings .submenu[data-submenu-panel="paste-speed"] .menu-item[data-value="${v}"]`;
+
+test.describe('Settings ▸ Paste line ending', () => {
+  test('the row defaults to CR and sits alongside Enter key sends @fast', async ({ page }) => {
+    await ready(page);
+    await page.evaluate(() => window.__menuBar.open('settings'));
+    // Two distinct rows, labelled so it is obvious which governs which.
+    await expect(page.locator(`${CRLF_PARENT} .lbl`)).toHaveText('Enter key sends');
+    await expect(page.locator(`${PASTE_EOL_PARENT} .lbl`)).toHaveText('Paste line ending');
+    await page.click(PASTE_EOL_PARENT);
+    await expect(page.locator(pasteEolRadio('cr'))).toHaveAttribute('data-checked', 'true');
+  });
+
+  for (const value of ['lf', 'crlf', 'raw']) {
+    test(`${value} radio persists AND applies to the pump, menu stays open, focus retained @fast`, async ({ page }) => {
+      await ready(page);
+      await page.locator('#terminal-wrapper').focus();
+      await page.evaluate(() => window.__menuBar.open('settings'));
+      await page.click(PASTE_EOL_PARENT);
+      await page.click(pasteEolRadio(value));
+
+      await expect(page.locator(pasteEolRadio(value))).toHaveAttribute('data-checked', 'true');
+      await expect(page.locator(pasteEolRadio('cr'))).toHaveAttribute('data-checked', 'false');
+      // Radio semantics — the menu and its submenu stay open.
+      expect(await page.evaluate(() => window.__menuBar.getOpenMenu())).toBe('settings');
+      await expect(page.locator('.submenu[data-submenu-panel="paste-eol"]')).toBeVisible();
+      // persist ≠ apply — both halves.
+      expect(await page.evaluate(() => window.__prefs.getPrefs().pasteLineEnding)).toBe(value);
+      expect(await page.evaluate(() => window.__pastePump.getPasteLineEnding())).toBe(value);
+      // Enter key sends is untouched by any of it.
+      expect(await page.evaluate(() => window.__keyboardState.getCrlfMode())).toBe('cr');
+      expect(await page.evaluate(() => document.activeElement && document.activeElement.id)).toBe('terminal-wrapper');
+    });
+  }
+
+  test('reset re-projects the row to the CR default @fast', async ({ page }) => {
+    await ready(page);
+    await page.evaluate(() => window.__menuBar.open('settings'));
+    await page.click(PASTE_EOL_PARENT);
+    await page.click(pasteEolRadio('raw'));
+    await expect(page.locator(pasteEolRadio('raw'))).toHaveAttribute('data-checked', 'true');
+    await page.evaluate(() => window.__prefs.resetPrefs());
+    await expect(page.locator(pasteEolRadio('cr'))).toHaveAttribute('data-checked', 'true');
+    await expect(page.locator(pasteEolRadio('raw'))).toHaveAttribute('data-checked', 'false');
+    // applyPrefs (the reset single-writer) also restored the live pump state.
+    expect(await page.evaluate(() => window.__pastePump.getPasteLineEnding())).toBe('cr');
+  });
+});
+
+test.describe('Settings ▸ Paste speed', () => {
+  test('the row defaults to 240 B/s and every paced row says the rate is between breaks @fast', async ({ page }) => {
+    await ready(page);
+    await page.evaluate(() => window.__menuBar.open('settings'));
+    await expect(page.locator(`${PASTE_SPEED_PARENT} .lbl`)).toHaveText('Paste speed');
+    await page.click(PASTE_SPEED_PARENT);
+    await expect(page.locator(pasteSpeedRadio('240'))).toHaveAttribute('data-checked', 'true');
+    // The break pause is additive, so the number on a paced row is NOT the paste's
+    // overall throughput. Every paced row has to say which it is.
+    for (const v of ['480', '240', '120', '60']) {
+      await expect(page.locator(`${pasteSpeedRadio(v)} .lbl`)).toHaveText(`${v} B/s between line breaks`);
+    }
+    await expect(page.locator(`${pasteSpeedRadio('0')} .lbl`)).toHaveText('Full speed (no line pause)');
+  });
+
+  // 0 ("Full speed") is included deliberately: it is a legal value, not the
+  // falsy "unset" a `> 0` guard would reject.
+  for (const { value, speed, gapMs, lineExtraMs } of [
+    { value: '0', speed: 0, gapMs: 19, lineExtraMs: 0 },       // 32 B at the 19200 wire rate
+    { value: '480', speed: 480, gapMs: 17, lineExtraMs: 68 },  // 8 B every round(8/480*1000)
+    { value: '120', speed: 120, gapMs: 67, lineExtraMs: 268 },
+    { value: '60', speed: 60, gapMs: 133, lineExtraMs: 532 },
+  ]) {
+    test(`${value} persists AND repaces the pump (gap ${gapMs} ms) @fast`, async ({ page }) => {
+      await ready(page);
+      await page.locator('#terminal-wrapper').focus();
+      await page.evaluate(() => window.__menuBar.open('settings'));
+      await page.click(PASTE_SPEED_PARENT);
+      await page.click(pasteSpeedRadio(value));
+
+      await expect(page.locator(pasteSpeedRadio(value))).toHaveAttribute('data-checked', 'true');
+      expect(await page.evaluate(() => window.__menuBar.getOpenMenu())).toBe('settings');
+      expect(await page.evaluate(() => window.__prefs.getPrefs().pasteSpeed)).toBe(speed);
+      expect(await page.evaluate(() => window.__pastePump.getPasteSpeed())).toBe(speed);
+      expect(await page.evaluate(() => window.__pastePump.__getStateForTests()))
+        .toMatchObject({ gapMs, lineExtraMs });
+      expect(await page.evaluate(() => document.activeElement && document.activeElement.id)).toBe('terminal-wrapper');
+    });
+  }
+
+  test('reset re-projects the row to the 240 B/s default @fast', async ({ page }) => {
+    await ready(page);
+    await page.evaluate(() => window.__menuBar.open('settings'));
+    await page.click(PASTE_SPEED_PARENT);
+    await page.click(pasteSpeedRadio('0'));
+    await expect(page.locator(pasteSpeedRadio('0'))).toHaveAttribute('data-checked', 'true');
+    await page.evaluate(() => window.__prefs.resetPrefs());
+    await expect(page.locator(pasteSpeedRadio('240'))).toHaveAttribute('data-checked', 'true');
+    await expect(page.locator(pasteSpeedRadio('0'))).toHaveAttribute('data-checked', 'false');
+    expect(await page.evaluate(() => window.__pastePump.getPasteSpeed())).toBe(240);
   });
 });

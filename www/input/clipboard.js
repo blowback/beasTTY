@@ -18,7 +18,7 @@
 // CR/LF rewrite is NOT done here — paste-pump.enqueuePaste already applies it
 // per Phase 5 D-23. Double-rewriting would corrupt streams.
 
-import { enqueuePaste } from './paste-pump.js';
+import { enqueuePaste, countLineBreaks } from './paste-pump.js';
 import { getSelection, clearSelection } from './selection.js';
 
 // D-25 — large-paste confirm threshold (bytes). Epic E7 Story E7.1 (e6 retro #3
@@ -37,9 +37,11 @@ let confirmLargePasteFn = null;
 // --- Public wire entry ---------------------------------------------------
 
 export function wireClipboard(opts) {
-    // confirmLargePaste(byteCount) → Promise<boolean>. A harness that omits it
-    // falls back to auto-confirm (true) so a large paste is never silently
-    // stuck awaiting a confirm surface that isn't wired.
+    // confirmLargePaste(byteCount, breaks) → Promise<boolean>. A harness that
+    // omits it falls back to auto-confirm (true) so a large paste is never
+    // silently stuck awaiting a confirm surface that isn't wired. `breaks` is
+    // there because a paced paste pauses extra at every line break, so a duration
+    // estimate that counts only bytes is wrong by multiples on short lines.
     confirmLargePasteFn = opts.confirmLargePaste || (() => Promise.resolve(true));
 }
 
@@ -87,9 +89,11 @@ export async function pasteFromClipboard() {
 
     // D-25 — large-paste confirm gate (E7.1 — resolved off the paste toast).
     if (bytes.length >= LARGE_PASTE_THRESHOLD) {
-        const ok = await confirmLargePasteFn(bytes.length);
+        // countLineBreaks is the pump's own scan (\r\n counted as ONE break), so
+        // the estimate counts breaks exactly as the chunker will pause on them.
+        const ok = await confirmLargePasteFn(bytes.length, countLineBreaks(bytes));
         if (!ok) return;
     }
-    // CR/LF rewrite happens INSIDE paste-pump.enqueuePaste (Phase 5 D-23).
+    // The line-break rewrite happens INSIDE paste-pump.enqueuePaste (Phase 5 D-23).
     enqueuePaste(bytes);
 }

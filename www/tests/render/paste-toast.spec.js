@@ -52,20 +52,47 @@ test.describe('E7.1 — paste toast: large-paste confirm', () => {
         // Drive the confirm affordance directly (clipboard.js calls this at the gate).
         await page.evaluate(() => {
             window.__confirmResult = 'pending';
-            window.__pasteToast.confirmLargePaste(5000, { getBaud: () => 19200 })
+            window.__pasteToast.confirmLargePaste(5000, { getRate: () => 240, getBreakPauseMs: () => 132, breaks: 125 })
                 .then((ok) => { window.__confirmResult = ok; });
         });
         await expect(page.locator(TOAST)).toBeVisible();
-        await expect(page.locator(TEXT)).toContainText('About to paste 5,000 B');
+        // The estimate quotes the PUMP's pacing, not the baud — since Paste speed
+        // became a setting the wire no longer predicts how long a paste takes. And
+        // it counts BOTH terms: 5000 B at 240 B/s is 20.8 s of bytes, and the 125
+        // line breaks add 125 × 132 ms = 16.5 s of pauses on top. Quoting the byte
+        // term alone would promise 21 s for a paste that takes 37. Asserted
+        // exactly, not with toContainText — the whole point is the number.
+        await expect(page.locator(TEXT)).toHaveText('About to paste 5,000 B (~37 s at 240 B/s).');
         await expect(page.locator(`${TOAST} button[data-action="paste"]`)).toBeVisible();
         await expect(page.locator(`${TOAST} button[data-action="cancel"]`)).toBeVisible();
         expect(await page.evaluate(() => window.__pasteToast.__getStateForTests().lifecycle)).toBe('confirm');
     });
 
+    test('at Full speed the estimate drops the break term entirely @fast', async ({ page }) => {
+        // Full speed has no break pause, so getBreakPauseMs reports 0 and the
+        // estimate collapses to bytes ÷ rate: 5000 / 1728 ≈ 2.9 s.
+        await page.evaluate(() => {
+            window.__pasteToast.confirmLargePaste(5000,
+                { getRate: () => 1728, getBreakPauseMs: () => 0, breaks: 125 });
+        });
+        await expect(page.locator(TEXT)).toHaveText('About to paste 5,000 B (~3 s at 1728 B/s).');
+    });
+
+    test('a real rate of 0 is floored, not swapped for the fallback @fast', async ({ page }) => {
+        // The fallback stands in for a MISSING getter only. Substituting it for a
+        // real getter's answer is how an estimate starts quoting a rate the pump
+        // is not using; a nonsense 0 is floored at 1 B/s instead, which divides
+        // safely and reads as obviously wrong rather than plausibly wrong.
+        await page.evaluate(() => {
+            window.__pasteToast.confirmLargePaste(5000, { getRate: () => 0, getBreakPauseMs: () => 0, breaks: 0 });
+        });
+        await expect(page.locator(TEXT)).toHaveText('About to paste 5,000 B (~5000 s at 1 B/s).');
+    });
+
     test('[Cancel] resolves the confirm false and hides the toast @fast', async ({ page }) => {
         await page.evaluate(() => {
             window.__confirmResult = 'pending';
-            window.__pasteToast.confirmLargePaste(5000, { getBaud: () => 19200 })
+            window.__pasteToast.confirmLargePaste(5000, { getRate: () => 240, getBreakPauseMs: () => 132, breaks: 125 })
                 .then((ok) => { window.__confirmResult = ok; });
         });
         await expect(page.locator(TOAST)).toBeVisible();
@@ -77,7 +104,7 @@ test.describe('E7.1 — paste toast: large-paste confirm', () => {
     test('[Paste] resolves the confirm true @fast', async ({ page }) => {
         await page.evaluate(() => {
             window.__confirmResult = 'pending';
-            window.__pasteToast.confirmLargePaste(5000, { getBaud: () => 19200 })
+            window.__pasteToast.confirmLargePaste(5000, { getRate: () => 240, getBreakPauseMs: () => 132, breaks: 125 })
                 .then((ok) => { window.__confirmResult = ok; });
         });
         await expect(page.locator(TOAST)).toBeVisible();
@@ -135,7 +162,7 @@ test.describe('E7.1 — paste toast: live progress', () => {
             window.__pasteToast.handleProgress({ status: 'started', total: 1000 });
             window.__pasteToast.handleProgress({ status: 'chunk', written: 200, total: 1000 });
             // A large paste opens the confirm while the first paste still pumps.
-            window.__pasteToast.confirmLargePaste(5000, { getBaud: () => 19200 })
+            window.__pasteToast.confirmLargePaste(5000, { getRate: () => 240, getBreakPauseMs: () => 132, breaks: 125 })
                 .then((ok) => { window.__confirmResult = ok; });
             // The first pump keeps firing — these must be ignored while confirming.
             window.__pasteToast.handleProgress({ status: 'chunk', written: 600, total: 1000 });
@@ -157,7 +184,7 @@ test.describe('E7.1 — paste toast: neutral shell + placement + focus (AC-5)', 
     test('is centered over the terminal canvas (not top-right like the SLIDE chip) @fast', async ({ page }) => {
         // Fire-and-forget: confirmLargePaste's Promise resolves only on a button
         // click, so do NOT return it from evaluate (that would hang the call).
-        await page.evaluate(() => { window.__pasteToast.confirmLargePaste(5000, { getBaud: () => 19200 }); });
+        await page.evaluate(() => { window.__pasteToast.confirmLargePaste(5000, { getRate: () => 240, getBreakPauseMs: () => 132, breaks: 125 }); });
         await expect(page.locator(TOAST)).toBeVisible();
         const css = await page.locator(TOAST).evaluate((el) => {
             const s = getComputedStyle(el);
@@ -176,7 +203,7 @@ test.describe('E7.1 — paste toast: neutral shell + placement + focus (AC-5)', 
 
     test('styles from --chrome-* only — identical across a data-theme flip, no box-shadow @fast', async ({ page }) => {
         // Fire-and-forget (see above) — the Promise only settles on a button click.
-        await page.evaluate(() => { window.__pasteToast.confirmLargePaste(5000, { getBaud: () => 19200 }); });
+        await page.evaluate(() => { window.__pasteToast.confirmLargePaste(5000, { getRate: () => 240, getBreakPauseMs: () => 132, breaks: 125 }); });
         await expect(page.locator(TOAST)).toBeVisible();
         const read = () => page.locator(TOAST).evaluate((el) => {
             const s = getComputedStyle(el);
@@ -197,7 +224,7 @@ test.describe('E7.1 — paste toast: neutral shell + placement + focus (AC-5)', 
 
     test('clicking a toast button retains #terminal-wrapper focus (AD-10 sacred) @fast', async ({ page }) => {
         await page.evaluate(() => {
-            window.__pasteToast.confirmLargePaste(5000, { getBaud: () => 19200 })
+            window.__pasteToast.confirmLargePaste(5000, { getRate: () => 240, getBreakPauseMs: () => 132, breaks: 125 })
                 .then((ok) => { window.__confirmResult = ok; });
         });
         await expect(page.locator(TOAST)).toBeVisible();

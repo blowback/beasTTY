@@ -98,3 +98,73 @@ test.describe('INPUT-04 — Local echo toggle', () => {
         expect(cellAfter).not.toBe(0x44);
     });
 });
+
+// A pasted multi-line block must echo as multiple lines.
+//
+// The wire copy and the display copy are not the same bytes. The core treats
+// 0x0D as a column reset that leaves the row alone (terminal.rs:364), so with
+// the default Paste line ending — CR, which is what the MicroBeast needs — a
+// pasted block fed verbatim to the terminal draws every line on top of the last:
+// one row of overstrike where the user pasted five lines, in the DEFAULT
+// configuration. The pump shows a bare CR as 0x0A instead, which resets the
+// column AND advances the row.
+test.describe('Local echo — a pasted block echoes as separate lines', () => {
+    const ROW = 80 * 8;   // 8 bytes/cell, 80 cols — start of the next row
+
+    async function pasteAndSettle(page, text) {
+        await page.locator('#input').fill(text);
+        await page.locator('#paste-test').click();
+        await expect(page.locator('#paste-toast-text')).toContainText('Paste complete', { timeout: 10_000 });
+        await page.waitForTimeout(80);   // rAF render tick (incumbent local-echo idiom)
+    }
+
+    for (const { eol, label } of [
+        { eol: 'cr', label: 'CR' },
+        { eol: 'lf', label: 'LF' },
+        { eol: 'crlf', label: 'CRLF' },
+    ]) {
+        test(`ending ${label}: three pasted lines occupy three rows`, async ({ page }) => {
+            await setup(page);
+            await setLocalEcho(page, true);
+            if (eol !== 'cr') {
+                await page.evaluate(() => window.__menuBar.open('settings'));
+                await page.click('#dropdown-settings .menu-item[data-submenu="paste-eol"]');
+                await page.click(
+                    `#dropdown-settings .submenu[data-submenu-panel="paste-eol"] .menu-item[data-value="${eol}"]`);
+                await page.evaluate(() => window.__menuBar.close());
+                await page.locator('#terminal-wrapper').focus();
+            }
+            await pasteAndSettle(page, 'AB\\x0ACD\\x0AEF');
+
+            const grid = await page.evaluate(() => Array.from(window.__testGridView()));
+            // Rows 0, 1, 2 each hold their own pair, at column 0.
+            expect([grid[0], grid[8]]).toEqual([0x41, 0x42]);
+            expect([grid[ROW], grid[ROW + 8]]).toEqual([0x43, 0x44]);
+            expect([grid[2 * ROW], grid[2 * ROW + 8]]).toEqual([0x45, 0x46]);
+        });
+    }
+
+    test('a CRLF pair split across two writes still renders ONE new row', async ({ page }) => {
+        // Reachable at Full speed, where the chunker does not stop at terminators,
+        // so a CR can end one write and its LF open the next. The display copy
+        // looks ahead into the QUEUE rather than the chunk, so the CR is left
+        // alone and the LF does the single line feed — no blank row between.
+        await setup(page);
+        await setLocalEcho(page, true);
+        await page.evaluate(() => window.__menuBar.open('settings'));
+        await page.click('#dropdown-settings .menu-item[data-submenu="paste-eol"]');
+        await page.click('#dropdown-settings .submenu[data-submenu-panel="paste-eol"] .menu-item[data-value="raw"]');
+        await page.click('#dropdown-settings .menu-item[data-submenu="paste-speed"]');
+        await page.click('#dropdown-settings .submenu[data-submenu-panel="paste-speed"] .menu-item[data-value="0"]');
+        await page.evaluate(() => window.__menuBar.close());
+        await page.locator('#terminal-wrapper').focus();
+
+        // 31 characters, then CRLF: the 32-byte full-speed chunk ends on the CR
+        // and the LF opens the next write.
+        await pasteAndSettle(page, `${'A'.repeat(31)}\\x0D\\x0AZ`);
+        const grid = await page.evaluate(() => Array.from(window.__testGridView()));
+        expect(grid[0]).toBe(0x41);
+        expect(grid[ROW]).toBe(0x5A);        // 'Z' on the NEXT row, column 0
+        expect(grid[2 * ROW]).not.toBe(0x5A); // and not two rows down (no blank row)
+    });
+});

@@ -62,11 +62,11 @@ let lastConfig = null;
 //
 // paste-pump exported setBaudForPump with the comment "Called from serial.js on
 // config-driven connect". It was not. Nothing called it, in production or in a
-// test, since the day it was written — so gapMs stayed at computeGap(19200) for
-// the life of the page no matter what the user picked in the serial config
-// modal. Pasting on a 9600 connection therefore pushed 32 bytes every ~18 ms
-// (~1730 B/s) at a wire that carries ~960 B/s, i.e. a steady overrun, while the
-// pump's whole reason for existing is to stay under the byte rate.
+// test, since the day it was written — so the pump's gap stayed at its 19200
+// figure for the life of the page no matter what the user picked in the serial
+// config modal. Pasting on a 9600 connection therefore pushed 32 bytes every
+// 19 ms (~1680 B/s) at a wire that carries ~860 B/s, i.e. a steady overrun,
+// while the pump's whole reason for existing is to stay under the byte rate.
 //
 // Found by the E9 retro's dormant-hook sweep, finally run. The hook was dead
 // AND its comment asserted it was live, which is why neither reading the call
