@@ -2,7 +2,7 @@
 title: 'Paste into the MicroBeast loses most of the text'
 type: 'bugfix'
 created: '2026-08-06'
-status: 'in-progress'
+status: 'done'
 baseline_commit: 'e0da1afe875e098412840a1b50b20d9bb7e98173'
 context: []
 ---
@@ -141,3 +141,73 @@ The 240 B/s default is an estimate, not a measurement. It must be confirmed on r
 - At 19200 with flow control `none`, open VIBE on the MicroBeast, enter insert mode, paste the ~800 B Forth block from the bug report. Expect every line present, correctly broken, no garbage. If text is still lost, step `pasteSpeed` down (120, then 60) and record the first value that survives — that becomes the default.
 - With Local echo on, confirm the same paste echoes as multiple lines locally.
 - Repeat with RTS/CTS and confirm it is no worse.
+
+## Suggested Review Order
+
+**The two defects, and the model that replaced them**
+
+- Start here: line breaks are normalised in one scan, `\r\n` consumed as one break.
+  [`paste-pump.js:513`](../../www/input/paste-pump.js#L513)
+
+- The other half of the bug: 8-byte paced writes stay under the 16-byte FIFO.
+  [`paste-pump.js:53`](../../www/input/paste-pump.js#L53)
+
+- A chunk ends at a terminator or contains none; a CRLF pair is never split.
+  [`paste-pump.js:399`](../../www/input/paste-pump.js#L399)
+
+- The correction that cost a revert: the gap scales with bytes actually written.
+  [`paste-pump.js:322`](../../www/input/paste-pump.js#L322)
+
+- A line break costs an editor a redraw, so it earns an additive pause.
+  [`paste-pump.js:328`](../../www/input/paste-pump.js#L328)
+
+- The wire is always the ceiling — asking for more than it carries is clamped.
+  [`paste-pump.js:313`](../../www/input/paste-pump.js#L313)
+
+**State that must not drift**
+
+- One snapshot drives both the quoted estimate and the run that follows it.
+  [`paste-pump.js:272`](../../www/input/paste-pump.js#L272)
+
+- Appending to a live run adopts the slower pacing, never the faster.
+  [`paste-pump.js:377`](../../www/input/paste-pump.js#L377)
+
+- Local echo needs its own copy: bare CR moves the column, not the row.
+  [`paste-pump.js:487`](../../www/input/paste-pump.js#L487)
+
+- Type rejected before value, so `null` cannot coerce to Full speed.
+  [`paste-pump.js:244`](../../www/input/paste-pump.js#L244)
+
+- Reported rate honours the 4 ms floor the gap arithmetic already enforced.
+  [`paste-pump.js:263`](../../www/input/paste-pump.js#L263)
+
+**Settings surface**
+
+- Two prefs appended; `CURRENT_VERSION` deliberately not bumped.
+  [`prefs.js:79`](../../www/state/prefs.js#L79)
+
+- Menu projects from the pump's live values, so a checkmark cannot lie.
+  [`menu-bar.js:530`](../../www/renderer/menu-bar.js#L530)
+
+- Both radio branches: apply to the pump and persist, never one alone.
+  [`menu-bar.js:875`](../../www/renderer/menu-bar.js#L875)
+
+- The estimate counts bytes and breaks, and says so when breaks dominate.
+  [`paste-toast.js:149`](../../www/renderer/paste-toast.js#L149)
+
+- Threshold and quote both measure post-normalisation wire length.
+  [`clipboard.js:95`](../../www/input/clipboard.js#L95)
+
+**Tests**
+
+- Every line-ending row of the matrix, against real wire bytes.
+  [`paste-line-ending.spec.js:1`](../../www/tests/input/paste-line-ending.spec.js#L1)
+
+- Paced chunking, proportional gap, break pause, clamp, SLIDE, mid-paste change.
+  [`paste.spec.js:1`](../../www/tests/transport/paste.spec.js#L1)
+
+- Multi-line paste echoes as multiple rows — the regression that forced round 2.
+  [`local-echo.spec.js:1`](../../www/tests/input/local-echo.spec.js#L1)
+
+- Corrupt and off-menu stored values: pump and checkmark must agree.
+  [`prefs.spec.js:1`](../../www/tests/session/prefs.spec.js#L1)

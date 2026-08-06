@@ -6,6 +6,28 @@ recoverable.
 
 ---
 
+## From `spec-paste-text-loss.md` review (2026-08-06)
+
+### `cmdhistory-size` has the projection weakness the paste settings just fixed
+
+Three reviewers found that a stored `pasteSpeed` the menu does not offer left the radio
+group in a misleading state. That is fixed for the two paste settings by projecting the
+menu from what the consumer actually accepted rather than from the raw pref.
+
+`cmdhistory-size` still has the original shape: `menu-bar.js`'s numeric branch validates
+with `Number.isInteger` at selection time, but `projectPrefs` calls `setRadioChecked`
+with whatever the stored blob holds, and `setRadioChecked` clears every row when nothing
+matches. A hand-edited `commandHistorySize` outside the offered set leaves that submenu
+with no checkmark at all and no indication of what is live.
+
+Only reachable from a hand-edited or foreign prefs blob, which is why it was not fixed
+alongside the paste work — the shared `setRadioChecked` helper is used by every radio
+submenu (theme, phosphor, font, crlf, cmdhistory-size), so changing its behaviour is a
+wider change than this bug warranted. Worth doing as one deliberate pass over all of them
+rather than piecemeal.
+
+---
+
 ## From `spec-paste-text-loss.md` (2026-08-06)
 
 Carved off at planning time to keep that spec under the size limit — not a finding
