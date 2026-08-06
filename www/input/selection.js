@@ -49,13 +49,18 @@ let getCellWFn = null;
 let getCellHFn = null;
 let requestFrameFn = null;
 let unsubscribeScroll = null;
+// E11 S11.3 — the beast-to-beast drag stamp. OPTIONAL: absent means stamp
+// nothing, which is exactly the pre-E11 drag. Injected from main.js (AD-3);
+// selection.js imports nothing new and knows nothing about sessions, nonces or
+// peers — it asks for a payload and sets it if it gets one.
+let getPeerStampFn = null;
 
 const WORD_REGEX = /\S+/;       // CONTEXT D-16 + Claude's Discretion — whitespace-bounded run
 
 // --- Public wire entry ---------------------------------------------------
 
 export function wireSelection(opts) {
-    const { canvas, scrollState, term, requestFrame, getCellW, getCellH, terminalWrapper, readRow } = opts;
+    const { canvas, scrollState, term, requestFrame, getCellW, getCellH, terminalWrapper, readRow, getPeerStamp } = opts;
     canvasRef = canvas;
     scrollStateRef = scrollState;
     termRef = term;
@@ -63,6 +68,7 @@ export function wireSelection(opts) {
     getCellWFn = getCellW;
     getCellHFn = getCellH;
     readRowText = readRow;
+    getPeerStampFn = typeof getPeerStamp === 'function' ? getPeerStamp : null;   // E11 S11.3
 
     canvas.addEventListener('pointerdown', onPointerDown);
     canvas.addEventListener('pointermove', onPointerMove);
@@ -332,6 +338,28 @@ function onDragStart(ev) {
         return;
     }
     ev.dataTransfer.setData('text/plain', dragText);
+    // E11 S11.3 (FR-2) — offer the same selection to another Beastty tab. The
+    // thunk owns the type string and the whole payload (identity, nonce, parsed
+    // filenames); it returns null when there is nothing to offer — no valid 8.3
+    // name in the selection — and then no custom type is stamped at all, so a
+    // foreign tab never lights a drop target for a drag it could not honour.
+    //
+    // Deliberately AFTER the text/plain setData and before nothing: text/plain,
+    // effectAllowed and the 1×1 drag image are bit-for-bit what they were, so
+    // the pull-pane drop (S9.3) and the reverse-drag handoff (S9.4) cannot tell
+    // this apart from the drag they have always seen. A throwing stamp is
+    // swallowed for the same reason — a peer feature must never break the drag
+    // that already works.
+    if (getPeerStampFn) {
+        try {
+            const stamp = getPeerStampFn(dragText);
+            if (stamp && typeof stamp.type === 'string' && typeof stamp.payload === 'string') {
+                ev.dataTransfer.setData(stamp.type, stamp.payload);
+            }
+        } catch (err) {
+            console.warn('[selection] peer drag stamp failed:', err);
+        }
+    }
     ev.dataTransfer.effectAllowed = 'copy';
     if (dragImageEl) {
         try { ev.dataTransfer.setDragImage(dragImageEl, 0, 0); } catch { /* ignore */ }
@@ -512,6 +540,7 @@ export function dispose() {
     }
     selectionObservers.length = 0;
     selectionDragObservers.length = 0;
+    getPeerStampFn = null;   // E11 S11.3
     anchor = null;
     focusEnd = null;
     dragging = false;

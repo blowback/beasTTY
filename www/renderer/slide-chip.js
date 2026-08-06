@@ -14,9 +14,10 @@
 //   - enterCancelledSummary({ done, total })   ← 5-second auto-hide (D-08)
 //   - enterSummary({ direction, fileCount, totalBytes })  ← gated by prefs.slideShowSummary
 //   - enterError(reason)                       ← 5-second auto-hide unless [Retry]
+//   - enterNotice(text)                        ← E11 S11.3 neutral sentence, 5 s auto-hide
 //   - flashDropRejected()                      ← 3-second overlay on active state
 //   - hide()                                   ← lifecycle = 'hidden'
-//   - onStateChange(fn)                        ← Plan 11-03 dispatcher subscribes
+//   - onStateChange(fn)                        ← inline actions + (E11 S11.3) lifecycle
 //   - dispose()                                ← clear all timers
 //
 // Sources:
@@ -40,8 +41,14 @@
 let lifecycle = 'hidden';   // 'hidden' | 'awaiting-wakeup' | 'awaiting-timeout'
                             // | 'active' | 'cancelled-summary' | 'sent-summary'
                             // | 'received-summary' | 'error' | 'drop-rejected-flash'
+                            // | 'notice'  (E11 S11.3)
 let lastReason = '';        // for error state ('port lost' / 'CRC retries exhausted'
                             // / 'wire desync' / 'force_idle escape')
+// E11 S11.3 — the neutral transient notice. A complete sentence on the existing
+// chip: no "Transfer failed —" wrapper, no [Retry], no red. enterError is the
+// wrong shape for this feature's copy because most of its sentences are not
+// failures ("The other beast isn't connected…") and none of them offers a retry.
+let noticeText = '';
 let summaryData = null;     // { direction: 'sent'|'received', fileCount, totalBytes }
                             // for sent/received-summary
 let cancelledData = null;   // { done, total } for cancelled-summary
@@ -101,9 +108,10 @@ export function wireSlideChip(opts) {
         enterCancelledSummary,  // ({ done, total }) — 5-second auto-hide
         enterSummary,           // ({ direction, fileCount, totalBytes }) — gated by prefs.slideShowSummary
         enterError,             // (reason) — 5-second auto-hide unless [Retry]
+        enterNotice,            // (text) — E11 S11.3 neutral transient sentence, 5 s auto-hide
         flashDropRejected,      // () — 3-second overlay on active state
         hide,                   // () — set lifecycle = 'hidden'
-        onStateChange,          // (fn) — Plan 11-03 dispatcher subscribes
+        onStateChange,          // (fn) — inline-action AND (E11 S11.3) lifecycle events
         dispose,                // () — clear all timers
         // Plan 11-05 Rule 1 fix — slide.js's handleChipInlineAction reads chip
         // lifecycle via this accessor to disambiguate awaiting-* states from
@@ -179,6 +187,15 @@ function refreshChip() {
             chipTextElRef.innerHTML = `Transfer failed — ${escapeHtml(lastReason)}.  ` + retryButtonHtml();
             chipElRef.setAttribute('aria-label', 'Transfer failed — click Retry to re-arm');
             wireInlineButtons();
+            chipElRef.removeAttribute('hidden');
+            return;
+
+        // E11 S11.3 — a complete sentence, rendered as text. textContent (not
+        // innerHTML): the caller owns the words and there is no markup in them,
+        // so nothing here needs escaping and nothing can inject any.
+        case 'notice':
+            chipTextElRef.textContent = noticeText;
+            chipElRef.setAttribute('aria-label', noticeText);
             chipElRef.removeAttribute('hidden');
             return;
 
@@ -319,6 +336,25 @@ function handleInlineAction(action) {
 
 // ====== Public state-transition methods (UI-SPEC verbatim states) ======
 
+// E11 S11.3 — announce the lifecycle this chip just entered.
+//
+// onStateChange has carried exactly ONE event kind since Plan 11-04:
+// 'inline-action', emitted when the user clicks a bracketed button. Its own
+// header (:19) and the dispatcher comment that subscribes to it (slide.js:319)
+// both describe it as the chip-lifecycle hook, but nothing ever emitted a
+// lifecycle. S11.3's provider needs the transfer's end as an EVENT — a pull
+// that errors, is cancelled, or closes short must not leave a peer's promise
+// pending — so the fan-out its API always claimed is filled in here.
+//
+// Additive by construction: the one existing subscriber (slide.js's
+// handleChipInlineAction wiring) early-returns on any evt.kind that is not
+// 'inline-action', so it never sees these.
+function emitLifecycle() {
+    for (const fn of stateChangeObservers) {
+        try { fn({ kind: 'lifecycle', lifecycle }); } catch { /* a subscriber must not break the chip */ }
+    }
+}
+
 export function enterAwaitingWakeup(opts) {
     // Phase 11 Plan 11-04 D-15 / D-16 — armTimer governed by Compatibility
     // mode (caller passes armTimer based on prefs.slideCompatibilityMode):
@@ -334,6 +370,7 @@ export function enterAwaitingWakeup(opts) {
     lifecycle = 'awaiting-wakeup';
     samples.length = 0;
     refreshChip();
+    emitLifecycle();
 
     if (opts && opts.armTimer === true) {
         wakeupTimeoutHandle = setTimeout(() => {
@@ -342,6 +379,7 @@ export function enterAwaitingWakeup(opts) {
             // [Retry][Cancel][Force start] buttons (UI-SPEC verbatim copy).
             lifecycle = 'awaiting-timeout';
             refreshChip();
+            emitLifecycle();
         }, WAKEUP_TIMEOUT_MS);
     }
 }
@@ -360,6 +398,7 @@ export function enterActive() {
     samples.length = 0;
     lastThroughputText = null;   // UAT-E9-04 (iii) — fresh session, fresh hold
     refreshChip();
+    emitLifecycle();
 }
 
 export function enterCancelledSummary({ done, total }) {
@@ -367,6 +406,7 @@ export function enterCancelledSummary({ done, total }) {
     lifecycle = 'cancelled-summary';
     cancelledData = { done, total };
     refreshChip();
+    emitLifecycle();
     summaryAutoHideHandle = setTimeout(() => { hide(); }, 5000);
 }
 
@@ -380,6 +420,7 @@ export function enterSummary({ direction, fileCount, totalBytes }) {
     lifecycle = direction === 'sent' ? 'sent-summary' : 'received-summary';
     summaryData = { direction, fileCount, totalBytes };
     refreshChip();
+    emitLifecycle();
     summaryAutoHideHandle = setTimeout(() => { hide(); }, 5000);
 }
 
@@ -388,6 +429,31 @@ export function enterError(reason) {
     lifecycle = 'error';
     lastReason = reason || 'unknown';
     refreshChip();
+    emitLifecycle();
+    summaryAutoHideHandle = setTimeout(() => { hide(); }, 5000);
+}
+
+/**
+ * E11 S11.3 — the neutral transient notice (the story's one sanctioned entry
+ * point here). A complete sentence, the existing 5 s auto-hide, and nothing
+ * else: no prefix, no button, no red. The chip's border is --chrome-accent in
+ * every state (index.html:335-356), so this inherits the "nothing is red"
+ * guarantee rather than restating it.
+ *
+ * Takes the chip the way enterError does. Every sentence this feature shows is
+ * produced at a moment when THIS tab is not mid-transfer — a busy destination
+ * refuses before it asks (S11.3 AC-4) — so there is no live progress to stomp.
+ */
+export function enterNotice(text) {
+    const sentence = typeof text === 'string' ? text.trim() : '';
+    if (sentence.length === 0) return;   // nothing to say; leave the chip alone
+    clearAutoHide();
+    clearWakeupTimer();
+    lifecycle = 'notice';
+    noticeText = sentence;
+    dropRejectedUntil = 0;   // the flash overlay only outranks 'active'; be explicit
+    refreshChip();
+    emitLifecycle();
     summaryAutoHideHandle = setTimeout(() => { hide(); }, 5000);
 }
 
@@ -404,9 +470,11 @@ export function hide() {
     cancelledData = null;
     summaryData = null;
     lastReason = '';
+    noticeText = '';
     dropRejectedUntil = 0;
     samples.length = 0;
     refreshChip();
+    emitLifecycle();
 }
 
 function clearAutoHide() {
@@ -440,6 +508,7 @@ export function __resetForTests() {
     cancelledData = null;
     summaryData = null;
     lastReason = '';
+    noticeText = '';
     clearAutoHide();
     clearWakeupTimer();   // Phase 11 D-15 — test isolation.
     if (chipElRef) chipElRef.setAttribute('hidden', '');

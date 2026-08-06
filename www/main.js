@@ -150,6 +150,12 @@ import {
 // state its busy check reads) and BEFORE wireFileSource. Reason CODES only; the
 // words that go with them are S11.3's.
 import { wirePeerLink } from './transport/peer-link.js';
+// Epic E11 Story S11.3 — the gesture itself: the drag stamp, the foreign-payload
+// drop handlers on #terminal-wrapper, the confirm modal, every user-facing string
+// in the feature, and the two orchestrations (this tab as destination, this tab
+// as source). wirePeerDrop slots AFTER wirePeerLink (it takes the link's returned
+// API, including REFUSAL_CODES) and after wireFileSource (it takes sendFiles).
+import { wirePeerDrop } from './input/peer-drop.js';
 // Phase 11 Plan 11-02 — SLIDE chip module (Wave 1). wireSlideChip slots AFTER
 // wireFileSource; chip lifecycle integration with the dispatcher (auto-driven
 // state transitions on session start / file-complete / session-complete /
@@ -702,6 +708,13 @@ const pullPane = wirePullPane({
     // behave alike. Live-read at drop time (not the boot snapshot) so a
     // Settings change applies without a reload.
     isConfirmEnabled: () => getPrefs()?.slideConfirmTransfers !== false,
+    // E11 S11.3 — the chip's lifecycle fan-out, so pullForPeer can settle on the
+    // END of a SLIDE session as an EVENT (a pull that errors, is cancelled or
+    // closes short must not leave a peer's promise pending). A lazy thunk, not
+    // slideChipApi directly: wireSlideChip runs LATER in the boot order, so the
+    // const does not exist yet at this line. Same idiom as the :479 / :1148
+    // thunks — nothing is read until a peer actually asks.
+    onSlideLifecycle: (fn) => slideChipApi.onStateChange(fn),
 });
 window.__pullPane = pullPane;   // Playwright hook (mirrors window.__statusBar)
 
@@ -808,6 +821,13 @@ const selection = wireSelection({
     getCellH: () => getActiveCellSize().cellH,
     terminalWrapper,
     readRow: readRowText,
+    // E11 S11.3 (FR-2) — offer this selection to another Beastty tab. A lazy
+    // thunk: wirePeerDrop runs much later in the boot order, and this is only
+    // ever called from a real dragstart. Returns null when the selection holds
+    // no valid 8.3 name, and then no custom type is stamped at all — so no
+    // foreign tab lights a drop target for a drag it could not honour.
+    // selection.js itself learns nothing about sessions, nonces or peers (AD-3).
+    getPeerStamp: (text) => peerDrop.getPeerStamp(text),
 });
 window.__selection = selection;
 // E9 S9.3 (FR-4, AD-3) — feed the terminal-selection drag state into the pull
@@ -1139,7 +1159,14 @@ wireSlideRecv({
     slideChip: slideChipApi,         // Phase 11 D-14 — chip handle for slidePumpOnPortLost
     // E9 S9.1b FR-8a — refresh the pull pane once a pulled file lands in the folder.
     // wirePullPane ran earlier in boot (above), so pullPane.refresh exists here.
-    onFileLanded: () => { try { pullPane.refresh(); } catch { /* pane best-effort */ } },
+    //
+    // E11 S11.3 — routed through noteFileLanded rather than refresh() directly.
+    // It does today's refresh AND feeds the peer-pull landing counter, which
+    // matters because triggerRefresh early-returns while document.hidden
+    // (pull-pane.js:486) and a source tab hidden MID-pull is the ordinary case
+    // S11.4 exists for — one glance at a third tab. One method, not two calls:
+    // a second call site here is a second thing to keep in step.
+    onFileLanded: () => { try { pullPane.noteFileLanded(); } catch { /* pane best-effort */ } },
     // Change folder… swaps the recv folder in IDB — rebind the pane so it follows
     // the new folder instead of staying stuck on the old one (refresh alone
     // re-enumerates the already-bound stale handle).
@@ -1152,10 +1179,9 @@ wireSlideRecv({
 // Every dependency is a lazy thunk per the main.js:479 / :1148 idiom, so boot
 // ordering cannot bite: nothing is read until a peer actually asks.
 //
-// No provideFiles yet. This tab can accept a request and will then answer
-// pull-failed, because reading a file back OUT of the bound pull folder is
-// S11.3's work (the handles are module-private to pull-pane.js). Accepting and
-// then failing is the honest shape — the four self-checks below all passed.
+// S11.3 supplies the provideFiles the S11.2 wiring deliberately left out: the
+// pane can now read a pulled file back out of its bound folder, so this tab
+// fulfils a request instead of accepting and then answering pull-failed.
 const peerLink = wirePeerLink({
     // The predicate the whole app already uses for "is there a writer?" — a
     // writer exists only after a successful open() + registerWriter, so this is
@@ -1175,14 +1201,37 @@ const peerLink = wirePeerLink({
         const inSession = !!st?.hasPendingSendSession || st?.mode === 'send' || st?.mode === 'recv';
         return inSession || getWireOwner() === 'slide';
     },
-    // The pane's own predicate, surfaced on its API this story (S11.2 T6) rather
-    // than re-composed here or read out of a test hook.
-    hasBoundFolder: () => pullPane.isBound(),
+    // The pane's own predicate, surfaced on its API in S11.2 rather than
+    // re-composed here or read out of a test hook.
+    //
+    // E11 S11.3 — widened, because isBound() alone is not "has a USABLE pull
+    // folder". slide-recv only writes to the bound folder when
+    // prefs.slideRecvToFolder is truthy (slide-recv.js:521) and that pref
+    // defaults to FALSE (prefs.js:44). The pane's own folder pick force-sets it
+    // (the idb.setRecvDirHandle wrapper above), which is why this has never
+    // bitten — but the Settings checkbox can turn it back off with the folder
+    // still bound. In that state isBound() says true, this tab accepts, the pull
+    // runs, every file goes to the browser's Downloads tray via
+    // downloadViaAnchor, onFileLanded never fires, and the requester stalls
+    // silently forever — its single deadline was cleared by our accept.
+    // Fixed where the fact is wrong rather than where it hurts, and no-folder is
+    // the honest code: its sentence sends the user to the pull pane, which is
+    // where they re-pick the folder and re-set the pref.
+    //
+    // Read as TRUTHINESS, byte-for-byte slide-recv's own test at :521 — not
+    // `!== false`, which would call a missing or nulled pref "usable" and
+    // re-open the very stall described above.
+    hasBoundFolder: () => pullPane.isBound() && !!getPrefs()?.slideRecvToFolder,
     // Injected so peer-link.js stays DOM-free (AC-1) and so the hidden case is
     // testable without hiding a real tab. This is a request-time precondition
     // and does NOT contradict S11.4: hiding a tab MID-transfer still cancels
     // nothing (chrome.js:209-224) — that is a different moment.
     isVisible: () => document.visibilityState === 'visible',
+    // E11 S11.3 — the provider. A lazy thunk into peerDrop (declared below):
+    // wirePeerDrop needs this link's returned API, so the two are mutually
+    // referential and exactly one of them has to be late. peer-link only calls
+    // this after its four self-checks pass, which is long after boot.
+    provideFiles: (req) => peerDrop.provideFiles(req),
 });
 // Playwright hook. Not optional: echo-swallow.js returns its hooks from
 // wireEchoSwallow only, and slide-bridge.spec.js:440-447 is a spec that gave up
@@ -1191,6 +1240,62 @@ const peerLink = wirePeerLink({
 // against the frozen set without importing the module — and, unlike a property
 // attached here, the vocabulary survives a re-wire (specs re-wire constantly).
 window.__peerLink = peerLink;
+
+// ---- Epic E11 Story S11.3 — drag a filename onto the other beast ----
+// The only part of E11 a user can see. Sited immediately after wirePeerLink (it
+// takes the link's returned API, REFUSAL_CODES included — never a re-hardcoded
+// copy, and never something bolted onto window.__peerLink from here, which is
+// the defect S11.2's code review fixed) and after wireFileSource (sendFiles).
+// Every dependency is a lazy thunk per the :479 / :1148 idiom.
+const peerDrop = wirePeerDrop({
+    wrapperEl: terminalWrapper,
+    // The FIRST code ever to write to this node. It ships a static string that
+    // nothing has touched since Phase 9, and file-source's own drop affordance
+    // never touches it either — so peer-drop pairs every write with a restore.
+    overlayTextEl: document.getElementById('drop-overlay-text'),
+    modalEl: document.getElementById('peer-copy-modal'),
+    modalTitleEl: document.getElementById('peer-copy-modal-title'),
+    modalFileEl: document.getElementById('peer-copy-file'),
+    modalFromEl: document.getElementById('peer-copy-from'),
+    modalToEl: document.getElementById('peer-copy-to'),
+    modalCopyBtn: document.getElementById('peer-copy-confirm'),
+    modalCancelBtn: document.getElementById('peer-copy-cancel'),
+    peerLink,
+    // The pane's two new methods: the S9.2 parse for the drag stamp, and the
+    // whole of serving a peer's pull.
+    composeSelection: (text) => pullPane.composeSelection(text),
+    pullForPeer: (names) => pullPane.pullForPeer(names),
+    // file-source's send path — the identical validate → truncate → collision →
+    // confirm → enterSendMode route an ordinary local-file send takes.
+    sendFiles,
+    isConnected: () => isWriterReady(),
+    // The SAME composite predicate wirePeerLink is given above, deliberately not
+    // slide-recv's recv-only isSlideActive(). A recv-only predicate leaking into
+    // a send path is a mistake this codebase has already made three times.
+    isBusy: () => {
+        let st = null;
+        try { st = __slideGetStateForTests(); } catch { return true; }
+        const inSession = !!st?.hasPendingSendSession || st?.mode === 'send' || st?.mode === 'recv';
+        return inSession || getWireOwner() === 'slide';
+    },
+    // Live at drop time (not the boot snapshot) so a Settings change applies
+    // without a reload — the file-source.js:451-452 shape.
+    getPrefs,
+    openModal,
+    retainFocus,
+    // The refusal surface: a neutral transient sentence on the existing SLIDE
+    // chip. NOT enterError, whose "Transfer failed — … [Retry]" wrapper is wrong
+    // for sentences that are mostly not failures and never offer a retry.
+    showNotice: (text) => slideChipApi.enterNotice(text),
+});
+// Per-property Playwright hook (the :1293-1296 convention).
+window.__peerDrop = peerDrop;
+// E11 S11.3 — the hover-time half of FR-3's own-payload no-op. Chromium's
+// protected drag data store makes getData() return '' during dragover, so a tab
+// cannot inspect a payload to recognise its own; it uses its own drag state
+// instead. A SECOND subscriber to the signal the pull pane already consumes
+// (:817) — same mechanism, not a new one.
+selection.onSelectionDragState((s) => peerDrop.onSelectionDrag(s));
 
 // Phase 11 Plan 11-03 — resolve the thunk-holder now that cancelSlideRecv's
 // internal state (slideRef + dispatcherForceExitRef) is wired by wireSlideRecv.
@@ -1441,7 +1546,9 @@ window.__slideChip = {
     enterCancelledSummary: slideChipApi.enterCancelledSummary,
     enterSummary: slideChipApi.enterSummary,
     enterError: slideChipApi.enterError,
+    enterNotice: slideChipApi.enterNotice,   // E11 S11.3 — the neutral transient sentence
     flashDropRejected: slideChipApi.flashDropRejected,
+    onStateChange: slideChipApi.onStateChange,
     hide: slideChipApi.hide,
     // T-12-07 (UAT-E9-04) — specs fire the 30 s first-use auto-hide directly.
     __fireFirstUseConfirmTimeoutForTests: slideChipApi.__fireFirstUseConfirmTimeoutForTests,

@@ -104,11 +104,19 @@ let validateRef = null, truncateRef = null, pushTxBytesRef = null,
     analyzeCsumRef = null, // S10.1 — pure csum module (renderer/csum.js), injected not imported
     parseCsumVRef = null, classifyCsumDiffRef = null, // S10.2 — CSUM -V parser + diff classifier (csum.js)
     getPullProgramRef = null, // pull-side program invocation ('A:SLIDE.COM'), read live from the SLIDE.COM location
-    isConfirmEnabledRef = null; // Settings ▸ Confirm file transfers — optional, defaults ON (see confirmEnabledNow)
+    isConfirmEnabledRef = null, // Settings ▸ Confirm file transfers — optional, defaults ON (see confirmEnabledNow)
+    // E11 S11.3 — subscribe to the SLIDE chip's lifecycle transitions. OPTIONAL:
+    // absent means pullForPeer waits on landings alone plus its backstop, which
+    // is degraded but never wrong. Injected (AD-3) — the pane imports no chip.
+    onSlideLifecycleRef = null;
 
 // Test override for the injected isSlideActive (null = use the injected one).
 // Mirrors the __setDirHandleForTests approach to unhostable browser state.
 let slideActiveOverride = null;
+
+// E11 S11.3 — the chip-lifecycle unsubscribe closure (dropped on re-wire and on
+// dispose, the menu-bar connUnsub precedent).
+let slideLifecycleUnsub = null;
 
 // DOM refs derived from the injected #pull-pane root in wire.
 let paneRootEl = null, cardEl = null, fnameEl = null, capEl = null, capLabelEl = null,
@@ -331,6 +339,11 @@ export function wirePullPane(opts) {
         // absent means "confirm", so a missing injection cannot turn the
         // review off by accident.
         isConfirmEnabled: isConfirmEnabledRef,
+        // E11 S11.3 — the chip's onStateChange, injected. pullForPeer needs the
+        // END of a SLIDE session as an EVENT: a pull that errors, is cancelled,
+        // or closes short must resolve the peer's promise rather than leaving
+        // it pending forever. OPTIONAL (see the decl).
+        onSlideLifecycle: onSlideLifecycleRef,
     } = opts);
 
     // Derive child refs from the injected root (no cross-module document reach).
@@ -448,6 +461,13 @@ export function wirePullPane(opts) {
     refreshTimer = setInterval(triggerRefresh, REFRESH_INTERVAL_MS);
     window.addEventListener('focus', triggerRefresh);
 
+    // E11 S11.3 — drop any prior chip-lifecycle subscription so a re-wire never
+    // stacks two. The NEW one is taken lazily, on the first peer pull, not here:
+    // wireSlideChip runs LATER in the boot order (AD-12), so subscribing at wire
+    // time would reach a const in its temporal dead zone. Nothing needs the
+    // subscription until a peer actually asks for a file.
+    if (slideLifecycleUnsub) { try { slideLifecycleUnsub(); } catch { /* ignore */ } slideLifecycleUnsub = null; }
+
     // Paint first-run synchronously (no flash of a blank pane) …
     render();
     // … then hydrate from idb (async): getRecvDirHandle → view.
@@ -465,6 +485,10 @@ export function wirePullPane(opts) {
                                    // doubles as the test entry point (specs call it directly).
         isBound,                   // S11.2 — the "usable pull folder?" fact, for peer-link's
                                    // no-folder self-check (the pane owns the idea; see below).
+        // ── E11 S11.3 — the beast-to-beast additions ──
+        composeSelection,          // (text) -> the S9.2 parse, for the drag stamp (T2).
+        pullForPeer,               // (names) -> [{ name, blob }] — the provider's whole job (T6).
+        noteFileLanded,            // () — main.js's onFileLanded routes here: counter + refresh (T7).
         dispose,
         __getStateForTests,
         __resetForTests,
@@ -1660,6 +1684,321 @@ export function isBound() {
     return state.view === 'empty' || state.view === 'list';
 }
 
+// ====== E11 S11.3 — serving a peer's pull (FR-1/6, AC-6/AC-7) ======
+//
+// The other beast's tab asked this tab for files. peer-link.js has already run
+// its four self-checks and posted `accepted`; everything from here is this
+// module's job, because this module owns the bound folder and nothing else can
+// read a file back out of it (the handles are module-private, and
+// __getStateForTests deliberately strips them).
+//
+// Three facts shape the whole of it, all recorded by S11.2 §10 so this story
+// would not find them late:
+//   1. transmitPull is synchronous fire-and-forget returning a boolean. It says
+//      the command went out. There is no promise, no correlation, no partial-
+//      failure signal.
+//   2. onFileLanded (slide-recv.js:528) carries NO filename and NO count, and
+//      does not fire at all on the anchor-download fallback.
+//   3. ensureUnique (slide-recv.js:587) may have inserted ~N before the
+//      extension and reports nothing back.
+// So: count landings, diff the directory, and pair arrivals with the names the
+// user actually dragged.
+
+// The one in-flight peer pull, or null. Single by construction — peer-link
+// counts an unanswered request as `busy` (its readSelfStatus ORs in
+// outstanding.size), so a second peer is refused before it ever reaches here.
+let peerPull = null;
+
+// Which of the two sources ended the last peer pull. Diagnostics only — nothing
+// branches on it — but it is the ONLY way a spec can tell the landing counter
+// from the backstop that covers for it. Without it a test of the hidden-tab case
+// passes either way: break the counter and the tail grace still resolves the
+// wait, the read-back still finds the file, and the transfer still completes,
+// 1.5 s later and for the wrong reason.
+let lastPeerPullReason = null;
+
+// Grace after a SLIDE session ENDS before the wait gives up on the files still
+// in flight. It is a genuine backstop, not a poll: armed ONCE, off an event,
+// never re-armed in a loop (the setTimeout(tick, N) shape S11.4 removed).
+//
+// It has to exist because the two signals are not ordered. slide.js's
+// exitRecvMode fires enterSummary SYNCHRONOUSLY (:880-890), while the file
+// writes it is summarising are chained through slide-recv's downloadDispatchTail
+// with a 250 ms SLIDE-19 inter-file gap each — so the last landing routinely
+// arrives AFTER the session is already over. Resolving on the session-end event
+// alone would drop the final file of every multi-file pull.
+//
+// A hidden tab's clamp can only make one non-chained timeout fire LATE, which
+// is the harmless direction (the peer has no deadline left to miss — its
+// single one was cleared by the accept).
+const PEER_PULL_TAIL_GRACE_MS = 1500;
+
+// The second and last backstop: the session never STARTED. AC-7 requires "a
+// wakeup that never came" to resolve rather than wait forever, and neither event
+// source covers it — no file lands, and the chip sits in awaiting-wakeup, which
+// is not a terminal state. In Compatibility mode 'wakeup-required' the chip
+// deliberately arms no timeout of its own, so this is the only bound.
+//
+// Scoped to the START only: it is cleared the moment the session goes active (or
+// a file lands), so a real 19200-baud transfer of any length is never timed out.
+// That distinction is the whole of S11.4's lesson — a deadline over a running
+// transfer reports healthy work as failed; a deadline over a handshake does not.
+const PEER_PULL_START_DEADLINE_MS = 30_000;
+
+function clearPeerPullTimers(p) {
+    if (p.tailTimer !== null) { clearTimeout(p.tailTimer); p.tailTimer = null; }
+    if (p.startTimer !== null) { clearTimeout(p.startTimer); p.startTimer = null; }
+}
+
+// Settle the in-flight wait exactly once and drop it from module scope, so a
+// later landing or lifecycle event cannot resurrect a finished pull.
+function settlePeerPull(reason) {
+    if (!peerPull) return;
+    const p = peerPull;
+    peerPull = null;
+    lastPeerPullReason = reason;
+    clearPeerPullTimers(p);
+    p.resolve({ landed: p.landed, reason });
+}
+
+// Chip lifecycle → the "ends short" event source. Any TERMINAL state means this
+// tab's SLIDE session is over: an error, a cancel, a summary, or a hide (which
+// is also what a completed session produces when Settings ▸ Show transfer
+// summary chip is off — enterSummary calls hide() in that case). Give the
+// download tail its grace, then settle with whatever actually landed.
+const CHIP_TERMINAL = new Set([
+    'hidden', 'error', 'sent-summary', 'received-summary', 'cancelled-summary', 'awaiting-timeout',
+]);
+
+// Subscribe on first use, once. Lazy because wireSlideChip runs after
+// wirePullPane in the boot order — see the note at the wire-time teardown.
+function ensureSlideLifecycleWired() {
+    if (slideLifecycleUnsub !== null) return;
+    if (typeof onSlideLifecycleRef !== 'function') return;
+    try {
+        const unsub = onSlideLifecycleRef(onChipLifecycle);
+        slideLifecycleUnsub = typeof unsub === 'function' ? unsub : () => {};
+    } catch (e) {
+        // Degraded but never wrong: the wait still settles on landings and on
+        // its start backstop. Loud, because losing this source silently would
+        // turn every short pull into a long wait nobody could explain.
+        console.warn('[pull-pane] chip lifecycle subscription failed:', e);
+        slideLifecycleUnsub = null;
+    }
+}
+
+function onChipLifecycle(evt) {
+    if (!peerPull) return;
+    if (!evt || evt.kind !== 'lifecycle') return;
+    const p = peerPull;
+    // The session started: the handshake is done, so the start deadline has
+    // nothing left to protect against. From here only landings and the end of
+    // the session settle this — a running transfer is never timed out.
+    if (evt.lifecycle === 'active') {
+        p.started = true;
+        p.sawSession = true;
+        if (p.startTimer !== null) { clearTimeout(p.startTimer); p.startTimer = null; }
+        // A tail armed by a terminal state that turned out NOT to be the end of
+        // this pull's session — see the sawSession note below — must not survive
+        // into the session that just started, or it settles the wait 1.5 s in.
+        if (p.tailTimer !== null) { clearTimeout(p.tailTimer); p.tailTimer = null; }
+        return;
+    }
+    if (evt.lifecycle === 'awaiting-wakeup') { p.sawSession = true; return; }
+    if (!CHIP_TERMINAL.has(evt.lifecycle)) return;
+    // 'hidden' with no sign of life from THIS pull's session is the tail of the
+    // PREVIOUS one, not the end of ours. Every summary, every error and every
+    // notice arms a 5 s auto-hide whose hide() emits 'hidden' — so two
+    // beast-to-beast drags in quick succession would otherwise have the first
+    // transfer's auto-hide settle the second one's wait 1.5 s after it started,
+    // the read-back would find nothing on disk yet, and the peer would be told
+    // pull-failed about a pull that is running perfectly.
+    //
+    // ONLY 'hidden' is gated this way. Every other terminal state is emitted by
+    // this tab entering it, which can only be about the session in progress —
+    // an error or a cancel during the handshake is a real end and must still
+    // settle the wait (AC-7). And a genuine end-of-session 'hidden' — a cancel,
+    // a force-exit, or enterSummary with the summary preference off — is always
+    // preceded by 'awaiting-wakeup' or 'active', so it is never gated out.
+    if (evt.lifecycle === 'hidden' && !p.sawSession) return;
+    if (p.tailTimer !== null) return;   // already winding down
+    if (p.startTimer !== null) { clearTimeout(p.startTimer); p.startTimer = null; }
+    p.tailTimer = setTimeout(() => {
+        p.tailTimer = null;
+        settlePeerPull('ended');
+    }, PEER_PULL_TAIL_GRACE_MS);
+}
+
+/**
+ * T7 — the widened landing notification. main.js routes slide-recv's
+ * onFileLanded through THIS, not through refresh() directly, because
+ * triggerRefresh early-returns while document.hidden (:486) and a source tab
+ * hidden mid-pull is the ordinary case S11.4 exists for. The counter must be fed
+ * even when the refresh does nothing.
+ *
+ * One method rather than two call sites in main.js: a second call site is a
+ * second thing to keep in step, and the pane owns both facts.
+ */
+export function noteFileLanded() {
+    if (peerPull) {
+        peerPull.landed += 1;
+        // A file on disk is proof the session started, whatever the chip said.
+        peerPull.started = true;
+        peerPull.sawSession = true;
+        if (peerPull.startTimer !== null) { clearTimeout(peerPull.startTimer); peerPull.startTimer = null; }
+        if (peerPull.landed >= peerPull.expected) {
+            // Everything asked for is on disk. Settle NOW — do not wait for the
+            // session-end event, which may be several hundred ms behind.
+            settlePeerPull('complete');
+        }
+    }
+    // Today's behaviour, unchanged and unconditional.
+    triggerRefresh();
+}
+
+// T2 — the drag stamp's parser. A thin export of the private composeFromText so
+// selection.js's dragstart can name the files it is offering without a second
+// copy of mergeDirColumns living anywhere. Pure; transmits nothing.
+//
+// Deliberately NOT the composed command: the peer composes its own at pull time
+// from its OWN live prefs (its SLIDE.COM may be on a different drive).
+export function composeSelection(text) {
+    return composeFromText(String(text ?? ''));
+}
+
+// Enumerate the bound folder's file names directly off the handle. NOT
+// triggerRefresh: that is hidden-guarded, and this must work in a tab the user
+// has just clicked away from (§3(f)).
+async function snapshotEntryNames() {
+    const names = new Map();   // name -> handle
+    if (!dirHandle) return names;
+    for await (const [name, h] of dirHandle.entries()) {
+        if (h.kind !== 'file') continue;
+        names.set(name, h);
+    }
+    return names;
+}
+
+/**
+ * T6 — pullForPeer(names) → [{ name, blob }]
+ *
+ * Runs an ORDINARY S9.3 pull for the names a peer asked for, waits for the
+ * files to land, and reads them back. Nothing new goes on the wire: this is the
+ * same `<program> S <files>` the pane's own [Pull N] button sends.
+ *
+ * Throws on every refusal. peer-link turns a throw into ONE outcome —
+ * `pull-failed` — and S11.3 owns the sentence for it, so there is nothing to
+ * gain from a richer failure vocabulary here (the provider contract is: resolve
+ * with well-formed records, or throw).
+ */
+export async function pullForPeer(names) {
+    if (!Array.isArray(names) || names.length === 0) throw new Error('pullForPeer: no names');
+    if (peerPull) throw new Error('pullForPeer: a peer pull is already in flight');
+    ensureSlideLifecycleWired();
+
+    // (a) Refuse early, from facts this module already holds — the same three
+    // transmitPull checks (:1617-1621). The peer's own four checks passed
+    // moments ago, so this is a narrow race window, not a duplicate of them.
+    if (!isBound() || !dirHandle) throw new Error('pullForPeer: no bound folder');
+    if (slideActiveNow()) throw new Error('pullForPeer: SLIDE owns the wire');
+    if (!isWriterReadyRef()) throw new Error('pullForPeer: no writer');
+
+    // (b) Snapshot BEFORE, off the handle.
+    const before = await snapshotEntryNames();
+
+    // (c) Compose through the shipped pair — the drive derivation, the 126-char
+    // cap, the duplicate collapse, the batch hint and the Enter terminator all
+    // come free. A name the cap drops is skipped by composeFromText and is
+    // simply not among the ones we wait for or return: we pull what fits, hand
+    // back what landed, and let the peer send those. There is no way to pull the
+    // rest without a second command, which would be a second SLIDE session.
+    const rv = composeFromText(names.join(' '));
+    const requested = rv.tokens.filter((t) => t.ok).map((t) => t.name);
+    if (requested.length === 0 || !rv.command) throw new Error('pullForPeer: nothing valid to pull');
+
+    // (d) Arm the wait BEFORE transmitting. transmitPull injects keystrokes
+    // synchronously; arming afterwards would race a landing that beat us back.
+    const settled = new Promise((resolve) => {
+        peerPull = {
+            expected: requested.length, landed: 0, started: false, sawSession: false,
+            tailTimer: null, startTimer: null, resolve,
+        };
+    });
+    if (!transmitPull(rv)) {
+        settlePeerPull('refused');
+        await settled;
+        throw new Error('pullForPeer: transmitPull refused');
+    }
+    // The start deadline — one non-chained timer, cleared by the first sign of
+    // life (see the constant). Armed after transmitPull so a refused command
+    // never leaves a timer behind.
+    if (peerPull) {
+        const p = peerPull;
+        p.startTimer = setTimeout(() => {
+            p.startTimer = null;
+            if (!p.started) settlePeerPull('no-wakeup');
+        }, PEER_PULL_START_DEADLINE_MS);
+    }
+
+    const outcome = await settled;
+
+    // (e) Read back what ARRIVED, not what was asked for — ensureUnique may have
+    // ~N-suffixed the disk copy and told nobody. Diff the directory, then pair
+    // the new entries with the requested names below.
+    const after = await snapshotEntryNames();
+    const arrived = [];
+    for (const [name, h] of after) {
+        if (!before.has(name)) arrived.push({ name, handle: h });
+    }
+    if (arrived.length === 0) throw new Error(`pullForPeer: nothing landed (${outcome.reason})`);
+
+    // Pair each requested name with the entry it actually landed as, BY NAME.
+    // Not by index: `after` comes from dirHandle.entries(), whose order is the
+    // directory's (alphabetical on most filesystems), not the order SLIDE
+    // delivered in. Index pairing therefore hands back the right names carrying
+    // the wrong bytes the moment command order and directory order differ —
+    // e.g. a drag of 'ZAP.COM ABC.TXT' enumerates ABC.TXT first and the two
+    // files arrive at the other beast with their contents swapped, silently.
+    //
+    // Name pairing is exact because the only rewrite in the path is
+    // slide-recv's ensureUnique, which inserts ~N before the extension and
+    // nothing else — so the disk name is always derivable from the requested
+    // one. A requested name with no landing is skipped: a short pull hands back
+    // what it got, which the peer then sends, rather than failing a transfer
+    // that mostly worked.
+    const pool = arrived.slice();
+    const out = [];
+    for (const name of requested) {
+        const i = pool.findIndex((e) => e.name === name || isUniquifiedOf(e.name, name));
+        if (i < 0) continue;
+        const [entry] = pool.splice(i, 1);
+        const file = await entry.handle.getFile();
+        // The CP/M name the user DRAGGED, with the bytes that arrived. Never the
+        // possibly-suffixed disk name: that is what would reach the other
+        // beast's device otherwise (§3(g)).
+        out.push({ name, blob: file });
+    }
+    if (out.length === 0) throw new Error(`pullForPeer: nothing landed under a requested name (${outcome.reason})`);
+    return out;
+}
+
+// Did `diskName` come from `requested` via slide-recv's ensureUnique? That
+// function splits on the LAST dot (only when the dot is not leading) and inserts
+// '~N' before it — slide-recv.js:588-593 — so this mirrors that one rule and
+// nothing wider.
+function isUniquifiedOf(diskName, requestedName) {
+    const dot = requestedName.lastIndexOf('.');
+    const base = dot > 0 ? requestedName.slice(0, dot) : requestedName;
+    const ext = dot > 0 ? requestedName.slice(dot) : '';
+    if (!diskName.startsWith(`${base}~`)) return false;
+    let suffix = diskName.slice(base.length + 1);
+    if (ext.length > 0) {
+        if (!suffix.endsWith(ext)) return false;
+        suffix = suffix.slice(0, -ext.length);
+    }
+    return /^\d+$/.test(suffix);
+}
+
 // ====== Render (projects state via data-view / [hidden] only — no inline styles) ======
 
 function render() {
@@ -1824,6 +2163,23 @@ export function __getStateForTests() {
         dropAffordance: dropAffordanceOn,   // S9.3 (AC-9)
         bloom: bloomed,                     // S9.3 (AC-9)
         dragOutArmed: dragOut !== null,     // S9.4 (AC-7)
+        // E11 S11.3 (AC-7) — the in-flight peer pull. Primitives only, so a spec
+        // can prove the wait is event-driven: `timers` counts LIVE backstops and
+        // must be 0 or 1, never a growing chain.
+        peerPull: peerPull
+            ? {
+                expected: peerPull.expected,
+                landed: peerPull.landed,
+                started: peerPull.started,
+                sawSession: peerPull.sawSession,
+                timers: (peerPull.tailTimer !== null ? 1 : 0) + (peerPull.startTimer !== null ? 1 : 0),
+            }
+            : null,
+        slideLifecycleWired: slideLifecycleUnsub !== null,
+        // 'complete' — every file landed (the event-driven path);
+        // 'ended' | 'no-wakeup' — a backstop covered for it;
+        // 'refused' | 'reset' | 'disposed' — it never ran.
+        lastPeerPullReason,
         selectedNames: [...selectedNames].sort(),   // S9.4 multi-select extension
         // S10.1 (AC-9) — what each row's checksum cell shows right now.
         csums: Object.fromEntries(state.files.map((f) => [f.name, csumShown.get(f.name) ?? CSUM_PENDING])),
@@ -1862,6 +2218,13 @@ export function __resetForTests() {
     dragOut = null;   // S9.4 — no stale reverse-drag stash across specs
     dragOutInFlight = false;
     clearWrapperAffordance();
+    // E11 S11.3 — settle, never silently drop: a spec that resets this pane
+    // while a two-tab case is mid-pull would otherwise hang the OTHER page.
+    settlePeerPull('reset');
+    // …and clear the diagnostic afterwards, so the NEXT spec cannot read the
+    // previous one's reason and pass on it (settlePeerPull only writes the field
+    // when a pull was actually in flight).
+    lastPeerPullReason = null;
     // (csum cache/shown/chain were reset by resetDiffBaseline above.)
     render();
 }
@@ -1944,6 +2307,14 @@ export function dispose() {
     document.removeEventListener('pointerdown', onDocPointerDown, true);
     if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
     window.removeEventListener('focus', triggerRefresh);
+    // E11 S11.3 — peer-pull teardown. Settle first, THEN unsubscribe: a waiter
+    // left pending across a teardown is a peer in another tab hanging until
+    // Playwright's 30 s timeout, which is exactly what peer-link's own
+    // __resetForTests fix (S11.2 code review, finding 2) exists to prevent. The
+    // provider's caller turns this resolution into pull-failed, and the peer is
+    // told something rather than nothing.
+    settlePeerPull('disposed');
+    if (slideLifecycleUnsub) { try { slideLifecycleUnsub(); } catch { /* ignore */ } slideLifecycleUnsub = null; }
     // S10.1 — checksum machinery teardown (epoch bump stops in-flight writes).
     ++epoch;
     resetCsumState();

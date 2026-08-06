@@ -1395,6 +1395,25 @@
       margin: 0;
     }
 
+    /* ==== Epic E11 Story S11.3 — #peer-copy-modal specifics ==== */
+    /* A confirm modal whose rows carry read-only VALUES rather than form controls,
+       so it borrows the .chrome-modal .field layout (label left / value right) and
+       adds only the value's own type styling — the #about-modal .val precedent.
+       Narrow: three short rows and two buttons. --chrome-* tokens only, so it is
+       visually identical CRT↔Console (AD-9); no colour carries meaning here and
+       nothing in this feature is red (red is reserved for port-lost and security). */
+    #peer-copy-modal {
+      max-width: 420px;
+    }
+    #peer-copy-modal .field-value {
+      color: var(--chrome-fg);
+      font-size: 13px;
+      text-align: right;
+      /* A multi-file drop joins its names with commas into this one cell; wrap
+         rather than widen the dialog or clip the tail. */
+      overflow-wrap: anywhere;
+    }
+
     /* ==== Shared aligned-row form controls — .chrome-modal .field ==== */
     /* Clean aligned rows (v1.1 polish — matches the key-screen-chrome.html mock):
        muted label on the LEFT, control on the RIGHT (DESIGN.md:165 "labels sit …
@@ -2734,6 +2753,33 @@
       <form method="dialog">
         <button id="slide-config-close" value="close">Close</button>
       </form>
+    </footer>
+  </dialog>
+
+  <!-- Epic E11 Story S11.3 (FR-4, UX-DR2, AD-8/AD-9/AD-10) — beast-to-beast copy
+       confirm. A foreign-tab payload was dropped on this terminal and Settings ▸
+       Confirm file transfers is on; this states what is about to be copied, from
+       where, to where. A SIBLING of #send-modal, not a rework of it: the existing
+       send confirm is untouched.
+       Aligned rows in the shared .chrome-modal .field family — the row shape is
+       #slide-confirm-transfers-row's, NOT #send-modal's (which predates the
+       aligned-row restyle, carries no class="chrome-modal", and is still a bespoke
+       <ul><li> list). Every value span starts empty: peer-drop.js fills all three
+       plus the title from the dropped payload just before showModal.
+       Buttons close with tagged returnValues; openModal resolves '' on Esc and on
+       backdrop dismiss, both of which peer-drop maps to Cancel. -->
+  <dialog id="peer-copy-modal" class="chrome-modal" aria-labelledby="peer-copy-modal-title">
+    <header>
+      <h2 id="peer-copy-modal-title">Copy from the other beast?</h2>
+    </header>
+    <div class="modal-body">
+      <div class="field"><span class="field-label">File</span><span id="peer-copy-file" class="field-value"></span></div>
+      <div class="field"><span class="field-label">From</span><span id="peer-copy-from" class="field-value"></span></div>
+      <div class="field"><span class="field-label">To</span><span id="peer-copy-to" class="field-value"></span></div>
+    </div>
+    <footer>
+      <button id="peer-copy-confirm" type="button">Copy</button>
+      <button id="peer-copy-cancel" type="button">Cancel</button>
     </footer>
   </dialog>
 

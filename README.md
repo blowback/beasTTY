@@ -140,6 +140,22 @@ automatically transfer files from the MicroBeast to your local PC.
 **NB** you can't drag directly to a filer window, you'll just get a new file 
 with all the selected filenames in it!
 
+### Beast to beast (two MicroBeasts, two tabs)
+
+If you run two MicroBeasts, open a BeasTTY tab for each and you can copy a
+file straight from one to the other: select a filename in one beast's
+terminal and drop it on the other beast's terminal. The source beast pulls
+the file into its own pull folder, hands the bytes to the other tab, and the
+destination beast receives them — one gesture instead of a pull, a folder and
+a send. Nothing leaves your browser; the two tabs talk to each other directly.
+
+Beast-to-beast drag needs both BeasTTY tabs visible at once — use Chrome's
+Split View to put them side by side.
+
+Both tabs need their own serial port, and the source tab needs a pull folder
+chosen in its filer pane. If anything is missing you get a plain sentence
+saying which one thing to fix, not a silent failure.
+
 ### Cancelling
 
 Press `Esc`, or click `[Cancel]` on the floating SLIDE chip, to abort an
