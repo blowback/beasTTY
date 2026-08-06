@@ -2,8 +2,8 @@
 title: 'Paste into the MicroBeast loses most of the text'
 type: 'bugfix'
 created: '2026-08-06'
-status: 'done'
-baseline_commit: 'e0da1afe875e098412840a1b50b20d9bb7e98173'
+status: 'in-progress'
+baseline_commit: '2e7bb59e7831dcdea158f352933a43d727f11c66'
 context: []
 ---
 
@@ -13,16 +13,18 @@ context: []
 
 **Problem:** Pasting a multi-line block into the terminal loses nearly all of it, from two independent defects. (1) `applyCrlfRewrite` only ever inspects `0x0D`, so LF-only clipboard text — the normal case on Linux — reaches the wire as bare `0x0A` in every mode, and the far end never sees a line break. (2) The pump paces to ~1684 B/s at 19200 baud, which no Z80 editor can consume, and hands 32 bytes to the writer back-to-back, so they arrive as an unbroken 16.7 ms burst that a 16-byte FIFO cannot absorb whatever the average rate. Observed on hardware: with flow control `none`, 17 clean characters arrive (one FIFO) then garbage; with RTS/CTS, ~66 bytes arrive with every line break missing.
 
-**Approach:** Two user settings — **Paste line ending** (normalise every break in the pasted text to CR / LF / CRLF, or pass through as-is) and **Paste speed** (bytes/sec). At a paced speed, chunks drop to 8 bytes so a burst cannot overrun the FIFO, split at line terminators, and a line break earns an extra pause on top of the ordinary inter-chunk gap.
+**Approach:** Three user settings — **Paste line ending** (normalise every break in the pasted text to CR / LF / CRLF, or pass through as-is), and two controls describing the wire cadence directly: **Paste chunk size** (how many bytes land back-to-back) and **Paste pause** (how long the receiver gets to drain between them). Throughput is a consequence of the two, not a setting.
+
+**Hardware finding (2026-08-06, real MicroBeast).** With flow control the paste is correct at full speed, so the firmware handshakes per byte and the line-ending fix is confirmed. Without flow control the paste fails identically at 60, 120 and 240 B/s — a 4× rate change with no effect — because every one of those sends the same 8-byte burst and varies only the idle time after it. The loss is inside the chunk, so the pause cannot reach it. Chunk size is the variable that was never tested.
 
 ## Boundaries & Constraints
 
 **Always:**
 - Paste line ending is a **separate** setting from Settings ▸ "Enter key sends" (`crlfMode`); neither reads the other. Label both rows so it is obvious which governs which — they can hold different values, and that must read as deliberate.
-- A paced chunk is **≤ 8 bytes**, under the 16-byte 16C550 FIFO with room to drain.
-- A chunk never spans a line terminator: it ends at one, or contains none.
-- **Paste speed is the byte rate _between_ line breaks.** The per-break pause is additive and deliberate. Menu labels must say so, and any duration estimate must count both terms.
-- **The inter-chunk gap is proportional to the bytes actually written**, never a flat per-chunk value — a chunk truncated at a terminator must not cost the same as a full one.
+- **Chunk size and pause are the two controls, and both are physical facts.** Chunk size is how many bytes go out back-to-back; pause is the idle time the receiver gets between chunks. Neither is derived from the other and neither is expressed as a rate.
+- **Throughput is shown, never set.** Derive it from the two controls and display it in the menu and the confirm estimate, so the user reads a consequence rather than reasoning backwards from one.
+- **No behaviour keys off the content of the bytes.** Chunks are a fixed size regardless of what they contain, and every pause is the same length. A line break is an ordinary byte.
+- Every chunk is exactly the configured size except the last, which is the remainder.
 - **Local echo must render a pasted multi-line block as separate lines.** The bytes on the wire and the bytes fed to the terminal for echo need not be identical.
 - Follow the established radio-submenu pattern end to end (markup → `onRadioSelect` → `savePrefs` → `projectMenuOnOpen` → `projectPrefs` → `applyPrefs`). Persist ≠ apply — the handler calls both.
 - Append new prefs to `DEFAULTS` **without** bumping `CURRENT_VERSION` (defensive spread-merge, as every prior pref).
@@ -48,17 +50,18 @@ context: []
 | CR clipboard, ending `crlf` | `A\rB` | `41 0D 0A 42` | N/A |
 | Mixed clipboard, ending `lf` | `A\r\nB\nC\rD` | `41 0A 42 0A 43 0A 44` | N/A |
 | Ending `raw` | `A\r\nB` | `41 0D 0A 42` — unchanged | N/A |
-| Paced paste | 800 B at 240 B/s | ~240 B/s between breaks + ~133 ms per break: 40-char lines ≈ 6 s, 20-char lines ≈ 8 s | N/A |
-| Short chunk cost | 3-byte chunk ending at a terminator | pays ~3/rate, not a full chunk's gap — then the break pause | N/A |
-| Large-paste estimate | 5000 B, 125 breaks, 240 B/s | quoted duration counts both terms (~37 s), within ~15 % of actual | N/A |
+| Paced paste | 800 B, chunk 1, pause 20 ms | 800 writes of 1 byte, 20 ms apart, ~16 s; no chunk larger than 1 whatever the bytes contain | N/A |
+| Chunk holding a line break | chunk 8, payload `AB\nCDEFGHIJ` | the break rides inside a chunk like any other byte — no early split, no longer pause | N/A |
+| Derived throughput shown | chunk 8, pause 20 ms | menu and estimate both read ~400 B/s; the user never types a rate | N/A |
+| Large-paste estimate | 5000 B, chunk 8, pause 20 ms | `ceil(5000/8) × 20 ms` ≈ 13 s, within ~15 % of actual | N/A |
 | Local echo, multi-line | echo on, ending `cr`, `A\nB` | screen shows `A` and `B` on separate lines | N/A |
-| Full speed | speed `0` | today's behaviour: 32 B at `computeGap(baud)`, no break pause | N/A |
-| Speed above the wire | 480 B/s at 2400 baud | clamped to the 8N1 byte rate | N/A |
-| Speed changed mid-paste | Full speed picked during a paced paste | the in-flight paste keeps its enqueue-time pacing; the new value applies to the next paste | N/A |
+| No pause | pause `0` | today's behaviour: writes at wire speed, chunk size still honoured | N/A |
+| Pause below timer resolution | pause 5 ms | honoured as given; no silent floor that makes a setting a lie | N/A |
+| Settings changed mid-paste | chunk or pause changed during a paced paste | the in-flight paste keeps its enqueue-time values; a paste appended to a live run adopts the slower of the two | N/A |
 | SLIDE starts mid-paste | transfer begins while a paced paste runs | pump stops; progress does not advance over dropped bytes | N/A |
 | Cancel mid-paste | Esc while paced | pump stops; no `0x1B` emitted (unchanged) | N/A |
-| Out-of-range stored pref | `pasteSpeed: 99999` | rejected, default stands | no throw |
-| Non-numeric stored pref | `pasteSpeed: null` / `""` / `false` / `[]` | rejected, default stands, menu shows the default | no throw; must not coerce to `0` |
+| Out-of-range stored pref | `pasteChunk: 99999` / `pastePauseMs: -1` | rejected, default stands | no throw |
+| Non-numeric stored pref | either pref as `null` / `""` / `false` / `[]` | rejected, default stands, menu shows the default | no throw; must not coerce to `0` |
 | Empty / no-break paste | `ABC` | unchanged bytes, paced normally | N/A |
 
 </frozen-after-approval>
@@ -76,27 +79,29 @@ context: []
 
 ## Tasks & Acceptance
 
+The line-ending half of this spec is implemented and hardware-confirmed. These tasks replace the pacing half only. The line-ending normaliser, the local-echo display copy, the `isTransferRunning()` re-check, the menu-projection approach and the validator style all stay as they are.
+
 **Execution:**
-- [ ] `www/state/prefs.js` -- append `pasteLineEnding: 'cr'` and `pasteSpeed: 240` to `DEFAULTS` with inline comments; do not bump `CURRENT_VERSION`.
-- [ ] `www/input/paste-pump.js` -- replace `applyCrlfRewrite` with a line-break normaliser: scan for `\r\n`, `\r`, `\n`, emit the configured terminator for each; `raw` returns input unchanged. Add `setPasteLineEnding` / `setPasteSpeed`; `setPasteSpeed` must reject any non-`number` **before** the integer test, so `null`/`""`/`false`/`[]` cannot coerce to `0`.
-- [ ] `www/input/paste-pump.js` -- re-chunk and re-pace: 8-byte cap when paced, split at terminators, gap **proportional to the bytes in the chunk just written**, plus an additive break pause after a terminator-ending chunk. Clamp the rate to the wire. Freeze the pacing values for an in-flight paste at enqueue so a mid-paste speed change cannot burst the remainder. Keep `writeOneChunk` synchronous.
-- [ ] `www/input/paste-pump.js` -- feed local echo a display copy in which the terminator renders as a real newline, so a multi-line paste echoes as multiple lines. Re-check `isTransferRunning()` in `writeOneChunk` and stop without advancing progress if a transfer started mid-paste.
-- [ ] `www/index.html` -- two radio submenus after line 1994: "Paste line ending" (`paste-eol`: CR / LF / CRLF / As-is) and "Paste speed" (`paste-speed`: Full speed / 480 / 240 / 120 / 60 B/s), the paced rows labelled to show the break pause is extra.
-- [ ] `www/renderer/menu-bar.js` -- panel refs, injected setters, two `onRadioSelect` branches, plus entries in the settings re-projection and in `projectPrefs`.
-- [ ] `www/main.js` -- inject both setters into `wireMenuBar`; call both from `applyPrefs`; confirm `wirePastePump` runs before `applyPrefs(prefs)`; expose the new getters on `window.__pastePump`.
-- [ ] `www/renderer/paste-toast.js` + `www/main.js` -- estimate from both terms: `bytes / rate` plus one break pause per terminator in the payload. Never substitute a fallback rate for a real one; floor the reported rate at 1.
-- [ ] `www/input/paste-pump.js` -- comment accuracy pass: state the FIFO rationale as *burst length* (not arrival rate) and cite the observed 17-byte prefix as its evidence; correct the stale "18ms" figure; make the `MAX_PASTE_SPEED` comment admit the 4 ms floor caps the paced path well below it; drop the unreachable `i === start` disjunct in the chunk-end scan or assert the constant it depends on.
-- [ ] `www/tests/input/paste-line-ending.spec.js` -- new spec covering every line-ending row of the I/O matrix against `#tx-strip`, plus a paced CRLF pair straddling the chunk cap (reachable only in `crlf`/`raw` mode).
-- [ ] `www/tests/transport/paste.spec.js` -- paced chunk size, proportional short-chunk gap, additive break pause, wire clamp, mid-paste speed change, SLIDE-starts-mid-paste, and a realistic multi-line duration; re-verify the existing duration (39-57) and keystroke queue-jump (106) tests against the new chunking.
-- [ ] `www/tests/render/*` + `www/tests/session/prefs.spec.js` -- defaults, reload round-trip, menu persist/apply/focus-retention, reset re-projection, the non-numeric-pref rejection, a multi-line local-echo render, the updated toast string, and an assertion that the pump's module defaults match `DEFAULTS`.
+- [x] `www/state/prefs.js` -- replace `pasteSpeed: 240` with `pasteChunk: 1` and `pastePauseMs: 20`. Still no `CURRENT_VERSION` bump; a stored `pasteSpeed` from the previous shape is simply ignored by the spread-merge.
+- [x] `www/input/paste-pump.js` -- replace the rate model with the two controls. `setPasteChunk` / `setPastePauseMs` / getters, each rejecting the type before the value. Delete `effectiveRate`, `gapForBytes`, `lineExtraFor`, `MAX_PASTE_SPEED`, `setBaudForPump`'s pacing role and the wire clamp — none of them survive a model where the user sets the cadence directly.
+- [x] `www/input/paste-pump.js` -- `chunkEnd` becomes `min(start + chunk, queue.length)` with no terminator scan; the delay after every chunk is `pastePauseMs` flat. Remove the CRLF-never-split rule (see the change log: it only existed to protect a pause that no longer exists). Keep `writeOneChunk` synchronous, keep the SLIDE re-check, keep freezing at enqueue and the slower-of-the-two rule on append.
+- [x] `www/transport/serial.js` -- drop the `setBaudForPump` call from `setLastConfig` if the pump no longer consumes baud, and correct the comment rather than leaving it claiming a live hook. If any baud-derived behaviour remains, say exactly what.
+- [x] `www/index.html` -- replace the `paste-speed` submenu with two: "Paste chunk size" (`paste-chunk`: 1 / 2 / 4 / 8 / 16 / 32 bytes) and "Paste pause" (`paste-pause`: none / 5 / 10 / 20 / 50 / 100 / 200 ms). Show the derived throughput on the parent row or alongside, so the consequence is visible without arithmetic.
+- [x] `www/renderer/menu-bar.js` -- swap the `paste-speed` branch for the two new panels, projecting each from the pump's live getter as the current code does. Keep every projection point.
+- [x] `www/main.js` -- inject and apply both setters; expose both getters plus the derived throughput on `window.__pastePump`.
+- [x] `www/renderer/paste-toast.js` + `www/input/clipboard.js` -- estimate becomes `(ceil(wireBytes / chunk) - 1) × pauseMs`. Drop the break term and the between-line-breaks qualifier from the string; quote the derived throughput.
+- [x] `www/input/paste-pump.js` -- comment pass: record what the hardware actually showed (identical corruption at 60/120/240 B/s with chunk pinned at 8, correct at full speed with flow control) and why chunk size is therefore the control that matters. Remove the FIFO-size claims that the evidence no longer supports — the 16C550's FIFO configuration on this machine is unconfirmed.
+- [x] `www/tests/transport/paste.spec.js` -- chunk size honoured exactly at 1/2/8/32 including across line breaks; flat pause after every chunk; pause 0; settings changed mid-paste; the slower-of-two append; SLIDE mid-paste. Delete the tests that asserted terminator-splitting and the break pause.
+- [x] `www/tests/*` -- defaults, reload round-trip, menu persist/apply/focus-retention, reset re-projection, type-rejection for both new prefs, and the updated estimate string. Line-ending and local-echo specs should need no change; if one does, that is a signal the pacing rework reached further than intended.
 
 **Acceptance Criteria:**
 - Given default settings and an LF-only multi-line clipboard, when the user pastes, then every line break reaches the wire as `0x0D` and the rest of the byte stream is identical to the clipboard text.
-- Given a paced speed, when a paste runs, then no single write exceeds 8 bytes and none spans a line terminator.
+- Given any chunk size, when a paste runs, then every write is exactly that many bytes except the last, regardless of where line breaks fall in the payload.
+- Given any pause, when a paste runs, then the delay between every pair of consecutive writes is that value — the same after a line break as anywhere else.
 - Given local echo is on and the default line ending, when a multi-line block is pasted, then the echoed text occupies as many rows as it has lines.
 - Given "Enter key sends" and "Paste line ending" are set to different values, when the user presses Enter and then pastes a line break, then each emits its own configured bytes with no interference.
-- Given either new setting is changed, when the page is reloaded, then the value persists and both the menu checkmark and the live behaviour reflect it.
-- Given `pasteSpeed` is `0`, when a paste runs, then chunk size and timing are byte-for-byte what they are today.
+- Given either pacing setting is changed, when the page is reloaded, then the value persists and both the menu checkmark and the live behaviour reflect it.
+- Given a chunk size and pause, when the confirm quotes a duration, then it is within ~15 % of how long the paste actually takes.
 
 ## Spec Change Log
 
@@ -117,15 +122,30 @@ context: []
 - `config.spec.js` selecting Full speed before its baud assertions — necessary, not convenient: at the paced default `gapMs` is 33 at both 19200 and 9600, so the test cannot otherwise discriminate baud, and its purpose is proving `setBaudForPump` is wired.
 - `paste-toast.spec.js` asserting the toast string exactly rather than with `toContainText`.
 
+### 2026-08-06 — pacing replaced by chunk size + pause after hardware testing
+
+**Triggering evidence.** Real-hardware testing of `fe2b57f`. With flow control the paste is correct at full speed — confirming the line-ending fix and disproving an earlier claim of mine that the MicroBeast was not handshaking. Without flow control it fails *identically* at 60, 120 and 240 B/s. `__getStateForTests()` confirmed the setting was genuinely applied (`chunkSize: 8, gapMs: 133, speed: 60`), so a 4× rate change with no observable effect can only mean the pause is not where the loss happens. Every one of those speeds sent the same 8-byte burst; only the idle time afterwards differed. Chunk size was pinned at 8 throughout and was never tested.
+
+**What was amended, at Ant's direction.** The rate-with-a-line-break-qualifier model is replaced by two independent physical controls — chunk size and pause. Throughput becomes a displayed consequence rather than a setting. All content-dependent behaviour is removed: no splitting at terminators, no longer pause after a line break, no proportional gap. Ant's words: *"the settings menu clearly says 'pause between line breaks'. what we need is 'pause between half-fifo sized chunks'."*
+
+**Known-bad state avoided.** A settings menu offering a knob that cannot affect the failure the user is trying to fix, while presenting a number that describes neither the cadence nor the delivered throughput.
+
+**KEEP — carried forward from the previous entry and still binding.** The two-pass `normaliseLineBreaks`; `hasOwnProperty`-style validation with the type rejected before the value; the complete radio-submenu wiring including the wire-time paint; projecting the menu from the pump's live values rather than the raw pref; exact-string toast assertions; the local-echo display copy; the `isTransferRunning()` re-check inside the write loop; and the slower-of-the-two rule when appending to a live run. The CRLF-never-split rule is **retired**, not lost — it existed to keep the line-break pause from landing between a CR and its LF, and there is no longer a line-break pause.
+
 ## Design Notes
 
-`pasteSpeed` is bytes/sec **between line breaks**, with `0` meaning "as fast as the wire allows" — today's behaviour, kept for targets that can take it. Let `rate = min(pasteSpeed, baud/10 * 0.90)`.
+Two independent controls, both physical:
 
-- Gap after writing a chunk of `n` bytes: `max(4, round(n / rate * 1000))`.
-- If that chunk ended in a terminator, add `lineExtraMs = max(50, round(8 / rate * 1000) * 4)` on top — a line break costs a full-screen editor a redraw where an ordinary character costs a buffer insert.
-- Estimated duration for a payload of `B` bytes containing `k` breaks: `B / rate + k * lineExtraMs / 1000`.
+- `pasteChunk` — bytes written back-to-back. Offered: 1, 2, 4, 8, 16, 32. Default **1**.
+- `pastePauseMs` — idle time between chunks. Offered: 0, 5, 10, 20, 50, 100, 200. Default **20**.
 
-At 240 B/s that is a 33 ms gap for a full 8-byte chunk, ~13 ms for a 3-byte one, and a 133 ms extra pause per line — so 800 B of 40-char lines takes ~6 s, and the estimate agrees with the pump instead of guessing.
+Everything else follows: `writes = ceil(B / pasteChunk)`, `duration ≈ (writes - 1) × pastePauseMs`, `throughput ≈ pasteChunk / pastePauseMs × 1000` (unbounded when the pause is 0, where the wire is the only limit). Defaults give one byte every 20 ms ≈ 50 B/s.
+
+**Why the previous model was wrong.** It made throughput the setting and derived the cadence, with an extra pause at line breaks on the theory that a full-screen editor redraws on newline. That theory was never evidenced. Worse, it left chunk size pinned at 8 while the user varied a number that only changed the idle time — which is why 60, 120 and 240 B/s produced identical corruption on real hardware. The bytes that were lost were lost *within* the 8-byte burst, where no pause can reach them.
+
+The default of chunk 1 is deliberately the most conservative setting available, not a tuned one. Walking it upward until the paste breaks is what tells us the receiver's real buffer size — the number nobody currently knows, since the 16C550's FIFO configuration on this machine is unconfirmed.
+
+Local echo needs its own copy of the bytes. The wire wants the configured terminator; the screen wants something the VT52 core renders as a new row, and `0x0D` alone is not that (`terminal.rs:364`).
 
 Local echo needs its own copy of the bytes. The wire wants the configured terminator; the screen wants something the VT52 core renders as a new row, and `0x0D` alone is not that (`terminal.rs:364`).
 
@@ -138,9 +158,10 @@ The 240 B/s default is an estimate, not a measurement. It must be confirmed on r
 - `cd www && npx playwright test` -- expected: no new failures. A known pool of load-sensitive specs flakes (see `deferred-work.md`) — re-run any single failure in isolation before calling it a regression.
 
 **Manual checks (real hardware — the only check that closes this bug):**
-- At 19200 with flow control `none`, open VIBE on the MicroBeast, enter insert mode, paste the ~800 B Forth block from the bug report. Expect every line present, correctly broken, no garbage. If text is still lost, step `pasteSpeed` down (120, then 60) and record the first value that survives — that becomes the default.
+- **Line endings: already confirmed.** With flow control at full speed the ~800 B Forth block pastes into VIBE correctly. No further check needed.
+- **Chunk size sweep, flow control `none`, 19200.** Start at the default (chunk 1, pause 20 ms) and paste the Forth block into VIBE in insert mode. If it survives, walk chunk size up — 2, 4, 8 — until it breaks. **The largest chunk that survives is the receiver's usable buffer**, which is the number nobody has yet; record it and it becomes the default. If chunk 1 at 20 ms still fails, raise the pause instead (50, 100) before concluding the receiver cannot be paced at all.
 - With Local echo on, confirm the same paste echoes as multiple lines locally.
-- Repeat with RTS/CTS and confirm it is no worse.
+- Confirm RTS/CTS at full speed is unaffected — it already works and must stay working.
 
 ## Suggested Review Order
 

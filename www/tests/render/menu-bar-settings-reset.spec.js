@@ -26,8 +26,10 @@ const crlfRadio = (v) =>
   `#dropdown-settings .submenu[data-submenu-panel="crlf"] .menu-item[data-value="${v}"]`;
 const pasteEolRadio = (v) =>
   `#dropdown-settings .submenu[data-submenu-panel="paste-eol"] .menu-item[data-value="${v}"]`;
-const pasteSpeedRadio = (v) =>
-  `#dropdown-settings .submenu[data-submenu-panel="paste-speed"] .menu-item[data-value="${v}"]`;
+const pasteChunkRadio = (v) =>
+  `#dropdown-settings .submenu[data-submenu-panel="paste-chunk"] .menu-item[data-value="${v}"]`;
+const pastePauseRadio = (v) =>
+  `#dropdown-settings .submenu[data-submenu-panel="paste-pause"] .menu-item[data-value="${v}"]`;
 
 // Boot with an optional seeded prefs blob (the reset re-projection oracle). loadPrefs()
 // runs at boot (main.js:36), so a seeded blob flows into the initial menu projection.
@@ -191,19 +193,21 @@ test.describe('E3.3 AC-2 — reset re-projects every prefs-driven menu row', () 
     await expect(page.locator(crlfRadio('lf'))).toHaveAttribute('data-checked', 'false');
   });
 
-  test('committed reset re-projects the two paste rows too @fast', async ({ page }) => {
+  test('committed reset re-projects the three paste rows too @fast', async ({ page }) => {
     // The paste settings ride the same projectPrefs subscriber as the rows above.
-    // Seeded non-default so a reset is observable in BOTH radios; pasteSpeed 0 is
+    // Seeded non-default so a reset is observable in every radio; a pause of 0 is
     // seeded deliberately, being the value a truthy projector guard would skip.
-    await ready(page, { prefs: { version: 2, pasteLineEnding: 'raw', pasteSpeed: 0 } });
+    await ready(page, { prefs: { version: 2, pasteLineEnding: 'raw', pasteChunk: 32, pastePauseMs: 0 } });
     await page.waitForFunction(
-      () => window.__pastePump && typeof window.__pastePump.getPasteSpeed === 'function');
+      () => window.__pastePump && typeof window.__pastePump.getPasteChunk === 'function');
 
     await page.evaluate(() => window.__menuBar.open('settings'));
     await page.click('#dropdown-settings .menu-item[data-submenu="paste-eol"]');
     await expect(page.locator(pasteEolRadio('raw'))).toHaveAttribute('data-checked', 'true');
-    await page.click('#dropdown-settings .menu-item[data-submenu="paste-speed"]');
-    await expect(page.locator(pasteSpeedRadio('0'))).toHaveAttribute('data-checked', 'true');
+    await page.click('#dropdown-settings .menu-item[data-submenu="paste-chunk"]');
+    await expect(page.locator(pasteChunkRadio('32'))).toHaveAttribute('data-checked', 'true');
+    await page.click('#dropdown-settings .menu-item[data-submenu="paste-pause"]');
+    await expect(page.locator(pastePauseRadio('0'))).toHaveAttribute('data-checked', 'true');
 
     await page.click(RESET);
     await expect(page.locator(RESET_LBL)).toHaveText(CONFIRM);
@@ -211,16 +215,21 @@ test.describe('E3.3 AC-2 — reset re-projects every prefs-driven menu row', () 
 
     const p = await page.evaluate(() => window.__prefs.getPrefs());
     expect(p.pasteLineEnding).toBe('cr');
-    expect(p.pasteSpeed).toBe(240);
+    expect(p.pasteChunk).toBe(1);
+    expect(p.pastePauseMs).toBe(20);
     await page.evaluate(() => window.__menuBar.open('settings'));
     await page.click('#dropdown-settings .menu-item[data-submenu="paste-eol"]');
     await expect(page.locator(pasteEolRadio('cr'))).toHaveAttribute('data-checked', 'true');
     await expect(page.locator(pasteEolRadio('raw'))).toHaveAttribute('data-checked', 'false');
-    await page.click('#dropdown-settings .menu-item[data-submenu="paste-speed"]');
-    await expect(page.locator(pasteSpeedRadio('240'))).toHaveAttribute('data-checked', 'true');
-    await expect(page.locator(pasteSpeedRadio('0'))).toHaveAttribute('data-checked', 'false');
+    await page.click('#dropdown-settings .menu-item[data-submenu="paste-chunk"]');
+    await expect(page.locator(pasteChunkRadio('1'))).toHaveAttribute('data-checked', 'true');
+    await expect(page.locator(pasteChunkRadio('32'))).toHaveAttribute('data-checked', 'false');
+    await page.click('#dropdown-settings .menu-item[data-submenu="paste-pause"]');
+    await expect(page.locator(pastePauseRadio('20'))).toHaveAttribute('data-checked', 'true');
+    await expect(page.locator(pastePauseRadio('0'))).toHaveAttribute('data-checked', 'false');
     // applyPrefs is the single writer of the live pump state on the reset path.
     expect(await page.evaluate(() => window.__pastePump.getPasteLineEnding())).toBe('cr');
-    expect(await page.evaluate(() => window.__pastePump.getPasteSpeed())).toBe(240);
+    expect(await page.evaluate(() => window.__pastePump.getPasteChunk())).toBe(1);
+    expect(await page.evaluate(() => window.__pastePump.getPastePauseMs())).toBe(20);
   });
 });

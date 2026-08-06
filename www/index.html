@@ -2028,54 +2028,103 @@
             </button>
           </div>
         </div>
-        <!-- Paste speed radio submenu (Full speed / 480 / 240 / 120 / 60 B/s).
-             data-value is the integer bytes/sec the pump aims for, with 0 =
-             "as fast as the wire allows" (the pre-fix behaviour). Numeric
-             submenu, so the handler converts + validates before persisting —
-             the Command history size branch below is the shape.
+        <!-- Paste chunk size + Paste pause: the two controls that describe the
+             wire cadence directly. Chunk size is how many bytes go out
+             back-to-back; pause is the idle time the receiver gets between them.
+             Neither is derived from the other, neither is a rate, and nothing
+             keys off what the bytes are — a line break is an ordinary byte.
 
-             Every paced row says "between line breaks" because that is exactly
-             what the number means: the pump adds a further pause after each
-             break (a redraw costs a Z80 editor far more than a buffer insert),
-             so a paste of short lines takes noticeably longer than bytes ÷ rate.
-             The large-paste confirm counts both terms for the same reason.
+             Both are numeric submenus, so the handler converts + validates
+             before persisting (the Command history size branch is the shape).
 
-             Pasting at wire speed drops text on the MicroBeast: a 32-byte write
-             overruns its 16-byte UART FIFO inside the single write, whatever the
-             average rate — the hardware capture shows 17 good characters then
-             garbage. At any paced speed the pump writes 8 bytes at a time and
-             ends a chunk at a line terminator. Default checked = 240 B/s (the
-             prefs.pasteSpeed default, an estimate pending real hardware);
-             re-derived from prefs on open / reset. -->
+             Chunk size is the control that matters. Real hardware lost the same
+             text at 60, 120 and 240 B/s while the chunk stayed pinned at 8: a 4×
+             change in rate with no change in the corruption means the bytes are
+             lost INSIDE the burst, where the pause cannot reach them. Default
+             checked = 1 byte / 20 ms (the prefs defaults) — the most
+             conservative setting on the menu, to be walked upward until the
+             paste breaks. Re-derived from the pump on open / reset. -->
         <div class="submenu-group">
           <button class="menu-item" type="button" role="menuitem" data-variant="radio-submenu"
-                  data-submenu="paste-speed" aria-haspopup="true" aria-expanded="false">
-            <span class="check"></span><span class="lbl">Paste speed</span><span class="caret">▸</span>
+                  data-submenu="paste-chunk" aria-haspopup="true" aria-expanded="false">
+            <span class="check"></span><span class="lbl">Paste chunk size</span><span class="caret">▸</span>
           </button>
-          <div class="submenu" role="menu" data-submenu-panel="paste-speed"
-               aria-label="Paste speed — byte rate between line breaks; each break adds an extra pause" hidden>
-            <button class="menu-item" type="button" role="menuitemradio" data-value="0"
-                    data-checked="false" aria-checked="false">
-              <span class="check"></span><span class="lbl">Full speed (no line pause)</span>
-            </button>
-            <button class="menu-item" type="button" role="menuitemradio" data-value="480"
-                    data-checked="false" aria-checked="false">
-              <span class="check"></span><span class="lbl">480 B/s between line breaks</span>
-            </button>
-            <button class="menu-item" type="button" role="menuitemradio" data-value="240"
+          <div class="submenu" role="menu" data-submenu-panel="paste-chunk"
+               aria-label="Paste chunk size — bytes written back-to-back" hidden>
+            <button class="menu-item" type="button" role="menuitemradio" data-value="1"
                     data-checked="true" aria-checked="true">
-              <span class="check">✓</span><span class="lbl">240 B/s between line breaks</span>
+              <span class="check">✓</span><span class="lbl">1 byte</span>
             </button>
-            <button class="menu-item" type="button" role="menuitemradio" data-value="120"
+            <button class="menu-item" type="button" role="menuitemradio" data-value="2"
                     data-checked="false" aria-checked="false">
-              <span class="check"></span><span class="lbl">120 B/s between line breaks</span>
+              <span class="check"></span><span class="lbl">2 bytes</span>
             </button>
-            <button class="menu-item" type="button" role="menuitemradio" data-value="60"
+            <button class="menu-item" type="button" role="menuitemradio" data-value="4"
                     data-checked="false" aria-checked="false">
-              <span class="check"></span><span class="lbl">60 B/s between line breaks</span>
+              <span class="check"></span><span class="lbl">4 bytes</span>
+            </button>
+            <button class="menu-item" type="button" role="menuitemradio" data-value="8"
+                    data-checked="false" aria-checked="false">
+              <span class="check"></span><span class="lbl">8 bytes</span>
+            </button>
+            <button class="menu-item" type="button" role="menuitemradio" data-value="16"
+                    data-checked="false" aria-checked="false">
+              <span class="check"></span><span class="lbl">16 bytes</span>
+            </button>
+            <button class="menu-item" type="button" role="menuitemradio" data-value="32"
+                    data-checked="false" aria-checked="false">
+              <span class="check"></span><span class="lbl">32 bytes</span>
             </button>
           </div>
         </div>
+        <div class="submenu-group">
+          <button class="menu-item" type="button" role="menuitem" data-variant="radio-submenu"
+                  data-submenu="paste-pause" aria-haspopup="true" aria-expanded="false">
+            <span class="check"></span><span class="lbl">Paste pause</span><span class="caret">▸</span>
+          </button>
+          <div class="submenu" role="menu" data-submenu-panel="paste-pause"
+               aria-label="Paste pause — idle time between chunks" hidden>
+            <button class="menu-item" type="button" role="menuitemradio" data-value="0"
+                    data-checked="false" aria-checked="false">
+              <span class="check"></span><span class="lbl">None (wire speed)</span>
+            </button>
+            <button class="menu-item" type="button" role="menuitemradio" data-value="5"
+                    data-checked="false" aria-checked="false">
+              <span class="check"></span><span class="lbl">5 ms</span>
+            </button>
+            <button class="menu-item" type="button" role="menuitemradio" data-value="10"
+                    data-checked="false" aria-checked="false">
+              <span class="check"></span><span class="lbl">10 ms</span>
+            </button>
+            <button class="menu-item" type="button" role="menuitemradio" data-value="20"
+                    data-checked="true" aria-checked="true">
+              <span class="check">✓</span><span class="lbl">20 ms</span>
+            </button>
+            <button class="menu-item" type="button" role="menuitemradio" data-value="50"
+                    data-checked="false" aria-checked="false">
+              <span class="check"></span><span class="lbl">50 ms</span>
+            </button>
+            <button class="menu-item" type="button" role="menuitemradio" data-value="100"
+                    data-checked="false" aria-checked="false">
+              <span class="check"></span><span class="lbl">100 ms</span>
+            </button>
+            <button class="menu-item" type="button" role="menuitemradio" data-value="200"
+                    data-checked="false" aria-checked="false">
+              <span class="check"></span><span class="lbl">200 ms</span>
+            </button>
+          </div>
+        </div>
+        <!-- Throughput is a CONSEQUENCE of the two rows above (chunk ÷ pause),
+             never a setting — so it is a readout, not a control:
+             data-disabled="true" makes it inert to clicks and skips it in
+             keyboard nav, exactly like the off-CRT Phosphor/Font parents. The
+             hint text is re-derived from the pump's live values whenever the
+             Settings menu opens, a paste row is picked, or prefs are reset, so
+             it can never quote a cadence the next paste will not use. -->
+        <button id="menu-paste-throughput-item" class="menu-item" type="button" role="menuitem"
+                data-disabled="true" aria-disabled="true" tabindex="-1">
+          <span class="check"></span><span class="lbl">Paste throughput</span><span class="hint">≈ 50 B/s</span>
+        </button>
         <div class="menu-sep"></div>
         <!-- Epic E8 Story E8.3 (FR-19, AD-4/AD-7/AD-9) — Command history checkable.
              data-pref="commandHistoryEnabled" drives the generic persist path (savePrefs);

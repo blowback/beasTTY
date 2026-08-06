@@ -23,7 +23,7 @@ async function setup(page, opts = {}) {
     // window.__pastePump is assigned LATE in main.js — the pacing cases read it
     // straight after setup, so wait for the handle rather than racing the boot.
     await page.waitForFunction(
-        () => window.__pastePump && typeof window.__pastePump.getPasteSpeed === 'function');
+        () => window.__pastePump && typeof window.__pastePump.getPasteChunk === 'function');
     await page.locator('#debug').evaluate((el) => { el.open = true; });
 }
 
@@ -33,35 +33,30 @@ async function connect(page) {
     await expect(page.locator('#menu-connect-item')).toHaveAttribute('data-state', 'connected');
 }
 
-// Settings ▸ Paste line ending / Paste speed. Both are radio submenus reached
-// exactly like Enter key sends (tests/input/crlf-override.spec.js is the
-// incumbent idiom); the row click applies the pump setter AND persists.
-const pasteEolRow = (v) =>
-    `#dropdown-settings .submenu[data-submenu-panel="paste-eol"] .menu-item[data-value="${v}"]`;
-const pasteSpeedRow = (v) =>
-    `#dropdown-settings .submenu[data-submenu-panel="paste-speed"] .menu-item[data-value="${v}"]`;
+// Settings ▸ Paste line ending / Paste chunk size / Paste pause. All three are
+// radio submenus reached exactly like Enter key sends
+// (tests/input/crlf-override.spec.js is the incumbent idiom); the row click
+// applies the pump setter AND persists.
+const submenuRow = (panel, v) =>
+    `#dropdown-settings .submenu[data-submenu-panel="${panel}"] .menu-item[data-value="${v}"]`;
 
-async function pickSettingsRadio(page, submenu, rowSelector) {
+async function pickSettingsRadio(page, submenu, value) {
     await page.evaluate(() => window.__menuBar.open('settings'));
     await page.click(`#dropdown-settings .menu-item[data-submenu="${submenu}"]`);
-    await page.click(rowSelector);
+    await page.click(submenuRow(submenu, value));
     await page.evaluate(() => window.__menuBar.close());
 }
 
-const setPasteEol = (page, v) => pickSettingsRadio(page, 'paste-eol', pasteEolRow(v));
-const setPasteSpeed = (page, v) => pickSettingsRadio(page, 'paste-speed', pasteSpeedRow(v));
+const setPasteEol = (page, v) => pickSettingsRadio(page, 'paste-eol', v);
+const setPasteChunk = (page, v) => pickSettingsRadio(page, 'paste-chunk', v);
+const setPastePause = (page, v) => pickSettingsRadio(page, 'paste-pause', v);
 
-// Open/close the serial-config <dialog> so its selects are actionable (verbatim
-// idiom from tests/transport/config.spec.js).
-async function openForm(page) {
-    await page.evaluate(() => document.getElementById('serial-config-modal').showModal());
-    await expect(page.locator('#serial-config-modal')).toBeVisible();
-}
-
-async function closeForm(page) {
-    await page.evaluate(() => document.getElementById('serial-config-modal').close());
-    await expect(page.locator('#serial-config-modal')).toBeHidden();
-}
+// A stored blob that pins the cadence, for the cases whose subject is something
+// else entirely (progress copy, cancel, layout). The default 1 byte every 20 ms is
+// deliberately the slowest thing on the menu — ~50 B/s — which turns a 4 KB
+// fixture into an 80-second test. Pinning it keeps those cases about what they are
+// about.
+const pacing = (chunk, pauseMs) => ({ version: 2, pasteChunk: chunk, pastePauseMs: pauseMs });
 
 test.describe('XPORT-09 + D-12..D-23/D-41 — Paste pump', () => {
     test('Paste test button routes textarea through paste-pump @fast', async ({ page }) => {
@@ -80,32 +75,13 @@ test.describe('XPORT-09 + D-12..D-23/D-41 — Paste pump', () => {
         }, { timeout: 3000 }).toBeGreaterThanOrEqual(5);
     });
 
-    // The duration assumption this test was written against — 32-byte chunks at
-    // computeGap(19200) ≈ 19 ms — is now the FULL-SPEED path (Paste speed = 0),
-    // not the default. The default is paced (240 B/s), so the test picks Full
-    // speed explicitly; that keeps the original wire-rate assertion meaningful
-    // AND pins the "speed 0 is byte-for-byte what it was" acceptance criterion.
-    test('paste at 19200 baud at full speed paces >= 95% of expected duration @slow', async ({ page }) => {
-        await setup(page);
-        await connect(page);
-        await setPasteSpeed(page, '0');
-        await page.locator('#debug').evaluate((el) => { el.open = true; });
-        const size = 1024;  // 32 chunks × 32B
-        const content = 'A'.repeat(size);
-        const expectedMs = Math.round(size / (19200 / 10 * 0.90) * 1000);
-        await page.locator('#input').fill(content);
-        const t0 = await page.evaluate(() => performance.now());
-        await page.locator('#paste-test').click();
-        await page.waitForFunction(() => {
-            return window.__mockWriterLog.reduce((a, e) => a + e.bytes.length, 0) >= 1024;
-        }, { timeout: 10_000 });
-        const elapsed = await page.evaluate((t) => performance.now() - t, t0);
-        // D-41 tolerance: >= 95% of expected.
-        expect(elapsed).toBeGreaterThanOrEqual(expectedMs * 0.95);
-    });
+    // The baud-derived duration case that used to sit here is gone with the model
+    // it tested. The pump no longer reads the port or the wire: the user sets the
+    // chunk size and the pause, and the duration follows from those two alone. The
+    // arithmetic is pinned in the "Paste cadence" suite below.
 
     test('progress line Pasting N B — P% updates per chunk', async ({ page }) => {
-        await setup(page);
+        await setup(page, { prefs: pacing(8, 20) });
         await page.evaluate(() => window.__menuBar.open('connection'));
         await page.click('#menu-connect-item');
         await expect(page.locator('#menu-connect-item')).toHaveAttribute('data-state', 'connected');
@@ -152,7 +128,7 @@ test.describe('XPORT-09 + D-12..D-23/D-41 — Paste pump', () => {
     });
 
     test('keypresses interleaved during paste queue-jump between chunks', async ({ page }) => {
-        await setup(page);
+        await setup(page, { prefs: pacing(8, 20) });
         await page.evaluate(() => window.__menuBar.open('connection'));
         await page.click('#menu-connect-item');
         await expect(page.locator('#menu-connect-item')).toHaveAttribute('data-state', 'connected');
@@ -170,8 +146,7 @@ test.describe('XPORT-09 + D-12..D-23/D-41 — Paste pump', () => {
         const log = await page.evaluate(() => window.__mockWriterLog);
         // Find an 'A' write (single-byte 0x41) sandwiched by 'E' writes. The
         // sandwich test reads only the FIRST byte of each neighbour, so it is
-        // indifferent to the chunk size — 8 bytes at the paced default here,
-        // 32 at full speed.
+        // indifferent to the chunk size.
         let sandwiched = false;
         for (let i = 1; i < log.length - 1; i++) {
             const prev = log[i - 1].bytes;
@@ -224,16 +199,13 @@ test.describe('XPORT-09 + D-12..D-23/D-41 — Paste pump', () => {
     // assertions are intentionally dropped; #top-bar-absence is covered by
     // menu-bar.spec.js + paste-toast.spec.js).
     //
-    // Uses a 4 KB paste so the pump runs long enough (4096 / 32 = 128 chunks
-    // × 19 ms ≈ 2.4 s at 19200 baud) for the assertions to land while the pump
-    // is still active — short pastes finish in <100 ms which races the
-    // toContainText('Pasting') assertion against 'Paste complete'. Full speed is
-    // picked explicitly: at the paced default the same 4 KB takes ~17 s, which is
-    // a long time to hold a test open for a layout assertion.
+    // Uses a 4 KB paste at 32 bytes every 20 ms — 128 writes ≈ 2.6 s — so the
+    // assertions land while the pump is still active. Short pastes finish in
+    // <100 ms, which races the toContainText('Pasting') assertion against 'Paste
+    // complete'; the default 1 byte every 20 ms would hold the test open for 80 s.
     test('paste toast is a centered overlay that does not displace the canvas', async ({ page }) => {
-        await setup(page);
+        await setup(page, { prefs: pacing(32, 20) });
         await connect(page);
-        await setPasteSpeed(page, '0');
 
         // Open the debug pane + stage the paste FIRST (opening <details id="debug">
         // reflows the page), THEN capture the canvas geometry — so the only thing
@@ -258,264 +230,213 @@ test.describe('XPORT-09 + D-12..D-23/D-41 — Paste pump', () => {
     });
 });
 
-// The pacing half of the paste-text-loss fix. Pasting at wire speed loses text on
-// the MicroBeast whatever the average rate, because a 32-byte write overruns its
-// 16-byte UART FIFO inside the single write. A paced paste therefore writes at
-// most 8 bytes at a time, ends a chunk at a line terminator rather than carrying
-// on past it, pays a gap PROPORTIONAL to the bytes it just wrote, and adds a
-// further pause after a break.
-test.describe('Paste speed — paced chunking', () => {
+
+// The pacing half of the paste-text-loss fix, as the hardware forced it to be
+// redrawn. Two independent physical controls — how many bytes go out
+// back-to-back, and how long the receiver is left idle between them — and
+// nothing that looks at what the bytes ARE.
+//
+// The evidence: on a real MicroBeast with flow control `none`, the same paste
+// failed IDENTICALLY at 60, 120 and 240 B/s while the chunk stayed pinned at 8.
+// A 4x change in rate that changes nothing means the bytes are lost inside the
+// burst, where an inter-chunk pause cannot reach them. So the burst length is
+// what has to be testable, and it is what these cases pin.
+test.describe('Paste cadence — chunk size and pause', () => {
+    test('the defaults are 1 byte every 20 ms, which reads as 50 B/s @fast', async ({ page }) => {
+        await setup(page);
+        // The most conservative cadence the menu offers, deliberately: it is a
+        // starting point for the hardware sweep, not a tuned value.
+        expect(await page.evaluate(() => window.__pastePump.__getStateForTests()))
+            .toMatchObject({ chunkSize: 1, pauseMs: 20, throughput: 50 });
+    });
+
     // 4 lines of 10 characters. \x0A in the debug textarea reaches the pump as a
     // real 0x0A byte (parseHexEscapes), and the default Paste line ending rewrites
-    // each one to 0x0D — so the terminator on the wire is CR.
+    // each one to 0x0D — so the terminator on the wire is CR, at byte 10 of every
+    // 11. Chunk boundaries therefore land on, before and after a line break at
+    // different chunk sizes, and none of that may make any difference.
     const LINES = 4;
-    const PACED_PAYLOAD = 'ABCDEFGHIJ\\x0A'.repeat(LINES);
+    const PAYLOAD = 'ABCDEFGHIJ\\x0A'.repeat(LINES);
+    const WIRE_LEN = LINES * 11;   // 44 bytes
 
-    test('a paced paste writes <= 8 bytes and never spans a line terminator @fast', async ({ page }) => {
-        await setup(page);
+    for (const chunk of [1, 2, 8, 32]) {
+        test(`every write is exactly ${chunk} B except the last, line breaks included @fast`, async ({ page }) => {
+            // 5 ms rather than the default 20 so the 44-write case at chunk 1 stays
+            // a fast test; the pause is not what this case is about.
+            await setup(page, { prefs: pacing(chunk, 5) });
+            await connect(page);
+            await page.locator('#debug').evaluate((el) => { el.open = true; });
+            await page.evaluate(() => { window.__mockWriterLog.length = 0; });
+            await page.locator('#input').fill(PAYLOAD);
+            await page.locator('#paste-test').click();
+            await expect(page.locator('#paste-toast-text')).toContainText('Paste complete', { timeout: 10_000 });
+
+            const writes = await page.evaluate(() => window.__mockWriterLog.map((e) => e.bytes));
+            const sizes = writes.map((w) => w.length);
+            // What the model says, with no reference to the payload's contents:
+            // full chunks, then the remainder.
+            const expected = [];
+            for (let n = WIRE_LEN; n > 0; n -= chunk) expected.push(Math.min(chunk, n));
+            expect(sizes).toEqual(expected);
+            // And nothing was lost, duplicated or reordered on the way.
+            const all = writes.flat();
+            expect(all.length).toBe(WIRE_LEN);
+            expect(all.filter((b) => b === 0x0D).length).toBe(LINES);
+        });
+    }
+
+    test('the pause is the same after every chunk, line break or not @slow', async ({ page }) => {
+        // 'ABCDEFG' + CR is 8 bytes, so at chunk 4 the writes alternate: ABCD with
+        // no terminator in it, then EFG+CR which ends on one. Under the model this
+        // replaced, the second of each pair earned an extra pause of at least 50 ms
+        // on the theory that a full-screen editor redraws on a newline. That theory
+        // was never evidenced, and nothing keys off the bytes any more.
+        await setup(page, { prefs: pacing(4, 100) });
         await connect(page);
         await page.locator('#debug').evaluate((el) => { el.open = true; });
         await page.evaluate(() => { window.__mockWriterLog.length = 0; });
-        await page.locator('#input').fill(PACED_PAYLOAD);
-        await page.locator('#paste-test').click();
-        await expect(page.locator('#paste-toast-text')).toContainText('Paste complete', { timeout: 10_000 });
-
-        const writes = await page.evaluate(() => window.__mockWriterLog.map((e) => e.bytes));
-        expect(writes.length).toBeGreaterThan(1);   // it really was chunked
-        for (const bytes of writes) {
-            expect(bytes.length).toBeLessThanOrEqual(8);
-            // A terminator may only be the LAST byte of a write — anything earlier
-            // means the chunk carried on past a line break.
-            const early = bytes.slice(0, -1).filter((b) => b === 0x0D || b === 0x0A);
-            expect(early).toEqual([]);
-        }
-        // Nothing was lost or duplicated on the way: 4 × (10 chars + CR).
-        const all = writes.flat();
-        expect(all.length).toBe(LINES * 11);
-        expect(all.filter((b) => b === 0x0D).length).toBe(LINES);
-    });
-
-    test('the default pacing is 8 bytes, a 33 ms full-chunk gap and a 132 ms break pause @fast', async ({ page }) => {
-        await setup(page);
-        // At 240 B/s: a full 8-byte chunk owes round(8 / 240 × 1000) = 33 ms, and a
-        // break adds max(50, 33 × 4) = 132 ms ON TOP of whatever that chunk owed.
-        // The two are separate terms because Paste speed is the rate BETWEEN
-        // breaks — the menu rows say so and the confirm estimate counts both.
-        const pacing = await page.evaluate(() => window.__pastePump.__getStateForTests());
-        expect(pacing).toMatchObject({ chunkSize: 8, gapMs: 33, lineExtraMs: 132, speed: 240, rate: 240 });
-    });
-
-    test('the gap after a chunk is proportional to the bytes it carried @slow', async ({ page }) => {
-        // 20 B/s — seeded rather than picked from the menu, because the menu's
-        // slowest preset is 60 and 20 spreads the two gap classes far enough apart
-        // to measure straight through timer jitter. setPasteSpeed takes any
-        // integer in range, so a stored 20 is a legal value.
-        //
-        // Each line here is 8 characters + a CR = 9 bytes, which chunks as [8][1]:
-        //   after the 8-byte chunk  → round(8 / 20 × 1000)          = 400 ms
-        //   after the 1-byte chunk  → round(1 / 20 × 1000)          =  50 ms
-        //                             + break pause max(50, 400×4)  = 1650 ms total
-        // A FLAT per-chunk gap — the shape this fix replaced — would charge that
-        // 1-byte chunk the full 400 ms, making the post-terminator delay 2000 ms.
-        await setup(page, { prefs: { version: 2, pasteSpeed: 20 } });
-        await connect(page);
-        expect(await page.evaluate(() => window.__pastePump.getPasteSpeed())).toBe(20);
-        await page.locator('#debug').evaluate((el) => { el.open = true; });
-        await page.evaluate(() => { window.__mockWriterLog.length = 0; });
-        await page.locator('#input').fill('ABCDEFGH\\x0A'.repeat(3));
+        await page.locator('#input').fill('ABCDEFG\\x0A'.repeat(4));   // 32 B → 8 writes, 7 gaps
         await page.locator('#paste-test').click();
         await expect(page.locator('#paste-toast-text')).toContainText('Paste complete', { timeout: 20_000 });
 
-        const log = await page.evaluate(() => window.__mockWriterLog.map((e) => ({ n: e.bytes.length, ts: e.ts })));
-        expect(log.map((e) => e.n)).toEqual([8, 1, 8, 1, 8, 1]);
+        const log = await page.evaluate(() => window.__mockWriterLog.map((e) => ({ bytes: e.bytes, ts: e.ts })));
+        expect(log.map((e) => e.bytes.length)).toEqual([4, 4, 4, 4, 4, 4, 4, 4]);
         // Delay charged for write i = log[i+1].ts - log[i].ts.
-        const delays = log.slice(0, -1).map((e, i) => ({ n: e.n, ms: log[i + 1].ts - e.ts }));
-        const afterFull = delays.filter((d) => d.n === 8).map((d) => d.ms);
-        const afterShort = delays.filter((d) => d.n === 1).map((d) => d.ms);
-        // Timers fire late, never early, so a floor is the reliable direction and
-        // the MINIMUM sample is the best estimate of what was actually asked for.
-        for (const ms of afterFull) expect(ms).toBeGreaterThanOrEqual(400 * 0.9);
-        expect(Math.min(...afterShort)).toBeGreaterThanOrEqual(1650 * 0.9);
-        // The one ceiling in this file, and it stays: 2000 ms is what the reverted
-        // flat-gap shape charges here, and nothing else in the suite discriminates
-        // it (the floor above passes at 2000 too). It is safe to assert because it
-        // measures ONE timer — the delta between two adjacent writes, not elapsed
-        // time down a chain — and takes the MINIMUM of the two samples, so a single
-        // late timer cannot fail it.
-        expect(Math.min(...afterShort)).toBeLessThan(1850);   // 2000 = the flat-gap bug
+        const gaps = log.slice(0, -1).map((e, i) => ({
+            endsAtBreak: e.bytes[e.bytes.length - 1] === 0x0D,
+            ms: log[i + 1].ts - e.ts,
+        }));
+        const atBreak = gaps.filter((g) => g.endsAtBreak).map((g) => g.ms);
+        const elsewhere = gaps.filter((g) => !g.endsAtBreak).map((g) => g.ms);
+        expect(atBreak.length).toBeGreaterThan(1);
+        expect(elsewhere.length).toBeGreaterThan(1);
+        // Timers fire late, never early, so a floor is the reliable direction.
+        for (const ms of [...atBreak, ...elsewhere]) expect(ms).toBeGreaterThanOrEqual(90);
+        // The ceilings are taken on the MINIMUM of several samples, so one late
+        // timer on a loaded runner cannot fail them — the same reasoning the
+        // proportional-gap case used. 150 ms is comfortably under the 150+ ms a
+        // break-pause term would have added here.
+        expect(Math.min(...atBreak)).toBeLessThan(150);
+        expect(Math.min(...elsewhere)).toBeLessThan(150);
     });
 
-    test('a chunk ending at a line terminator earns the extra pause @slow', async ({ page }) => {
-        await setup(page);
+    test('a pause of 0 writes at wire speed with the chunk size still honoured @fast', async ({ page }) => {
+        await setup(page, { prefs: pacing(8, 0) });
         await connect(page);
         await page.locator('#debug').evaluate((el) => { el.open = true; });
+        // No pause means no pacing limit, so there is no throughput figure to
+        // quote — the wire is the only ceiling and the pump does not know what it
+        // carries. null is what "wire speed" is made of, in the menu readout and in
+        // the large-paste confirm alike.
+        expect(await page.evaluate(() => window.__pastePump.__getStateForTests()))
+            .toMatchObject({ chunkSize: 8, pauseMs: 0, throughput: null });
 
-        // 8 short lines, each 'ABCD' + CR = 5 bytes, so every line is ONE chunk
-        // that ends at a terminator: gap round(5 / 240 × 1000) = 21 ms plus the
-        // 132 ms break pause = 153 ms per line, 7 gaps ≈ 1.07 s. Without the break
-        // pause the whole paste would be done in ~150 ms, so the floor
-        // discriminates by 7×. Timers only ever fire late, which is why this
-        // asserts a floor and not a window.
-        await page.locator('#input').fill('ABCD\\x0A'.repeat(8));
+        await page.evaluate(() => { window.__mockWriterLog.length = 0; });
+        await page.locator('#input').fill('Z'.repeat(400));
         const t0 = await page.evaluate(() => performance.now());
         await page.locator('#paste-test').click();
         await expect(page.locator('#paste-toast-text')).toContainText('Paste complete', { timeout: 10_000 });
         const elapsed = await page.evaluate((t) => performance.now() - t, t0);
-        expect(elapsed).toBeGreaterThanOrEqual(7 * 153 * 0.9);
-    });
 
-    test('a speed above the wire is clamped to the byte rate @fast', async ({ page }) => {
-        await setup(page);
-        // 480 B/s asked for, on a 2400-baud connection that carries 216 B/s.
-        await setPasteSpeed(page, '480');
-        await openForm(page);
-        await page.locator('#serial-baud').selectOption('2400');
-        await closeForm(page);
-        await connect(page);
-
-        // Unclamped a full chunk would be round(8 / 480 × 1000) = 17 ms — more
-        // than twice what the wire can take. Clamped: round(8 / 216 × 1000) = 37,
-        // and the break pause follows the clamped rate too: max(50, 37 × 4) = 148.
-        const pacing = await page.evaluate(() => window.__pastePump.__getStateForTests());
-        expect(pacing.speed).toBe(480);
-        expect(pacing.rate).toBe(216);
-        expect(pacing.gapMs).toBe(37);
-        expect(pacing.lineExtraMs).toBe(148);
-    });
-
-    test('speed 0 restores the 32-byte full-speed chunking @fast', async ({ page }) => {
-        await setup(page);
-        await connect(page);
-        await setPasteSpeed(page, '0');
-        await page.locator('#debug').evaluate((el) => { el.open = true; });
-
-        // The pre-fix pacing, unchanged: 32 B every round(32 / 1728 × 1000) = 19 ms,
-        // and NO break pause at all.
-        const pacing = await page.evaluate(() => window.__pastePump.__getStateForTests());
-        expect(pacing).toMatchObject({ chunkSize: 32, gapMs: 19, lineExtraMs: 0, speed: 0 });
-
-        // And no terminator-splitting either: a line break mid-chunk is carried
-        // straight through, exactly as it was before the paced path existed.
-        await page.evaluate(() => { window.__mockWriterLog.length = 0; });
-        await page.locator('#input').fill('ABCD\\x0A'.repeat(16));   // 80 B = 32 + 32 + 16
-        await page.locator('#paste-test').click();
-        await expect(page.locator('#paste-toast-text')).toContainText('Paste complete', { timeout: 10_000 });
         const sizes = await page.evaluate(() => window.__mockWriterLog.map((e) => e.bytes.length));
-        expect(sizes).toEqual([32, 32, 16]);
+        expect(sizes).toEqual(new Array(50).fill(8));
+        // 50 writes with no pause asked for. Whatever the browser's nested-timer
+        // resolution turns that into, it is not the 1 s the same payload takes at
+        // 20 ms — that is the whole difference this setting makes.
+        expect(elapsed).toBeLessThan(1000);
     });
 
-    test('picking Full speed mid-paste does NOT burst the remainder @slow', async ({ page }) => {
+    test('changing the cadence mid-paste does NOT re-pace the run @slow', async ({ page }) => {
         // The pacing a run uses is frozen when the run is enqueued. Without that,
-        // switching to Full speed during a large paste would dump everything still
-        // queued onto the wire in 32-byte writes — the exact overrun the paced path
-        // exists to prevent, triggered by a menu click the user reads as harmless.
-        await setup(page);
+        // picking a bigger chunk during a large paste would dump everything still
+        // queued onto the wire in one burst — the exact overrun the pacing exists
+        // to prevent, triggered by a menu click the user reads as harmless. The
+        // same freeze must not let an APPENDED paste speed the run up either.
+        await setup(page);   // defaults: 1 byte every 20 ms
         await connect(page);
         await page.locator('#debug').evaluate((el) => { el.open = true; });
         await page.evaluate(() => { window.__mockWriterLog.length = 0; });
-        await page.locator('#input').fill('X'.repeat(400));   // 50 paced chunks ≈ 1.65 s
+        await page.locator('#input').fill('X'.repeat(200));   // 200 writes ≈ 4 s
         await page.locator('#paste-test').click();
         await expect(page.locator('#paste-toast')).toBeVisible();
 
-        // Switch to Full speed while the pump is still running.
-        await setPasteSpeed(page, '0');
-        expect(await page.evaluate(() => window.__pastePump.getPasteSpeed())).toBe(0);
-        await expect(page.locator('#paste-toast-text')).toContainText('Paste complete', { timeout: 15_000 });
+        await setPasteChunk(page, '32');
+        expect(await page.evaluate(() => window.__pastePump.getPasteChunk())).toBe(32);
+        // Append while the run is still in flight — the faster cadence must not
+        // reach these bytes either.
+        expect(await page.evaluate(() => window.__pastePump.isActive())).toBe(true);
+        await page.locator('#input').fill('Y'.repeat(20));
+        await page.locator('#paste-test').click();
+        await expect(page.locator('#paste-toast-text')).toContainText('Paste complete', { timeout: 30_000 });
 
-        // Every write in the run stayed at the enqueue-time 8-byte cap.
         const sizes = await page.evaluate(() => window.__mockWriterLog.map((e) => e.bytes.length));
-        expect(Math.max(...sizes)).toBeLessThanOrEqual(8);
-        expect(sizes.reduce((a, b) => a + b, 0)).toBe(400);
+        expect(Math.max(...sizes)).toBe(1);
+        expect(sizes.reduce((a, b) => a + b, 0)).toBe(220);
         // The new value governs the NEXT paste.
         expect(await page.evaluate(() => window.__pastePump.__getStateForTests().chunkSize)).toBe(32);
     });
 
-    test('the paced chunk size satisfies the CRLF-pair invariant @fast', async ({ page }) => {
-        // PACED_CHUNK_SIZE >= 2 is what stops the chunk-end scan returning an empty
-        // chunk when a CRLF pair will not fit under the cap — the pump would then
-        // spin on it forever. Both operands are compile-in constants, so nothing at
-        // runtime can break it; it is an invariant on the source and belongs in a
-        // test, not in a module-evaluation throw that could only ever have booted
-        // the app to a blank page.
-        await setup(page);
-        const { chunkSize } = await page.evaluate(() => window.__pastePump.__getStateForTests());
-        expect(chunkSize).toBeGreaterThanOrEqual(2);
-        expect(chunkSize).toBe(8);
-    });
-
-    test('the reported rate admits the 4 ms timer floor @fast', async ({ page }) => {
-        // Nested setTimeout cannot go below 4 ms, so throughput tops out at one
-        // chunk per 4 ms whatever the wire can carry: 32 B / 4 ms = 8000 B/s at Full
-        // speed. A 115200 connection's byte rate is 10368 B/s, and quoting that in
-        // the confirm would promise a paste 30% faster than the pump can run it.
-        await setup(page);
-        await setPasteSpeed(page, '0');
-        await openForm(page);
-        await page.locator('#serial-baud').selectOption('115200');
-        await closeForm(page);
+    test('a paste appended after picking a SLOWER cadence adopts it @slow', async ({ page }) => {
+        // The other direction, which freezing must not trap: a user who pastes,
+        // sees garbage, drops the chunk size and pastes again before the first run
+        // has drained has to get the smaller chunk on the new bytes.
+        await setup(page, { prefs: pacing(32, 50) });
         await connect(page);
-
-        const pacing = await page.evaluate(() => window.__pastePump.__getStateForTests());
-        expect(pacing.gapMs).toBe(4);      // already floored — the getter just never said so
-        expect(pacing.rate).toBe(8000);
-    });
-
-    // Appending to a run in flight adopts the SLOWER of the two pacings. Freezing
-    // exists so a mid-paste switch cannot burst the remainder onto the wire; it must
-    // not also trap a user who pastes, sees garbage, slows the setting down and
-    // pastes again before the first run has drained.
-    test('a paste appended after picking a SLOWER speed adopts it @slow', async ({ page }) => {
-        await setup(page);
-        await connect(page);
-        await setPasteSpeed(page, '0');
         await page.locator('#debug').evaluate((el) => { el.open = true; });
         await page.evaluate(() => { window.__mockWriterLog.length = 0; });
 
-        // 3 KB at Full speed is ~94 writes of 32 B ≈ 1.8 s — still running while the
-        // menu is driven, and short enough that the tail at the slower speed does
-        // not turn this into a minute-long test.
-        await page.locator('#input').fill('X'.repeat(3000));
+        // 1600 B at 32 B every 50 ms is 50 writes ≈ 2.5 s — still running while the
+        // menu is driven.
+        await page.locator('#input').fill('X'.repeat(1600));
         await page.locator('#paste-test').click();
         await expect(page.locator('#paste-toast')).toBeVisible();
 
-        await setPasteSpeed(page, '480');
+        // 8 B every 50 ms is 160 B/s against the run's 640 B/s, and a quarter of
+        // the burst. Adopting it slows the whole remaining queue, appended bytes
+        // included — which is the point.
+        await setPasteChunk(page, '8');
         expect(await page.evaluate(() => window.__pastePump.isActive())).toBe(true);
-        await page.locator('#input').fill('Y'.repeat(400));
+        await page.locator('#input').fill('Y'.repeat(60));
         await page.locator('#paste-test').click();
-        await expect(page.locator('#paste-toast-text')).toContainText('Paste complete', { timeout: 30_000 });
+        await expect(page.locator('#paste-toast-text')).toContainText('Paste complete', { timeout: 40_000 });
 
         const writes = await page.evaluate(() => window.__mockWriterLog.map((e) => e.bytes));
-        // It really did start at Full speed…
+        // It really did start at 32 B…
         expect(Math.max(...writes.map((w) => w.length))).toBe(32);
-        // …and every write carrying an appended byte is under the paced cap.
+        // …and no write carrying an appended byte is bigger than the new chunk.
         const appended = writes.filter((w) => w.includes(0x59));
         expect(appended.length).toBeGreaterThan(0);
-        expect(Math.max(...appended.map((w) => w.length))).toBeLessThanOrEqual(8);
+        expect(Math.max(...appended.map((w) => w.length))).toBe(8);
     });
 
-    test('a paste appended after picking a FASTER speed does NOT adopt it @slow', async ({ page }) => {
-        // The other direction, which must not change: adopting the faster pacing
-        // mid-run is exactly the burst freezing exists to prevent.
-        await setup(page, { prefs: { version: 2, pasteSpeed: 60 } });
+    test('a longer pause picked mid-run also reaches an appended paste @slow', async ({ page }) => {
+        // Same rule on the other control. The run is at 8 B every 5 ms (1600 B/s);
+        // 8 B every 50 ms is 160 B/s, so the appended bytes must slow down.
+        await setup(page, { prefs: pacing(8, 5) });
         await connect(page);
         await page.locator('#debug').evaluate((el) => { el.open = true; });
         await page.evaluate(() => { window.__mockWriterLog.length = 0; });
 
-        await page.locator('#input').fill('X'.repeat(240));   // 30 chunks × 133 ms ≈ 4 s
+        await page.locator('#input').fill('X'.repeat(2400));   // 300 writes ≈ 1.5 s
         await page.locator('#paste-test').click();
         await expect(page.locator('#paste-toast')).toBeVisible();
 
-        await setPasteSpeed(page, '0');
+        await setPastePause(page, '50');
         expect(await page.evaluate(() => window.__pastePump.isActive())).toBe(true);
-        await page.locator('#input').fill('Y'.repeat(64));
+        await page.locator('#input').fill('Y'.repeat(40));     // 5 writes at the slower pause
         await page.locator('#paste-test').click();
-        await expect(page.locator('#paste-toast-text')).toContainText('Paste complete', { timeout: 30_000 });
+        await expect(page.locator('#paste-toast-text')).toContainText('Paste complete', { timeout: 40_000 });
 
-        const writes = await page.evaluate(() => window.__mockWriterLog.map((e) => e.bytes));
-        expect(Math.max(...writes.map((w) => w.length))).toBeLessThanOrEqual(8);
-        expect(writes.flat().length).toBe(304);
-        // Full speed still governs the paste after this one.
-        expect(await page.evaluate(() => window.__pastePump.__getStateForTests().chunkSize)).toBe(32);
+        const log = await page.evaluate(() => window.__mockWriterLog.map((e) => ({ bytes: e.bytes, ts: e.ts })));
+        // The tail is 5 writes of 8 'Y' bytes, so 4 of the gaps in it are the new
+        // 50 ms pause. Measured on the MINIMUM gap between adjacent Y-writes, so a
+        // single late timer cannot decide it either way.
+        const yWrites = log.filter((e) => e.bytes.includes(0x59));
+        expect(yWrites.length).toBe(5);
+        const yGaps = yWrites.slice(0, -1).map((e, i) => yWrites[i + 1].ts - e.ts);
+        expect(Math.min(...yGaps)).toBeGreaterThanOrEqual(45);
+        // The chunk size did not change with it — only the pause did.
+        expect(yWrites.every((e) => e.bytes.length === 8)).toBe(true);
     });
 
     test('a SLIDE transfer starting mid-paste stops the pump without advancing progress @fast', async ({ page }) => {
@@ -524,11 +445,11 @@ test.describe('Paste speed — paced chunking', () => {
         // (wire owner 'slide'), so a pump that kept going would drive the progress
         // chip to 100% over bytes that never left the browser. writeOneChunk
         // re-asks before each write and cancels instead.
-        await setup(page);
+        await setup(page, { prefs: pacing(8, 20) });
         await connect(page);
         await page.locator('#debug').evaluate((el) => { el.open = true; });
         await page.evaluate(() => { window.__mockWriterLog.length = 0; });
-        await page.locator('#input').fill('Y'.repeat(400));   // ≈ 1.65 s at the paced default
+        await page.locator('#input').fill('Y'.repeat(400));   // 50 writes ≈ 1 s
         await page.locator('#paste-test').click();
         await expect(page.locator('#paste-toast')).toBeVisible();
 
@@ -545,25 +466,18 @@ test.describe('Paste speed — paced chunking', () => {
 
     test('800 B of 40-char lines takes about what the confirm quotes @slow', async ({ page }) => {
         // The worked example from the fix. 19 lines of 40 characters, each break
-        // rewritten to a single CR: 19 × 41 = 779 bytes on the wire, 19 breaks.
+        // rewritten to a single CR: 19 × 41 = 779 bytes on the wire. At 8 B every
+        // 20 ms that is ceil(779 / 8) = 98 writes and 97 pauses ≈ 1.94 s. The line
+        // breaks do not enter into it — that is the point.
         //
-        //   bytes term  779 / 240            = 3.25 s
-        //   break term  19 × 0.132           = 2.51 s
-        //                                      -------
-        //                                      5.75 s
-        //
-        // The pump does not pay the gap after its last chunk, so the measured run
-        // is a little under that. What matters is that the two agree: the confirm
-        // used to quote bytes ÷ baud and be wrong by an order of magnitude.
-        //
-        // Every assertion here is ONE-SIDED, and deliberately. This run is a chain
-        // of ~114 nested setTimeouts, each of which can fire late and none of which
-        // can fire early, so a wall-clock ceiling is a flake waiting for a loaded
-        // runner while proving nothing the floor does not. The quote is pinned to
-        // the model exactly (toBe(6)); the only comparison against the clock that
-        // survives is "the quote does not OVERSTATE the run", which a slow runner
-        // can only make more true.
-        await setup(page);
+        // Every assertion against the clock here is ONE-SIDED, and deliberately.
+        // This run is a chain of ~98 nested setTimeouts, each of which can fire
+        // late and none of which can fire early, so a wall-clock ceiling is a flake
+        // waiting for a loaded runner while proving nothing the floor does not. The
+        // quote is pinned to the model exactly (toBe(2)); the only comparison
+        // against the clock that survives is "the quote does not OVERSTATE the
+        // run", which a slow runner can only make more true.
+        await setup(page, { prefs: pacing(8, 20) });
         await connect(page);
         await page.locator('#debug').evaluate((el) => { el.open = true; });
         await page.locator('#input').fill(('A'.repeat(40) + '\\x0A').repeat(19));
@@ -572,26 +486,21 @@ test.describe('Paste speed — paced chunking', () => {
         await page.locator('#paste-test').click();
         await expect(page.locator('#paste-toast-text')).toContainText('Paste complete', { timeout: 30_000 });
         const elapsed = await page.evaluate((t) => performance.now() - t, t0);
-        expect(elapsed).toBeGreaterThanOrEqual(5583 * 0.9);
+        expect(elapsed).toBeGreaterThanOrEqual(1940 * 0.9);
 
         // What the confirm would quote for the same payload, using the same live
         // pump readings main.js injects into it.
         const quoted = await page.evaluate(async () => {
             const p = window.__pasteToast.confirmLargePaste(779, {
-                getRate: () => window.__pastePump.getPasteRate(),
-                getBreakPauseMs: () => window.__pastePump.getPasteBreakPauseMs(),
-                breaks: 19,
+                getChunk: () => window.__pastePump.getPasteChunk(),
+                getPauseMs: () => window.__pastePump.getPastePauseMs(),
             });
             const s = window.__pasteToast.__getStateForTests().confirmData.seconds;
             window.__pasteToast.hide();
             await p;
             return s;
         });
-        expect(quoted).toBe(6);
-        // The old bug quoted 779 ÷ 1728 ≈ 0.45 s (floored to 1) for this payload,
-        // which toBe(6) catches outright. This adds the direction that still means
-        // something against the clock: 6 s must not be a promise the run beats by a
-        // wide margin. Overshoot on a loaded runner only widens the slack.
+        expect(quoted).toBe(2);
         expect(quoted * 1000).toBeLessThanOrEqual(elapsed * 1.15);
     });
 });

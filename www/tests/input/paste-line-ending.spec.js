@@ -13,7 +13,6 @@
 // driven through the debug pane's #paste-test button, which routes the textarea
 // through parseHexEscapes → enqueuePaste, so \xNN produces real control bytes.
 import { test, expect } from '@playwright/test';
-import { SERIAL_MOCK } from '../transport/mock-serial.js';
 
 const PASTE_EOL_PARENT = '#dropdown-settings .menu-item[data-submenu="paste-eol"]';
 const pasteEolRow = (v) =>
@@ -186,28 +185,14 @@ test.describe('Paste line ending — the menu row', () => {
     });
 });
 
-test.describe('Paste line ending meets the paced chunk cap', () => {
-    test('a CRLF pair is never split across two writes @fast', async ({ page }) => {
-        // Only reachable in crlf / raw mode: those are the two modes whose wire
-        // terminator is two bytes, so a break landing on the 8-byte cap has to
-        // either fit whole or push the whole pair into the next write. Splitting
-        // it would put a 132 ms pause between a CR and its LF.
-        await page.addInitScript(SERIAL_MOCK);
-        await ready(page);
-        await setPasteEol(page, 'crlf');
-        await page.evaluate(() => window.__menuBar.open('connection'));
-        await page.click('#menu-connect-item');
-        await expect(page.locator('#menu-connect-item')).toHaveAttribute('data-state', 'connected');
-        await page.evaluate(() => { window.__mockWriterLog.length = 0; });
-
-        // 7 characters then a break: normalised that is 7 + 0D 0A = 9 bytes, so
-        // the LF falls one byte past the cap. The chunker must end the first
-        // write BEFORE the CR (7 bytes), not between the CR and the LF.
-        await page.locator('#input').fill('ABCDEFG\\x0A');
-        await page.locator('#paste-test').click();
-        await expect(page.locator('#paste-toast-text')).toContainText('Paste complete', { timeout: 10_000 });
-
-        const writes = await page.evaluate(() => window.__mockWriterLog.map((e) => e.bytes));
-        expect(writes).toEqual([[0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47], [0x0D, 0x0A]]);
-    });
-});
+// A case that used to sit here — "a CRLF pair is never split across two writes" —
+// is gone with the rule it tested. That rule existed for one reason: the chunker
+// used to pause longer after a chunk that ended at a line terminator, and a split
+// pair would have put that extra pause between a CR and its LF. There is no
+// longer a line-break pause, or any other behaviour that keys off what the bytes
+// are, so there is nothing for a split pair to break. At the default chunk size
+// of 1 byte every pair is split, and the wire is none the wiser.
+//
+// The local-echo side of a split pair still matters and is still covered: see
+// tests/input/local-echo.spec.js, "a CRLF pair split across two writes still
+// renders ONE new row".

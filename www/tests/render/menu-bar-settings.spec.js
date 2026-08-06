@@ -24,9 +24,9 @@ async function ready(page) {
   );
   await page.waitForFunction(() => typeof window.__testGridView === 'function');
   // window.__pastePump is assigned LATE in main.js (after __testGridView), so the
-  // Paste line ending / Paste speed cases need their own handle in the guard.
+  // Paste line ending / chunk size / pause cases need their own handle in the guard.
   await page.waitForFunction(
-    () => window.__pastePump && typeof window.__pastePump.getPasteSpeed === 'function',
+    () => window.__pastePump && typeof window.__pastePump.getPasteChunk === 'function',
   );
 }
 
@@ -302,17 +302,22 @@ test.describe('Settings ▸ Strip ctrl codes from logs', () => {
   });
 });
 
-// Settings ▸ Paste line ending + Paste speed — the two paste settings. Same
-// radio-submenu contract as Enter key sends above, driving paste-pump.js instead
-// of keyboard.js. The point of the pair being separate rows is that they can hold
-// different values from Enter key sends without either affecting the other; the
-// byte-level proof of that lives in tests/input/paste-line-ending.spec.js.
+// Settings ▸ Paste line ending + Paste chunk size + Paste pause — the three paste
+// settings. Same radio-submenu contract as Enter key sends above, driving
+// paste-pump.js instead of keyboard.js. The point of them being separate rows is
+// that they can hold different values from Enter key sends without either
+// affecting the other; the byte-level proof of that lives in
+// tests/input/paste-line-ending.spec.js.
 const PASTE_EOL_PARENT = '#dropdown-settings .menu-item[data-submenu="paste-eol"]';
 const pasteEolRadio = (v) =>
   `#dropdown-settings .submenu[data-submenu-panel="paste-eol"] .menu-item[data-value="${v}"]`;
-const PASTE_SPEED_PARENT = '#dropdown-settings .menu-item[data-submenu="paste-speed"]';
-const pasteSpeedRadio = (v) =>
-  `#dropdown-settings .submenu[data-submenu-panel="paste-speed"] .menu-item[data-value="${v}"]`;
+const PASTE_CHUNK_PARENT = '#dropdown-settings .menu-item[data-submenu="paste-chunk"]';
+const pasteChunkRadio = (v) =>
+  `#dropdown-settings .submenu[data-submenu-panel="paste-chunk"] .menu-item[data-value="${v}"]`;
+const PASTE_PAUSE_PARENT = '#dropdown-settings .menu-item[data-submenu="paste-pause"]';
+const pastePauseRadio = (v) =>
+  `#dropdown-settings .submenu[data-submenu-panel="paste-pause"] .menu-item[data-value="${v}"]`;
+const PASTE_THROUGHPUT = '#menu-paste-throughput-item';
 
 test.describe('Settings ▸ Paste line ending', () => {
   test('the row defaults to CR and sits alongside Enter key sends @fast', async ({ page }) => {
@@ -361,55 +366,126 @@ test.describe('Settings ▸ Paste line ending', () => {
   });
 });
 
-test.describe('Settings ▸ Paste speed', () => {
-  test('the row defaults to 240 B/s and every paced row says the rate is between breaks @fast', async ({ page }) => {
+test.describe('Settings ▸ Paste chunk size and Paste pause', () => {
+  test('the rows default to 1 byte / 20 ms and read as plain physical facts @fast', async ({ page }) => {
     await ready(page);
     await page.evaluate(() => window.__menuBar.open('settings'));
-    await expect(page.locator(`${PASTE_SPEED_PARENT} .lbl`)).toHaveText('Paste speed');
-    await page.click(PASTE_SPEED_PARENT);
-    await expect(page.locator(pasteSpeedRadio('240'))).toHaveAttribute('data-checked', 'true');
-    // The break pause is additive, so the number on a paced row is NOT the paste's
-    // overall throughput. Every paced row has to say which it is.
-    for (const v of ['480', '240', '120', '60']) {
-      await expect(page.locator(`${pasteSpeedRadio(v)} .lbl`)).toHaveText(`${v} B/s between line breaks`);
+    await expect(page.locator(`${PASTE_CHUNK_PARENT} .lbl`)).toHaveText('Paste chunk size');
+    await expect(page.locator(`${PASTE_PAUSE_PARENT} .lbl`)).toHaveText('Paste pause');
+
+    await page.click(PASTE_CHUNK_PARENT);
+    await expect(page.locator(pasteChunkRadio('1'))).toHaveAttribute('data-checked', 'true');
+    // Bytes, not a rate. Chunk size is how many go out back-to-back and nothing
+    // else; the throughput it implies is shown separately, below.
+    await expect(page.locator(`${pasteChunkRadio('1')} .lbl`)).toHaveText('1 byte');
+    for (const v of ['2', '4', '8', '16', '32']) {
+      await expect(page.locator(`${pasteChunkRadio(v)} .lbl`)).toHaveText(`${v} bytes`);
     }
-    await expect(page.locator(`${pasteSpeedRadio('0')} .lbl`)).toHaveText('Full speed (no line pause)');
+
+    await page.click(PASTE_PAUSE_PARENT);
+    await expect(page.locator(pastePauseRadio('20'))).toHaveAttribute('data-checked', 'true');
+    await expect(page.locator(`${pastePauseRadio('0')} .lbl`)).toHaveText('None (wire speed)');
+    for (const v of ['5', '10', '20', '50', '100', '200']) {
+      await expect(page.locator(`${pastePauseRadio(v)} .lbl`)).toHaveText(`${v} ms`);
+    }
   });
 
-  // 0 ("Full speed") is included deliberately: it is a legal value, not the
-  // falsy "unset" a `> 0` guard would reject.
-  for (const { value, speed, gapMs, lineExtraMs } of [
-    { value: '0', speed: 0, gapMs: 19, lineExtraMs: 0 },       // 32 B at the 19200 wire rate
-    { value: '480', speed: 480, gapMs: 17, lineExtraMs: 68 },  // 8 B every round(8/480*1000)
-    { value: '120', speed: 120, gapMs: 67, lineExtraMs: 268 },
-    { value: '60', speed: 60, gapMs: 133, lineExtraMs: 532 },
+  // Throughput is a CONSEQUENCE of the two, so it is a readout and never a
+  // control: the row is inert (data-disabled), and its figure has to follow both
+  // settings without the user doing the arithmetic.
+  test('the throughput readout is derived from both rows and is not clickable @fast', async ({ page }) => {
+    await ready(page);
+    await page.evaluate(() => window.__menuBar.open('settings'));
+    await expect(page.locator(`${PASTE_THROUGHPUT} .lbl`)).toHaveText('Paste throughput');
+    await expect(page.locator(PASTE_THROUGHPUT)).toHaveAttribute('data-disabled', 'true');
+    await expect(page.locator(`${PASTE_THROUGHPUT} .hint`)).toHaveText('≈ 50 B/s');   // 1 B / 20 ms
+
+    await page.click(PASTE_CHUNK_PARENT);
+    await page.click(pasteChunkRadio('8'));
+    await expect(page.locator(`${PASTE_THROUGHPUT} .hint`)).toHaveText('≈ 400 B/s');  // 8 B / 20 ms
+
+    await page.click(PASTE_PAUSE_PARENT);
+    await page.click(pastePauseRadio('100'));
+    await expect(page.locator(`${PASTE_THROUGHPUT} .hint`)).toHaveText('≈ 80 B/s');   // 8 B / 100 ms
+
+    // With no pause there is no pacing limit at all, and the pump does not know
+    // what the wire carries — so it says so rather than inventing a number.
+    await page.click(pastePauseRadio('0'));
+    await expect(page.locator(`${PASTE_THROUGHPUT} .hint`)).toHaveText('wire speed');
+
+    // Clicking the readout does nothing at all — it is not a control. Dispatched
+    // rather than clicked because Playwright refuses to click an aria-disabled
+    // button at all, which is itself half the proof; the dispatch gets past that
+    // and lands on menu-bar's handler, which is the half worth asserting.
+    await page.locator(PASTE_THROUGHPUT).dispatchEvent('click');
+    expect(await page.evaluate(() => window.__menuBar.getOpenMenu())).toBe('settings');
+    await expect(page.locator(`${PASTE_THROUGHPUT} .hint`)).toHaveText('wire speed');
+  });
+
+  for (const { value, chunk, throughput } of [
+    { value: '1', chunk: 1, throughput: 50 },
+    { value: '8', chunk: 8, throughput: 400 },
+    { value: '32', chunk: 32, throughput: 1600 },
   ]) {
-    test(`${value} persists AND repaces the pump (gap ${gapMs} ms) @fast`, async ({ page }) => {
+    test(`chunk ${value} persists AND re-paces the pump @fast`, async ({ page }) => {
       await ready(page);
       await page.locator('#terminal-wrapper').focus();
       await page.evaluate(() => window.__menuBar.open('settings'));
-      await page.click(PASTE_SPEED_PARENT);
-      await page.click(pasteSpeedRadio(value));
+      await page.click(PASTE_CHUNK_PARENT);
+      await page.click(pasteChunkRadio(value));
 
-      await expect(page.locator(pasteSpeedRadio(value))).toHaveAttribute('data-checked', 'true');
+      await expect(page.locator(pasteChunkRadio(value))).toHaveAttribute('data-checked', 'true');
       expect(await page.evaluate(() => window.__menuBar.getOpenMenu())).toBe('settings');
-      expect(await page.evaluate(() => window.__prefs.getPrefs().pasteSpeed)).toBe(speed);
-      expect(await page.evaluate(() => window.__pastePump.getPasteSpeed())).toBe(speed);
+      expect(await page.evaluate(() => window.__prefs.getPrefs().pasteChunk)).toBe(chunk);
+      expect(await page.evaluate(() => window.__pastePump.getPasteChunk())).toBe(chunk);
       expect(await page.evaluate(() => window.__pastePump.__getStateForTests()))
-        .toMatchObject({ gapMs, lineExtraMs });
+        .toMatchObject({ chunkSize: chunk, pauseMs: 20, throughput });
       expect(await page.evaluate(() => document.activeElement && document.activeElement.id)).toBe('terminal-wrapper');
     });
   }
 
-  test('reset re-projects the row to the 240 B/s default @fast', async ({ page }) => {
+  // 0 ("None") is included deliberately: it is a legal value, not the falsy
+  // "unset" a `> 0` guard would reject.
+  for (const { value, pauseMs, throughput } of [
+    { value: '0', pauseMs: 0, throughput: null },
+    { value: '5', pauseMs: 5, throughput: 200 },
+    { value: '200', pauseMs: 200, throughput: 5 },
+  ]) {
+    test(`pause ${value} ms persists AND re-paces the pump @fast`, async ({ page }) => {
+      await ready(page);
+      await page.locator('#terminal-wrapper').focus();
+      await page.evaluate(() => window.__menuBar.open('settings'));
+      await page.click(PASTE_PAUSE_PARENT);
+      await page.click(pastePauseRadio(value));
+
+      await expect(page.locator(pastePauseRadio(value))).toHaveAttribute('data-checked', 'true');
+      expect(await page.evaluate(() => window.__menuBar.getOpenMenu())).toBe('settings');
+      expect(await page.evaluate(() => window.__prefs.getPrefs().pastePauseMs)).toBe(pauseMs);
+      expect(await page.evaluate(() => window.__pastePump.getPastePauseMs())).toBe(pauseMs);
+      expect(await page.evaluate(() => window.__pastePump.__getStateForTests()))
+        .toMatchObject({ chunkSize: 1, pauseMs, throughput });
+      expect(await page.evaluate(() => document.activeElement && document.activeElement.id)).toBe('terminal-wrapper');
+    });
+  }
+
+  test('reset re-projects both rows and the readout to the defaults @fast', async ({ page }) => {
     await ready(page);
     await page.evaluate(() => window.__menuBar.open('settings'));
-    await page.click(PASTE_SPEED_PARENT);
-    await page.click(pasteSpeedRadio('0'));
-    await expect(page.locator(pasteSpeedRadio('0'))).toHaveAttribute('data-checked', 'true');
+    await page.click(PASTE_CHUNK_PARENT);
+    await page.click(pasteChunkRadio('32'));
+    await page.click(PASTE_PAUSE_PARENT);
+    await page.click(pastePauseRadio('0'));
+    await expect(page.locator(pasteChunkRadio('32'))).toHaveAttribute('data-checked', 'true');
+    await expect(page.locator(pastePauseRadio('0'))).toHaveAttribute('data-checked', 'true');
+
     await page.evaluate(() => window.__prefs.resetPrefs());
-    await expect(page.locator(pasteSpeedRadio('240'))).toHaveAttribute('data-checked', 'true');
-    await expect(page.locator(pasteSpeedRadio('0'))).toHaveAttribute('data-checked', 'false');
-    expect(await page.evaluate(() => window.__pastePump.getPasteSpeed())).toBe(240);
+
+    await expect(page.locator(pasteChunkRadio('1'))).toHaveAttribute('data-checked', 'true');
+    await expect(page.locator(pasteChunkRadio('32'))).toHaveAttribute('data-checked', 'false');
+    await expect(page.locator(pastePauseRadio('20'))).toHaveAttribute('data-checked', 'true');
+    await expect(page.locator(pastePauseRadio('0'))).toHaveAttribute('data-checked', 'false');
+    await expect(page.locator(`${PASTE_THROUGHPUT} .hint`)).toHaveText('≈ 50 B/s');
+    expect(await page.evaluate(() => window.__pastePump.getPasteChunk())).toBe(1);
+    expect(await page.evaluate(() => window.__pastePump.getPastePauseMs())).toBe(20);
   });
 });

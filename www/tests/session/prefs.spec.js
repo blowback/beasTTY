@@ -33,7 +33,7 @@ async function setup(page) {
 // waits on — the paste cases need their own boot-race guard.
 async function pumpReady(page) {
     await page.waitForFunction(
-        () => window.__pastePump && typeof window.__pastePump.getPasteSpeed === 'function');
+        () => window.__pastePump && typeof window.__pastePump.getPasteChunk === 'function');
 }
 
 test.describe('PREF-01/PREF-02/PLAT-05 — Preferences persistence', () => {
@@ -48,8 +48,10 @@ test.describe('PREF-01/PREF-02/PLAT-05 — Preferences persistence', () => {
         expect(prefs.crlfMode).toBe('cr');
         // Paste has its own line-ending setting, separate from crlfMode above —
         // and it is paced by default, because pasting at wire speed loses text.
+        // 1 byte every 20 ms is the most conservative cadence the menu offers.
         expect(prefs.pasteLineEnding).toBe('cr');
-        expect(prefs.pasteSpeed).toBe(240);
+        expect(prefs.pasteChunk).toBe(1);
+        expect(prefs.pastePauseMs).toBe(20);
         expect(prefs.autoConnect).toBe(false);
         expect(prefs.version).toBe(2);
     });
@@ -65,11 +67,13 @@ test.describe('PREF-01/PREF-02/PLAT-05 — Preferences persistence', () => {
             prefs: window.__prefs.getPrefs(),
             pump: {
                 lineEnding: window.__pastePump.getPasteLineEnding(),
-                speed: window.__pastePump.getPasteSpeed(),
+                chunk: window.__pastePump.getPasteChunk(),
+                pauseMs: window.__pastePump.getPastePauseMs(),
             },
         }));
         expect(pump.lineEnding).toBe(prefs.pasteLineEnding);
-        expect(pump.speed).toBe(prefs.pasteSpeed);
+        expect(pump.chunk).toBe(prefs.pasteChunk);
+        expect(pump.pauseMs).toBe(prefs.pastePauseMs);
     });
 
     test('theme persists across reload (round-trip)', async ({ page }) => {
@@ -225,102 +229,130 @@ test.describe('PREF-01/PREF-02/PLAT-05 — Preferences persistence', () => {
             .toHaveAttribute('data-checked', 'true');
     });
 
-    test('pasteSpeed persists across reload and re-applies to the pump', async ({ page }) => {
+    test('the paste cadence persists across reload and re-applies to the pump', async ({ page }) => {
         await setup(page);
         await page.evaluate(() => window.__menuBar.open('settings'));
-        await page.click('#dropdown-settings .menu-item[data-submenu="paste-speed"]');
-        await page.click('#dropdown-settings .submenu[data-submenu-panel="paste-speed"] .menu-item[data-value="60"]');
+        await page.click('#dropdown-settings .menu-item[data-submenu="paste-chunk"]');
+        await page.click('#dropdown-settings .submenu[data-submenu-panel="paste-chunk"] .menu-item[data-value="8"]');
+        await page.click('#dropdown-settings .menu-item[data-submenu="paste-pause"]');
+        await page.click('#dropdown-settings .submenu[data-submenu-panel="paste-pause"] .menu-item[data-value="100"]');
         await page.evaluate(() => window.__menuBar.close());
         await page.waitForTimeout(300);
         await page.reload();
         await setup(page);
         await pumpReady(page);
-        expect(await page.evaluate(() => window.__prefs.getPrefs().pasteSpeed)).toBe(60);
-        expect(await page.evaluate(() => window.__pastePump.getPasteSpeed())).toBe(60);
-        // A full 8-byte chunk owes round(8 / 60 × 1000) = 133 ms, and a break adds
-        // max(50, 133 × 4) = 532 ms on top.
+        expect(await page.evaluate(() => window.__prefs.getPrefs().pasteChunk)).toBe(8);
+        expect(await page.evaluate(() => window.__prefs.getPrefs().pastePauseMs)).toBe(100);
+        expect(await page.evaluate(() => window.__pastePump.getPasteChunk())).toBe(8);
+        expect(await page.evaluate(() => window.__pastePump.getPastePauseMs())).toBe(100);
+        // And the throughput they add up to: 8 B every 100 ms is 80 B/s.
         expect(await page.evaluate(() => window.__pastePump.__getStateForTests()))
-            .toMatchObject({ gapMs: 133, lineExtraMs: 532 });
+            .toMatchObject({ chunkSize: 8, pauseMs: 100, throughput: 80 });
     });
 
-    test('an out-of-range stored pasteSpeed falls back to the default', async ({ page }) => {
-        // prefs.js has no field validation (D-32) — the pump validates at its
-        // consumer, as setCrlfMode does. A blob carrying 99999 must leave the pump
-        // on its default rather than pacing at a nonsense rate or throwing.
+    test('a stored blob carrying the retired pasteSpeed is simply ignored', async ({ page }) => {
+        // CURRENT_VERSION was deliberately NOT bumped when the rate model was
+        // replaced: the defensive spread-merge fills in the two new fields and the
+        // old one has no consumer left, so an existing blob needs no migration.
         await page.addInitScript(() => localStorage.setItem(
-            'beastty.prefs', JSON.stringify({ version: 2, pasteSpeed: 99999 })));
+            'beastty.prefs', JSON.stringify({ version: 2, pasteSpeed: 60, theme: 'clean' })));
         await setup(page);
         await pumpReady(page);
-        expect(await page.evaluate(() => window.__pastePump.getPasteSpeed())).toBe(240);
-        expect(await page.evaluate(() => window.__pastePump.__getStateForTests().gapMs)).toBe(33);
+        expect(await page.evaluate(() => window.__prefs.getPrefs().theme)).toBe('clean');
+        expect(await page.evaluate(() => window.__pastePump.getPasteChunk())).toBe(1);
+        expect(await page.evaluate(() => window.__pastePump.getPastePauseMs())).toBe(20);
     });
 
-    // Number(null), Number(''), Number(false) and Number([]) are ALL 0, and 0 is
-    // a legal pasteSpeed meaning Full speed — the one value that turns the pacing
-    // fix off. A validator that coerced before testing would silently accept every
-    // one of these from a stored blob. The setter rejects the TYPE first.
+    for (const [label, stored, chunk, pause] of [
+        ['an out-of-range chunk', { pasteChunk: 99999 }, 1, 20],
+        ['a chunk of 0', { pasteChunk: 0 }, 1, 20],
+        ['a negative pause', { pastePauseMs: -1 }, 1, 20],
+    ]) {
+        test(`${label} falls back to the default`, async ({ page }) => {
+            // prefs.js has no field validation (D-32) — the pump validates at its
+            // consumer, as setCrlfMode does. A blob carrying nonsense must leave the
+            // pump on its defaults rather than pacing absurdly or throwing.
+            await page.addInitScript(
+                (blob) => localStorage.setItem('beastty.prefs', blob),
+                JSON.stringify({ version: 2, ...stored }));
+            await setup(page);
+            await pumpReady(page);
+            expect(await page.evaluate(() => window.__pastePump.getPasteChunk())).toBe(chunk);
+            expect(await page.evaluate(() => window.__pastePump.getPastePauseMs())).toBe(pause);
+        });
+    }
+
+    // Number(null), Number(''), Number(false) and Number([]) are ALL 0, and 0 is a
+    // legal pastePauseMs meaning "no pause at all" — the one value that turns the
+    // pacing off. A validator that coerced before testing would silently accept
+    // every one of these from a stored blob. Both setters reject the TYPE first.
     for (const [label, stored] of [
         ['null', null],
         ['an empty string', ''],
         ['false', false],
         ['an empty array', []],
-        ['a non-integer', 240.5],
+        ['a non-integer', 20.5],
     ]) {
-        test(`a stored pasteSpeed of ${label} is rejected, not coerced to Full speed`, async ({ page }) => {
+        test(`a stored paste cadence of ${label} is rejected, not coerced`, async ({ page }) => {
             await page.addInitScript(
                 (blob) => localStorage.setItem('beastty.prefs', blob),
-                JSON.stringify({ version: 2, pasteSpeed: stored }));
+                JSON.stringify({ version: 2, pasteChunk: stored, pastePauseMs: stored }));
             await setup(page);
             await pumpReady(page);
-            expect(await page.evaluate(() => window.__pastePump.getPasteSpeed())).toBe(240);
-            expect(await page.evaluate(() => window.__pastePump.__getStateForTests().chunkSize)).toBe(8);
-            // And the menu shows the default, not the rejected value.
+            expect(await page.evaluate(() => window.__pastePump.getPasteChunk())).toBe(1);
+            expect(await page.evaluate(() => window.__pastePump.getPastePauseMs())).toBe(20);
+            // And the menu shows the defaults, not the rejected values.
             await page.evaluate(() => window.__menuBar.open('settings'));
-            await page.click('#dropdown-settings .menu-item[data-submenu="paste-speed"]');
-            await expect(page.locator('#dropdown-settings .submenu[data-submenu-panel="paste-speed"] .menu-item[data-value="240"]'))
+            await page.click('#dropdown-settings .menu-item[data-submenu="paste-chunk"]');
+            await expect(page.locator('#dropdown-settings .submenu[data-submenu-panel="paste-chunk"] .menu-item[data-value="1"]'))
+                .toHaveAttribute('data-checked', 'true');
+            await page.click('#dropdown-settings .menu-item[data-submenu="paste-pause"]');
+            await expect(page.locator('#dropdown-settings .submenu[data-submenu-panel="paste-pause"] .menu-item[data-value="20"]'))
                 .toHaveAttribute('data-checked', 'true');
         });
     }
 
     // The menu radio is projected from what the pump ACCEPTED, not from the stored
     // pref. These are the two ways those disagree.
-    const speedRadio = (v) =>
-        `#dropdown-settings .submenu[data-submenu-panel="paste-speed"] .menu-item[data-value="${v}"]`;
+    const chunkRadio = (v) =>
+        `#dropdown-settings .submenu[data-submenu-panel="paste-chunk"] .menu-item[data-value="${v}"]`;
 
-    async function openPasteSpeedSubmenu(page) {
+    async function openPasteChunkSubmenu(page) {
         await page.evaluate(() => window.__menuBar.open('settings'));
-        await page.click('#dropdown-settings .menu-item[data-submenu="paste-speed"]');
+        await page.click('#dropdown-settings .menu-item[data-submenu="paste-chunk"]');
     }
 
-    test('a stored pasteSpeed the pump ACCEPTS but the menu does not offer ticks nothing', async ({ page }) => {
-        // setPasteSpeed takes any integer in 0..20000; the panel offers five values.
-        // A stored 20 therefore runs the pump at 20 B/s. Ticking 240 because 20 does
+    test('a stored pasteChunk the pump ACCEPTS but the menu does not offer ticks nothing', async ({ page }) => {
+        // setPasteChunk takes any integer in 1..4096; the panel offers six values.
+        // A stored 3 therefore runs the pump at 3 bytes. Ticking 1 because 3 does
         // not match a row would put a checkmark on a value that is not live — the
         // one thing a radio group must never do. Nothing ticked says, accurately,
-        // "the live speed is not on this menu".
+        // "the live chunk size is not on this menu".
         await page.addInitScript(() => localStorage.setItem(
-            'beastty.prefs', JSON.stringify({ version: 2, pasteSpeed: 20 })));
+            'beastty.prefs', JSON.stringify({ version: 2, pasteChunk: 3 })));
         await setup(page);
         await pumpReady(page);
-        expect(await page.evaluate(() => window.__pastePump.getPasteSpeed())).toBe(20);
-        await openPasteSpeedSubmenu(page);
-        for (const v of ['0', '480', '240', '120', '60']) {
-            await expect(page.locator(speedRadio(v))).toHaveAttribute('data-checked', 'false');
+        expect(await page.evaluate(() => window.__pastePump.getPasteChunk())).toBe(3);
+        await openPasteChunkSubmenu(page);
+        for (const v of ['1', '2', '4', '8', '16', '32']) {
+            await expect(page.locator(chunkRadio(v))).toHaveAttribute('data-checked', 'false');
         }
+        // The throughput readout still tells the truth about it: 3 B / 20 ms.
+        await expect(page.locator('#menu-paste-throughput-item .hint')).toHaveText('≈ 150 B/s');
     });
 
-    test('a stored pasteSpeed of the STRING "60" is rejected and the menu still shows 240', async ({ page }) => {
-        // '60' matches a row's data-value, so projecting the raw pref would tick 60.
-        // setPasteSpeed rejects the type before the value, so the pump stays at 240 —
+    test('a stored pasteChunk of the STRING "8" is rejected and the menu still shows 1', async ({ page }) => {
+        // '8' matches a row's data-value, so projecting the raw pref would tick 8.
+        // setPasteChunk rejects the type before the value, so the pump stays at 1 —
         // the checkmark would have been a straight lie about the next paste.
         await page.addInitScript(() => localStorage.setItem(
-            'beastty.prefs', JSON.stringify({ version: 2, pasteSpeed: '60' })));
+            'beastty.prefs', JSON.stringify({ version: 2, pasteChunk: '8' })));
         await setup(page);
         await pumpReady(page);
-        expect(await page.evaluate(() => window.__pastePump.getPasteSpeed())).toBe(240);
-        await openPasteSpeedSubmenu(page);
-        await expect(page.locator(speedRadio('240'))).toHaveAttribute('data-checked', 'true');
-        await expect(page.locator(speedRadio('60'))).toHaveAttribute('data-checked', 'false');
+        expect(await page.evaluate(() => window.__pastePump.getPasteChunk())).toBe(1);
+        await openPasteChunkSubmenu(page);
+        await expect(page.locator(chunkRadio('1'))).toHaveAttribute('data-checked', 'true');
+        await expect(page.locator(chunkRadio('8'))).toHaveAttribute('data-checked', 'false');
     });
 
     test('a stored pasteLineEnding of the STRING-shaped nonsense leaves CR ticked', async ({ page }) => {

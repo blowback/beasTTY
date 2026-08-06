@@ -73,7 +73,11 @@ test.describe('SESS-02/SESS-03 — Clipboard', () => {
         await page.evaluate(() => window.__setClipboardContents('paste me'));
         await connectMockSerial(page);
         await page.evaluate(() => window.__pasteFromClipboard());
-        await page.waitForFunction(() => window.__mockWriterLog.length > 0, { timeout: 2000 });
+        // Wait for the whole payload, not the first write: at the default cadence a
+        // chunk is one byte, so "log is non-empty" only proves the 'p' arrived.
+        await page.waitForFunction(
+            () => window.__mockWriterLog.reduce((a, e) => a + e.bytes.length, 0) >= 8,
+            { timeout: 5000 });
         const log = await page.evaluate(() => window.__mockWriterLog);
         const allBytes = log.flatMap((e) => e.bytes);
         const text = String.fromCharCode(...allBytes);
@@ -195,11 +199,12 @@ test.describe('SESS-02/SESS-03 — Clipboard', () => {
         await page.locator('#paste-toast button[data-action="cancel"]').click();
     });
 
-    test('changing Paste speed while the confirm is open does not re-pace the run', async ({ page }) => {
+    test('changing the paste cadence while the confirm is open does not re-pace the run', async ({ page }) => {
         // The confirm is awaited and the Settings menu stays usable underneath it.
         // The quote is taken from a pacing snapshot and the run uses the SAME
-        // snapshot, so a speed picked in between governs the NEXT paste, not this
-        // one — otherwise the user could be quoted 240 B/s and served Full speed.
+        // snapshot, so a chunk size picked in between governs the NEXT paste, not
+        // this one — otherwise the user could be quoted 50 B/s and served a
+        // 32-byte burst.
         await setup(page);
         await page.waitForFunction(() => window.__menuBar && typeof window.__menuBar.open === 'function');
         await page.evaluate(() => window.__setClipboardContents('A'.repeat(5000)));
@@ -207,18 +212,18 @@ test.describe('SESS-02/SESS-03 — Clipboard', () => {
         await page.evaluate(() => { window.__pendingPasteResult = window.__pasteFromClipboard(); });
         await expect(page.locator('#paste-toast-text')).toContainText('About to paste 5,000 B');
 
-        // Switch to Full speed WHILE the confirm is up, then accept.
+        // Switch to a 32-byte chunk WHILE the confirm is up, then accept.
         await page.evaluate(() => window.__menuBar.open('settings'));
-        await page.click('#dropdown-settings .menu-item[data-submenu="paste-speed"]');
-        await page.click('#dropdown-settings .submenu[data-submenu-panel="paste-speed"] .menu-item[data-value="0"]');
+        await page.click('#dropdown-settings .menu-item[data-submenu="paste-chunk"]');
+        await page.click('#dropdown-settings .submenu[data-submenu-panel="paste-chunk"] .menu-item[data-value="32"]');
         await page.evaluate(() => window.__menuBar.close());
-        expect(await page.evaluate(() => window.__pastePump.getPasteSpeed())).toBe(0);
+        expect(await page.evaluate(() => window.__pastePump.getPasteChunk())).toBe(32);
 
         await page.locator('#paste-toast button[data-action="paste"]').click();
         await page.waitForFunction(() => window.__mockWriterLog.length >= 4, { timeout: 5000 });
         const sizes = await page.evaluate(() => window.__mockWriterLog.map((e) => e.bytes.length));
-        // The quoted 240 B/s pacing is what actually ran: 8-byte writes, not 32.
-        expect(Math.max(...sizes)).toBeLessThanOrEqual(8);
+        // The quoted 1-byte cadence is what actually ran.
+        expect(Math.max(...sizes)).toBe(1);
         await page.evaluate(() => window.__pastePump.cancelPaste());
     });
 

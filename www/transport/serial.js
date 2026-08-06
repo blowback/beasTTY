@@ -21,7 +21,7 @@
 //     www/renderer/canvas.js:37-51 (module-scope state).
 
 import { registerWriter, unregisterWriter } from '../input/tx-sink.js';
-import { onPortLost as pastePumpOnPortLost, setBaudForPump } from '../input/paste-pump.js';
+import { onPortLost as pastePumpOnPortLost } from '../input/paste-pump.js';
 // Phase 8 D-05 + D-06 — route inbound bytes through the SLIDE dispatcher
 // instead of directly to term.feed. dispatchInbound is byte-transparent in
 // terminal mode (the post-feed invariant at lines 454-462 below is unchanged).
@@ -57,24 +57,21 @@ let reader = null;
 let writer = null;
 let state = 'disconnected';
 let lastConfig = null;
-// E11 retrospective (2026-08-06) — the ONE place lastConfig is written, so the
-// paste pump's pacing can never again drift out of step with the open port.
+// The ONE place lastConfig is written.
 //
-// paste-pump exported setBaudForPump with the comment "Called from serial.js on
-// config-driven connect". It was not. Nothing called it, in production or in a
-// test, since the day it was written — so the pump's gap stayed at its 19200
-// figure for the life of the page no matter what the user picked in the serial
-// config modal. Pasting on a 9600 connection therefore pushed 32 bytes every
-// 19 ms (~1680 B/s) at a wire that carries ~860 B/s, i.e. a steady overrun,
-// while the pump's whole reason for existing is to stay under the byte rate.
+// This used to also call paste-pump's setBaudForPump, because the pump derived
+// its pacing from the byte rate of the open port. It no longer derives anything
+// from baud: the user sets the chunk size and the pause directly, and the pump
+// reads neither the port nor the wire. So there is nothing to push here, and the
+// call is gone rather than left as a hook that does nothing.
 //
-// Found by the E9 retro's dormant-hook sweep, finally run. The hook was dead
-// AND its comment asserted it was live, which is why neither reading the call
-// site nor reading the definition would have caught it — only asking "who
-// actually calls this?" did.
+// Worth remembering why the wording matters. setBaudForPump shipped with a
+// comment claiming serial.js called it, and nothing did — in production or in a
+// test — for months. Reading either end told you it was wired; only asking "who
+// actually calls this?" caught it. A comment that asserts a live connection is a
+// claim, and it has to stay true.
 function setLastConfig(cfg) {
     lastConfig = cfg;
-    if (cfg && typeof cfg.baudRate === 'number') setBaudForPump(cfg.baudRate);
 }
 let lastPortRef = null;
 let shuttingDown = false;   // Gap 1 fix — set true in beforeunload so runReadLoop's

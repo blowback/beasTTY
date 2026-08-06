@@ -46,7 +46,7 @@ let lifecycle = 'hidden';   // 'hidden' | 'confirm' | 'pumping' | 'complete'
                             // | 'cancelled' | 'cancelled-port-lost'
 
 // Per-state data.
-let confirmData = null;     // { formattedN, seconds, rate, betweenBreaks } for 'confirm'
+let confirmData = null;     // { formattedN, seconds, rate } for 'confirm' (rate null = no pause set)
 let confirmResolver = null; // (ok:boolean) => void — resolves confirmLargePaste's Promise
 let pumpingData = null;     // { total, pct } for the 'pumping' render
 let portLostUnsent = 0;     // bytes-unsent for the 'cancelled-port-lost' render
@@ -54,12 +54,13 @@ let portLostUnsent = 0;     // bytes-unsent for the 'cancelled-port-lost' render
 // Single auto-hide timer handle (complete / cancelled / cancelled-port-lost).
 let autoHideHandle = null;
 
-// Bytes/sec quoted in the large-paste confirm when NO rate getter is injected —
-// the full-speed pump on the default 19200 connection (32 B every 19 ms). Only a
-// harness ever sees it; main.js always passes the pump's live rate. It is used
-// solely in place of a MISSING getter, never in place of a value a real getter
-// returned — substituting for a real rate is how an estimate starts lying.
-const FALLBACK_RATE = 1684;
+// The cadence assumed in the large-paste confirm when NO getter is injected — the
+// pump's own defaults (1 byte every 20 ms). Only a harness ever sees these;
+// main.js always passes the pump's live values. They stand in for a MISSING
+// getter, never for a value a real getter returned — substituting for a real
+// reading is how an estimate starts lying.
+const FALLBACK_CHUNK = 1;
+const FALLBACK_PAUSE_MS = 20;
 
 const COMPLETE_HIDE_MS = 2000;
 const CANCELLED_HIDE_MS = 2000;
@@ -147,35 +148,35 @@ export function handleProgress(ev) {
 // a confirmed paste re-renders as 'pumping' the instant the pump fires 'started'
 // (synchronous microtask after resolve, so no paint occurs in between).
 export function confirmLargePaste(byteCount, opts) {
-    // The estimate reads the PUMP's pacing, not the baud: since Paste speed became
-    // a setting the pump no longer runs at wire rate, so a baud-derived figure
-    // would promise a paste many times faster than it runs.
+    // The estimate reads the PUMP's cadence, not the baud: the pump does not pace
+    // to the wire at all any more — the user sets the chunk size and the pause
+    // directly — so a baud-derived figure would promise a paste many times faster
+    // than it runs.
     //
-    // BOTH terms count. Paste speed is the byte rate BETWEEN line breaks; each
-    // break costs a further pause on top, and on short lines that pause is the
-    // larger term — 5000 B of 40-char lines is 21 s of bytes and 16 s of breaks.
-    // Quoting bytes ÷ rate alone understates a real paste by 2-15×.
-    const getRate = (opts && typeof opts.getRate === 'function') ? opts.getRate : null;
-    const getBreakPauseMs = (opts && typeof opts.getBreakPauseMs === 'function') ? opts.getBreakPauseMs : null;
-    const breaks = (opts && Number.isFinite(opts.breaks)) ? opts.breaks : 0;
+    // The duration is the pauses, and only the pauses: ceil(bytes / chunk) writes
+    // with a pause after each but the last. Nothing here depends on what the bytes
+    // ARE — the pump pauses the same amount after every chunk, so a line break
+    // costs exactly what any other byte costs.
+    const getChunk = (opts && typeof opts.getChunk === 'function') ? opts.getChunk : null;
+    const getPauseMs = (opts && typeof opts.getPauseMs === 'function') ? opts.getPauseMs : null;
     return new Promise((resolve) => {
         // If a confirm is already pending (two large pastes before the user acts),
         // abandon the older one cleanly (resolve false = "don't paste") so its
         // awaiting caller never hangs — the newer confirm takes the surface.
         settlePendingConfirm(false);
-        // Floor at 1 B/s rather than falling back: a real getter's answer is used
-        // whatever it says, and only a MISSING getter takes FALLBACK_RATE.
-        const rate = Math.max(1, getRate ? getRate() : FALLBACK_RATE);
-        const breakPauseMs = getBreakPauseMs ? Math.max(0, getBreakPauseMs()) : 0;
-        const breakTermMs = breaks * breakPauseMs;
-        const seconds = Math.max(1, Math.round(byteCount / rate + breakTermMs / 1000));
-        // When the break pauses contributed, the quoted seconds are NOT bytes ÷ rate
-        // and the sentence has to say which rate it is quoting — see refresh().
+        // Floor rather than fall back: a real getter's answer is used whatever it
+        // says, and only a MISSING getter takes the FALLBACK_* defaults.
+        const chunk = Math.max(1, getChunk ? getChunk() : FALLBACK_CHUNK);
+        const pauseMs = Math.max(0, getPauseMs ? getPauseMs() : FALLBACK_PAUSE_MS);
+        const writes = Math.ceil(byteCount / chunk);
+        const seconds = Math.max(1, Math.round(((writes - 1) * pauseMs) / 1000));
+        // Throughput is derived, exactly as the Settings readout derives it. With no
+        // pause there is no pacing limit and the wire is the only ceiling, which is
+        // not a number this module can know — see refresh().
         confirmData = {
             formattedN: byteCount.toLocaleString(),
             seconds,
-            rate,
-            betweenBreaks: breakTermMs > 0,
+            rate: pauseMs > 0 ? Math.max(1, Math.round((chunk / pauseMs) * 1000)) : null,
         };
         confirmResolver = resolve;
         clearAutoHide();
@@ -265,21 +266,19 @@ function refresh() {
             return;
 
         case 'confirm': {
-            const { formattedN, seconds, rate, betweenBreaks } =
-                confirmData || { formattedN: '0', seconds: 0, rate: FALLBACK_RATE, betweenBreaks: false };
+            const { formattedN, seconds, rate } =
+                confirmData || { formattedN: '0', seconds: 0, rate: null };
             // Carried over from clipboard.js's showLargePasteConfirm (06-UI-SPEC
             // §Large-paste inline confirm chip), with the trailing figure changed
-            // from the baud to the pump's byte rate — the baud stopped predicting
-            // how long a paste takes once Paste speed became a setting.
+            // from the baud to the pump's derived throughput — the baud stopped
+            // predicting how long a paste takes once the cadence became a setting.
             //
-            // The qualifier is not decoration. Where the per-break pauses counted,
-            // the seconds are NOT byteCount ÷ rate — 5,000 B at 240 B/s with 125
-            // breaks is 37 s, and "~37 s at 240 B/s" invites the reader to divide
-            // and conclude the sentence is lying. "between line breaks" is the same
-            // wording the menu row carries, and it is what makes the pair add up.
-            // With no break term (Full speed, or a payload with no breaks) the two
-            // numbers DO divide, so the plain form is the honest one.
-            const rateText = betweenBreaks ? `${rate} B/s between line breaks` : `${rate} B/s`;
+            // The two figures divide: seconds ≈ bytes ÷ rate, because both come
+            // from the same chunk-and-pause arithmetic. With no pause set there is
+            // no rate to quote — the wire is the only limit and the pump does not
+            // know what it carries — so the sentence says so rather than inventing
+            // a number. It is the same wording the Settings readout carries.
+            const rateText = (rate == null) ? 'wire speed' : `${rate} B/s`;
             toastTextElRef.textContent =
                 `About to paste ${formattedN} B (~${seconds} s at ${rateText}).`;
             setButton(pasteBtnRef, true);

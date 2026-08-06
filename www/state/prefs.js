@@ -87,16 +87,23 @@ const DEFAULTS = Object.freeze({
                                    //   setPasteLineEnding), as crlfMode is at setCrlfMode — prefs.js has
                                    //   no field validation. CURRENT_VERSION NOT bumped per Phase 6 D-32
                                    //   defensive merge, same as every pref above.
-    pasteSpeed: 240,               // Settings ▸ Paste speed — bytes/sec the paste pump aims for BETWEEN
-                                   //   line breaks, with 0 meaning "as fast as the wire allows" (the
-                                   //   pre-fix behaviour, kept for targets that can take it). Each line
-                                   //   break costs an additional pause on top. A full-speed paste writes
-                                   //   32 bytes at a time into a 16-byte UART FIFO, so the back half of
-                                   //   a single write is lost however slow the average rate; at any
-                                   //   paced speed the pump drops to 8-byte writes that stop at line
-                                   //   terminators. 240 is an estimate pending real hardware, not a
-                                   //   measurement. Validated at its consumer (paste-pump.js
-                                   //   setPasteSpeed). CURRENT_VERSION NOT bumped.
+    pasteChunk: 1,                 // Settings ▸ Paste chunk size — how many bytes the paste pump hands
+                                   //   to the writer back-to-back. Real hardware lost text identically
+                                   //   at 60, 120 and 240 B/s while the chunk stayed pinned at 8, which
+                                   //   means the loss is inside the burst where an inter-chunk pause
+                                   //   cannot reach it. 1 is the most conservative cadence available and
+                                   //   is deliberately a starting point, not a tuned value: walking it up
+                                   //   until the paste breaks is what tells us the receiver's usable
+                                   //   buffer size. Validated at its consumer (paste-pump.js
+                                   //   setPasteChunk). CURRENT_VERSION NOT bumped.
+    pastePauseMs: 20,              // Settings ▸ Paste pause — idle ms between chunks, giving the receiver
+                                   //   time to drain. 0 means no pause at all (the wire is the only
+                                   //   limit). Independent of pasteChunk above; throughput is the
+                                   //   consequence of the two (chunk ÷ pause × 1000), shown in the menu
+                                   //   and the large-paste confirm but never set directly. Validated at
+                                   //   its consumer (paste-pump.js setPastePauseMs). CURRENT_VERSION NOT
+                                   //   bumped — a blob carrying the retired `pasteSpeed` is simply
+                                   //   ignored by the spread-merge.
     serialAssertRtsOnConnect: true,
         // Phase 12.1 Plan 12-08 — gates connect-time setSignals.requestToSend
         // (true = assert RTS on every port.open(); false = de-assert RTS as

@@ -18,7 +18,7 @@
 // CR/LF rewrite is NOT done here — paste-pump.enqueuePaste already applies it
 // per Phase 5 D-23. Double-rewriting would corrupt streams.
 
-import { enqueuePaste, countLineBreaks, wireByteLength, pacingForNextPaste } from './paste-pump.js';
+import { enqueuePaste, wireByteLength, pacingForNextPaste } from './paste-pump.js';
 import { getSelection, clearSelection } from './selection.js';
 
 // D-25 — large-paste confirm threshold (bytes). Epic E7 Story E7.1 (e6 retro #3
@@ -37,12 +37,10 @@ let confirmLargePasteFn = null;
 // --- Public wire entry ---------------------------------------------------
 
 export function wireClipboard(opts) {
-    // confirmLargePaste(byteCount, breaks, pacing) → Promise<boolean>. A harness
-    // that omits it falls back to auto-confirm (true) so a large paste is never
-    // silently stuck awaiting a confirm surface that isn't wired. `breaks` is
-    // there because a paced paste pauses extra at every line break, so a duration
-    // estimate that counts only bytes is wrong by multiples on short lines.
-    // `pacing` is the pump snapshot the run itself will use — see below.
+    // confirmLargePaste(byteCount, pacing) → Promise<boolean>. A harness that omits
+    // it falls back to auto-confirm (true) so a large paste is never silently stuck
+    // awaiting a confirm surface that isn't wired. `pacing` is the pump snapshot the
+    // run itself will use — see below.
     confirmLargePasteFn = opts.confirmLargePaste || (() => Promise.resolve(true));
 }
 
@@ -90,8 +88,9 @@ export async function pasteFromClipboard() {
 
     // ONE pacing snapshot governs the estimate AND the run. The confirm is awaited
     // and the Settings menu stays usable underneath it, so re-reading the pump after
-    // the await could pace the paste at a speed the user was never quoted — up to
-    // ~30× out between Full speed and 60 B/s. enqueuePaste takes the same object.
+    // the await could pace the paste at a cadence the user was never quoted — the
+    // menu's extremes are 32 bytes with no pause and 1 byte every 200 ms.
+    // enqueuePaste takes the same object.
     const pacing = pacingForNextPaste();
     // Count the bytes that actually go on the WIRE, not the clipboard bytes: in
     // 'crlf' every break becomes two bytes, so the payload is longer than the
@@ -100,9 +99,10 @@ export async function pasteFromClipboard() {
 
     // D-25 — large-paste confirm gate (E7.1 — resolved off the paste toast).
     if (wireLength >= LARGE_PASTE_THRESHOLD) {
-        // countLineBreaks is the pump's own scan (\r\n counted as ONE break), so
-        // the estimate counts breaks exactly as the chunker will pause on them.
-        const ok = await confirmLargePasteFn(wireLength, countLineBreaks(bytes), pacing);
+        // The estimate is (writes - 1) × pause, and nothing about it depends on what
+        // the bytes are — the pump pauses the same amount after every chunk, line
+        // break or not, so the wire length and the cadence are the whole story.
+        const ok = await confirmLargePasteFn(wireLength, pacing);
         if (!ok) return;
     }
     // The line-break rewrite happens INSIDE paste-pump.enqueuePaste (Phase 5 D-23).

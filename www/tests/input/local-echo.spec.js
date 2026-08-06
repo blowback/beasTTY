@@ -168,22 +168,19 @@ test.describe('Local echo — a pasted block echoes as separate lines', () => {
     });
 
     test('a CRLF pair split across two writes still renders ONE new row', async ({ page }) => {
-        // Reachable at Full speed, where the chunker does not stop at terminators,
-        // so a CR can end one write and its LF open the next. The display copy
-        // looks ahead into the QUEUE rather than the chunk, so the CR is left
-        // alone and the LF does the single line feed — no blank row between.
+        // Chunks are a fixed size and nothing about them keys off the bytes, so a
+        // CRLF pair lands across two writes routinely — at the default chunk size
+        // of 1 byte, always. The display copy looks ahead into the QUEUE rather
+        // than the chunk, so the CR is left alone and the LF does the single line
+        // feed — no blank row between.
         await setup(page);
         await setLocalEcho(page, true);
         await page.evaluate(() => window.__menuBar.open('settings'));
         await page.click('#dropdown-settings .menu-item[data-submenu="paste-eol"]');
         await page.click('#dropdown-settings .submenu[data-submenu-panel="paste-eol"] .menu-item[data-value="raw"]');
-        await page.click('#dropdown-settings .menu-item[data-submenu="paste-speed"]');
-        await page.click('#dropdown-settings .submenu[data-submenu-panel="paste-speed"] .menu-item[data-value="0"]');
         await page.evaluate(() => window.__menuBar.close());
         await page.locator('#terminal-wrapper').focus();
 
-        // 31 characters, then CRLF: the 32-byte full-speed chunk ends on the CR
-        // and the LF opens the next write.
         await pasteAndSettle(page, `${'A'.repeat(31)}\\x0D\\x0AZ`);
         const grid = await page.evaluate(() => Array.from(window.__testGridView()));
         expect(grid[0]).toBe(0x41);
