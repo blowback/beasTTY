@@ -99,8 +99,18 @@ test.describe('XPORT-05 + D-08 — Serial config form', () => {
     // rate. The case above proves the PORT gets the right baud; nothing proved
     // the paste pump did.
     // So this spec wedges without serial.js actually calling setBaudForPump.
+    //
+    // Paste speed became a setting after this was written, and its paced default
+    // derives the gap from the SPEED (clamped to the wire) rather than from the
+    // baud — so the baud-tracking behaviour this case exists to pin now lives on
+    // the Full-speed path. The test picks it explicitly; the wire clamp at a
+    // paced speed is covered separately in tests/transport/paste.spec.js.
     test('the paste pump paces to the connected baud, not a hardcoded 19200', async ({ page }) => {
         await setup(page);
+        await page.evaluate(() => window.__menuBar.open('settings'));
+        await page.click('#dropdown-settings .menu-item[data-submenu="paste-speed"]');
+        await page.click('#dropdown-settings .submenu[data-submenu-panel="paste-speed"] .menu-item[data-value="0"]');
+        await page.evaluate(() => window.__menuBar.close());
         // Baseline first, or a wrong-but-plausible gap could pass unnoticed.
         const atBoot = await page.evaluate(() => window.__pastePump.__getStateForTests().gapMs);
         expect(atBoot).toBe(19);   // computeGap(19200), rounded

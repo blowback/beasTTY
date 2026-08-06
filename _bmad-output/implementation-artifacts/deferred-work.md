@@ -6,6 +6,42 @@ recoverable.
 
 ---
 
+## From `spec-paste-text-loss.md` (2026-08-06)
+
+Carved off at planning time to keep that spec under the size limit — not a finding
+against it. The paste bug it fixes reproduces with flow control `none`, where
+backpressure buys nothing, so this half was separable.
+
+### The paste path ignores Web Serial backpressure
+
+`pushTxBytes` (`www/input/tx-sink.js:46-71`) writes fire-and-forget: it awaits neither
+`registeredWriter.ready` nor the `write()` promise, and a rejection only reaches a
+`console.error`. `writeOneChunk` (`www/input/paste-pump.js:127-157`) is synchronous, so
+it advances its cursor and fires `'chunk'` / `'complete'` progress whatever actually
+happened on the wire. Three consequences:
+
+- With `flowControl: 'hardware'`, a far end holding CTS low cannot throttle the pump —
+  Chromium queues the writes and the pump keeps running.
+- A port lost mid-paste still reports 100 % complete.
+- With no writer registered at all, the paste "succeeds" silently.
+
+`tx-sink.js`'s own comment at `:141-147` names this shape as the banned anti-pattern, and
+`writeSlideFrameAwaitable` (`:157-163`) is the correct-shape precedent — SLIDE already
+does this properly, which is part of why SLIDE is reliable and paste is not.
+
+The fix is an awaitable paste entry point mirroring `writeSlideFrameAwaitable` (leaving
+`pushTxBytes` untouched, since keystrokes and SLIDE control bytes share it), plus making
+`writeOneChunk` async. That conversion is the risky part: the paste path has Esc-cancel
+and port-lost semantics that tests pin, and awaiting inside the chunk loop introduces
+cancel-during-await races. It needs an epoch token so a write resolving after a cancel
+cannot advance the cursor or schedule another chunk — the same guard shape as the async
+epoch guard found in the S9.1a code review.
+
+Worth doing regardless of whether the MicroBeast's firmware drives RTS, because the
+false-progress and lost-port cases are wrong on any connection.
+
+---
+
 ## From `spec-command-history-escape-hatch.md` (2026-08-06)
 
 Surfaced by the three-reviewer pass over the command-history chord toggle. All were
