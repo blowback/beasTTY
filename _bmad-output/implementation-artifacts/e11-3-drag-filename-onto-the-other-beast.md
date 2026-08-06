@@ -4,7 +4,7 @@ baseline_commit: 3915b02a9daa8e6ba33b861e8f459ffe5a862d19
 
 # Story 11.3: Drag a filename onto the other beast
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -584,7 +584,27 @@ Unchanged, as the story required: `www/transport/peer-link.js`, `slide.js`, `sli
 
 ## Code Review
 
-_(fill on completion — this section is filled at write time, not backfilled; E8 retro action #1)_
+Ran 2026-08-06 (`/code-review --fix`) against the implementation as landed in `fff7137`, which carries the fixes with it — the working tree was still uncommitted when the review ran, and the two cannot be separated cleanly. **Seven findings: six fixed, one recorded as a UX decision this story cannot take.** The two that mattered both live in `pullForPeer`'s wait, and both were invisible to the suite for the same reason: the specs exercise one pull at a time, through a directory stub that enumerates in insertion order.
+
+**Fixed — the peer received the right filenames carrying the wrong bytes.** The read-back paired `arrived[i]` from `dirHandle.entries()` with `requested[i]` from the SLIDE command, i.e. *directory* order against *command* order. Those agree in the specs because `__dirStub` enumerates in insertion order, and they agree on disk whenever the requested names happen to be alphabetical — so a two-file drag of `ZAP.COM ABC.TXT` handed B a `ZAP.COM` containing `ABC.TXT`'s contents and vice versa, silently, with both transfers reporting success. Pairing is now by name: exact match first, then the `BASE~N.EXT` shape `ensureUnique` produces, via a new `isUniquifiedOf` helper mirroring `slide-recv.js:588-593`. Requested names with no match are skipped and strays ignored. This is the one finding that could corrupt a user's files rather than merely mis-report, and "arrival order = command order" was recorded in the Dev Notes as an assumption — it was wrong on the read-back side, though the pin on the multi-file two-tab case held because that fixture's names are alphabetical.
+
+**Fixed — a stale auto-hide failed the *next* pull.** `onChipLifecycle` treated every terminal chip state as end-of-session, but each summary, error and notice arms a 5 s auto-hide whose `hide()` emits `'hidden'`. Two beast-to-beast drags inside 5 s therefore had the first transfer's auto-hide land during the second pull, arm the 1.5 s tail grace, settle the wait early, and — the read-back finding nothing on disk yet — report `pull-failed` about a pull that was running perfectly. Only `'hidden'` is now conditioned on this pull's session having shown life (`sawSession`, set by `'awaiting-wakeup'`, `'active'`, or a landing). Every other terminal state stays unconditional, because those are emitted by the tab actually entering them, so a handshake-time `enterError` or cancel still settles the wait — the first, broader version of this fix broke AC-7's "a wakeup that never came" case and was narrowed until that case passed for the right reason.
+
+**Fixed — a recovered session kept its stale tail timer.** A `tailTimer` armed by a terminal event was never cancelled if the chip subsequently went `'active'`, so a session that came back settled its wait 1.5 s in regardless. `'active'` now clears the tail timer as well as the start deadline.
+
+**Fixed — the confirm modal's checks were stale by the time it was answered.** `handleDrop` tested destination connected/busy *before* opening the dialog and never again, and the dialog can sit open indefinitely. Unplug the port or start a local SLIDE send while it waits, click Copy, and the source runs a full 19200-baud pull whose bytes come back to a tab that cannot take them. The two checks now re-run after the confirm, reusing the same two sentences — `pull-pane.js` already re-checks at confirm for exactly this reason.
+
+**Fixed — `hasBoundFolder` read a missing pref as usable.** The widened thunk shipped as `getPrefs()?.slideRecvToFolder !== false`, which is `true` when the pref object is absent or the value nulled — reintroducing, in the narrow case, the same silent stall §3(e) was written to close. Now `!!getPrefs()?.slideRecvToFolder`, matching the truthiness test `slide-recv.js:521` actually applies.
+
+**Fixed — a refusal sentence claimed a check nobody ran.** In `sentenceForRefusal`, a `peerLinkRef` torn down mid-flight leaves `codes` as `{}`, so every `case codes.X` is `undefined`; an `undefined` code then matched the *first* case and told the user "This beast isn't connected". Non-string and empty codes now short-circuit to the pull-failed fallback.
+
+**Fixed — a test hook leaked state between specs.** `__resetForTests` left `lastPeerPullReason` standing when no pull was in flight, so a spec asserting `.toBe('complete')` could pass on the previous spec's value — the exact assertion added during implementation to stop AC-7's central claim passing for the wrong reason. Cleared on reset; `sawSession` exposed in `__getStateForTests`.
+
+**Recorded, not fixed — `enterNotice` can clobber a live chip (`slide-chip.js:869`).** A late `pull-failed` or `send-failed` sentence can arrive after this tab has started its own transfer, replacing the progress chip and hiding it 5 s later. Fixing it means deciding a precedence rule between notices and live progress, which is a UX call outside this diff, and UX-DR7 freezes the copy either way. Owner: needs a decision before it can be built.
+
+**Reconfirmed, not fixed — `slide-recv.js:528` fires `onFileLanded` on the anchor-tray path.** The same pre-existing inconsistency already recorded in the Completion Notes: `downloadToFolder` returns without throwing when it finds no handle or is denied permission, so the landing counter can reach `expected` for files that never reached the folder. The resulting outcome is still the honest one (`pull-failed`, because the read-back finds nothing); only the diagnostic reason misleads. Out of scope — no change to that module.
+
+**Suite after the fixes: 581 passed / 1 skipped on `chromium` and 237 passed on `chromium-transport`**, with two pre-existing unrelated flakes green on retry — the standing load-sensitive pool first recorded in S11.1's review, not this diff.
 
 ## Change Log
 
