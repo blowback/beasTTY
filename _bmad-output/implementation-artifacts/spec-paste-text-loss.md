@@ -2,7 +2,7 @@
 title: 'Paste into the MicroBeast loses most of the text'
 type: 'bugfix'
 created: '2026-08-06'
-status: 'in-progress'
+status: 'done'
 baseline_commit: '2e7bb59e7831dcdea158f352933a43d727f11c66'
 context: []
 ---
@@ -227,3 +227,51 @@ Local echo needs its own copy of the bytes. The wire wants the configured termin
 - **Working point: confirmed 2026-08-07.** Flow control `none`, chunk 1 / pause 200 ms delivers the block intact (~2 min 40 s). 10 B/s by either route nearly works, so the ceiling is ~5–8 B/s.
 - **Remaining check — the flow-control bypass.** Connect with RTS/CTS and confirm a paste runs at wire speed with the pause still set to 200 ms, and that the throughput readout says pacing is inactive. Then reconnect with flow control `none` and confirm the same paste paces again. This is the only behaviour in this spec that no hardware run has yet exercised.
 - With Local echo on, confirm a multi-line paste echoes as multiple lines locally.
+
+## Suggested Review Order
+
+**The two original defects**
+
+- Start here: line breaks normalised in one scan, `\r\n` consumed as one break.
+  [`paste-pump.js:630`](../../www/input/paste-pump.js#L630)
+
+- The cadence: every chunk exactly the configured size, nothing reads byte content.
+  [`paste-pump.js:479`](../../www/input/paste-pump.js#L479)
+
+**Paced only where pacing is needed**
+
+- Hardware handshaking beats anything the pump can do, so it stands aside.
+  [`paste-pump.js:414`](../../www/input/paste-pump.js#L414)
+
+- The pump's belief about the port; the hook that feeds it is proven by a failing test.
+  [`paste-pump.js:342`](../../www/input/paste-pump.js#L342)
+
+- Every successful open records its config, reconnects included — no asymmetry left to reason about.
+  [`serial.js:1135`](../../www/transport/serial.js#L1135)
+
+**Telling the truth about the wire**
+
+- Paste gets its own awaitable write beside SLIDE's; `pushTxBytes` untouched.
+  [`tx-sink.js:190`](../../www/input/tx-sink.js#L190)
+
+- The generation token: a write resolving after a cancel advances nothing.
+  [`paste-pump.js:264`](../../www/input/paste-pump.js#L264)
+
+- Local echo needs its own bytes — bare CR moves the column, not the row.
+  [`paste-pump.js:604`](../../www/input/paste-pump.js#L604)
+
+**Surfaces**
+
+- One rounding rule, so 6.7 B/s reads the same everywhere.
+  [`paste-rate.js:19`](../../www/renderer/paste-rate.js#L19)
+
+- The modal projects from the pump's live values, never the stored pref.
+  [`paste-config.js:65`](../../www/renderer/paste-config.js#L65)
+
+**Tests**
+
+- Cancel mid-write, port loss, no writer, and the chip tracking a throttled writer.
+  [`paste.spec.js:1`](../../www/tests/transport/paste.spec.js#L1)
+
+- Every line-ending row of the matrix against real wire bytes.
+  [`paste-line-ending.spec.js:1`](../../www/tests/input/paste-line-ending.spec.js#L1)
