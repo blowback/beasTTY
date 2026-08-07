@@ -12,7 +12,12 @@
 //   - 05-UI-SPEC.md §"Paste-pump UI interactions" + §"Connection pane" progress copy.
 //   - Analog: www/input/tx-sink.js (module-scope state + observer fan-out).
 
-import { pushTxBytes } from './tx-sink.js';
+// writePasteBytesAwaitable is paste's own entry point, beside SLIDE's. It waits on
+// Web Serial backpressure (writer.ready) before handing the bytes over, so the
+// cursor only moves for bytes the WIRE took — see writeOneChunk. isWriterReady
+// tells the two "not accepted" answers apart: nothing connected, or SLIDE owning
+// the wire. pushTxBytes is untouched and is not used here.
+import { writePasteBytesAwaitable, isWriterReady } from './tx-sink.js';
 // getLocalEcho only. This module used to read getCrlfMode() as well, so pasting
 // was silently governed by Settings ▸ Enter key sends. Paste now has its own
 // line-ending setting and the two never read each other.
@@ -139,6 +144,29 @@ let cursor = 0;
 let timer = null;
 const progressObservers = [];
 
+// Where the write currently in flight ends, as an index into `queue`; -1 when no
+// write is in flight. The cursor does NOT move until that write resolves — progress
+// counts bytes the wire took, not bytes handed to a buffer — so this is what tells
+// enqueuePaste which bytes are already gone and must not be re-queued.
+let inFlightEnd = -1;
+
+// The token that makes a resolving write safe to ignore.
+//
+// writeOneChunk awaits the wire, and anything can happen during that await: the
+// user presses Esc, the adapter is unplugged, a SLIDE transfer takes the wire. Every
+// one of those ends the run and bumps this counter. The write captures the counter
+// before it awaits and compares afterwards; on a mismatch it advances no cursor,
+// echoes nothing, fires no progress and schedules no next chunk. Without it a write
+// resolving 200 ms after a cancel would resume a run the user has already stopped,
+// on a queue that no longer exists.
+let generation = 0;
+
+// Did any chunk of the run in flight actually reach the wire? A paste with nothing
+// connected still fills the TX ring and still echoes locally, but it must not report
+// progress over bytes that never left the browser, and it must not end by claiming
+// the paste completed. See finishRun.
+let runReachedWire = false;
+
 // Injected deps (wirePastePump sets these — enables D-22 local-echo from the pump).
 let termRef = null;
 let sampleBellFn = null;
@@ -184,31 +212,39 @@ export function enqueuePaste(bytes, pacing) {
     // `asked`, never from the in-flight run: it belongs to the text being pasted,
     // and it is the mode whose wire length the caller may already have quoted.
     const rewritten = normaliseLineBreaks(bytes, asked.lineEnding);
-    // Drop bytes already consumed; append new bytes.
-    const remaining = queue.subarray(cursor);
+    // Drop bytes already consumed; append new bytes. "Already consumed" includes the
+    // chunk currently in flight: those bytes are with the writer, the cursor has not
+    // moved past them yet, and re-queueing them would send them twice. The in-flight
+    // write is rebased to 0 with the cursor, so when it resolves it resumes at the
+    // front of the new queue — which is exactly where the bytes it wrote ended.
+    const consumedTo = (inFlightEnd >= 0) ? inFlightEnd : cursor;
+    const remaining = queue.subarray(consumedTo);
     const merged = new Uint8Array(remaining.length + rewritten.length);
     merged.set(remaining, 0);
     merged.set(rewritten, remaining.length);
     queue = merged;
     cursor = 0;
+    if (inFlightEnd >= 0) inFlightEnd = 0;
+    if (startingFresh) runReachedWire = false;
     applyPacing({ ...timing, lineEnding: asked.lineEnding });
-    if (!timer && cursor < queue.length) {
+    // Start the chunk chain only if nothing is driving it already. A write in flight
+    // IS driving it — it will schedule the next chunk when it resolves — and starting
+    // a second chain here would run two chunk loops over one queue.
+    if (!timer && inFlightEnd < 0 && cursor < queue.length) {
         fireProgress('started', { total: queue.length });
         writeOneChunk();
     }
 }
 
 export function cancelPaste() {
-    if (timer === null && cursor >= queue.length) return;
-    if (timer) { clearTimeout(timer); timer = null; }
+    if (!isActive()) return;
     const unsent = Math.max(0, queue.length - cursor);
-    queue = new Uint8Array(0);
-    cursor = 0;
+    endRun();
     fireProgress('cancelled', { unsent });
 }
 
 export function isActive() {
-    return timer !== null || cursor < queue.length;
+    return timer !== null || inFlightEnd >= 0 || cursor < queue.length;
 }
 
 export function onProgress(fn) {
@@ -218,11 +254,20 @@ export function onProgress(fn) {
 export function onPortLost() {
     // D-20 — mid-paste port-lost drains the queue and fires a dedicated status.
     if (!isActive()) return;
-    if (timer) { clearTimeout(timer); timer = null; }
     const unsent = Math.max(0, queue.length - cursor);
+    endRun();
+    fireProgress('cancelled-port-lost', { unsent });
+}
+
+// Tear the run down and invalidate any write still in flight. Every caller computes
+// its unsent count BEFORE calling this, because this is what clears the queue.
+function endRun() {
+    generation++;
+    if (timer) { clearTimeout(timer); timer = null; }
     queue = new Uint8Array(0);
     cursor = 0;
-    fireProgress('cancelled-port-lost', { unsent });
+    inFlightEnd = -1;
+    runReachedWire = false;
 }
 
 // Settings ▸ Paste settings… ▸ Line ending. Validated HERE, not in prefs.js — a stored blob
@@ -304,8 +349,9 @@ export function getPasteFlowControl() { return portFlowControl; }
 // null when there is no pacing limit at all and the wire is the only ceiling —
 // either because the pause is 0 or because the open port is handshaking; callers
 // render that as "wire speed" rather than inventing a number, and read
-// getPasteFlowControl() to say WHICH of the two reasons it is. Floored at 1 so no
-// caller can divide by zero.
+// getPasteFlowControl() to say WHICH of the two reasons it is. Carried to one decimal
+// and floored above zero — every surface that shows it formats it through
+// renderer/paste-rate.js, so the modal and the chip cannot disagree about 6.7 B/s.
 export function getPasteThroughput() {
     return pacingFromSettings().throughput;
 }
@@ -333,10 +379,24 @@ export function wireByteLength(bytes, mode = lineEnding) {
 
 // --- Internals ------------------------------------------------------------
 
-// Throughput for a (chunk, pause) pair. null = unpaced (see getPasteThroughput).
+// Throughput for a (chunk, pause) pair, in bytes/sec. null = unpaced (see
+// getPasteThroughput).
+//
+// Kept to ONE decimal rather than rounded to a whole number, because the settings
+// this project actually chooses between are 5, 6.7 and 10 B/s and a whole number
+// cannot tell the middle one from 7. Every surface formats this same figure through
+// renderer/paste-rate.js, so the modal the user picks from and the chip that measures
+// the result cannot disagree about what 1 byte every 150 ms is.
 function throughputOf(chunk, pauseMs) {
     if (pauseMs <= 0) return null;
-    return Math.max(1, Math.round((chunk / pauseMs) * 1000));
+    return Math.max(0.1, Math.round((chunk / pauseMs) * 10000) / 10);
+}
+
+// The unrounded rate a (chunk, pause) pair runs at. Only slowerPacing uses it, and
+// only because rounding first would make two cadences that are merely close compare
+// equal and fall through to the tie-break.
+function rawRateOf(p) {
+    return (p.pauseMs <= 0) ? Infinity : (p.chunk / p.pauseMs) * 1000;
 }
 
 // Everything about how one paste will run, captured at a single instant, from the
@@ -383,15 +443,19 @@ function pacingOfCurrentRun() {
     };
 }
 
-// The slower of two pacings, by the throughput the pair adds up to. An unpaced
-// snapshot (throughput null — a pause of 0, or a handshaking port) is always the
-// FASTER of any pair, so it can never be adopted mid-run. On a tie the smaller
-// chunk wins: equal throughput by two chunk sizes measured the same on hardware,
-// so neither is better, and the smaller burst is the more conservative guess.
+// The slower of two pacings, by the rate the pair adds up to. An unpaced snapshot (a
+// pause of 0, or a handshaking port) is always the FASTER of any pair, so it can never
+// be adopted mid-run. On a tie the smaller chunk wins: equal throughput by two chunk
+// sizes measured the same on hardware, so neither is better, and the smaller burst is
+// the more conservative guess.
+//
+// Compared UNROUNDED. 1 B / 150 ms and 2 B / 300 ms are the same rate and should tie;
+// 1 B / 150 ms and 7 B / 1000 ms are not, and against a displayed figure of 6.7 vs 7.0
+// they would. The tie-break is for genuinely equal cadences, not near-equal ones.
 function slowerPacing(a, b) {
-    const ta = a.throughput === null ? Infinity : a.throughput;
-    const tb = b.throughput === null ? Infinity : b.throughput;
-    if (ta !== tb) return ta < tb ? a : b;
+    const ra = rawRateOf(a);
+    const rb = rawRateOf(b);
+    if (ra !== rb) return ra < rb ? a : b;
     return a.chunk <= b.chunk ? a : b;
 }
 
@@ -403,7 +467,16 @@ function applyPacing(p) {
     runLineEnding = p.lineEnding;
 }
 
-function writeOneChunk() {
+// One chunk, start to finish: hand it to the wire, WAIT for the wire to take it,
+// and only then move the cursor, echo it and report it.
+//
+// The await is the whole point and the whole risk. Waiting is what makes the chip's
+// achieved rate the wire's rate rather than the rate the browser buffered at. But it
+// also means everything can change underneath this function while it is suspended —
+// the user can cancel, the adapter can be unplugged, a SLIDE transfer can take the
+// wire, another paste can be appended. The generation token is what makes that safe:
+// see `generation`.
+async function writeOneChunk() {
     timer = null;  // Allow cancel during write.
     if (isTransferRunning()) {
         // A SLIDE transfer started AFTER this paste was enqueued — enqueuePaste
@@ -416,7 +489,7 @@ function writeOneChunk() {
     }
     const remaining = queue.length - cursor;
     if (remaining <= 0) {
-        fireProgress('complete');
+        finishRun();
         return;
     }
     const start = cursor;
@@ -425,28 +498,84 @@ function writeOneChunk() {
     // what the bytes are.
     const end = Math.min(start + runChunkSize, queue.length);
     const chunk = queue.subarray(start, end);
-    cursor = end;
+    // The echo copy is taken NOW, before the await. displayCopy indexes into the
+    // queue, and a paste appended while this write is in flight replaces the queue —
+    // reading it afterwards would echo the wrong bytes. The view it returns keeps
+    // the old buffer alive, so it stays correct whatever happens to `queue`.
+    const echo = (getLocalEcho() && termRef) ? displayCopy(start, end) : null;
 
-    // D-21 — route through tx-sink (which calls registeredWriter.write when connected).
-    pushTxBytes(chunk);
+    const gen = generation;
+    inFlightEnd = end;
+    let accepted;
+    try {
+        accepted = await writePasteBytesAwaitable(chunk);
+    } catch (err) {
+        // The writer rejected — a port lost mid-paste is the ordinary way this
+        // happens. If the run has already ended for some other reason, this write is
+        // stale and its failure is not news.
+        if (gen !== generation) return;
+        const unsent = Math.max(0, queue.length - cursor);
+        endRun();
+        console.error('[paste-pump] write failed, paste aborted:', err);
+        // The unsent count is the real one: the cursor never moved past the chunk
+        // that failed, so the failed chunk is counted as unsent, which it is.
+        fireProgress('cancelled-port-lost', { unsent });
+        return;
+    }
+    // The run this write belonged to is over — cancelled, port lost, or handed to
+    // SLIDE. Advance nothing, echo nothing, fire nothing, schedule nothing.
+    if (gen !== generation) return;
 
-    // D-22 — local-echo: feed the DISPLAY copy of the chunk to the term after
-    // writer.write, preserving the sampleBell → drainHostReply → requestFrame
-    // invariant. The display copy is not the wire copy — see displayCopy.
-    if (getLocalEcho() && termRef) {
-        termRef.feed(displayCopy(start, end));
+    if (!accepted && isWriterReady()) {
+        // A writer IS registered and the bytes still did not reach it, so the wire
+        // owner flipped to 'slide' inside the await. Same rule as the check at the
+        // top: progress must never advance over bytes SLIDE threw away.
+        cancelPaste();
+        return;
+    }
+
+    // inFlightEnd, not `end` — an appended paste rebases it to 0 along with the
+    // cursor, and the bytes this write sent are then no longer in the queue at all.
+    cursor = inFlightEnd;
+    inFlightEnd = -1;
+
+    // D-22 — local-echo: feed the DISPLAY copy of the chunk to the term after the
+    // write, preserving the sampleBell → drainHostReply → requestFrame invariant.
+    // The display copy is not the wire copy — see displayCopy. Echo happens whether
+    // or not a wire took the bytes: it is what the user typed, locally.
+    if (echo) {
+        termRef.feed(echo);
         if (sampleBellFn) sampleBellFn();
         if (drainHostReplyFn) drainHostReplyFn('paste-echo');
         if (requestFrameFn) requestFrameFn();
     }
 
-    fireProgress('chunk', { written: cursor, total: queue.length });
+    if (accepted) {
+        runReachedWire = true;
+        fireProgress('chunk', { written: cursor, total: queue.length });
+    }
 
     if (cursor < queue.length) {
         // The same pause after every chunk, whatever the chunk carried.
         timer = setTimeout(writeOneChunk, runPauseMs);
     } else {
+        finishRun();
+    }
+}
+
+// The end of a drained run. 'complete' is only honest if something reached the wire.
+//
+// A paste with nothing connected still runs: the bytes fill the TX diagnostics ring
+// and drive local echo, both of which are real and neither of which needs a port. But
+// the wire saw none of it, so the run reports what happened instead of claiming a
+// completion it did not have. Nothing along the way fired a 'chunk' either — the chip
+// sits at 0 %, which is the truth.
+function finishRun() {
+    inFlightEnd = -1;
+    if (runReachedWire) {
         fireProgress('complete');
+    } else {
+        fireProgress('not-sent', { unsent: queue.length });
     }
 }
 

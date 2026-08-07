@@ -9,9 +9,11 @@
 // cancel; port-lost), AC-2 (no null-ref at boot with #top-bar absent), AC-5
 // (--chrome-* only, focus retention, subscribes to the pump), AC-6 (the new spec).
 //
-// The pump fires progress regardless of connection (pushTxBytes drops when no
-// writer), but the Esc "no 0x1B leaked" oracle needs a live writer, so we connect
-// via the Connection menu (the #connect-button retired with #top-bar in E7.1).
+// The pump reports progress only over bytes the WIRE took, so any case that expects
+// the chip to advance — or to end at 'Paste complete' — connects first, via the
+// Connection menu (the #connect-button retired with #top-bar in E7.1). A paste with
+// nothing connected still runs and still echoes, but the chip stays at 0% and ends
+// saying so; that behaviour has its own case in tests/transport/paste.spec.js.
 
 import { test, expect } from '@playwright/test';
 import { SERIAL_MOCK } from '../transport/mock-serial.js';
@@ -79,16 +81,31 @@ test.describe('E7.1 — paste toast: large-paste confirm', () => {
         expect(await page.evaluate(() => window.__pasteToast.__getStateForTests().lifecycle)).toBe('confirm');
     });
 
-    test('with no pause the estimate has no rate to quote @fast', async ({ page }) => {
-        // A pause of 0 means no pacing limit at all: the writer is fed
-        // continuously and the wire is the only ceiling, which is not a bytes/sec
-        // figure this module can know. It says so rather than inventing one, in
-        // the same words the Settings readout uses. The duration collapses to the
-        // 1 s floor, because the model's only term is the pauses.
+    test('with no pause the estimate quotes the wire rather than collapsing to ~1 s @fast', async ({ page }) => {
+        // A pause of 0 means no pacing limit at all: the writer is fed continuously
+        // and the wire is the only ceiling, which is not a bytes/sec figure this
+        // module can name — so the RATE still reads "wire speed".
+        //
+        // The DURATION cannot be the pauses, though, because there are none. The
+        // paced model's only term is the pauses, so it used to quote "~1 s" for any
+        // size at all: 2 MB of Forth source came out as a second. Now that the write
+        // path waits on Web Serial backpressure, the wire is real time the user
+        // spends waiting, and the estimate takes whichever of the two is slower.
+        // 5,000 B at 19200 8N1 (1920 B/s) is 2.6 s.
         await page.evaluate(() => {
             window.__pasteToast.confirmLargePaste(5000, { getChunk: () => 32, getPauseMs: () => 0 });
         });
-        await expect(page.locator(TEXT)).toHaveText('About to paste 5,000 B (~1 s at wire speed).');
+        await expect(page.locator(TEXT)).toHaveText('About to paste 5,000 B (~3 s at wire speed).');
+    });
+
+    test('a 2 MB paste at no pause is not quoted as one second @fast', async ({ page }) => {
+        // The case that made the wire bound necessary, stated at the size where the
+        // old model was absurd rather than merely wrong. 2,000,000 B at 1920 B/s is
+        // 1042 s — seventeen minutes.
+        await page.evaluate(() => {
+            window.__pasteToast.confirmLargePaste(2000000, { getChunk: () => 32, getPauseMs: () => 0 });
+        });
+        await expect(page.locator(TEXT)).toHaveText('About to paste 2,000,000 B (~1042 s at wire speed).');
     });
 
     test('the slowest cadence on the menu is quoted as it really is @fast', async ({ page }) => {
@@ -101,21 +118,36 @@ test.describe('E7.1 — paste toast: large-paste confirm', () => {
         await expect(page.locator(TEXT)).toHaveText('About to paste 5,000 B (~1000 s at 5 B/s).');
     });
 
-    test('a handshaking port is quoted as wire speed, and says why @fast', async ({ page }) => {
+    test('a handshaking port is quoted as wire speed, with a duration, and says why @fast', async ({ page }) => {
         // On a port opened with RTS/CTS the pump does not pace at all, so the
         // snapshot handed here is the unpaced shape (32 B, no pause) whatever the
         // Paste pause setting holds. Quoting the paced figure for a run that will
-        // not be paced would be the same lie the Settings readout must not tell —
-        // and there is no duration worth quoting either, because the paste is over
-        // before the sentence is read. The words go on the reason instead, in the
-        // phrase the Settings readout uses. Asserted exactly.
+        // not be paced would be the same lie the Settings readout must not tell, so
+        // the words go on the reason instead.
+        //
+        // But it still quotes a DURATION. An earlier draft dropped it on the theory
+        // that a handshaken paste is over before the sentence is read, and that is
+        // wrong: the handshake settles at about 13.5 B/s on a real MicroBeast (an
+        // ~800 B block took 59 s), so 5,000 B is 370 s and a 100 kB paste is nearly
+        // two hours. "Wire speed" on its own reads like "instant".
         await page.evaluate(() => {
             window.__pasteToast.confirmLargePaste(5000, {
                 getChunk: () => 32, getPauseMs: () => 0, isFlowControlled: () => true,
             });
         });
         await expect(page.locator(TEXT)).toHaveText(
-            'About to paste 5,000 B at wire speed (flow control).');
+            'About to paste 5,000 B (~370 s) at wire speed (flow control).');
+    });
+
+    test('the same rounding rule as the Settings readout and the chip @fast', async ({ page }) => {
+        // 1 byte every 150 ms is 6.666… B/s. It used to read "7 B/s" here and in the
+        // modal the user picks the value from, while the chip measuring the same run
+        // said "6.7 B/s" — three surfaces, one number, two answers. One rule now
+        // (renderer/paste-rate.js): a decimal below 10, whole numbers above.
+        await page.evaluate(() => {
+            window.__pasteToast.confirmLargePaste(1000, { getChunk: () => 1, getPauseMs: () => 150 });
+        });
+        await expect(page.locator(TEXT)).toHaveText('About to paste 1,000 B (~150 s at 6.7 B/s).');
     });
 
     test('[Cancel] resolves the confirm false and hides the toast @fast', async ({ page }) => {
@@ -142,20 +174,28 @@ test.describe('E7.1 — paste toast: large-paste confirm', () => {
     });
 });
 
-test.describe('E7.1 — paste toast: live progress', () => {
-    test.beforeEach(async ({ page }) => { await setup(page); });
-
+// The progress case needs a cadence pinned at boot, so it seeds its own prefs and
+// therefore its own setup() — it sits outside the beforeEach describe below rather
+// than running setup() twice over the same page (which reloaded the page and
+// re-installed the serial mock for no reason).
+test.describe('E7.1 — paste toast: live progress from a real paste', () => {
     test('progress line "Pasting N B — P%" updates then "Paste complete" then auto-hides', async ({ page }) => {
         // 8 bytes every 20 ms: 32 writes, long enough for the progress line to be
         // observed and short enough to complete inside the assertion window. The
         // default 5 B/s would hold it open for nearly a minute.
         await setup(page, { prefs: { version: 2, pasteChunk: 8, pastePauseMs: 20 } });
+        // Connected, because 'Paste complete' is a claim about the wire now.
+        await connectViaMenu(page);
         await pasteViaDebug(page, 'B'.repeat(256));
         await expect(page.locator(TEXT)).toContainText('Pasting 256 B —', { timeout: 2000 });
         await expect(page.locator(TEXT)).toContainText('Paste complete', { timeout: 5000 });
         // Auto-hide within the 2 s complete timeout (+ margin).
         await expect(page.locator(TOAST)).toBeHidden({ timeout: 4000 });
     });
+});
+
+test.describe('E7.1 — paste toast: live progress', () => {
+    test.beforeEach(async ({ page }) => { await setup(page); });
 
     test('[Cancel] mid-pump halts the pump and shows "Paste cancelled"', async ({ page }) => {
         await pasteViaDebug(page, 'C'.repeat(4096));   // long enough to catch mid-stream
@@ -186,23 +226,59 @@ test.describe('E7.1 — paste toast: live progress', () => {
     });
 
     test('the chip reports elapsed time and the rate it actually achieved @fast', async ({ page }) => {
-        // Both figures are MEASURED — bytes the pump says it has written, over
-        // wall-clock time since the pump's 'started'. Driven through the progress
-        // API with a real 400 ms wait in between so the arithmetic is checkable:
+        // Both figures are MEASURED — bytes the pump says the wire took, over
+        // wall-clock time.
+        //
+        // The rate window opens at the FIRST chunk, not at 'started', so this drives
+        // two chunks with a real 400 ms wait between them. That is a correction, not
+        // bookkeeping: the pump writes its first chunk immediately and only then
+        // starts pausing, so after n chunks it has sent n chunks' worth of bytes over
+        // n − 1 pauses. Measuring from 'started' therefore reported n/(n−1) times the
+        // real cadence — double at the second chunk. Measuring from the first chunk
+        // divides the bytes sent SINCE it by the pauses that produced them.
         // 800 B in ~0.4 s is ~2000 B/s, and no setting in the app says 2000.
         await page.evaluate(async () => {
             window.__pasteToast.__resetForTests();
             window.__pasteToast.handleProgress({ status: 'started', total: 1600 });
+            window.__pasteToast.handleProgress({ status: 'chunk', written: 8, total: 1600 });
             await new Promise((r) => setTimeout(r, 400));
-            window.__pasteToast.handleProgress({ status: 'chunk', written: 800, total: 1600 });
+            window.__pasteToast.handleProgress({ status: 'chunk', written: 808, total: 1600 });
         });
         const text = await page.locator(TEXT).textContent();
-        expect(text).toMatch(/^Pasting 1600 B — 50% · \d+ s · \d+(\.\d)? B\/s$/);
+        expect(text).toMatch(/^Pasting 1600 B — 51% · \d+ s · \d+(\.\d)? B\/s$/);
         const rate = Number(text.match(/· ([\d.]+) B\/s$/)[1]);
         // Generous band — this is a real clock under a real browser — but nowhere
         // near any configured cadence, which is the point.
         expect(rate).toBeGreaterThan(500);
         expect(rate).toBeLessThan(20000);
+    });
+
+    test('an appended paste restarts the clock instead of decaying the rate @fast', async ({ page }) => {
+        // A paste appended to a live run compacts the pump's queue, so `written`
+        // drops back to the new run's first chunk while the clock kept running. The
+        // chip then divided a handful of bytes by the whole elapsed time and reported
+        // 0.0 B/s for the rest of the run — the readout going dead in exactly the
+        // situation (a second paste on top of a slow one) where the user is watching
+        // it hardest.
+        await page.evaluate(async () => {
+            window.__pasteToast.__resetForTests();
+            window.__pasteToast.handleProgress({ status: 'started', total: 4000 });
+            window.__pasteToast.handleProgress({ status: 'chunk', written: 100, total: 4000 });
+            await new Promise((r) => setTimeout(r, 1200));
+            window.__pasteToast.handleProgress({ status: 'chunk', written: 900, total: 4000 });
+            // The append: total changes and written restarts from the bottom.
+            window.__pasteToast.handleProgress({ status: 'chunk', written: 100, total: 5000 });
+            await new Promise((r) => setTimeout(r, 300));
+            window.__pasteToast.handleProgress({ status: 'chunk', written: 400, total: 5000 });
+        });
+        const text = await page.locator(TEXT).textContent();
+        // Elapsed restarted with the byte count — 0 s, not the 1 s+ the first half
+        // of the run had already spent.
+        expect(text).toContain('· 0 s ·');
+        const rate = Number(text.match(/· ([\d.]+) B\/s$/)[1]);
+        // 300 B over ~0.3 s is ~1000 B/s. Without the restart it would be 400 B over
+        // ~1.5 s — under 300 — so the band below distinguishes them.
+        expect(rate).toBeGreaterThan(500);
     });
 
     test('the clock starts at the pump, not when the confirm opened @fast', async ({ page }) => {
@@ -385,6 +461,7 @@ test.describe('E7.1 — no null-reference at boot with #top-bar absent (AC-2)', 
         // 128 B at the default 5 B/s is 25 s; this case is about the absent DOM and
         // a clean console, so the cadence is pinned quick.
         await setup(page, { prefs: { version: 2, pasteChunk: 8, pastePauseMs: 5 } });
+        await connectViaMenu(page);   // 'Paste complete' is a claim about the wire
         // The retired surfaces are gone from the DOM.
         expect(await page.locator('#top-bar').count()).toBe(0);
         expect(await page.locator('#paste-progress-row').count()).toBe(0);

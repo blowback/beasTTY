@@ -235,6 +235,12 @@ test.describe('SESS-02/SESS-03 — Clipboard', () => {
         // RTS/CTS, a real clipboard paste, the string the user actually sees. It
         // fails if main.js stops injecting isFlowControlled, or if serial.js stops
         // telling the pump how the port is framed.
+        //
+        // A DURATION comes with it. This case used to assert a sentence with no
+        // number in it, on the theory that a handshaken paste is over before it is
+        // read; the handshake actually settles at about 13.5 B/s on a real
+        // MicroBeast, which makes these 5,000 B 370 s and a 100 kB paste nearly two
+        // hours. "Wire speed" alone reads like "instant".
         await setup(page, { prefs: {
             version: 2,
             serial: { baud: 19200, dataBits: 8, stopBits: 1, parity: 'none', flowControl: 'hardware' },
@@ -243,7 +249,7 @@ test.describe('SESS-02/SESS-03 — Clipboard', () => {
         await connectMockSerial(page);
         await page.evaluate(() => { window.__pendingPasteResult = window.__pasteFromClipboard(); });
         await expect(page.locator('#paste-toast-text'))
-            .toHaveText('About to paste 5,000 B at wire speed (flow control).');
+            .toHaveText('About to paste 5,000 B (~370 s) at wire speed (flow control).');
         await page.locator('#paste-toast button[data-action="cancel"]').click();
     });
 

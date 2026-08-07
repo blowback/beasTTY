@@ -1577,12 +1577,13 @@
     #paste-config-modal[open] {
       max-width: 56ch;
     }
-    /* Four short rows and a hint — there is nothing to scroll, and the shared
-       overflow-y:auto would clip the ⓘ tips (an auto on one axis makes the other
-       clip too) at the body's edges. */
-    #paste-config-modal .modal-body {
-      overflow: visible;
-    }
+    /* The shared overflow-y:auto stands. `overflow: visible` used to sit here so the
+       ⓘ tips could spill past the body's edges, but it also removed the body's
+       ability to scroll: at high browser zoom the four rows push the footer off the
+       bottom of the dialog and the Close button becomes unreachable, with Esc as the
+       only way out. A clipped tooltip is a smaller problem than an exit you cannot
+       click, and the tips are positioned to open inward (see the .field-tip rules
+       above) so most of them clear the edge anyway. */
     #paste-config-modal .field-value {
       color: var(--chrome-fg);
       font-size: 13px;
@@ -2963,7 +2964,12 @@
         </span>
         <span id="paste-throughput-value" class="field-value">≈ 5 B/s</span>
       </div>
-      <p class="hint">Pacing applies only when the port is open with no flow control. The paste chip reports the rate actually achieved while a paste runs.</p>
+      <!-- The condition is the ABSENCE of hardware flow control, not the presence of a
+           port. Nothing connected counts as no flow control and paces, because pacing a
+           connection that did not need it costs time while not pacing one that did
+           costs data. The previous wording said pacing applied "only when the port is
+           open", which denied the case that is true out of the box. -->
+      <p class="hint">Pacing applies unless the open port uses hardware flow control — including when nothing is connected. The paste chip reports the rate actually achieved while a paste runs.</p>
     </div>
     <footer>
       <!-- Close via native <form method="dialog"> submit → returnValue 'close'.

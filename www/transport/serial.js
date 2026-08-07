@@ -889,12 +889,11 @@ async function teardown({ deassertSignals = true } = {}) {
     // Step 5 — Phase 5 D-20 — drop any mid-paste queue.
     pastePumpOnPortLost();
     slidePumpOnPortLost();   // Phase 11 D-14 — symmetric SLIDE port-lost teardown.
-    // Step 6 — nothing is open, so the pump knows nothing about flow control and
-    // goes back to pacing. Deliberately NOT done on the port-lost paths: those keep
-    // the connection's identity for the silent auto-reconnect, which re-opens with
-    // this same lastConfig and never calls setLastConfig again — clearing here
-    // would leave the pump pacing a port that is still handshaking. An explicit
-    // Disconnect is the point at which the next open() reads the form afresh.
+    // Step 6 — nothing is open, so the pump knows nothing about flow control and goes
+    // back to pacing. Safe to say unconditionally now: every path that opens a port
+    // records what it opened with (connectMicroBeast, the boot auto-connect, and
+    // finishReconnect), so the next open corrects this whatever it turns out to be.
+    // This used to have to reason about which teardowns a reconnect might follow.
     setPasteFlowControl(null);
     // NOTE: port variable stays set (so getPorts/VID-match still works on reconnect).
 }
@@ -1048,6 +1047,19 @@ async function onNavSerialConnect(ev) {
 // No error log on clean unplug — the red border signal is sufficient.
 function onNavSerialDisconnect(ev) {
     if (ev.target === port || ev.target === lastPortRef) {
+        // Nothing is open any more, so the pump knows nothing about flow control —
+        // the same thing an explicit Disconnect says. This used to be left standing
+        // on the port-lost paths because a reconnect never re-recorded the config,
+        // so clearing here would have left the pump pacing a port that came back
+        // handshaking. finishReconnect records it now, like every other open, so the
+        // pump's belief can simply mean what it says: the flow control of the port
+        // that is currently open, with no exceptions to reason about.
+        //
+        // BEFORE setState, because setState fans out to every connection projector —
+        // including the Paste settings modal's throughput readout, which would
+        // otherwise re-derive from the belief this line is about to invalidate and
+        // go on claiming the pacing is off.
+        setPasteFlowControl(null);
         setState('port-lost');
         // Phase 5 D-20 — drain any mid-paste queue on hard unplug so the
         // pump stops trying to push bytes to a closed writer.
@@ -1061,8 +1073,11 @@ function onNavSerialDisconnect(ev) {
 async function handleReconnect(target) {
     setState('reconnecting');
     let openSucceeded = false;
+    // The config this open uses, carried to finishReconnect so it can be recorded.
+    // EVERY successful open records what it opened with — see finishReconnect.
+    const cfg = lastConfig || PRESET_CONFIG;
     try {
-        await target.open(lastConfig || PRESET_CONFIG);
+        await target.open(cfg);
         openSucceeded = true;
         // Phase 12.1 Plan 12-08 — RTS gated on prefs.serialAssertRtsOnConnect.
         await target.setSignals({
@@ -1080,7 +1095,7 @@ async function handleReconnect(target) {
         setTimeout(() => retryOpenOnce(target), 500);
         return;
     }
-    await finishReconnect(target);
+    await finishReconnect(target, cfg);
 }
 
 // D-04 retry — second attempt at open() after a 500ms gap. If this also fails
@@ -1088,8 +1103,9 @@ async function handleReconnect(target) {
 // and land in port-lost so the user can click Reconnect explicitly.
 async function retryOpenOnce(target) {
     let openSucceeded = false;
+    const cfg = lastConfig || PRESET_CONFIG;
     try {
-        await target.open(lastConfig || PRESET_CONFIG);
+        await target.open(cfg);
         openSucceeded = true;
         // Phase 12.1 Plan 12-08 — RTS gated on prefs.serialAssertRtsOnConnect.
         await target.setSignals({
@@ -1113,10 +1129,10 @@ async function retryOpenOnce(target) {
             : `Reconnect failed: ${retryErr.message}`);
         return;
     }
-    await finishReconnect(target);
+    await finishReconnect(target, cfg);
 }
 
-async function finishReconnect(target) {
+async function finishReconnect(target, cfg) {
     // Review fix — the port is open by the time we get here, so a throw from
     // getWriter/registerWriter would escape as an unhandled rejection (both callers
     // await this from a setTimeout or an event handler) and strand the open port.
@@ -1133,6 +1149,15 @@ async function finishReconnect(target) {
     }
     port = target;
     lastPortRef = target;
+    // Every successful open records the config it opened with — no exceptions, this
+    // path included. It used to be the exception, and the asymmetry cost data:
+    // Disconnect cleared the pump's flow-control belief to `none`, and a later unplug
+    // + replug reopened the port from the CACHED hardware config through here without
+    // telling the pump. The port handshook; the pump paced it anyway; an 800 B paste
+    // that takes 59 s took 148. Recording it here rather than reasoning about when it
+    // is safe not to is what makes the pump's belief match the open port by
+    // construction.
+    setLastConfig(cfg);
     // Phase 6 Plan 05 (D-29) — reconnect is a new session per the per-connection
     // lifecycle contract; capture a fresh connect-time UTC stamp BEFORE setState
     // so the read loop's first append finds an empty buffer and a current stamp.

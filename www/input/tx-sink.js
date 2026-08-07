@@ -162,6 +162,54 @@ export async function writeSlideFrameAwaitable(bytes) {
     await registeredWriter.write(bytes);
 }
 
+// The paste pump's own entry point, and the reason it is not pushTxBytes.
+//
+// pushTxBytes is fire-and-forget: it hands the bytes to the stream and returns.
+// That is right for a keystroke — one or two bytes, at human speed — but it makes
+// the paste chip's achieved-rate readout meaningless. On a port opened with
+// hardware flow control the pump does not pace at all, so it hands the whole
+// payload to the stream in about 100 ms and the chip reports thousands of bytes
+// per second for a transfer that really takes 59 s (measured on a real MicroBeast
+// with an ~800 B block). The rate is only the WIRE's rate if the write path waits
+// for the wire, which means awaiting `ready` — the same idiom, and the same
+// reason, as writeSlideFrameAwaitable above.
+//
+// pushTxBytes itself is deliberately untouched: keystrokes and SLIDE control
+// bytes share it, and changing the byte path everything uses to fix the byte path
+// paste uses is a trade nobody asked for. This is the sibling, not a replacement.
+//
+// Returns TRUE only when the bytes reached the writer. The two false cases are
+// different and the caller can tell them apart with isWriterReady():
+//   - no writer registered  — nothing is connected; the bytes went to the ring
+//     (so the debug hex strip and local echo still work) and nowhere else.
+//   - owner === 'slide'     — a SLIDE session owns the wire, exactly as
+//     pushTxBytes's silent drop; paste progress must not advance over these.
+// A write REJECTION propagates as a rejected Promise: a port lost mid-paste has
+// to reach the pump, which aborts the run and reports a real unsent count, rather
+// than becoming a console line while the chip runs on to 100 %.
+export async function writePasteBytesAwaitable(bytes) {
+    if (owner === 'slide') return false;
+
+    // Same ring append + notify as pushTxBytes. Duplicated rather than factored
+    // out because pushTxBytes is on the do-not-touch list; the loop is four lines
+    // and the alternative is editing the one function everything else calls.
+    const len = bytes.length;
+    for (let i = 0; i < len; i++) {
+        ring[writeIdx] = bytes[i] & 0xFF;
+        writeIdx = (writeIdx + 1) % RING_CAP;
+        if (writeIdx === 0) wrapped = true;
+    }
+    notify();
+
+    // Captured before the awaits: an unregisterWriter() landing mid-write must not
+    // turn the second line into a TypeError on null.
+    const w = registeredWriter;
+    if (!w) return false;
+    await w.ready;
+    await w.write(bytes);
+    return true;
+}
+
 // --- Internals ------------------------------------------------------------
 
 function notify() {

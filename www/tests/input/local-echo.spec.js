@@ -22,6 +22,9 @@ async function setup(page, { prefs } = {}) {
     await page.waitForFunction(() => typeof window.__testGridView === 'function');
     await page.waitForFunction(() =>
         window.__menuBar && typeof window.__menuBar.open === 'function');
+    // window.__pastePump is assigned LATE in main.js; the paste cases below read it.
+    await page.waitForFunction(() =>
+        window.__pastePump && typeof window.__pastePump.isActive === 'function');
     await page.locator('#debug').evaluate((el) => { el.open = true; });
     await page.locator('#tx-reset').click();
 }
@@ -126,10 +129,18 @@ test.describe('Local echo — a pasted block echoes as separate lines', () => {
     // what makes the split-CRLF case below a real split rather than a contrivance.
     const QUICK = { version: 2, pastePauseMs: 5 };
 
+    // Nothing is connected in this file — the subject is what the ECHO draws, which
+    // needs no port. The pump drains the queue and echoes every chunk either way, but
+    // it no longer ends by claiming 'Paste complete' when the wire took none of it:
+    // that was a fabricated completion, and the chip now says what happened instead.
+    // So the settle signal is the pump going idle, which is the thing this case
+    // actually needs to wait for.
     async function pasteAndSettle(page, text) {
         await page.locator('#input').fill(text);
         await page.locator('#paste-test').click();
-        await expect(page.locator('#paste-toast-text')).toContainText('Paste complete', { timeout: 10_000 });
+        await expect(page.locator('#paste-toast')).toBeVisible();   // the pump started
+        await expect.poll(() => page.evaluate(() => window.__pastePump.isActive()),
+            { timeout: 10_000 }).toBe(false);
         await page.waitForTimeout(80);   // rAF render tick (incumbent local-echo idiom)
     }
 

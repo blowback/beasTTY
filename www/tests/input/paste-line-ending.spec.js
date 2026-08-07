@@ -26,14 +26,20 @@ const crlfRow = (v) =>
 
 // Boot-race guard (E0/E1 protocol): wait on the window.__* handles before driving.
 // window.__pastePump is assigned LATE in main.js, so it needs its own wait.
-async function ready(page) {
+// `prefs` REPLACES the stored blob this seeds, and that matters more than it looks.
+// ready() seeds its own blob, so a case that seeded one of its own before calling
+// ready() had it overwritten — which made the corrupt-stored-value case below assert
+// nothing at all: it was checking that the pump rejects a bad pasteLineEnding while
+// the bad value was never in the blob the page loaded. Anything a case needs in the
+// stored blob has to go through here.
+async function ready(page, { prefs } = {}) {
     // Every case here is about the BYTES a paste puts on the wire, not the rate it
     // puts them there at. The default cadence — 1 byte every 200 ms, the measured
     // hardware working point — would spend a second per case waiting for payloads
     // of six bytes, so it is pinned quick. The chunk size is left at the default 1,
     // which is the boundary condition the CRLF cases most want.
     await page.addInitScript((blob) => localStorage.setItem('beastty.prefs', blob),
-        JSON.stringify({ version: 2, pastePauseMs: 5 }));
+        JSON.stringify(prefs || { version: 2, pastePauseMs: 5 }));
     await page.goto('/');
     await page.waitForFunction(() => document.getElementById('terminal').width > 0);
     await page.waitForFunction(
@@ -188,9 +194,14 @@ test.describe('Paste line ending — the modal control', () => {
         // paste-pump validates at the consumer (the setCrlfMode precedent) —
         // prefs.js has no field validation, so a hand-edited or future-schema
         // blob can carry anything. The setter rejects it and the default stands.
-        await page.addInitScript(() => localStorage.setItem(
-            'beastty.prefs', JSON.stringify({ version: 2, pasteLineEnding: 'nonsense' })));
-        await ready(page);
+        //
+        // The bad value goes through ready()'s override, not a separate
+        // addInitScript before it. It used to be seeded separately and ready() then
+        // wrote its own blob straight over the top, so the page booted with a
+        // perfectly valid pasteLineEnding and this case could not fail however
+        // broken the validator was.
+        await ready(page, { prefs: { version: 2, pastePauseMs: 5, pasteLineEnding: 'nonsense' } });
+        expect(await page.evaluate(() => window.__prefs.getPrefs().pasteLineEnding)).toBe('nonsense');
         expect(await page.evaluate(() => window.__pastePump.getPasteLineEnding())).toBe('cr');
         await paste(page, 'A\\x0AB');
         await expect(page.locator('#tx-strip')).toHaveText('41 0D 42');

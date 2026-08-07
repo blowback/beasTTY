@@ -381,8 +381,11 @@ test.describe('PREF-01/PREF-02/PLAT-05 — Preferences persistence', () => {
         expect(await page.evaluate(() => window.__pastePump.getPastePauseMs())).toBe(150);
         await openPasteSettings(page);
         await expect(page.locator(PASTE_PAUSE_SELECT)).toHaveValue('150');
-        // 1 byte every 150 ms is 6.67 B/s, rounded to 7 for the readout.
-        await expect(page.locator(PASTE_THROUGHPUT)).toHaveText('≈ 7 B/s');
+        // 1 byte every 150 ms is 6.67 B/s, and it keeps its decimal: rounding it to
+        // 7 here while the chip measuring the same run said 6.7 made the two figures
+        // impossible to compare, which is the one thing they are for. One rule now
+        // (renderer/paste-rate.js) — a decimal below 10, whole numbers above.
+        await expect(page.locator(PASTE_THROUGHPUT)).toHaveText('≈ 6.7 B/s');
         await closePasteSettings(page);
     });
 

@@ -431,6 +431,11 @@ const pasteConfig = wirePasteConfig({
     // ignored.
     getPasteThroughput,
     getPasteFlowControl,
+    // The readout's flow-control state belongs to the OPEN PORT, so a modal that is
+    // already open when the connection changes has to re-derive it. project() on open
+    // covers the other direction. Same onStateChange truth every other connection
+    // projector reads.
+    onConnectionChange: onStateChange,
 });
 const openPasteConfig = makeModalOpener(pasteConfigModalEl, 'paste-line-ending-select',
     () => pasteConfig.project());

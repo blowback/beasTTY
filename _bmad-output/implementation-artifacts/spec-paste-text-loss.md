@@ -35,13 +35,15 @@ This corrects an earlier claim in this spec that the loss happened *inside* an 8
 - **Local echo must render a pasted multi-line block as separate lines.** The bytes on the wire and the bytes fed to the terminal for echo need not be identical.
 - The three paste settings live together in one modal opened from Settings, following the `#serial-config-modal` precedent and the clean-modal aesthetic (aligned rows, ⓘ tooltips) — not verbose transplanted panels. Persist ≠ apply still holds: every control applies to the pump **and** persists.
 - **The paste chip reports elapsed time and achieved rate while pasting.** Measured from real progress, never derived from the settings — its whole value is telling the user what actually happened rather than what was configured.
+- **Progress counts bytes the wire accepted, not bytes handed to a buffer.** The paste path awaits Web Serial backpressure, so the chip's rate is the wire's rate on every path including a handshaking one. Without this the readout is honest when paced and meaningless when not.
+- **A write resolving after a cancel or port loss may not advance anything.** Guard the resume with a generation token: no cursor movement, no progress event, no further chunk.
 - Append new prefs to `DEFAULTS` **without** bumping `CURRENT_VERSION` (defensive spread-merge, as every prior pref).
 - Each new pref validates at its consumer, as `setCrlfMode` does — `prefs.js` has no field validation, and a merged `null` overrides a default rather than falling back to it.
 - SLIDE must never see paste bytes, and paste progress must never advance over bytes SLIDE caused to be dropped.
 
 **Ask First:**
-- Any change to `pushTxBytes`, `tx-sink.js` write semantics, or SLIDE transport. Backpressure is deliberately out of scope (see `deferred-work.md`); if the pacing fix seems to require it, HALT.
-- Making `writeOneChunk` async. It stays synchronous in this spec.
+- Any change to `pushTxBytes` itself, or to SLIDE transport. Keystrokes and SLIDE control bytes share `pushTxBytes`; the paste path gets its own awaitable entry point beside `writeSlideFrameAwaitable` rather than changing the one everybody uses.
+- Widening the async conversion beyond the paste chunk loop.
 
 **Never:**
 - No echo-driven or adaptive pacing. Fixed rate only.
@@ -74,6 +76,10 @@ This corrects an earlier claim in this spec that the loss happened *inside* an 8
 | Settings reachable | Settings ▸ Paste settings… | one modal holds line ending, chunk size, pause and the throughput readout | N/A |
 | Settings changed mid-paste | chunk or pause changed during a paced paste | the in-flight paste keeps its enqueue-time values; a paste appended to a live run adopts the slower of the two | N/A |
 | SLIDE starts mid-paste | transfer begins while a paced paste runs | pump stops; progress does not advance over dropped bytes | N/A |
+| Chip rate on a handshaking port | RTS/CTS throttling to ~13.5 B/s | chip reports ~13.5 B/s, not the enqueue rate | N/A |
+| Port lost mid-paste | writer rejects | paste aborts; progress never reports `complete`; unsent count is real | rejection reaches the pump rather than a console line |
+| Cancel during an in-flight write | Esc while a write is pending | pump stops; the resolving write advances nothing | generation token; no `0x1B` emitted |
+| No writer registered | paste with nothing connected | no progress, no fabricated completion | reported, not silently "done" |
 | Cancel mid-paste | Esc while paced | pump stops; no `0x1B` emitted (unchanged) | N/A |
 | Out-of-range stored pref | `pasteChunk: 99999` / `pastePauseMs: -1` | rejected, default stands | no throw |
 | Non-numeric stored pref | either pref as `null` / `""` / `false` / `[]` | rejected, default stands, menu shows the default | no throw; must not coerce to `0` |
@@ -96,28 +102,32 @@ This corrects an earlier claim in this spec that the loss happened *inside* an 8
 
 The line-ending half of this spec is implemented and hardware-confirmed. These tasks replace the pacing half only. The line-ending normaliser, the local-echo display copy, the `isTransferRunning()` re-check, the menu-projection approach and the validator style all stay as they are.
 
-**Execution:**
-- [x] `www/input/paste-pump.js` -- add `150` to the accepted/offered pause set. No other pacing change.
-- [x] `www/index.html` -- new `#paste-config-modal` (`class="chrome-modal"`, following `#serial-config-modal`): aligned rows for Line ending, Chunk size and Pause, plus the throughput readout with its flow-control state. Match the clean-modal aesthetic — aligned rows and ⓘ tooltips, not a transplanted panel. Remove the three paste submenus and the throughput row from `#dropdown-settings`, leaving one `Paste settings…` item.
-- [x] `www/renderer/menu-bar.js` -- drop the `paste-eol` / `paste-chunk` / `paste-pause` submenu branches and panel refs; the Settings item opens the modal via the existing `openModal` helper. Leave every other radio submenu untouched.
-- [x] `www/renderer/` (new module or alongside the serial-config modal) -- wire the modal's controls: each applies to the pump **and** persists, and the modal re-projects from the pump's live getters on open, exactly as the submenus did.
-- [x] `www/renderer/paste-toast.js` -- the `pumping` render gains elapsed seconds and achieved B/s, computed from bytes actually written over real elapsed time. Start the clock on `started`, not on the confirm. Do not derive either figure from the settings.
-- [x] `www/main.js` -- wire the modal; keep the pump getters exposed for tests.
-- [x] `www/tests/render/paste-toast.spec.js` -- elapsed and achieved rate appear and advance; the achieved figure tracks real progress rather than the configured pause (assert it differs when the pause is bypassed).
-- [x] `www/tests/render/*` -- modal opens from Settings, each control applies and persists, re-projection on open, focus retention and Esc behaviour per the modal precedent; the submenu tests for the three moved settings are replaced, not deleted silently.
-- [x] `www/tests/session/prefs.spec.js` -- 150 ms round-trips; existing pref assertions still hold.
+**Execution — backpressure:**
+- [x] `www/input/tx-sink.js` -- add an awaitable paste entry point beside `writeSlideFrameAwaitable`: ring + `notify()` + the SLIDE-owner drop, then `await writer.ready; await writer.write`. Return whether the bytes were accepted. Leave `pushTxBytes` untouched.
+- [x] `www/input/paste-pump.js` -- `writeOneChunk` becomes async and awaits that entry point. Advance the cursor and fire progress only for bytes the wire accepted. Guard the resume with a generation token so a write resolving after a cancel, a port loss or a SLIDE start advances nothing and schedules nothing.
+- [x] `www/input/paste-pump.js` -- surface a write rejection: abort the paste, report the real unsent count, never fire `complete`. A paste with no writer registered must not report progress at all.
+- [x] `www/tests/transport/paste.spec.js` -- cancel while a write is in flight; port lost mid-paste never reaching `complete`; no writer registered; and the chip's rate tracking a throttled writer rather than the enqueue rate.
+
+**Execution — review patches:**
+- [x] `www/transport/serial.js` -- record the port config on **every** successful open, reconnect paths included, so the pump's flow-control belief always matches the open port. Removes the Disconnect → unplug → replug case that leaves a handshaking port paced, and removes the asymmetry the current comment has to reason about. Test the replug path.
+- [x] `www/renderer/paste-toast.js` -- reset the clock when a run's byte count restarts (append compacts the queue and `written` returns to 1, so elapsed and written currently measure different intervals). Quote no rate until enough time has passed to compute one — the present `elapsedMs > 0` guard admits a first frame of 160,000 B/s. Correct the steady-state bias (n bytes over n−1 pauses).
+- [x] `www/renderer/paste-toast.js` -- restore a wire bound to the duration estimate: at pause 0 the model is all pauses, so 2 MB quotes "~1 s". On a handshaking port quote a duration too — dropping it entirely leaves a ~2 h paste unwarned at the measured 13.5 B/s.
+- [x] `www/renderer/paste-config.js` -- re-project the throughput readout when the connection changes, so an open modal cannot keep claiming `wire speed (flow control)` after the port is lost.
+- [x] `www/index.html` -- correct the modal hint: pacing also applies when nothing is connected, which the current wording denies. Restore scrolling to the modal body — `overflow: visible` makes the Close button unreachable at high zoom.
+- [x] `www/input/paste-pump.js` + `www/renderer/paste-toast.js` -- one rounding rule for throughput across chip, modal and confirm: 1 B / 150 ms must not read `≈ 7 B/s` in the control the user picks from while the chip says `6.7 B/s`. Compare unrounded in `slowerPacing` so near-equal cadences do not tie.
+- [x] `www/tests/render/paste-config-modal.spec.js` -- the removal check iterates `paste-chunk` / `paste-pause`, which never existed; the retired panel was `paste-speed`. Two assertions are vacuous and the one that matters is missing.
+- [x] `www/tests/input/paste-line-ending.spec.js` -- the corrupt-stored-value test cannot fail: `ready()` installs its own prefs blob that overwrites the seeded one. Let `ready()` take an override.
+- [x] `www/tests/transport/paste.spec.js` -- delete the retracted burst theory from the "Paste cadence" describe header; it states the wrong mechanism directly above the tests for the right one.
+- [x] `www/tests/render/menu-bar-settings.spec.js` -- drop the now-dead `ready()` options and unused import; re-home the lost "Enter key sends" label assertion; remove the double `setup()` in the toast progress case.
+- [x] `www/renderer/paste-config.js` -- replace the banned word in the injected-dependencies comment.
 
 **Acceptance Criteria:**
-- Given default settings and an LF-only multi-line clipboard, when the user pastes, then every line break reaches the wire as `0x0D` and the rest of the byte stream is identical to the clipboard text.
-- Given any chunk size, when a paced paste runs, then every write is exactly that many bytes except the last, regardless of where line breaks fall in the payload.
-- Given any pause including 150 ms, when a paced paste runs, then the delay between every pair of consecutive writes is that value.
-- Given a port open with flow control `hardware`, when a paste runs, then no pause is applied and the throughput readout says why.
-- Given a paste is running, when the chip is visible, then it shows elapsed time and the rate actually achieved, both advancing as the paste proceeds.
-- Given the pause is bypassed by flow control, when the chip reports a rate, then that rate reflects the wire and not the configured pause.
-- Given Settings ▸ Paste settings…, when the modal opens, then it holds all three paste controls and the throughput readout, each reflecting the pump's live value.
-- Given a control is changed in the modal, when the page is reloaded, then the value persists and the modal reopens showing it.
-- Given local echo is on and the default line ending, when a multi-line block is pasted, then the echoed text occupies as many rows as it has lines.
-- Given a chunk size and pause, when the confirm quotes a duration, then it is within ~15 % of how long the paste actually takes.
+- Given a paste over a handshaking port, when the chip reports a rate, then it is the wire's rate and not the rate at which bytes were handed to the writer.
+- Given a paste is cancelled or the port is lost while a write is in flight, when that write resolves, then no bytes are sent, no progress fires and the paste never reports `complete`.
+- Given a port is reopened by any path including reconnect, when a paste runs, then the pacing matches the flow control the port was actually opened with.
+- Given the pause is 0 and the payload is large, when the confirm quotes a duration, then the quote accounts for the wire rather than reporting ~1 s.
+- Given a chunk size and pause, when throughput is displayed anywhere, then every surface renders the same number the same way.
+- All acceptance criteria from previous rounds continue to hold.
 
 ## Spec Change Log
 
@@ -170,6 +180,20 @@ The line-ending half of this spec is implemented and hardware-confirmed. These t
 
 **KEEP — still binding.** Everything in the previous entries' KEEP lists. The radio-submenu constraint is **superseded for the paste settings only** — the crlf, theme, phosphor, font and cmdhistory-size submenus are untouched, and persist-≠-apply still governs every paste control.
 
+### 2026-08-07 (round 3 review) — backpressure pulled back in; 20 patches
+
+**Triggering findings.** Three reviewers audited `cc3bb01..4c3e4c1`. The acceptance audit confirmed the spec was satisfied — all 25 matrix rows, all 10 acceptance criteria, every constraint and all prior KEEP lists — so these are patches, not a loopback. But two findings cut at the chip Ant had just asked for: `pushTxBytes` never awaits `writer.ready`, so on an unpaced (flow-controlled) port the pump hands the payload to the stream in ~100 ms and the chip reports thousands of B/s for a transfer that takes 59 s. The readout is honest when paced and meaningless when not — and the unpaced case is precisely the one Ant had to time by hand.
+
+**What was amended.** Backpressure moves from `deferred-work.md` into scope, at Ant's direction. The Ask-First clause that forbade it is replaced by a narrower one: `pushTxBytes` itself stays untouched, because keystrokes and SLIDE control bytes share it; the paste path gets its own awaitable entry point beside `writeSlideFrameAwaitable`. Three Always constraints and four matrix rows follow from it — progress counts accepted bytes, a write resolving after a cancel advances nothing, and the chip's rate is the wire's on every path.
+
+**Why it was deferred and why that no longer holds.** It was carved out during planning because the reported bug reproduced without it. It does not reproduce without it any more: the chip is a feature Ant asked for, and it cannot tell the truth about a handshaking port while the write path is fire-and-forget.
+
+**Known-bad state avoided.** A self-measuring readout that is wrong in exactly the state the user most wants measured, plus a progress bar that reaches 100 % over bytes still sitting in a browser buffer — or, on port loss, over bytes that will never leave.
+
+**Retirements recorded (correcting an omission).** Two entry-1 KEEP items were dropped by later amendments without being named: *"Full-speed (0) as byte-for-byte restoration, pinned by `[32, 32, 16]` and `gapMs` 19"* and *"`config.spec.js` selecting Full speed before its baud assertions"*. Both belonged to the baud/rate model that entries 2 and 3 replaced. Equivalents exist and are stronger — `paste.spec.js` pins the unpaced shape as `[32×12, 16]`, and the dead-hook lesson now lives in "the hook serial.js pushes through is live". Recorded here so the retirement is deliberate rather than silent, as the CRLF-never-split rule was.
+
+**KEEP — still binding.** Everything in the previous four entries' KEEP lists, minus the two retired above. Add: the flow-control bypass and its wired-and-tested hook; the modal projecting from the pump's live getters; measured-not-derived chip figures.
+
 ## Design Notes
 
 Two independent controls, both physical:
@@ -189,11 +213,8 @@ The 16C550's FIFO configuration on this machine remains unconfirmed, and no long
 
 This is also why the chip reports **achieved** rate rather than configured. Two numbers that should agree are worth showing side by side; the 59 s figure only exists because it was timed by hand.
 
-Local echo needs its own copy of the bytes. The wire wants the configured terminator; the screen wants something the VT52 core renders as a new row, and `0x0D` alone is not that (`terminal.rs:364`).
 
 Local echo needs its own copy of the bytes. The wire wants the configured terminator; the screen wants something the VT52 core renders as a new row, and `0x0D` alone is not that (`terminal.rs:364`).
-
-The 240 B/s default is an estimate, not a measurement. It must be confirmed on real hardware during manual verification and changed if VIBE still drops text.
 
 ## Verification
 
@@ -206,73 +227,3 @@ The 240 B/s default is an estimate, not a measurement. It must be confirmed on r
 - **Working point: confirmed 2026-08-07.** Flow control `none`, chunk 1 / pause 200 ms delivers the block intact (~2 min 40 s). 10 B/s by either route nearly works, so the ceiling is ~5–8 B/s.
 - **Remaining check — the flow-control bypass.** Connect with RTS/CTS and confirm a paste runs at wire speed with the pause still set to 200 ms, and that the throughput readout says pacing is inactive. Then reconnect with flow control `none` and confirm the same paste paces again. This is the only behaviour in this spec that no hardware run has yet exercised.
 - With Local echo on, confirm a multi-line paste echoes as multiple lines locally.
-
-## Suggested Review Order
-
-**The two defects, and the model that replaced them**
-
-- Start here: line breaks are normalised in one scan, `\r\n` consumed as one break.
-  [`paste-pump.js:513`](../../www/input/paste-pump.js#L513)
-
-- The other half of the bug: 8-byte paced writes stay under the 16-byte FIFO.
-  [`paste-pump.js:53`](../../www/input/paste-pump.js#L53)
-
-- A chunk ends at a terminator or contains none; a CRLF pair is never split.
-  [`paste-pump.js:399`](../../www/input/paste-pump.js#L399)
-
-- The correction that cost a revert: the gap scales with bytes actually written.
-  [`paste-pump.js:322`](../../www/input/paste-pump.js#L322)
-
-- A line break costs an editor a redraw, so it earns an additive pause.
-  [`paste-pump.js:328`](../../www/input/paste-pump.js#L328)
-
-- The wire is always the ceiling — asking for more than it carries is clamped.
-  [`paste-pump.js:313`](../../www/input/paste-pump.js#L313)
-
-**State that must not drift**
-
-- One snapshot drives both the quoted estimate and the run that follows it.
-  [`paste-pump.js:272`](../../www/input/paste-pump.js#L272)
-
-- Appending to a live run adopts the slower pacing, never the faster.
-  [`paste-pump.js:377`](../../www/input/paste-pump.js#L377)
-
-- Local echo needs its own copy: bare CR moves the column, not the row.
-  [`paste-pump.js:487`](../../www/input/paste-pump.js#L487)
-
-- Type rejected before value, so `null` cannot coerce to Full speed.
-  [`paste-pump.js:244`](../../www/input/paste-pump.js#L244)
-
-- Reported rate honours the 4 ms floor the gap arithmetic already enforced.
-  [`paste-pump.js:263`](../../www/input/paste-pump.js#L263)
-
-**Settings surface**
-
-- Two prefs appended; `CURRENT_VERSION` deliberately not bumped.
-  [`prefs.js:79`](../../www/state/prefs.js#L79)
-
-- Menu projects from the pump's live values, so a checkmark cannot lie.
-  [`menu-bar.js:530`](../../www/renderer/menu-bar.js#L530)
-
-- Both radio branches: apply to the pump and persist, never one alone.
-  [`menu-bar.js:875`](../../www/renderer/menu-bar.js#L875)
-
-- The estimate counts bytes and breaks, and says so when breaks dominate.
-  [`paste-toast.js:149`](../../www/renderer/paste-toast.js#L149)
-
-- Threshold and quote both measure post-normalisation wire length.
-  [`clipboard.js:95`](../../www/input/clipboard.js#L95)
-
-**Tests**
-
-- Every line-ending row of the matrix, against real wire bytes.
-  [`paste-line-ending.spec.js:1`](../../www/tests/input/paste-line-ending.spec.js#L1)
-
-- Paced chunking, proportional gap, break pause, clamp, SLIDE, mid-paste change.
-  [`paste.spec.js:1`](../../www/tests/transport/paste.spec.js#L1)
-
-- Multi-line paste echoes as multiple rows — the regression that forced round 2.
-  [`local-echo.spec.js:1`](../../www/tests/input/local-echo.spec.js#L1)
-
-- Corrupt and off-menu stored values: pump and checkmark must agree.
-  [`prefs.spec.js:1`](../../www/tests/session/prefs.spec.js#L1)

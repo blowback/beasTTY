@@ -10,14 +10,11 @@
 //
 // Boot-race guard (E0/E1 protocol): wait on the window.__* handles before driving.
 import { test, expect } from '@playwright/test';
-import { SERIAL_MOCK } from '../transport/mock-serial.js';
 
-async function ready(page, { prefs, serialMock } = {}) {
-  if (serialMock) await page.addInitScript(SERIAL_MOCK);
-  if (prefs) {
-    await page.addInitScript(
-      (blob) => localStorage.setItem('beastty.prefs', blob), JSON.stringify(prefs));
-  }
+// No options: the prefs-seeding and serial-mock branches went with the paste
+// submenus (see the note at the foot of this file). Every case here boots a plain
+// page, and a dead parameter is an invitation to think one is available.
+async function ready(page) {
   await page.goto('/');
   await page.waitForFunction(
     () => window.__menuBar && typeof window.__menuBar.__getStateForTests === 'function',
@@ -141,6 +138,12 @@ test.describe('E3.2 AC-2/AC-4/AC-5 — Enter key sends', () => {
     await page.locator('#debug').evaluate((el) => { el.open = true; });
     // Fresh page: the submenu's active radio is CR (prefs.crlfMode default).
     await page.evaluate(() => window.__menuBar.open('settings'));
+    // The row's LABEL, verbatim. This assertion used to live in the retired Paste
+    // line ending case next door, which checked its own label and this one together
+    // so the pair read as deliberately distinct settings. That case moved to
+    // paste-config-modal.spec.js with the control; the half of it that belongs to
+    // Enter key sends belongs here.
+    await expect(page.locator(`${CRLF_PARENT} .lbl`)).toHaveText('Enter key sends');
     await page.click(CRLF_PARENT);
     await expect(page.locator(crlfRadio('cr'))).toHaveAttribute('data-checked', 'true');
     await page.evaluate(() => window.__menuBar.close());

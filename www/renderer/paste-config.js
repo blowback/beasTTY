@@ -28,6 +28,9 @@
 //       input/*). prefs.js is a direct import, as it is in menu-bar.js.
 
 import { savePrefs } from '../state/prefs.js';
+// The one rounding rule for a throughput figure, shared with the paste chip and the
+// large-paste confirm — see renderer/paste-rate.js.
+import { formatThroughput } from './paste-rate.js';
 
 // ====== Module-scope refs (set by wirePasteConfig) ======
 
@@ -37,8 +40,9 @@ let chunkSelectEl = null;
 let pauseSelectEl = null;
 let throughputValueEl = null;
 
-// Injected paste-pump seams. All optional: a harness that omits them keeps the
-// persist half working and leaves the live apply inert (the menu-bar precedent).
+// Injected paste-pump setters and getters. All optional: a harness that omits them
+// keeps the persist half working and leaves the live apply inert (the menu-bar
+// precedent).
 let setPasteLineEndingRef = null;
 let setPasteChunkRef = null;
 let setPastePauseMsRef = null;
@@ -51,6 +55,10 @@ let getPasteFlowControlRef = null;  // 'hardware' means the two cadence rows are
 // Tracked listeners, so an idempotent re-wire never stacks change handlers (the
 // menu-bar trackListener precedent, minus the generality it does not need here).
 let tracked = [];
+
+// serial.js's onStateChange has no unsubscribe that this module could hold, so the
+// subscription is taken exactly once however many times wirePasteConfig runs.
+let connectionSubscribed = false;
 
 // ====== Wiring ======
 
@@ -65,6 +73,17 @@ export function wirePasteConfig(opts = {}) {
     getPastePauseMsRef = opts.getPastePauseMs || null;
     getPasteThroughputRef = opts.getPasteThroughput || null;
     getPasteFlowControlRef = opts.getPasteFlowControl || null;
+
+    // The readout's third state — "wire speed (flow control)" — is a fact about the
+    // OPEN PORT, not about the two rows, so it goes stale the moment the connection
+    // does. project() runs on open, which covers a modal opened after a disconnect;
+    // this covers a modal that was already open when the port went away, which would
+    // otherwise sit there claiming the pacing is off long after it came back on.
+    // Subscribed once at wire time, before the first project() below.
+    if (typeof opts.onConnectionChange === 'function' && !connectionSubscribed) {
+        connectionSubscribed = true;
+        opts.onConnectionChange(() => projectThroughput());
+    }
 
     // Discovered by id, like every other modal's controls. Every ref is null-guarded
     // downstream so the no-markup render harness never throws.
@@ -158,7 +177,8 @@ function projectThroughput() {
         return;
     }
     const rate = getPasteThroughputRef ? getPasteThroughputRef() : null;
-    throughputValueEl.textContent = (rate == null) ? 'wire speed' : `≈ ${rate} B/s`;
+    throughputValueEl.textContent =
+        (rate == null) ? 'wire speed' : `≈ ${formatThroughput(rate)} B/s`;
 }
 
 // ====== Listener tracking ======

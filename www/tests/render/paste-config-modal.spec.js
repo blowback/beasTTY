@@ -51,17 +51,25 @@ test.describe('Paste settings — opens from the Settings menu, closes, restores
       .toBe('paste-config-modal');
   });
 
-  test('the three retired submenus are gone from the Settings dropdown @fast', async ({ page }) => {
+  test('every retired paste submenu is gone from the Settings dropdown @fast', async ({ page }) => {
     // The menu bar holds ONE open submenu panel at a time, so Settings ▸ Paste ▸ CR
     // would have needed a third level. The rows left; nothing may be left behind
     // that could still tick a value nobody projects any more.
+    //
+    // FOUR panels, from two different retirements. paste-eol / paste-chunk /
+    // paste-pause are the three that moved into the modal. paste-speed is older: it
+    // was the single throughput-as-a-setting row from the model the hardware
+    // disproved, retired when the controls became chunk size + pause, and it was the
+    // one nothing here checked — a row that still persisted a `pasteSpeed` pref
+    // nobody reads would be invisible to the other three assertions.
     await ready(page);
     await page.evaluate(() => window.__menuBar.open('settings'));
-    for (const panel of ['paste-eol', 'paste-chunk', 'paste-pause']) {
+    for (const panel of ['paste-eol', 'paste-chunk', 'paste-pause', 'paste-speed']) {
       expect(await page.locator(`#dropdown-settings [data-submenu="${panel}"]`).count()).toBe(0);
       expect(await page.locator(`#dropdown-settings [data-submenu-panel="${panel}"]`).count()).toBe(0);
     }
     expect(await page.locator('#menu-paste-throughput-item').count()).toBe(0);
+    expect(await page.locator('#menu-paste-speed-item').count()).toBe(0);
     // Every OTHER radio submenu is untouched.
     for (const panel of ['crlf', 'cmdhistory-size']) {
       expect(await page.locator(`#dropdown-settings [data-submenu-panel="${panel}"]`).count()).toBe(1);
@@ -189,10 +197,15 @@ test.describe('Paste settings — persist ≠ apply', () => {
 
   // 0 ("None") is included deliberately: it is a legal value, not the falsy "unset"
   // a `> 0` guard would reject. 150 is the new one.
+  // 150 ms is 6.666… B/s, and it is carried as 6.7 rather than rounded to 7. The
+  // whole point of offering it is that it sits between the 5 B/s that worked on
+  // hardware and the 10 B/s that nearly did; a figure that reads 7 in the control
+  // the user picks from while the chip measuring the same run reads 6.7 makes those
+  // two surfaces impossible to compare, which is what they are FOR.
   for (const { value, pauseMs, throughput } of [
     { value: '0', pauseMs: 0, throughput: null },
     { value: '5', pauseMs: 5, throughput: 200 },
-    { value: '150', pauseMs: 150, throughput: 7 },
+    { value: '150', pauseMs: 150, throughput: 6.7 },
     { value: '20', pauseMs: 20, throughput: 50 },
   ]) {
     test(`pause ${value} ms persists AND re-paces the pump @fast`, async ({ page }) => {
@@ -221,8 +234,19 @@ test.describe('Paste settings — persist ≠ apply', () => {
     await expect(page.locator(PASTE_CHUNK_SELECT)).toHaveValue('16');
     await expect(page.locator(PASTE_PAUSE_SELECT)).toHaveValue('150');
     await expect(page.locator(PASTE_EOL_SELECT)).toHaveValue('crlf');
-    // 16 B every 150 ms is 106.67 B/s.
+    // 16 B every 150 ms is 106.67 B/s — above 10, so a whole number.
     await expect(page.locator(PASTE_THROUGHPUT)).toHaveText('≈ 107 B/s');
+    await closePasteSettings(page);
+  });
+
+  test('a sub-10 B/s cadence keeps its decimal in the readout @fast', async ({ page }) => {
+    // The rounding rule the chip and the confirm also use: a decimal below 10, whole
+    // numbers above. 1 byte every 150 ms is 6.7 B/s here and 6.7 B/s on the chip that
+    // measures the run, and those two figures exist to be compared.
+    await ready(page);
+    await openPasteSettings(page);
+    await page.locator(PASTE_PAUSE_SELECT).selectOption('150');
+    await expect(page.locator(PASTE_THROUGHPUT)).toHaveText('≈ 6.7 B/s');
     await closePasteSettings(page);
   });
 });
@@ -281,6 +305,33 @@ test.describe('Paste settings — throughput is shown, never set', () => {
     await page.click('#menu-connect-item');
     await expect(page.locator('#menu-connect-item')).toHaveAttribute('data-state', 'disconnected');
     await openPasteSettings(page);
+    await expect(page.locator(PASTE_THROUGHPUT)).toHaveText('≈ 5 B/s');
+    await closePasteSettings(page);
+  });
+
+  test('an OPEN modal re-derives the readout when the port goes away @fast', async ({ page }) => {
+    // project() runs on open, which covers a modal opened after the connection
+    // changed. This is the other direction: the modal is already on screen when the
+    // adapter is unplugged, and "wire speed (flow control)" is a fact about a port
+    // that no longer exists. Left alone it would sit there telling the user their
+    // pause is not in force while the next paste paces at it.
+    await ready(page, {
+      serialMock: true,
+      prefs: {
+        version: 2,
+        serial: { baud: 19200, dataBits: 8, stopBits: 1, parity: 'none', flowControl: 'hardware' },
+      },
+    });
+    await page.evaluate(() => window.__menuBar.open('connection'));
+    await page.click('#menu-connect-item');
+    await expect(page.locator('#menu-connect-item')).toHaveAttribute('data-state', 'connected');
+
+    await openPasteSettings(page);
+    await expect(page.locator(PASTE_THROUGHPUT)).toHaveText('wire speed (flow control)');
+
+    // Unplug with the dialog still open — no reopen, no second project() call.
+    await page.evaluate(() => window.__simulateUnplug());
+    await expect(dialog(page)).toBeVisible();
     await expect(page.locator(PASTE_THROUGHPUT)).toHaveText('≈ 5 B/s');
     await closePasteSettings(page);
   });

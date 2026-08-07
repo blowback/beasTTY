@@ -28,11 +28,18 @@ rather than piecemeal.
 
 ---
 
-## From `spec-paste-text-loss.md` (2026-08-06)
+## ~~From `spec-paste-text-loss.md` (2026-08-06)~~ — PULLED BACK IN 2026-08-07
 
-Carved off at planning time to keep that spec under the size limit — not a finding
-against it. The paste bug it fixes reproduces with flow control `none`, where
-backpressure buys nothing, so this half was separable.
+**Resolved.** This was carved off at planning time because the reported bug reproduced
+without it. Round-3 review showed that no longer holds: the paste chip Ant asked for
+reports elapsed time and achieved throughput, and on a flow-controlled port a
+fire-and-forget write path makes that figure meaningless — the pump hands the payload to
+the stream in ~100 ms and the chip claims thousands of B/s for a transfer that takes 59
+seconds on real hardware. Ant's call was to pull it in. It is now in the spec's task
+list, with `pushTxBytes` itself still untouched: the paste path gets its own awaitable
+entry point beside `writeSlideFrameAwaitable`.
+
+The original write-up is kept below for the reasoning, which still stands.
 
 ### The paste path ignores Web Serial backpressure
 
