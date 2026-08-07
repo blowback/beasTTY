@@ -1,5 +1,8 @@
 // Phase 4 Plan 04 — INPUT-04 — Local echo toggle default OFF; flip ON renders typed char.
 import { test, expect } from '@playwright/test';
+// Settings ▸ Paste settings… ▸ Line ending — the control moved out of the Settings
+// menu's radio submenus into #paste-config-modal; the shared helper drives it.
+import { setPasteEol } from '../paste-settings.js';
 
 // Cell layout from Phase 1 Plan 04: 8 bytes/cell, [ch, fg, bg, attr, ...].
 // Grid is 24 rows × 80 cols. Cell (0, 0) char byte is at offset 0.
@@ -139,11 +142,7 @@ test.describe('Local echo — a pasted block echoes as separate lines', () => {
             await setup(page, { prefs: QUICK });
             await setLocalEcho(page, true);
             if (eol !== 'cr') {
-                await page.evaluate(() => window.__menuBar.open('settings'));
-                await page.click('#dropdown-settings .menu-item[data-submenu="paste-eol"]');
-                await page.click(
-                    `#dropdown-settings .submenu[data-submenu-panel="paste-eol"] .menu-item[data-value="${eol}"]`);
-                await page.evaluate(() => window.__menuBar.close());
+                await setPasteEol(page, eol);
                 await page.locator('#terminal-wrapper').focus();
             }
             await pasteAndSettle(page, 'AB\\x0ACD\\x0AEF');
@@ -166,10 +165,7 @@ test.describe('Local echo — a pasted block echoes as separate lines', () => {
         // breaks, and to those only.
         await setup(page, { prefs: QUICK });
         await setLocalEcho(page, true);
-        await page.evaluate(() => window.__menuBar.open('settings'));
-        await page.click('#dropdown-settings .menu-item[data-submenu="paste-eol"]');
-        await page.click('#dropdown-settings .submenu[data-submenu-panel="paste-eol"] .menu-item[data-value="raw"]');
-        await page.evaluate(() => window.__menuBar.close());
+        await setPasteEol(page, 'raw');
         await page.locator('#terminal-wrapper').focus();
 
         await pasteAndSettle(page, 'ABCD\\x0DZ');
@@ -187,10 +183,7 @@ test.describe('Local echo — a pasted block echoes as separate lines', () => {
         // feed — no blank row between.
         await setup(page, { prefs: QUICK });
         await setLocalEcho(page, true);
-        await page.evaluate(() => window.__menuBar.open('settings'));
-        await page.click('#dropdown-settings .menu-item[data-submenu="paste-eol"]');
-        await page.click('#dropdown-settings .submenu[data-submenu-panel="paste-eol"] .menu-item[data-value="raw"]');
-        await page.evaluate(() => window.__menuBar.close());
+        await setPasteEol(page, 'raw');
         await page.locator('#terminal-wrapper').focus();
 
         await pasteAndSettle(page, `${'A'.repeat(31)}\\x0D\\x0AZ`);

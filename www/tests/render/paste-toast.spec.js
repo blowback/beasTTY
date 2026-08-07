@@ -185,6 +185,64 @@ test.describe('E7.1 — paste toast: live progress', () => {
         await expect(page.locator(TEXT)).toContainText('bytes unsent');
     });
 
+    test('the chip reports elapsed time and the rate it actually achieved @fast', async ({ page }) => {
+        // Both figures are MEASURED — bytes the pump says it has written, over
+        // wall-clock time since the pump's 'started'. Driven through the progress
+        // API with a real 400 ms wait in between so the arithmetic is checkable:
+        // 800 B in ~0.4 s is ~2000 B/s, and no setting in the app says 2000.
+        await page.evaluate(async () => {
+            window.__pasteToast.__resetForTests();
+            window.__pasteToast.handleProgress({ status: 'started', total: 1600 });
+            await new Promise((r) => setTimeout(r, 400));
+            window.__pasteToast.handleProgress({ status: 'chunk', written: 800, total: 1600 });
+        });
+        const text = await page.locator(TEXT).textContent();
+        expect(text).toMatch(/^Pasting 1600 B — 50% · \d+ s · \d+(\.\d)? B\/s$/);
+        const rate = Number(text.match(/· ([\d.]+) B\/s$/)[1]);
+        // Generous band — this is a real clock under a real browser — but nowhere
+        // near any configured cadence, which is the point.
+        expect(rate).toBeGreaterThan(500);
+        expect(rate).toBeLessThan(20000);
+    });
+
+    test('the clock starts at the pump, not when the confirm opened @fast', async ({ page }) => {
+        // A large-paste confirm can sit on screen for as long as the user takes to
+        // read it, and none of that is paste time. If the clock started at the
+        // confirm, this chip would open claiming several seconds had elapsed.
+        await page.evaluate(async () => {
+            window.__pasteToast.__resetForTests();
+            window.__pasteToast.confirmLargePaste(5000, { getChunk: () => 8, getPauseMs: () => 20 });
+            await new Promise((r) => setTimeout(r, 1500));
+        });
+        await expect(page.locator(TEXT)).toContainText('About to paste 5,000 B');
+        // Resolve the confirm and start pumping.
+        await page.locator(`${TOAST} button[data-action="paste"]`).click();
+        await page.evaluate(() => {
+            window.__pasteToast.handleProgress({ status: 'started', total: 5000 });
+            window.__pasteToast.handleProgress({ status: 'chunk', written: 8, total: 5000 });
+        });
+        await expect(page.locator(TEXT)).toContainText('Pasting 5000 B — 0% · 0 s');
+    });
+
+    test('elapsed and rate advance as the paste proceeds @fast', async ({ page }) => {
+        await page.evaluate(async () => {
+            window.__pasteToast.__resetForTests();
+            window.__pasteToast.handleProgress({ status: 'started', total: 4000 });
+            await new Promise((r) => setTimeout(r, 1100));
+            window.__pasteToast.handleProgress({ status: 'chunk', written: 1000, total: 4000 });
+        });
+        const first = await page.locator(TEXT).textContent();
+        await page.evaluate(async () => {
+            await new Promise((r) => setTimeout(r, 1100));
+            window.__pasteToast.handleProgress({ status: 'chunk', written: 2000, total: 4000 });
+        });
+        const second = await page.locator(TEXT).textContent();
+        const secs = (t) => Number(t.match(/· (\d+) s/)[1]);
+        expect(secs(first)).toBeGreaterThanOrEqual(1);
+        expect(secs(second)).toBeGreaterThan(secs(first));
+        expect(second).toContain('50%');
+    });
+
     test('a large-paste confirm is not clobbered by an overlapping paste’s pump events @fast', async ({ page }) => {
         // Regression (whole-branch review): progress + confirm share one toast, so a
         // still-pumping small paste must NOT overwrite an open confirm nor leak its
@@ -264,6 +322,55 @@ test.describe('E7.1 — paste toast: neutral shell + placement + focus (AC-5)', 
         await page.locator('#terminal-wrapper').focus();
         await page.locator(`${TOAST} button[data-action="cancel"]`).click();
         expect(await page.evaluate(() => document.activeElement.id)).toBe('terminal-wrapper');
+    });
+});
+
+// The chip's achieved rate is MEASURED, and this is the pair of runs that proves it:
+// the same configured cadence, two different ports, two rates orders of magnitude
+// apart. A figure derived from the Paste settings would report the same number twice.
+test.describe('paste toast — the achieved rate is the wire, not the setting', () => {
+    // Read the "· N B/s" out of the live chip text; 0 when the chip is not showing a
+    // rate yet, so expect.poll keeps waiting rather than throwing.
+    const chipRate = async (page) => {
+        const t = await page.locator(TEXT).textContent();
+        const m = t && t.match(/· ([\d.]+) B\/s/);
+        return m ? Number(m[1]) : 0;
+    };
+
+    test('flow control bypasses the pause, and the chip says so in bytes per second', async ({ page }) => {
+        // Configured cadence: 1 byte every 200 ms — 5 B/s. The port is open with
+        // RTS/CTS, so the pump does not pace at all and the run goes out at wire
+        // speed. The chip must report what the wire delivered.
+        await setup(page, {
+            prefs: {
+                version: 2, pasteChunk: 1, pastePauseMs: 200,
+                serial: { baud: 19200, dataBits: 8, stopBits: 1, parity: 'none', flowControl: 'hardware' },
+            },
+        });
+        await connectViaMenu(page);
+        expect(await page.evaluate(() => window.__pastePump.getPasteFlowControl())).toBe('hardware');
+        await pasteViaDebug(page, 'Z'.repeat(20000));
+        await expect.poll(() => chipRate(page), { timeout: 15000 }).toBeGreaterThan(100);
+    });
+
+    test('a paced run on a bare port reports the pace it is actually keeping @slow', async ({ page }) => {
+        // The same chip, the other side of the comparison: no flow control, 1 byte
+        // every 100 ms, and the measured figure lands near the 10 B/s that implies —
+        // nowhere near the hundreds the handshaken run above reports.
+        await setup(page, { prefs: { version: 2, pasteChunk: 1, pastePauseMs: 100 } });
+        await connectViaMenu(page);
+        expect(await page.evaluate(() => window.__pastePump.getPasteFlowControl())).toBe('none');
+        await pasteViaDebug(page, 'Z'.repeat(60));
+        // Wait until a couple of seconds of real progress have accumulated, so the
+        // figure is measured over a meaningful interval rather than one chunk.
+        await expect.poll(async () => {
+            const t = await page.locator(TEXT).textContent();
+            const m = t && t.match(/· (\d+) s/);
+            return m ? Number(m[1]) : 0;
+        }, { timeout: 15000 }).toBeGreaterThanOrEqual(2);
+        const rate = await chipRate(page);
+        expect(rate).toBeGreaterThan(0);
+        expect(rate).toBeLessThan(30);
     });
 });
 

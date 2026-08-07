@@ -1549,6 +1549,53 @@
       bottom: auto;
       top: calc(100% + 6px);
     }
+    /* The Paste settings modal puts its ⓘ beside the LABEL, at the left of each row,
+       rather than at the row's right edge — its rows are label + control, with no
+       checkbox to sit the ⓘ after. So its tips open RIGHTWARD from the ⓘ (the shared
+       right:0 would run them off the modal's left edge, where the body clips them),
+       and the first three rows open downward while the last opens upward, so every
+       tip has room without running past the dialog. Position-derived, not pinned to a row id, so
+       reordering the rows keeps whichever rows are first correct. */
+    #paste-config-modal .field-tip {
+      left: 0;
+      right: auto;
+    }
+    #paste-config-modal .modal-body > :nth-child(-n+3) .field-tip {
+      bottom: auto;
+      top: calc(100% + 6px);
+    }
+
+    /* ==== Paste settings modal specifics ==== */
+    /* Four short aligned rows and a Close button, so it is narrow — the width is the
+       only thing it needs beyond the shared .chrome-modal chrome. The throughput row
+       carries a read-only VALUE rather than a control, which is the #peer-copy-modal
+       .field-value shape (label left / value right, chrome-fg because it is the
+       row's content and not help text). */
+    /* Narrower than #serial-config-modal's 60ch (four rows, no error box), but wide
+       enough that a 340px ⓘ tip opening rightward from a label still lands inside
+       the dialog. */
+    #paste-config-modal[open] {
+      max-width: 56ch;
+    }
+    /* Four short rows and a hint — there is nothing to scroll, and the shared
+       overflow-y:auto would clip the ⓘ tips (an auto on one axis makes the other
+       clip too) at the body's edges. */
+    #paste-config-modal .modal-body {
+      overflow: visible;
+    }
+    #paste-config-modal .field-value {
+      color: var(--chrome-fg);
+      font-size: 13px;
+      text-align: right;
+    }
+    /* The shared .field select is min-width-only, which lines the controls up in
+       #serial-config-modal because every option there is short. Two options here
+       ("CRLF (0x0D 0x0A)", "None (wire speed)") run past it, so a content-sized
+       select would leave the three rows ragged down the left. One width for all
+       three, wide enough for the longest option. */
+    #paste-config-modal .field select {
+      width: 180px;
+    }
 
     /* ==== Epic E2 Story E2.3 (FR-15) — #serial-config-modal specifics ==== */
     /* Wider than a body-copy modal (form + error log). The aligned-row + ⓘ chrome is
@@ -1992,139 +2039,27 @@
             </button>
           </div>
         </div>
-        <!-- Paste line ending radio submenu (CR / LF / CRLF / As-is). Same
-             radio-submenu-group template as Enter key sends above, and
-             deliberately a SEPARATE setting from it: that one governs the Enter
-             KEY, this one governs every line break in PASTED text, and neither
-             reads the other. The two rows sit adjacent and are labelled "Enter
-             key sends" / "Paste line ending" so holding different values reads
-             as deliberate. data-value = the exact id paste-pump.js's
-             setPasteLineEnding validator accepts (cr/lf/crlf/raw). Default
-             checked = CR (the prefs.pasteLineEnding default — clipboard text on
-             Linux is LF-only, which the MicroBeast does not take as a line
-             break); re-derived from prefs on open / reset. "As-is" passes the
-             clipboard bytes through untouched. -->
-        <div class="submenu-group">
-          <button class="menu-item" type="button" role="menuitem" data-variant="radio-submenu"
-                  data-submenu="paste-eol" aria-haspopup="true" aria-expanded="false">
-            <span class="check"></span><span class="lbl">Paste line ending</span><span class="caret">▸</span>
-          </button>
-          <div class="submenu" role="menu" data-submenu-panel="paste-eol" aria-label="Paste line ending" hidden>
-            <button class="menu-item" type="button" role="menuitemradio" data-value="cr"
-                    data-checked="true" aria-checked="true">
-              <span class="check">✓</span><span class="lbl">CR (0x0D)</span>
-            </button>
-            <button class="menu-item" type="button" role="menuitemradio" data-value="lf"
-                    data-checked="false" aria-checked="false">
-              <span class="check"></span><span class="lbl">LF (0x0A)</span>
-            </button>
-            <button class="menu-item" type="button" role="menuitemradio" data-value="crlf"
-                    data-checked="false" aria-checked="false">
-              <span class="check"></span><span class="lbl">CRLF (0x0D 0x0A)</span>
-            </button>
-            <button class="menu-item" type="button" role="menuitemradio" data-value="raw"
-                    data-checked="false" aria-checked="false">
-              <span class="check"></span><span class="lbl">As-is (no change)</span>
-            </button>
-          </div>
-        </div>
-        <!-- Paste chunk size + Paste pause: the two controls that describe the
-             wire cadence directly. Chunk size is how many bytes go out
-             back-to-back; pause is the idle time the receiver gets between them.
-             Neither is derived from the other, neither is a rate, and nothing
-             keys off what the bytes are — a line break is an ordinary byte.
+        <!-- Paste settings… opens the #paste-config-modal, which holds the three
+             paste controls (line ending, chunk size, pause) and the throughput
+             they add up to. An action row on the same shape as SLIDE File
+             Transfer… below: closeMenu() then the injected openPasteConfig
+             opener.
 
-             Both are numeric submenus, so the handler converts + validates
-             before persisting (the Command history size branch is the shape).
+             The three settings used to be radio submenus right here. They moved
+             because they belong together — a chunk size means nothing without
+             the pause beside it, and neither means anything without the
+             throughput readout that reports what the two add up to. The menu bar
+             holds ONE open submenu panel at a time (menu-bar.js:111), so a
+             Paste ▸ parent with three children under it would need a third menu
+             level the keyboard navigation does not have. #serial-config-modal is
+             the precedent for settings that outgrew the menu.
 
-             Default checked = 1 byte / 200 ms (the prefs defaults), which is the
-             cadence MEASURED to work on a real MicroBeast with no flow control —
-             5 B/s. Two different chunk sizes at the same throughput behave the
-             same on hardware, so throughput is what governs and the chunk size is
-             the user's choice of burst. Re-derived from the pump on open / reset. -->
-        <div class="submenu-group">
-          <button class="menu-item" type="button" role="menuitem" data-variant="radio-submenu"
-                  data-submenu="paste-chunk" aria-haspopup="true" aria-expanded="false">
-            <span class="check"></span><span class="lbl">Paste chunk size</span><span class="caret">▸</span>
-          </button>
-          <div class="submenu" role="menu" data-submenu-panel="paste-chunk"
-               aria-label="Paste chunk size — bytes written back-to-back" hidden>
-            <button class="menu-item" type="button" role="menuitemradio" data-value="1"
-                    data-checked="true" aria-checked="true">
-              <span class="check">✓</span><span class="lbl">1 byte</span>
-            </button>
-            <button class="menu-item" type="button" role="menuitemradio" data-value="2"
-                    data-checked="false" aria-checked="false">
-              <span class="check"></span><span class="lbl">2 bytes</span>
-            </button>
-            <button class="menu-item" type="button" role="menuitemradio" data-value="4"
-                    data-checked="false" aria-checked="false">
-              <span class="check"></span><span class="lbl">4 bytes</span>
-            </button>
-            <button class="menu-item" type="button" role="menuitemradio" data-value="8"
-                    data-checked="false" aria-checked="false">
-              <span class="check"></span><span class="lbl">8 bytes</span>
-            </button>
-            <button class="menu-item" type="button" role="menuitemradio" data-value="16"
-                    data-checked="false" aria-checked="false">
-              <span class="check"></span><span class="lbl">16 bytes</span>
-            </button>
-            <button class="menu-item" type="button" role="menuitemradio" data-value="32"
-                    data-checked="false" aria-checked="false">
-              <span class="check"></span><span class="lbl">32 bytes</span>
-            </button>
-          </div>
-        </div>
-        <div class="submenu-group">
-          <button class="menu-item" type="button" role="menuitem" data-variant="radio-submenu"
-                  data-submenu="paste-pause" aria-haspopup="true" aria-expanded="false">
-            <span class="check"></span><span class="lbl">Paste pause</span><span class="caret">▸</span>
-          </button>
-          <div class="submenu" role="menu" data-submenu-panel="paste-pause"
-               aria-label="Paste pause — idle time between chunks" hidden>
-            <button class="menu-item" type="button" role="menuitemradio" data-value="0"
-                    data-checked="false" aria-checked="false">
-              <span class="check"></span><span class="lbl">None (wire speed)</span>
-            </button>
-            <button class="menu-item" type="button" role="menuitemradio" data-value="5"
-                    data-checked="false" aria-checked="false">
-              <span class="check"></span><span class="lbl">5 ms</span>
-            </button>
-            <button class="menu-item" type="button" role="menuitemradio" data-value="10"
-                    data-checked="false" aria-checked="false">
-              <span class="check"></span><span class="lbl">10 ms</span>
-            </button>
-            <button class="menu-item" type="button" role="menuitemradio" data-value="20"
-                    data-checked="false" aria-checked="false">
-              <span class="check"></span><span class="lbl">20 ms</span>
-            </button>
-            <button class="menu-item" type="button" role="menuitemradio" data-value="50"
-                    data-checked="false" aria-checked="false">
-              <span class="check"></span><span class="lbl">50 ms</span>
-            </button>
-            <button class="menu-item" type="button" role="menuitemradio" data-value="100"
-                    data-checked="false" aria-checked="false">
-              <span class="check"></span><span class="lbl">100 ms</span>
-            </button>
-            <button class="menu-item" type="button" role="menuitemradio" data-value="200"
-                    data-checked="true" aria-checked="true">
-              <span class="check">✓</span><span class="lbl">200 ms</span>
-            </button>
-          </div>
-        </div>
-        <!-- Throughput is a CONSEQUENCE of the two rows above (chunk ÷ pause),
-             never a setting — so it is a readout, not a control:
-             data-disabled="true" makes it inert to clicks and skips it in
-             keyboard nav, exactly like the off-CRT Phosphor/Font parents. The
-             hint text is re-derived from the pump's live values whenever the
-             Settings menu opens, a paste row is picked, or prefs are reset, so
-             it can never quote a cadence the next paste will not use — including
-             the case where the two rows above are not in force at all, because
-             the open port is handshaking and the pump does not pace it. It then
-             reads "wire speed (flow control)". -->
-        <button id="menu-paste-throughput-item" class="menu-item" type="button" role="menuitem"
-                data-disabled="true" aria-disabled="true" tabindex="-1">
-          <span class="check"></span><span class="lbl">Paste throughput</span><span class="hint">≈ 5 B/s</span>
+             Paste line ending is still a SEPARATE setting from Enter key sends
+             above: that one governs the Enter KEY, this one governs every line
+             break in PASTED text, and neither reads the other. -->
+        <button id="menu-paste-config-item" class="menu-item" type="button" role="menuitem"
+                data-variant="action" data-action="paste-config">
+          <span class="check"></span><span class="lbl">Paste settings…</span>
         </button>
         <div class="menu-sep"></div>
         <!-- Epic E8 Story E8.3 (FR-19, AD-4/AD-7/AD-9) — Command history checkable.
@@ -2927,6 +2862,116 @@
            NO Reset button (Q2 default — SLIDE has no preset-reset analog). -->
       <form method="dialog">
         <button id="slide-config-close" value="close">Close</button>
+      </form>
+    </footer>
+  </dialog>
+
+  <!-- Paste settings modal. Opened from Settings ▸ Paste settings… (main.js
+       openPasteConfig, injected into wireMenuBar), on the same shared modal rails
+       as #serial-config-modal / #slide-config-modal: aligned .field rows (label
+       left, control right), the verbose hardware explanations in ⓘ .field-tip
+       tooltips so the body stays uncluttered, Close/Esc only (every control
+       persists + applies on change — there is nothing to "apply").
+
+       The three controls were radio submenus under Settings until the paste-text-loss
+       change grouped them here. They belong together: a chunk size means nothing
+       without the pause beside it, and neither means anything without the throughput
+       the two add up to.
+
+       Persist ≠ apply governs all three, exactly as it did on the menu: each change
+       handler calls the paste-pump setter AND savePrefs (renderer/paste-config.js).
+       The whole modal re-projects from the pump's LIVE getters just before it opens,
+       so a control can never show a value the next paste is not going to use. -->
+  <dialog id="paste-config-modal" class="chrome-modal" aria-labelledby="paste-config-modal-title">
+    <header>
+      <h2 id="paste-config-modal-title">Paste settings</h2>
+    </header>
+    <div class="modal-body">
+      <!-- Line ending. Deliberately SEPARATE from Settings ▸ Enter key sends — that
+           one governs the Enter key, this one governs every line break in pasted
+           text, and neither reads the other. Values are the exact ids
+           paste-pump.js's setPasteLineEnding validator accepts. -->
+      <div class="field">
+        <span class="field-label">
+          <label for="paste-line-ending-select">Line ending</label>
+          <span class="field-info" tabindex="0" role="note" aria-label="About the paste line ending">
+            <span aria-hidden="true">ⓘ</span>
+            <span class="field-tip">What every line break in pasted text becomes on the wire. Clipboard text on Linux is LF-only, which the MicroBeast does not take as a line break at all — hence the CR default. A CRLF pair in the clipboard counts as one break, never two. This is a separate setting from Settings ▸ Enter key sends: that one governs the Enter key, this one governs paste, and the two can hold different values. "As-is" passes the clipboard bytes through untouched.</span>
+          </span>
+        </span>
+        <select id="paste-line-ending-select">
+          <option value="cr" selected>CR (0x0D)</option>
+          <option value="lf">LF (0x0A)</option>
+          <option value="crlf">CRLF (0x0D 0x0A)</option>
+          <option value="raw">As-is (no change)</option>
+        </select>
+      </div>
+      <!-- Chunk size and pause: two independent physical facts about the wire.
+           Chunk size is how many bytes go out back-to-back; pause is the idle time
+           the receiver gets between them. Neither is derived from the other, neither
+           is a rate, and nothing keys off what the bytes are — a line break is an
+           ordinary byte. -->
+      <div class="field">
+        <span class="field-label">
+          <label for="paste-chunk-select">Chunk size</label>
+          <span class="field-info" tabindex="0" role="note" aria-label="About the paste chunk size">
+            <span aria-hidden="true">ⓘ</span>
+            <span class="field-tip">How many bytes go out back-to-back before the pump waits. Every chunk is exactly this size except the last, whatever the bytes contain. Burst size is not what governs delivery: on real hardware 1 byte every 100 ms and 2 bytes every 200 ms are the same 10 B/s and behave identically, so it is the throughput below that matters. Bigger chunks at the same throughput simply mean fewer, larger bursts.</span>
+          </span>
+        </span>
+        <select id="paste-chunk-select">
+          <option value="1" selected>1 byte</option>
+          <option value="2">2 bytes</option>
+          <option value="4">4 bytes</option>
+          <option value="8">8 bytes</option>
+          <option value="16">16 bytes</option>
+          <option value="32">32 bytes</option>
+        </select>
+      </div>
+      <div class="field">
+        <span class="field-label">
+          <label for="paste-pause-select">Pause</label>
+          <span class="field-info" tabindex="0" role="note" aria-label="About the paste pause">
+            <span aria-hidden="true">ⓘ</span>
+            <span class="field-tip">Idle time between chunks, giving the receiver room to drain. Measured on a real MicroBeast with no flow control: 1 byte every 200 ms — 5 B/s — delivers an 800 B block into VIBE intact, and 10 B/s only nearly works. 150 ms is about 6.7 B/s, in the gap between them. "None" means no pause at all: the wire is the only limit.</span>
+          </span>
+        </span>
+        <select id="paste-pause-select">
+          <option value="0">None (wire speed)</option>
+          <option value="5">5 ms</option>
+          <option value="10">10 ms</option>
+          <option value="20">20 ms</option>
+          <option value="50">50 ms</option>
+          <option value="100">100 ms</option>
+          <option value="150">150 ms</option>
+          <option value="200" selected>200 ms</option>
+        </select>
+      </div>
+      <!-- Throughput is a CONSEQUENCE of the two rows above (chunk ÷ pause), never a
+           setting — so it is a readout, not a control. Three things it can say, and
+           the third is why it exists: the derived figure; "wire speed" when the pause
+           is 0; and "wire speed (flow control)" when the open port is handshaking and
+           the two rows above are simply not in force. A setting that is silently
+           ignored is the defect this whole change keeps re-learning. -->
+      <div class="field">
+        <span class="field-label">
+          <span>Throughput</span>
+          <span class="field-info" tabindex="0" role="note" aria-label="About the paste throughput">
+            <span aria-hidden="true">ⓘ</span>
+            <span class="field-tip">What the two rows above add up to — chunk size divided by pause. It is shown, never set: you describe the cadence and read the rate off it. When the open port was opened with hardware flow control the pump does not pace at all, because the receiver handshakes per byte and that beats any fixed cadence — the two rows keep their values, and they apply again the moment a bare port is opened, but they are not in force and this line says so.</span>
+          </span>
+        </span>
+        <span id="paste-throughput-value" class="field-value">≈ 5 B/s</span>
+      </div>
+      <p class="hint">Pacing applies only when the port is open with no flow control. The paste chip reports the rate actually achieved while a paste runs.</p>
+    </div>
+    <footer>
+      <!-- Close via native <form method="dialog"> submit → returnValue 'close'.
+           openModal resolves it; openPasteConfig ignores the value (every control
+           persists immediately via its own change handler). Esc closes the same way.
+           No Reset button — Settings ▸ Reset all preferences covers these too. -->
+      <form method="dialog">
+        <button id="paste-config-close" value="close">Close</button>
       </form>
     </footer>
   </dialog>

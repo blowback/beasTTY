@@ -70,10 +70,17 @@ import { isTransferRunning } from '../transport/slide.js';
 // --- Compile-in constants -------------------------------------------------
 
 // Accepted ranges, wide enough to be a nonsense filter and nothing more. They
-// exist only to reject a corrupt or hand-edited prefs blob; the menu offers a
-// far narrower set (1..32 bytes, 0..200 ms), and a stored value the pump accepts
-// but the menu does not offer simply ticks nothing (see menu-bar.js
-// projectPasteSettings).
+// exist only to reject a corrupt or hand-edited prefs blob; the Paste settings
+// modal offers a far narrower set — 1, 2, 4, 8, 16, 32 bytes and 0, 5, 10, 20, 50,
+// 100, 150, 200 ms — and a stored value the pump accepts but the modal does not
+// offer simply selects nothing (see renderer/paste-config.js project).
+//
+// 150 ms joined the offered pauses on 2026-08-07, after the ~800 B block was timed
+// on real hardware at 59 s over RTS/CTS and 148 s at 1 byte / 200 ms. The handshake
+// settles at about 13.5 B/s, so the machine has roughly 2.5x the headroom the fixed
+// 5 B/s working point assumes; 150 ms is ~6.7 B/s, between the 10 B/s that nearly
+// worked and the 5 B/s that did. Nothing in the pacing arithmetic changes — the pump
+// takes any pause in range and always did.
 const MAX_PASTE_CHUNK = 4096;
 const MAX_PASTE_PAUSE_MS = 60000;
 
@@ -218,7 +225,7 @@ export function onPortLost() {
     fireProgress('cancelled-port-lost', { unsent });
 }
 
-// Settings ▸ Paste line ending. Validated HERE, not in prefs.js — a stored blob
+// Settings ▸ Paste settings… ▸ Line ending. Validated HERE, not in prefs.js — a stored blob
 // can carry anything, and prefs.js has no field validation (the setCrlfMode
 // precedent). hasOwnProperty rather than `in`, so a prototype key ('toString')
 // is rejected along with null and undefined. An unknown mode is REJECTED,
@@ -231,7 +238,7 @@ export function setPasteLineEnding(mode) {
 
 export function getPasteLineEnding() { return lineEnding; }
 
-// Settings ▸ Paste chunk size, in bytes written back-to-back. 1 is the most
+// Settings ▸ Paste settings… ▸ Chunk size, in bytes written back-to-back. 1 is the most
 // conservative cadence the menu offers and the default.
 //
 // Reject the TYPE before testing the value, and never coerce. Number(null),
@@ -247,7 +254,7 @@ export function setPasteChunk(bytes) {
 
 export function getPasteChunk() { return pasteChunk; }
 
-// Settings ▸ Paste pause, in ms of idle time between chunks. 0 is a legal value
+// Settings ▸ Paste settings… ▸ Pause, in ms of idle time between chunks. 0 is a legal value
 // meaning "no pause at all" — the writer is fed continuously and the wire is the
 // only limit — so the range test is >= 0, not > 0. The value is passed to
 // setTimeout exactly as given: a pause below the browser's nested-timer

@@ -13,7 +13,7 @@ context: []
 
 **Problem:** Pasting a multi-line block into the terminal loses nearly all of it, from two independent defects. (1) `applyCrlfRewrite` only ever inspects `0x0D`, so LF-only clipboard text — the normal case on Linux — reaches the wire as bare `0x0A` in every mode, and the far end never sees a line break. (2) The pump paces to ~1684 B/s at 19200 baud — roughly 300× what the MicroBeast can consume in a full-screen editor without flow control (measured at ~5–8 B/s, see the hardware finding below) — and offers no way to go slower. Observed on hardware: with flow control `none`, ~17 clean characters arrive then garbage; with RTS/CTS, ~66 bytes arrive with every line break missing, which was defect (1) rather than a flow-control failure.
 
-**Approach:** Three user settings — **Paste line ending** (normalise every break in the pasted text to CR / LF / CRLF, or pass through as-is), and two controls describing the wire cadence directly: **Paste chunk size** (how many bytes land back-to-back) and **Paste pause** (how long the receiver gets to drain between them). Throughput is a consequence of the two, not a setting.
+**Approach:** Three user settings, grouped in a **Paste settings modal** off the Settings menu: **Paste line ending** (normalise every break in the pasted text to CR / LF / CRLF, or pass through as-is), and two controls describing the wire cadence directly — **Paste chunk size** (how many bytes land back-to-back) and **Paste pause** (how long the receiver gets to drain between them). Throughput is a consequence of the two, not a setting. The in-progress paste chip reports elapsed time and the rate actually achieved, so the app measures itself instead of the user timing it by hand.
 
 **Hardware finding (2026-08-07, measured on a real MicroBeast).** In VIBE with flow control `none`, the machine absorbs roughly **5–8 bytes per second**. Measured: chunk 1 / pause 200 ms (5 B/s) succeeds; chunk 1 / pause 100 ms and chunk 2 / pause 200 ms (both 10 B/s) both nearly succeed. Two different chunk sizes at the same throughput behave the same, so **throughput governs, not burst size**. With flow control the same paste is correct at full wire speed, confirming the firmware handshakes per byte.
 
@@ -33,7 +33,8 @@ This corrects an earlier claim in this spec that the loss happened *inside* an 8
 - **No behaviour keys off the content of the bytes.** Chunks are a fixed size regardless of what they contain, and every pause is the same length. A line break is an ordinary byte.
 - Every chunk is exactly the configured size except the last, which is the remainder.
 - **Local echo must render a pasted multi-line block as separate lines.** The bytes on the wire and the bytes fed to the terminal for echo need not be identical.
-- Follow the established radio-submenu pattern end to end (markup → `onRadioSelect` → `savePrefs` → `projectMenuOnOpen` → `projectPrefs` → `applyPrefs`). Persist ≠ apply — the handler calls both.
+- The three paste settings live together in one modal opened from Settings, following the `#serial-config-modal` precedent and the clean-modal aesthetic (aligned rows, ⓘ tooltips) — not verbose transplanted panels. Persist ≠ apply still holds: every control applies to the pump **and** persists.
+- **The paste chip reports elapsed time and achieved rate while pasting.** Measured from real progress, never derived from the settings — its whole value is telling the user what actually happened rather than what was configured.
 - Append new prefs to `DEFAULTS` **without** bumping `CURRENT_VERSION` (defensive spread-merge, as every prior pref).
 - Each new pref validates at its consumer, as `setCrlfMode` does — `prefs.js` has no field validation, and a merged `null` overrides a default rather than falling back to it.
 - SLIDE must never see paste bytes, and paste progress must never advance over bytes SLIDE caused to be dropped.
@@ -67,6 +68,10 @@ This corrects an earlier claim in this spec that the loss happened *inside* an 8
 | Local echo, multi-line | echo on, ending `cr`, `A\nB` | screen shows `A` and `B` on separate lines | N/A |
 | No pause | pause `0` | today's behaviour: writes at wire speed, chunk size still honoured | N/A |
 | Pause below timer resolution | pause 5 ms | honoured as given; no silent floor that makes a setting a lie | N/A |
+| Pause 150 ms offered | chunk 1, pause 150 ms | ≈ 6.7 B/s — the gap between the 10 B/s that nearly worked and the 5 B/s that did | N/A |
+| Chip while pasting | 400 B in flight, 20 s elapsed | chip shows bytes, percent, elapsed seconds and achieved B/s, updating as it runs | N/A |
+| Chip rate is measured | flow control bypassing the pause | achieved rate reflects the wire, not the configured pause | N/A |
+| Settings reachable | Settings ▸ Paste settings… | one modal holds line ending, chunk size, pause and the throughput readout | N/A |
 | Settings changed mid-paste | chunk or pause changed during a paced paste | the in-flight paste keeps its enqueue-time values; a paste appended to a live run adopts the slower of the two | N/A |
 | SLIDE starts mid-paste | transfer begins while a paced paste runs | pump stops; progress does not advance over dropped bytes | N/A |
 | Cancel mid-paste | Esc while paced | pump stops; no `0x1B` emitted (unchanged) | N/A |
@@ -92,23 +97,26 @@ This corrects an earlier claim in this spec that the loss happened *inside* an 8
 The line-ending half of this spec is implemented and hardware-confirmed. These tasks replace the pacing half only. The line-ending normaliser, the local-echo display copy, the `isTransferRunning()` re-check, the menu-projection approach and the validator style all stay as they are.
 
 **Execution:**
-- [x] `www/state/prefs.js` -- change `pastePauseMs` default from `20` to `200` (the measured working point); comment it as measured, not chosen.
-- [x] `www/input/paste-pump.js` -- add `setPasteFlowControl(fc)` plus a getter. When the recorded flow control is `'hardware'`, `pacingFromSettings()` yields the unpaced shape (32-byte chunk, no pause) whatever the two settings hold. Anything else, including never having connected, paces normally. Freeze it at enqueue with the rest of the pacing snapshot.
-- [x] `www/transport/serial.js` -- call `setPasteFlowControl` from `setLastConfig`, the single place the open port's config is recorded, and reset it on disconnect. Comment must state that it is live and be true.
-- [x] `www/renderer/menu-bar.js` + `www/index.html` -- the throughput readout reports `wire speed (flow control)` when pacing is inactive, so the pause setting is never silently ignored.
-- [x] `www/renderer/paste-toast.js` -- the confirm estimate uses the same frozen snapshot, so a handshaken port quotes a wire-speed duration rather than a paced one.
-- [x] `www/tests/transport/paste.spec.js` -- pacing bypassed on a `hardware` port and restored on a `none` port; the bypass survives a reconnect that changes flow control; the hook is genuinely wired (a test that fails if the `serial.js` call is removed).
-- [x] `www/tests/render/*` + `www/tests/session/prefs.spec.js` -- new default asserted; readout copy in both states; estimate in both states.
+- [x] `www/input/paste-pump.js` -- add `150` to the accepted/offered pause set. No other pacing change.
+- [x] `www/index.html` -- new `#paste-config-modal` (`class="chrome-modal"`, following `#serial-config-modal`): aligned rows for Line ending, Chunk size and Pause, plus the throughput readout with its flow-control state. Match the clean-modal aesthetic — aligned rows and ⓘ tooltips, not a transplanted panel. Remove the three paste submenus and the throughput row from `#dropdown-settings`, leaving one `Paste settings…` item.
+- [x] `www/renderer/menu-bar.js` -- drop the `paste-eol` / `paste-chunk` / `paste-pause` submenu branches and panel refs; the Settings item opens the modal via the existing `openModal` helper. Leave every other radio submenu untouched.
+- [x] `www/renderer/` (new module or alongside the serial-config modal) -- wire the modal's controls: each applies to the pump **and** persists, and the modal re-projects from the pump's live getters on open, exactly as the submenus did.
+- [x] `www/renderer/paste-toast.js` -- the `pumping` render gains elapsed seconds and achieved B/s, computed from bytes actually written over real elapsed time. Start the clock on `started`, not on the confirm. Do not derive either figure from the settings.
+- [x] `www/main.js` -- wire the modal; keep the pump getters exposed for tests.
+- [x] `www/tests/render/paste-toast.spec.js` -- elapsed and achieved rate appear and advance; the achieved figure tracks real progress rather than the configured pause (assert it differs when the pause is bypassed).
+- [x] `www/tests/render/*` -- modal opens from Settings, each control applies and persists, re-projection on open, focus retention and Esc behaviour per the modal precedent; the submenu tests for the three moved settings are replaced, not deleted silently.
+- [x] `www/tests/session/prefs.spec.js` -- 150 ms round-trips; existing pref assertions still hold.
 
 **Acceptance Criteria:**
 - Given default settings and an LF-only multi-line clipboard, when the user pastes, then every line break reaches the wire as `0x0D` and the rest of the byte stream is identical to the clipboard text.
 - Given any chunk size, when a paced paste runs, then every write is exactly that many bytes except the last, regardless of where line breaks fall in the payload.
-- Given any pause, when a paced paste runs, then the delay between every pair of consecutive writes is that value — the same after a line break as anywhere else.
+- Given any pause including 150 ms, when a paced paste runs, then the delay between every pair of consecutive writes is that value.
 - Given a port open with flow control `hardware`, when a paste runs, then no pause is applied and the throughput readout says why.
-- Given a port open with flow control `none`, or no port at all, when a paste runs, then the configured pause is applied.
+- Given a paste is running, when the chip is visible, then it shows elapsed time and the rate actually achieved, both advancing as the paste proceeds.
+- Given the pause is bypassed by flow control, when the chip reports a rate, then that rate reflects the wire and not the configured pause.
+- Given Settings ▸ Paste settings…, when the modal opens, then it holds all three paste controls and the throughput readout, each reflecting the pump's live value.
+- Given a control is changed in the modal, when the page is reloaded, then the value persists and the modal reopens showing it.
 - Given local echo is on and the default line ending, when a multi-line block is pasted, then the echoed text occupies as many rows as it has lines.
-- Given "Enter key sends" and "Paste line ending" are set to different values, when the user presses Enter and then pastes a line break, then each emits its own configured bytes with no interference.
-- Given either pacing setting is changed, when the page is reloaded, then the value persists and both the menu checkmark and the live behaviour reflect it.
 - Given a chunk size and pause, when the confirm quotes a duration, then it is within ~15 % of how long the paste actually takes.
 
 ## Spec Change Log
@@ -150,12 +158,24 @@ The line-ending half of this spec is implemented and hardware-confirmed. These t
 
 **KEEP — still binding.** Everything in the previous entry's KEEP list, plus: no behaviour may key off the *content* of the bytes. The flow-control condition keys off port configuration, which is a different thing and is the only exception.
 
+### 2026-08-07 (later) — settings move to a modal; chip self-measures; 150 ms added
+
+**Triggering evidence.** Ant timed both paths on real hardware: **59 s over RTS/CTS**, **148 s at chunk 1 / pause 200 ms**. The handshake settles at ~13.5 B/s, so the machine has roughly 2.5× the headroom our fixed 5 B/s assumes. Ant asked for a 150 ms pause option, for the pasting chip to show elapsed time and effective chars/sec, and for the paste settings to be grouped together.
+
+**What was amended.** A 150 ms pause joins the offered set (≈6.7 B/s, between the 10 B/s that nearly worked and the 5 B/s that did). The paste chip gains elapsed time and achieved rate, measured from progress events rather than derived from settings. The three paste settings move out of the Settings menu into a **Paste settings modal**.
+
+**Why a modal rather than the submenu Ant asked for.** `menu-bar.js` holds a single `openSubmenuPanel` (`:111`, and `:767` — "only one submenu open at a time"), so the menu bar supports exactly two levels and Settings ▸ Paste line ending ▸ CR already uses both. A Paste ▸ parent would need a third level: a submenu stack, reworked keyboard navigation and a changed Esc-collapses-one-level chain, all of which have tests pinning current behaviour. `#serial-config-modal` is the existing precedent for transport settings that outgrew the menu. Ant chose the modal with that constraint stated.
+
+**Known-bad state avoided.** A third menu level rebuilt under time pressure in the keyboard-navigation code, and a fixed pause with no option between 100 and 200 ms when hardware says the answer is in that gap.
+
+**KEEP — still binding.** Everything in the previous entries' KEEP lists. The radio-submenu constraint is **superseded for the paste settings only** — the crlf, theme, phosphor, font and cmdhistory-size submenus are untouched, and persist-≠-apply still governs every paste control.
+
 ## Design Notes
 
 Two independent controls, both physical:
 
 - `pasteChunk` — bytes written back-to-back. Offered: 1, 2, 4, 8, 16, 32. Default **1**.
-- `pastePauseMs` — idle time between chunks. Offered: 0, 5, 10, 20, 50, 100, 200. Default **200**.
+- `pastePauseMs` — idle time between chunks. Offered: 0, 5, 10, 20, 50, 100, **150**, 200. Default **200**.
 
 Everything else follows: `writes = ceil(B / pasteChunk)`, `duration ≈ (writes - 1) × pastePauseMs`, `throughput ≈ pasteChunk / pastePauseMs × 1000`. The defaults are the measured working point on real hardware — one byte every 200 ms, ~5 B/s — chosen so a bare connection works out of the box rather than so a paste is quick.
 
@@ -164,6 +184,10 @@ Those defaults would make every paste glacial if they applied universally, so th
 **Why the previous model was wrong.** It made throughput the setting and derived the cadence, with an extra pause at line breaks on the theory that a full-screen editor redraws on newline. That theory was never evidenced, and it left chunk size pinned at 8 while the user varied a number that changed only the idle time. The measured ceiling is ~5–8 B/s, so every speed that model offered (60 B/s and up) was an order of magnitude too fast — which is why they all failed identically. Not a burst effect: simply a range that never reached the working point.
 
 The 16C550's FIFO configuration on this machine remains unconfirmed, and no longer matters to this design: two chunk sizes at equal throughput behave the same, so the pump paces on rate and lets the user pick the burst.
+
+**Measured on hardware, 2026-08-07.** The ~800 B block took **59 s over a handshaking port** and **148 s at chunk 1 / pause 200 ms**. The first figure means RTS/CTS settles at about **13.5 B/s** — the machine's real capacity, discovered by the handshake rather than guessed. The second matches the configured 5 B/s almost exactly, confirming the pacing does what it claims. The gap between them is the cost of a fixed rate chosen conservatively, which is why 150 ms (≈6.7 B/s) is now offered: 10 B/s nearly worked, and the handshake says there is headroom above 5.
+
+This is also why the chip reports **achieved** rate rather than configured. Two numbers that should agree are worth showing side by side; the 59 s figure only exists because it was timed by hand.
 
 Local echo needs its own copy of the bytes. The wire wants the configured terminator; the screen wants something the VT52 core renders as a new row, and `0x0D` alone is not that (`terminal.rs:364`).
 

@@ -10,6 +10,7 @@
 // for the dedicated toast suite.
 import { test, expect } from '@playwright/test';
 import { SERIAL_MOCK } from './mock-serial.js';
+import { setPasteEol, setPasteChunk, setPastePause } from '../paste-settings.js';
 
 async function setup(page, opts = {}) {
     await page.addInitScript(SERIAL_MOCK);
@@ -43,23 +44,10 @@ async function connect(page) {
     await expect(page.locator('#menu-connect-item')).toHaveAttribute('data-state', 'connected');
 }
 
-// Settings ▸ Paste line ending / Paste chunk size / Paste pause. All three are
-// radio submenus reached exactly like Enter key sends
-// (tests/input/crlf-override.spec.js is the incumbent idiom); the row click
-// applies the pump setter AND persists.
-const submenuRow = (panel, v) =>
-    `#dropdown-settings .submenu[data-submenu-panel="${panel}"] .menu-item[data-value="${v}"]`;
-
-async function pickSettingsRadio(page, submenu, value) {
-    await page.evaluate(() => window.__menuBar.open('settings'));
-    await page.click(`#dropdown-settings .menu-item[data-submenu="${submenu}"]`);
-    await page.click(submenuRow(submenu, value));
-    await page.evaluate(() => window.__menuBar.close());
-}
-
-const setPasteEol = (page, v) => pickSettingsRadio(page, 'paste-eol', v);
-const setPasteChunk = (page, v) => pickSettingsRadio(page, 'paste-chunk', v);
-const setPastePause = (page, v) => pickSettingsRadio(page, 'paste-pause', v);
+// Settings ▸ Paste settings… — the three controls now live in
+// #paste-config-modal (they were radio submenus until the settings were grouped);
+// each change applies the pump setter AND persists, as it always did. The shared
+// helpers drive the real menu → modal → select path.
 
 // A stored blob that pins the cadence, for the cases whose subject is something
 // else entirely (progress copy, cancel, layout). The default 1 byte every 200 ms is

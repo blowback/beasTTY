@@ -50,8 +50,24 @@ let confirmData = null;     // { formattedN, seconds, rate, flowControlled } for
                             // (rate null = nothing paces the run; flowControlled says the
                             //  reason is the port handshaking, not a pause of 0)
 let confirmResolver = null; // (ok:boolean) => void — resolves confirmLargePaste's Promise
-let pumpingData = null;     // { total, pct } for the 'pumping' render
+let pumpingData = null;     // { total, pct, written, elapsedMs, rate } for the 'pumping' render
 let portLostUnsent = 0;     // bytes-unsent for the 'cancelled-port-lost' render
+
+// When the pump fired 'started' for the run now in flight, on the monotonic clock.
+// The chip reports elapsed time and the rate ACTUALLY ACHIEVED, and both are measured
+// from here: bytes the pump says it has written, over wall-clock time it took to write
+// them. Nothing about either figure comes from the Paste settings.
+//
+// That is the whole point of showing them. A paste over a handshaking port ignores the
+// configured pause entirely and runs at whatever the handshake settles to — 13.5 B/s on
+// real hardware against a configured 5 — and a rate derived from the settings would
+// report the number the user typed instead of the number the wire delivered. The 59 s
+// figure that told us the handshake had headroom only exists because it was timed by
+// hand with a stopwatch; this is the app measuring itself.
+//
+// It starts at 'started', NOT when the large-paste confirm opened: the confirm can sit
+// on screen for as long as the user takes to read it, and none of that is paste time.
+let pumpStartedAt = null;
 
 // Single auto-hide timer handle (complete / cancelled / cancelled-port-lost).
 let autoHideHandle = null;
@@ -123,11 +139,16 @@ export function handleProgress(ev) {
     if (lifecycle === 'confirm') return;
     switch (ev.status) {
         case 'started':
-            enterPumping(ev.total, 0);
+            // The clock starts HERE — the first byte is about to go out.
+            pumpStartedAt = now();
+            enterPumping(ev.total, 0, 0);
             return;
         case 'chunk': {
             const pct = ev.total > 0 ? Math.round((ev.written / ev.total) * 100) : 0;
-            enterPumping(ev.total, pct);
+            // A harness may drive 'chunk' without a preceding 'started'; start the
+            // clock at the first event rather than reporting an absurd elapsed time.
+            if (pumpStartedAt === null) pumpStartedAt = now();
+            enterPumping(ev.total, pct, ev.written || 0);
             return;
         }
         case 'complete':
@@ -215,11 +236,34 @@ function resolveConfirm(ok) {
 
 // ====== State-entry helpers ======
 
-function enterPumping(total, pct) {
+// `written` is the pump's own count of bytes it has handed to the writer, and the
+// elapsed time is measured against the monotonic clock — so the rate below is the one
+// the run actually achieved, whatever the settings said it would be.
+//
+// No rate is quoted until measurable time has passed: dividing by a zero-length
+// interval is meaningless, and the first chunk of a run lands within a millisecond of
+// 'started'. The elapsed figure shows from the first event either way.
+function enterPumping(total, pct, written) {
     clearAutoHide();
-    pumpingData = { total, pct };
+    const elapsedMs = (pumpStartedAt === null) ? 0 : Math.max(0, now() - pumpStartedAt);
+    const rate = (elapsedMs > 0 && written > 0) ? (written / (elapsedMs / 1000)) : null;
+    pumpingData = { total, pct, written, elapsedMs, rate };
     lifecycle = 'pumping';
     refresh();
+}
+
+// Monotonic — a wall-clock jump mid-paste must not make the achieved rate negative or
+// enormous. Guarded so a harness without performance still renders.
+function now() {
+    return (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+}
+
+// The achieved rate, as a figure a human reads off a chip. Below 10 B/s one decimal
+// place is the difference between the settings this project actually chooses between —
+// 5, 6.7 and 10 B/s — so rounding to whole bytes there would hide the thing the number
+// is for. Above that a whole number is plenty.
+function formatRate(rate) {
+    return (rate < 10) ? rate.toFixed(1) : String(Math.round(rate));
 }
 
 function enterComplete() {
@@ -252,6 +296,7 @@ export function hide() {
     confirmData = null;
     lifecycle = 'hidden';
     pumpingData = null;
+    pumpStartedAt = null;   // the next run starts its own clock at its 'started'
     portLostUnsent = 0;
     refresh();
 }
@@ -310,11 +355,21 @@ function refresh() {
         }
 
         case 'pumping': {
-            const { total, pct } = pumpingData || { total: 0, pct: 0 };
-            toastTextElRef.textContent = `Pasting ${total} B — ${pct}%`;
+            const { total, pct, elapsedMs, rate } =
+                pumpingData || { total: 0, pct: 0, elapsedMs: 0, rate: null };
+            // Bytes, percent, how long it has been running, and how fast it is
+            // actually going. The last two are MEASURED (see pumpStartedAt): on a
+            // handshaking port the configured pause is not applied at all, and this
+            // line then reports what the wire delivered rather than what the Paste
+            // settings asked for. Both advance as the paste proceeds — the pump fires
+            // an event per chunk, so there is no tick to keep in step with.
+            const seconds = Math.round(elapsedMs / 1000);
+            const measured = (rate == null) ? `${seconds} s` : `${seconds} s · ${formatRate(rate)} B/s`;
+            toastTextElRef.textContent = `Pasting ${total} B — ${pct}% · ${measured}`;
             setButton(pasteBtnRef, false);
             setButton(cancelBtnRef, true);
-            toastElRef.setAttribute('aria-label', `Pasting ${total} bytes, ${pct}% — click Cancel to abort`);
+            toastElRef.setAttribute('aria-label',
+                `Pasting ${total} bytes, ${pct}%, ${measured} — click Cancel to abort`);
             toastElRef.removeAttribute('hidden');
             return;
         }
@@ -385,6 +440,7 @@ export function __resetForTests() {
     confirmData = null;
     confirmResolver = null;
     pumpingData = null;
+    pumpStartedAt = null;
     portLostUnsent = 0;
     clearAutoHide();
     if (toastElRef) toastElRef.setAttribute('hidden', '');

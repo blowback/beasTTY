@@ -13,10 +13,13 @@
 // driven through the debug pane's #paste-test button, which routes the textarea
 // through parseHexEscapes → enqueuePaste, so \xNN produces real control bytes.
 import { test, expect } from '@playwright/test';
+import {
+    setPasteEol as pickPasteEol,
+    openPasteSettings,
+    closePasteSettings,
+    PASTE_EOL_SELECT,
+} from '../paste-settings.js';
 
-const PASTE_EOL_PARENT = '#dropdown-settings .menu-item[data-submenu="paste-eol"]';
-const pasteEolRow = (v) =>
-    `#dropdown-settings .submenu[data-submenu-panel="paste-eol"] .menu-item[data-value="${v}"]`;
 const CRLF_PARENT = '#dropdown-settings .menu-item[data-submenu="crlf"]';
 const crlfRow = (v) =>
     `#dropdown-settings .submenu[data-submenu-panel="crlf"] .menu-item[data-value="${v}"]`;
@@ -42,11 +45,10 @@ async function ready(page) {
     await page.locator('#tx-reset').click();
 }
 
+// Settings ▸ Paste settings… ▸ Line ending. The control moved from a radio submenu
+// into #paste-config-modal; the shared helper drives the menu → modal → select path.
 async function setPasteEol(page, value) {
-    await page.evaluate(() => window.__menuBar.open('settings'));
-    await page.click(PASTE_EOL_PARENT);
-    await page.click(pasteEolRow(value));
-    await page.evaluate(() => window.__menuBar.close());
+    await pickPasteEol(page, value);
     await page.locator('#terminal-wrapper').focus();
 }
 
@@ -160,23 +162,26 @@ test.describe('Paste line ending is independent of Enter key sends', () => {
     });
 });
 
-test.describe('Paste line ending — the menu row', () => {
-    test('selecting a row persists AND applies (persist != apply) @fast', async ({ page }) => {
+test.describe('Paste line ending — the modal control', () => {
+    test('picking a value persists AND applies (persist != apply) @fast', async ({ page }) => {
         await ready(page);
         await setPasteEol(page, 'crlf');
         expect(await page.evaluate(() => window.__prefs.getPrefs().pasteLineEnding)).toBe('crlf');
         expect(await page.evaluate(() => window.__pastePump.getPasteLineEnding())).toBe('crlf');
     });
 
-    test('submenu exclusivity: checking one unchecks the others @fast', async ({ page }) => {
+    test('the control holds one value at a time and shows the live one @fast', async ({ page }) => {
+        // The submenu's exclusivity, re-derived on a <select>: picking a value both
+        // takes effect and is what the control reads back on the next open. The
+        // radio group's "checking one unchecks the others" is a property of the
+        // element now, so the assertion worth keeping is that the value shown is the
+        // one the PUMP holds.
         await ready(page);
-        await page.evaluate(() => window.__menuBar.open('settings'));
-        await page.click(PASTE_EOL_PARENT);
-        await page.click(pasteEolRow('raw'));
-        await expect(page.locator(pasteEolRow('raw'))).toHaveAttribute('data-checked', 'true');
-        for (const other of ['cr', 'lf', 'crlf']) {
-            await expect(page.locator(pasteEolRow(other))).toHaveAttribute('data-checked', 'false');
-        }
+        await setPasteEol(page, 'raw');
+        await openPasteSettings(page);
+        await expect(page.locator(PASTE_EOL_SELECT)).toHaveValue('raw');
+        expect(await page.evaluate(() => window.__pastePump.getPasteLineEnding())).toBe('raw');
+        await closePasteSettings(page);
     });
 
     test('a corrupt stored value leaves the pump on the default @fast', async ({ page }) => {

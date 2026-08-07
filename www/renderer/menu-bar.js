@@ -171,30 +171,14 @@ let setLocalEchoRef = null;
 let setCrlfModeRef = null;
 let localEchoItemEl = null;        // #menu-local-echo-item — checkable, derived from prefs.localEcho
 let crlfPanelEl = null;            // [data-submenu-panel="crlf"] — active radio derived from prefs.crlfMode
-// Settings ▸ Paste line ending / Paste speed injected setters — paste-pump.js's
-// live setters, injected for the same AD-3 reason as the keyboard setters above
-// (menu-bar may not import input/*). Same persist ≠ apply contract: savePrefs
-// does not fan out, so the menu MUST call the setter too or the checkmark moves
-// while the next paste still uses the old value. Both optional — a harness that
-// omits them keeps persist + glyph working. These settings are deliberately
-// INDEPENDENT of crlfMode above: Enter key sends governs the Enter key, Paste
-// line ending governs pasted text, and neither reads the other.
-let setPasteLineEndingRef = null;
-let setPasteChunkRef = null;
-let setPastePauseMsRef = null;
-// The matching GETTERS. The radios are projected from what the pump actually
-// holds, not from the stored pref — see projectPasteSettings.
-let getPasteLineEndingRef = null;
-let getPasteChunkRef = null;
-let getPastePauseMsRef = null;
-let getPasteThroughputRef = null;  // derived (chunk ÷ pause), null when there is no pacing limit at all
-// The open port's flow control, as the pump recorded it. 'hardware' means the two
-// rows above are not in force — see projectPasteThroughput.
-let getPasteFlowControlRef = null;
-let pasteEolPanelEl = null;        // [data-submenu-panel="paste-eol"] — active radio derived from the pump's live mode
-let pasteChunkPanelEl = null;      // [data-submenu-panel="paste-chunk"] — active radio derived from the pump's live chunk size
-let pastePausePanelEl = null;      // [data-submenu-panel="paste-pause"] — active radio derived from the pump's live pause
-let pasteThroughputItemEl = null;  // #menu-paste-throughput-item — inert readout of the two above
+// Settings ▸ Paste settings… — the three paste controls (line ending, chunk size,
+// pause) and their throughput readout used to be radio submenus here. They moved
+// into #paste-config-modal, so this module now knows one thing about them: the
+// injected opener, in the modalOpener table with the other four. renderer/
+// paste-config.js owns the controls, and holds the same persist ≠ apply contract
+// the submenus did. Paste line ending stays deliberately INDEPENDENT of crlfMode
+// above: Enter key sends governs the Enter key, Paste line ending governs pasted
+// text, and neither reads the other.
 // E8.3 (FR-19/FR-20) — the two Command-history rows this module projects.
 let commandHistoryItemEl = null;   // #menu-command-history-item — checkable, derived from prefs.commandHistoryEnabled
 let cmdHistorySizePanelEl = null;  // [data-submenu-panel="cmdhistory-size"] — active radio derived from prefs.commandHistorySize
@@ -257,6 +241,10 @@ let openAboutRef = null;
 // #slide-config-modal (main.js owns openModal — menu-bar must not import modal.js/
 // slide*.js). Optional: a harness that omits it leaves that row's click inert.
 let openSlideConfigRef = null;
+// Settings ▸ Paste settings… opener for the injected #paste-config-modal (main.js
+// owns openModal — menu-bar must not import modal.js/paste-pump.js). Optional: a
+// harness that omits it leaves that row's click inert.
+let openPasteConfigRef = null;
 let resetPrefsItemEl = null;       // #menu-reset-prefs-item — cached at wire time like the sibling projected rows
 // The Reset row's inline 2-click confirm. Both the labels AND the arm/commit/disarm
 // state machine are shared (confirm-toggle.js) with chrome.js's legacy #reset-prefs-button,
@@ -409,16 +397,6 @@ export function wireMenuBar(opts = {}) {
     // glyph working but leaves the live keyboard.js state change inert until reload.
     setLocalEchoRef = opts.setLocalEcho || null;
     setCrlfModeRef = opts.setCrlfMode || null;
-    // Settings ▸ Paste line ending / chunk size / pause — paste-pump.js live
-    // setters, injected via opts on the same AD-3 terms as the keyboard setters above.
-    setPasteLineEndingRef = opts.setPasteLineEnding || null;
-    setPasteChunkRef = opts.setPasteChunk || null;
-    setPastePauseMsRef = opts.setPastePauseMs || null;
-    getPasteLineEndingRef = opts.getPasteLineEnding || null;
-    getPasteChunkRef = opts.getPasteChunk || null;
-    getPastePauseMsRef = opts.getPastePauseMs || null;
-    getPasteThroughputRef = opts.getPasteThroughput || null;
-    getPasteFlowControlRef = opts.getPasteFlowControl || null;
     setWrapRef = opts.setWrap || null;   // Settings ▸ Wrap long lines — core term.set_wrap (AD-3)
     setDebugPanelVisibleRef = opts.setDebugPanelVisible || null;   // E5.1 (FR-23, AD-3)
     // E3.3 (FR-21/FR-22, AD-3) — reset action + reserved-Ctrl modal opener, injected
@@ -428,6 +406,7 @@ export function wireMenuBar(opts = {}) {
     openKeyboardShortcutsRef = opts.openKeyboardShortcuts || null;   // E6.1 (FR-24, AD-3)
     openAboutRef = opts.openAbout || null;   // E6.2 (FR-25, AD-3)
     openSlideConfigRef = opts.openSlideConfig || null;     // E3.4 (FR-20, AD-3)
+    openPasteConfigRef = opts.openPasteConfig || null;     // Settings ▸ Paste settings… (AD-3)
     menuBarEl = document.getElementById('menu-bar');
     liveRegionEl = document.getElementById('menu-bar-live');
     openMenu = null;
@@ -535,15 +514,6 @@ export function wireMenuBar(opts = {}) {
     localEchoItemEl = document.getElementById('menu-local-echo-item');
     crlfPanelEl = document.querySelector('.submenu[data-submenu-panel="crlf"]');
     projectLocalEcho();
-    // Settings ▸ Paste line ending + chunk size + pause — same by-data discovery,
-    // then an initial paint from the pump so all three radios and the throughput
-    // readout are correct BEFORE the first Settings-menu open (never trust the
-    // HTML data-checked literals: a stored blob can hold any of the offered values).
-    pasteEolPanelEl = document.querySelector('.submenu[data-submenu-panel="paste-eol"]');
-    pasteChunkPanelEl = document.querySelector('.submenu[data-submenu-panel="paste-chunk"]');
-    pastePausePanelEl = document.querySelector('.submenu[data-submenu-panel="paste-pause"]');
-    pasteThroughputItemEl = document.getElementById('menu-paste-throughput-item');
-    projectPasteSettings();
     // Settings ▸ Wrap long lines — same by-id discovery + initial paint from prefs
     // so the glyph is correct BEFORE the first Settings-menu open.
     wrapLinesItemEl = document.getElementById('menu-wrap-lines-item');
@@ -886,42 +856,6 @@ function onRadioSelect(panel, item) {
         setCrlfModeRef?.(value);
         savePrefs({ crlfMode: value });          // AD-4 — persist
         setRadioChecked(panel, value);
-    } else if (group === 'paste-eol') {
-        // Settings ▸ Paste line ending. Same shape as the crlf branch above and
-        // deliberately independent of it — this drives paste-pump.js, that one
-        // drives keyboard.js, and the two can hold different values. persist ≠
-        // apply, so call the injected setter AND savePrefs; the setter's
-        // validator accepts only cr/lf/crlf/raw, which the radio data-values are.
-        // NOT a D-19 selection-clear trigger, no CRT restriction.
-        setPasteLineEndingRef?.(value);
-        savePrefs({ pasteLineEnding: value });    // AD-4 — persist
-        setRadioChecked(panel, value);
-    } else if (group === 'paste-chunk') {
-        // Settings ▸ Paste chunk size — bytes written back-to-back. A numeric
-        // preset, so convert + validate before persisting (the cmdhistory-size
-        // branch below is the shape). persist ≠ apply: the setter re-paces the
-        // pump, which takes effect on the NEXT paste — a run already in flight
-        // keeps the cadence it froze at enqueue, so picking a bigger chunk
-        // mid-paste cannot dump the remainder on the wire in one burst.
-        // projectPasteSettings() afterwards so the throughput readout follows.
-        const chunk = Number(value);
-        if (Number.isInteger(chunk) && chunk >= 1) {
-            setPasteChunkRef?.(chunk);
-            savePrefs({ pasteChunk: chunk });       // AD-4 — persist
-            setRadioChecked(panel, value);
-            projectPasteSettings();
-        }
-    } else if (group === 'paste-pause') {
-        // Settings ▸ Paste pause — idle ms between chunks. Same shape as the
-        // chunk branch above, except 0 is a legal value here ("no pause at all"),
-        // so the guard is >= 0, not > 0.
-        const pause = Number(value);
-        if (Number.isInteger(pause) && pause >= 0) {
-            setPastePauseMsRef?.(pause);
-            savePrefs({ pastePauseMs: pause });      // AD-4 — persist
-            setRadioChecked(panel, value);
-            projectPasteSettings();
-        }
     } else if (group === 'cmdhistory-size') {
         // E8.3 (AC-3) — Command-history size preset. data-value is a string; the pref
         // is a number, so convert + validate (positive integer) before persisting.
@@ -1103,6 +1037,7 @@ function onItemClick(item, ev) {
         'serial-config': openSerialConfigRef,   // Connection ▸ Serial Configuration…
         'reserved-ctrl': openReservedCtrlRef,   // Settings ▸ Browser-reserved Ctrl combos…
         'slide-config': openSlideConfigRef,     // Settings ▸ SLIDE File Transfer…
+        'paste-config': openPasteConfigRef,     // Settings ▸ Paste settings…
         'keyboard-shortcuts': openKeyboardShortcutsRef,   // Help ▸ Keyboard Shortcuts… (E6.1)
         'about': openAboutRef,                  // Help ▸ About Beastty… (E6.2)
     }[action];
@@ -1272,7 +1207,9 @@ function projectMenuOnOpen() {
         projectWrapLines();
         projectStripCtrl();
         projectCommandHistory();   // toggle glyph + size radio
-        projectPasteSettings();    // Paste line ending + chunk size + pause radios, and the throughput readout
+        // The three paste settings are not projected here any more: they live in
+        // #paste-config-modal, which re-projects itself from the pump just before it
+        // opens (main.js openPasteConfig → paste-config.js project).
         const p = getPrefs();
         if (crlfPanelEl && p && p.crlfMode) setRadioChecked(crlfPanelEl, p.crlfMode);
     }
@@ -1318,72 +1255,6 @@ function projectCommandHistory(prefs) {
     projectCheckable(commandHistoryItemEl, 'commandHistoryEnabled', prefs);
     const p = prefs || getPrefs();
     if (cmdHistorySizePanelEl && p && p.commandHistorySize) setRadioChecked(cmdHistorySizePanelEl, String(p.commandHistorySize));
-}
-
-// Settings ▸ Paste line ending + chunk size + pause projector: all three radios
-// and the throughput readout re-derived together at USE-TIME. Same read-at-use /
-// no-throw / idempotent contract as the siblings, and it NEVER calls a pump setter
-// (applyPrefs stays the single writer on the boot + reset paths).
-//
-// It projects the PUMP's live values, not the stored prefs, so a checkmark cannot
-// contradict what the next paste will do. Reading the pref got both directions
-// wrong. A REJECTED pref (a pasteChunk of '' or the string '8') leaves the pump on
-// its default while the pref says otherwise — and String('8') even matches a real
-// row, so the menu would tick 8 for a pump running at 1. An ACCEPTED pref the panel
-// does not offer (setPasteChunk takes any integer 1..4096; the panel offers six)
-// left whatever was ticked before standing, so a pump at 3 bytes showed 1.
-// Projecting from the getter makes both cases true by construction: a rejected
-// value projects the default (which IS live), and an accepted-but-unoffered one
-// ticks nothing, which is the honest rendering of "the live value is not on this
-// menu". prefs are the fallback only for a harness that injects no getters.
-//
-// String() because setRadioChecked compares data-value strings; `!= null` rather
-// than a truthy test because a pause of 0 is a legal value.
-function projectPasteSettings(prefs) {
-    const p = prefs || getPrefs();
-    const eol = getPasteLineEndingRef ? getPasteLineEndingRef() : (p ? p.pasteLineEnding : null);
-    const chunk = getPasteChunkRef ? getPasteChunkRef() : (p ? p.pasteChunk : null);
-    const pause = getPastePauseMsRef ? getPastePauseMsRef() : (p ? p.pastePauseMs : null);
-    if (pasteEolPanelEl && eol) setRadioChecked(pasteEolPanelEl, String(eol));
-    if (pasteChunkPanelEl && chunk != null) setRadioChecked(pasteChunkPanelEl, String(chunk));
-    if (pastePausePanelEl && pause != null) setRadioChecked(pastePausePanelEl, String(pause));
-    projectPasteThroughput(chunk, pause);
-}
-
-// The inert readout under the two paste-cadence rows. Throughput is a consequence
-// of chunk ÷ pause, so it is derived here rather than stored anywhere — and it is
-// derived from the same values the radios were just ticked from, so the readout and
-// the checkmarks can never disagree.
-//
-// Three things it can say, and the third is why it exists at all:
-//
-//   "≈ N B/s"                 — the two rows are in force and this is what they
-//                               add up to.
-//   "wire speed"              — the user picked a pause of 0, so there is no
-//                               pacing limit and the wire is the only ceiling,
-//                               which is not a bytes/sec figure this module can
-//                               know (the pump reads neither the port nor the baud).
-//   "wire speed (flow control)" — the open port is handshaking, so the pump does
-//                               not pace at ALL and the two rows above are simply
-//                               not in force. The rows keep their checkmarks —
-//                               they are still the user's settings, and they apply
-//                               again the moment a bare port is opened — so
-//                               without this the menu would show a pause the next
-//                               paste is going to ignore. A setting that is
-//                               silently ignored is the defect this whole change
-//                               keeps re-learning; the readout carries the reason.
-function projectPasteThroughput(chunk, pause) {
-    if (!pasteThroughputItemEl) return;              // row absent (harness) — no-op
-    const hint = pasteThroughputItemEl.querySelector('.hint');
-    if (!hint) return;
-    if (getPasteFlowControlRef && getPasteFlowControlRef() === 'hardware') {
-        hint.textContent = 'wire speed (flow control)';
-        return;
-    }
-    let rate = null;
-    if (getPasteThroughputRef) rate = getPasteThroughputRef();
-    else if (chunk != null && pause != null && pause > 0) rate = Math.max(1, Math.round((chunk / pause) * 1000));
-    hint.textContent = (rate == null) ? 'wire speed' : `≈ ${rate} B/s`;
 }
 
 // E3.1 (FR-17, AC-4/AC-5) — project the Download Session Log row from the live RX
@@ -1597,12 +1468,10 @@ export function projectPrefs(prefs) {
     projectWrapLines(p); // Settings ▸ Wrap long lines — resetPrefs() restores the unchecked default row
     projectStripCtrl(p); // Settings ▸ Strip ctrl codes from logs — resetPrefs() restores the unchecked default row
     if (crlfPanelEl && p.crlfMode) setRadioChecked(crlfPanelEl, p.crlfMode);
-    // Settings ▸ Paste line ending + chunk size + pause — re-project all three
-    // radios (and the throughput readout) so resetPrefs() restores the defaults
-    // (CR, 1 byte, 20 ms) in the menu DOM. Placed before the View guard so a
-    // View-less harness still gets the reset re-projection. Never calls a pump
-    // setter (applyPrefs owns that on reset).
-    projectPasteSettings(p);
+    // The three paste settings have no row here to re-project: resetPrefs() restores
+    // them through applyPrefs (the pump's single writer on that path), and
+    // #paste-config-modal re-derives its controls from the pump the next time it
+    // opens — so the reset is visible there without this module knowing about it.
     // E8.3 (AC-5) — re-project the Settings ▸ Command history toggle + size radio so
     // resetPrefs() (AD-14) restores the defaults (enabled checked, size 100) in the menu
     // DOM. This IS the reset story — no bespoke reset handler. Placed before the View

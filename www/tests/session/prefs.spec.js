@@ -14,6 +14,13 @@
 //   - 06-VALIDATION.md §Phase Requirements → Test Map (prefs row).
 //   - Analog: www/tests/transport/connect.spec.js (localStorage assertions).
 import { test, expect } from '@playwright/test';
+// Settings ▸ Paste settings… — the three paste controls moved out of the Settings
+// menu's radio submenus into #paste-config-modal.
+import {
+    setPasteEol, setPasteChunk, setPastePause,
+    openPasteSettings, closePasteSettings,
+    PASTE_EOL_SELECT, PASTE_CHUNK_SELECT, PASTE_PAUSE_SELECT, PASTE_THROUGHPUT,
+} from '../paste-settings.js';
 import { SERIAL_MOCK } from '../transport/mock-serial.js';
 
 async function setup(page) {
@@ -214,10 +221,7 @@ test.describe('PREF-01/PREF-02/PLAT-05 — Preferences persistence', () => {
 
     test('pasteLineEnding persists across reload and re-applies to the pump', async ({ page }) => {
         await setup(page);
-        await page.evaluate(() => window.__menuBar.open('settings'));
-        await page.click('#dropdown-settings .menu-item[data-submenu="paste-eol"]');
-        await page.click('#dropdown-settings .submenu[data-submenu-panel="paste-eol"] .menu-item[data-value="crlf"]');
-        await page.evaluate(() => window.__menuBar.close());
+        await setPasteEol(page, 'crlf');
         await page.waitForTimeout(300);   // > 250 ms debounce window
         await page.reload();
         await setup(page);
@@ -226,18 +230,16 @@ test.describe('PREF-01/PREF-02/PLAT-05 — Preferences persistence', () => {
         // applyPrefs re-applied it on the boot path — the stored value governs the
         // next paste, not just the checkmark.
         expect(await page.evaluate(() => window.__pastePump.getPasteLineEnding())).toBe('crlf');
-        await expect(page.locator('#dropdown-settings .submenu[data-submenu-panel="paste-eol"] .menu-item[data-value="crlf"]'))
-            .toHaveAttribute('data-checked', 'true');
+        // …and the modal re-projects it from the pump the next time it opens.
+        await openPasteSettings(page);
+        await expect(page.locator(PASTE_EOL_SELECT)).toHaveValue('crlf');
+        await closePasteSettings(page);
     });
 
     test('the paste cadence persists across reload and re-applies to the pump', async ({ page }) => {
         await setup(page);
-        await page.evaluate(() => window.__menuBar.open('settings'));
-        await page.click('#dropdown-settings .menu-item[data-submenu="paste-chunk"]');
-        await page.click('#dropdown-settings .submenu[data-submenu-panel="paste-chunk"] .menu-item[data-value="8"]');
-        await page.click('#dropdown-settings .menu-item[data-submenu="paste-pause"]');
-        await page.click('#dropdown-settings .submenu[data-submenu-panel="paste-pause"] .menu-item[data-value="100"]');
-        await page.evaluate(() => window.__menuBar.close());
+        await setPasteChunk(page, 8);
+        await setPastePause(page, 100);
         await page.waitForTimeout(300);
         await page.reload();
         await setup(page);
@@ -302,73 +304,86 @@ test.describe('PREF-01/PREF-02/PLAT-05 — Preferences persistence', () => {
             await pumpReady(page);
             expect(await page.evaluate(() => window.__pastePump.getPasteChunk())).toBe(1);
             expect(await page.evaluate(() => window.__pastePump.getPastePauseMs())).toBe(200);
-            // And the menu shows the defaults, not the rejected values.
-            await page.evaluate(() => window.__menuBar.open('settings'));
-            await page.click('#dropdown-settings .menu-item[data-submenu="paste-chunk"]');
-            await expect(page.locator('#dropdown-settings .submenu[data-submenu-panel="paste-chunk"] .menu-item[data-value="1"]'))
-                .toHaveAttribute('data-checked', 'true');
-            await page.click('#dropdown-settings .menu-item[data-submenu="paste-pause"]');
-            await expect(page.locator('#dropdown-settings .submenu[data-submenu-panel="paste-pause"] .menu-item[data-value="200"]'))
-                .toHaveAttribute('data-checked', 'true');
+            // And the modal shows the defaults, not the rejected values.
+            await openPasteSettings(page);
+            await expect(page.locator(PASTE_CHUNK_SELECT)).toHaveValue('1');
+            await expect(page.locator(PASTE_PAUSE_SELECT)).toHaveValue('200');
+            await closePasteSettings(page);
         });
     }
 
-    // The menu radio is projected from what the pump ACCEPTED, not from the stored
-    // pref. These are the two ways those disagree.
-    const chunkRadio = (v) =>
-        `#dropdown-settings .submenu[data-submenu-panel="paste-chunk"] .menu-item[data-value="${v}"]`;
+    // The modal's controls are projected from what the pump ACCEPTED, not from the
+    // stored pref. These are the two ways those disagree.
 
-    async function openPasteChunkSubmenu(page) {
-        await page.evaluate(() => window.__menuBar.open('settings'));
-        await page.click('#dropdown-settings .menu-item[data-submenu="paste-chunk"]');
-    }
-
-    test('a stored pasteChunk the pump ACCEPTS but the menu does not offer ticks nothing', async ({ page }) => {
-        // setPasteChunk takes any integer in 1..4096; the panel offers six values.
-        // A stored 3 therefore runs the pump at 3 bytes. Ticking 1 because 3 does
-        // not match a row would put a checkmark on a value that is not live — the
-        // one thing a radio group must never do. Nothing ticked says, accurately,
-        // "the live chunk size is not on this menu".
+    test('a stored pasteChunk the pump ACCEPTS but the modal does not offer selects nothing', async ({ page }) => {
+        // setPasteChunk takes any integer in 1..4096; the select offers six values.
+        // A stored 3 therefore runs the pump at 3 bytes. Selecting 1 because 3 does
+        // not match an option would put the control on a value that is not live —
+        // the one thing it must never do. A blank select says, accurately, "the live
+        // chunk size is not on this menu".
         await page.addInitScript(() => localStorage.setItem(
             'beastty.prefs', JSON.stringify({ version: 2, pasteChunk: 3 })));
         await setup(page);
         await pumpReady(page);
         expect(await page.evaluate(() => window.__pastePump.getPasteChunk())).toBe(3);
-        await openPasteChunkSubmenu(page);
-        for (const v of ['1', '2', '4', '8', '16', '32']) {
-            await expect(page.locator(chunkRadio(v))).toHaveAttribute('data-checked', 'false');
-        }
+        await openPasteSettings(page);
+        await expect(page.locator(PASTE_CHUNK_SELECT)).toHaveValue('');
+        expect(await page.locator(PASTE_CHUNK_SELECT).evaluate((el) => el.selectedIndex)).toBe(-1);
         // The throughput readout still tells the truth about it: 3 B / 200 ms.
-        await expect(page.locator('#menu-paste-throughput-item .hint')).toHaveText('≈ 15 B/s');
+        await expect(page.locator(PASTE_THROUGHPUT)).toHaveText('≈ 15 B/s');
+        await closePasteSettings(page);
     });
 
-    test('a stored pasteChunk of the STRING "8" is rejected and the menu still shows 1', async ({ page }) => {
-        // '8' matches a row's data-value, so projecting the raw pref would tick 8.
+    test('a stored pasteChunk of the STRING "8" is rejected and the modal still shows 1', async ({ page }) => {
+        // '8' matches an option's value, so projecting the raw pref would show 8.
         // setPasteChunk rejects the type before the value, so the pump stays at 1 —
-        // the checkmark would have been a straight lie about the next paste.
+        // the control would have been a straight lie about the next paste. This is
+        // the case that proves the modal reads the PUMP and not the stored pref.
         await page.addInitScript(() => localStorage.setItem(
             'beastty.prefs', JSON.stringify({ version: 2, pasteChunk: '8' })));
         await setup(page);
         await pumpReady(page);
         expect(await page.evaluate(() => window.__pastePump.getPasteChunk())).toBe(1);
-        await openPasteChunkSubmenu(page);
-        await expect(page.locator(chunkRadio('1'))).toHaveAttribute('data-checked', 'true');
-        await expect(page.locator(chunkRadio('8'))).toHaveAttribute('data-checked', 'false');
+        expect(await page.evaluate(() => window.__prefs.getPrefs().pasteChunk)).toBe('8');
+        await openPasteSettings(page);
+        await expect(page.locator(PASTE_CHUNK_SELECT)).toHaveValue('1');
+        await closePasteSettings(page);
     });
 
-    test('a stored pasteLineEnding of the STRING-shaped nonsense leaves CR ticked', async ({ page }) => {
-        // Same contract on the other radio: setPasteLineEnding validates by
+    test('a stored pasteLineEnding of the STRING-shaped nonsense leaves CR selected', async ({ page }) => {
+        // Same contract on the other control: setPasteLineEnding validates by
         // hasOwnProperty against the terminator table, so 'toString' (a prototype
-        // key) is rejected and the pump stays on CR. The menu must agree.
+        // key) is rejected and the pump stays on CR. The modal must agree.
         await page.addInitScript(() => localStorage.setItem(
             'beastty.prefs', JSON.stringify({ version: 2, pasteLineEnding: 'toString' })));
         await setup(page);
         await pumpReady(page);
         expect(await page.evaluate(() => window.__pastePump.getPasteLineEnding())).toBe('cr');
-        await page.evaluate(() => window.__menuBar.open('settings'));
-        await page.click('#dropdown-settings .menu-item[data-submenu="paste-eol"]');
-        await expect(page.locator('#dropdown-settings .submenu[data-submenu-panel="paste-eol"] .menu-item[data-value="cr"]'))
-            .toHaveAttribute('data-checked', 'true');
+        await openPasteSettings(page);
+        await expect(page.locator(PASTE_EOL_SELECT)).toHaveValue('cr');
+        await closePasteSettings(page);
+    });
+
+    test('a stored pause of 150 ms round-trips through the modal and the pump', async ({ page }) => {
+        // 150 ms — about 6.7 B/s — joined the offered pauses after the ~800 B block
+        // was timed on hardware: 59 s over RTS/CTS (so the handshake settles near
+        // 13.5 B/s) against 148 s at the configured 5 B/s. It sits between the
+        // 10 B/s that nearly worked and the 5 B/s that did.
+        await setup(page);
+        await pumpReady(page);
+        await setPastePause(page, 150);
+        expect(await page.evaluate(() => window.__prefs.getPrefs().pastePauseMs)).toBe(150);
+        expect(await page.evaluate(() => window.__pastePump.getPastePauseMs())).toBe(150);
+        await page.waitForTimeout(300);   // > 250 ms debounce window
+        await page.reload();
+        await setup(page);
+        await pumpReady(page);
+        expect(await page.evaluate(() => window.__pastePump.getPastePauseMs())).toBe(150);
+        await openPasteSettings(page);
+        await expect(page.locator(PASTE_PAUSE_SELECT)).toHaveValue('150');
+        // 1 byte every 150 ms is 6.67 B/s, rounded to 7 for the readout.
+        await expect(page.locator(PASTE_THROUGHPUT)).toHaveText('≈ 7 B/s');
+        await closePasteSettings(page);
     });
 
     test('fontZoom persists across reload', async ({ page }) => {

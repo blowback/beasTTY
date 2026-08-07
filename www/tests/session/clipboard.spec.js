@@ -7,6 +7,8 @@
 //   - 06-VALIDATION.md §Phase Requirements → Test Map (clipboard row).
 //   - Analog: www/tests/transport/paste.spec.js (mock writer log + post-paste byte-stream assertion).
 import { test, expect } from '@playwright/test';
+// Settings ▸ Paste settings… — the three paste controls live in #paste-config-modal.
+import { setPasteEol, setPasteChunk } from '../paste-settings.js';
 import { SERIAL_MOCK } from '../transport/mock-serial.js';
 import { CLIPBOARD_MOCK } from './clipboard-mock.js';
 
@@ -153,10 +155,7 @@ test.describe('SESS-02/SESS-03 — Clipboard', () => {
         // This used to drive Settings ▸ Enter key sends, because the pump read
         // getCrlfMode(); paste has had its own setting since the paste-text-loss
         // fix, and the Enter-key path is none of the pump's business.
-        await page.evaluate(() => window.__menuBar.open('settings'));
-        await page.click('#dropdown-settings .menu-item[data-submenu="paste-eol"]');
-        await page.click('#dropdown-settings .submenu[data-submenu-panel="paste-eol"] .menu-item[data-value="lf"]');
-        await page.evaluate(() => window.__menuBar.close());
+        await setPasteEol(page, 'lf');
         await page.evaluate(() => window.__setClipboardContents('A\rB'));
         await connectMockSerial(page);
         await page.evaluate(() => window.__pasteFromClipboard());
@@ -193,10 +192,7 @@ test.describe('SESS-02/SESS-03 — Clipboard', () => {
         // a size the paste was never going to be.
         await setup(page);
         await page.waitForFunction(() => window.__menuBar && typeof window.__menuBar.open === 'function');
-        await page.evaluate(() => window.__menuBar.open('settings'));
-        await page.click('#dropdown-settings .menu-item[data-submenu="paste-eol"]');
-        await page.click('#dropdown-settings .submenu[data-submenu-panel="paste-eol"] .menu-item[data-value="crlf"]');
-        await page.evaluate(() => window.__menuBar.close());
+        await setPasteEol(page, 'crlf');
 
         await page.evaluate(() => window.__setClipboardContents('AAA\n'.repeat(1000)));
         await connectMockSerial(page);
@@ -218,11 +214,10 @@ test.describe('SESS-02/SESS-03 — Clipboard', () => {
         await page.evaluate(() => { window.__pendingPasteResult = window.__pasteFromClipboard(); });
         await expect(page.locator('#paste-toast-text')).toContainText('About to paste 5,000 B');
 
-        // Switch to a 32-byte chunk WHILE the confirm is up, then accept.
-        await page.evaluate(() => window.__menuBar.open('settings'));
-        await page.click('#dropdown-settings .menu-item[data-submenu="paste-chunk"]');
-        await page.click('#dropdown-settings .submenu[data-submenu-panel="paste-chunk"] .menu-item[data-value="32"]');
-        await page.evaluate(() => window.__menuBar.close());
+        // Switch to a 32-byte chunk WHILE the confirm is up, then accept. The Paste
+        // settings modal is reachable with the confirm chip on screen — the chip is
+        // not a dialog and does not block the menu.
+        await setPasteChunk(page, 32);
         expect(await page.evaluate(() => window.__pastePump.getPasteChunk())).toBe(32);
 
         await page.locator('#paste-toast button[data-action="paste"]').click();

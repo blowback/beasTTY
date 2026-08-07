@@ -76,7 +76,7 @@ const DEFAULTS = Object.freeze({
     commandHistory: [],            // E8.1 (FR-21) — persisted command store, newest-first. Top-level
                                    //   array so the defensive spread-merge replaces it wholesale (not the
                                    //   nested-object merge path). CURRENT_VERSION NOT bumped.
-    pasteLineEnding: 'cr',         // Settings ▸ Paste line ending — what every line break in PASTED
+    pasteLineEnding: 'cr',         // Settings ▸ Paste settings… ▸ Line ending — what every line break in PASTED
                                    //   text is rewritten to before it reaches the wire
                                    //   ('cr' | 'lf' | 'crlf' | 'raw'). Deliberately SEPARATE from
                                    //   crlfMode above: that one governs the Enter key, this one governs
@@ -87,7 +87,7 @@ const DEFAULTS = Object.freeze({
                                    //   setPasteLineEnding), as crlfMode is at setCrlfMode — prefs.js has
                                    //   no field validation. CURRENT_VERSION NOT bumped per Phase 6 D-32
                                    //   defensive merge, same as every pref above.
-    pasteChunk: 1,                 // Settings ▸ Paste chunk size — how many bytes the paste pump hands
+    pasteChunk: 1,                 // Settings ▸ Paste settings… ▸ Chunk size — how many bytes the paste pump hands
                                    //   to the writer back-to-back. Paired with pastePauseMs below, 1
                                    //   byte every 200 ms is the cadence measured to work on real
                                    //   hardware. Burst size is NOT the mechanism: 1 B / 100 ms and
@@ -97,7 +97,7 @@ const DEFAULTS = Object.freeze({
                                    //   the same rate in bigger bursts should be able to ask for it.
                                    //   Validated at its consumer (paste-pump.js setPasteChunk).
                                    //   CURRENT_VERSION NOT bumped.
-    pastePauseMs: 200,             // Settings ▸ Paste pause — idle ms between chunks, giving the receiver
+    pastePauseMs: 200,             // Settings ▸ Paste settings… ▸ Pause — idle ms between chunks, giving the receiver
                                    //   time to drain. 0 means no pause at all (the wire is the only
                                    //   limit). Independent of pasteChunk above; throughput is the
                                    //   consequence of the two (chunk ÷ pause × 1000), shown in the menu
