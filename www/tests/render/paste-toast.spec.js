@@ -20,9 +20,9 @@ const TOAST = '#paste-toast';
 const TEXT = '#paste-toast-text';
 
 // `prefs` seeds a stored blob before boot. The paste cadence defaults to the
-// slowest thing on the menu — 1 byte every 20 ms, ~50 B/s — so a case whose
+// measured hardware working point — 1 byte every 200 ms, 5 B/s — so a case whose
 // subject is the toast rather than the pacing pins something quicker instead of
-// holding the run open for a minute.
+// holding the run open for minutes.
 async function setup(page, { prefs } = {}) {
     await page.addInitScript(SERIAL_MOCK);
     if (prefs) {
@@ -101,6 +101,23 @@ test.describe('E7.1 — paste toast: large-paste confirm', () => {
         await expect(page.locator(TEXT)).toHaveText('About to paste 5,000 B (~1000 s at 5 B/s).');
     });
 
+    test('a handshaking port is quoted as wire speed, and says why @fast', async ({ page }) => {
+        // On a port opened with RTS/CTS the pump does not pace at all, so the
+        // snapshot handed here is the unpaced shape (32 B, no pause) whatever the
+        // Paste pause setting holds. Quoting the paced figure for a run that will
+        // not be paced would be the same lie the Settings readout must not tell —
+        // and there is no duration worth quoting either, because the paste is over
+        // before the sentence is read. The words go on the reason instead, in the
+        // phrase the Settings readout uses. Asserted exactly.
+        await page.evaluate(() => {
+            window.__pasteToast.confirmLargePaste(5000, {
+                getChunk: () => 32, getPauseMs: () => 0, isFlowControlled: () => true,
+            });
+        });
+        await expect(page.locator(TEXT)).toHaveText(
+            'About to paste 5,000 B at wire speed (flow control).');
+    });
+
     test('[Cancel] resolves the confirm false and hides the toast @fast', async ({ page }) => {
         await page.evaluate(() => {
             window.__confirmResult = 'pending';
@@ -130,7 +147,8 @@ test.describe('E7.1 — paste toast: live progress', () => {
 
     test('progress line "Pasting N B — P%" updates then "Paste complete" then auto-hides', async ({ page }) => {
         // 8 bytes every 20 ms: 32 writes, long enough for the progress line to be
-        // observed and short enough to complete inside the assertion window.
+        // observed and short enough to complete inside the assertion window. The
+        // default 5 B/s would hold it open for nearly a minute.
         await setup(page, { prefs: { version: 2, pasteChunk: 8, pastePauseMs: 20 } });
         await pasteViaDebug(page, 'B'.repeat(256));
         await expect(page.locator(TEXT)).toContainText('Pasting 256 B —', { timeout: 2000 });
@@ -257,7 +275,9 @@ test.describe('E7.1 — no null-reference at boot with #top-bar absent (AC-2)', 
         const benign = (t) => t.includes("'frame-ancestors' is ignored when delivered via a <meta>");
         page.on('pageerror', (e) => { if (!benign(String(e))) errors.push(String(e)); });
         page.on('console', (m) => { if (m.type() === 'error' && !benign(m.text())) errors.push(m.text()); });
-        await setup(page);
+        // 128 B at the default 5 B/s is 25 s; this case is about the absent DOM and
+        // a clean console, so the cadence is pinned quick.
+        await setup(page, { prefs: { version: 2, pasteChunk: 8, pastePauseMs: 5 } });
         // The retired surfaces are gone from the DOM.
         expect(await page.locator('#top-bar').count()).toBe(0);
         expect(await page.locator('#paste-progress-row').count()).toBe(0);

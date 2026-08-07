@@ -24,6 +24,13 @@ const crlfRow = (v) =>
 // Boot-race guard (E0/E1 protocol): wait on the window.__* handles before driving.
 // window.__pastePump is assigned LATE in main.js, so it needs its own wait.
 async function ready(page) {
+    // Every case here is about the BYTES a paste puts on the wire, not the rate it
+    // puts them there at. The default cadence — 1 byte every 200 ms, the measured
+    // hardware working point — would spend a second per case waiting for payloads
+    // of six bytes, so it is pinned quick. The chunk size is left at the default 1,
+    // which is the boundary condition the CRLF cases most want.
+    await page.addInitScript((blob) => localStorage.setItem('beastty.prefs', blob),
+        JSON.stringify({ version: 2, pastePauseMs: 5 }));
     await page.goto('/');
     await page.waitForFunction(() => document.getElementById('terminal').width > 0);
     await page.waitForFunction(

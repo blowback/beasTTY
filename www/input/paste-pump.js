@@ -2,8 +2,9 @@
 //
 // Public API: enqueuePaste, cancelPaste, isActive, onProgress, onPortLost,
 //             wirePastePump, setPasteLineEnding, setPasteChunk, setPastePauseMs,
-//             getPasteLineEnding, getPasteChunk, getPastePauseMs,
-//             getPasteThroughput, wireByteLength, pacingForNextPaste.
+//             setPasteFlowControl, getPasteLineEnding, getPasteChunk,
+//             getPastePauseMs, getPasteFlowControl, getPasteThroughput,
+//             wireByteLength, pacingForNextPaste.
 //
 // Sources:
 //   - 05-CONTEXT.md D-12..D-23.
@@ -43,26 +44,28 @@ import { isTransferRunning } from '../transport/slide.js';
 // whatever they contain, every pause is the same length, and a line break is an
 // ordinary byte.
 //
-// Hardware finding, real MicroBeast, 2026-08-06. Pasting an ~800 B Forth block
-// into VIBE:
-//   - With RTS/CTS at full speed the paste arrives CORRECT. The firmware
-//     handshakes, so the wire is not the problem when flow control is on.
-//   - With flow control `none` the paste failed IDENTICALLY at 60, 120 and
-//     240 B/s. __getStateForTests() confirmed the setting really was applied
-//     (chunkSize 8, gapMs 133 at 60 B/s), so a 4× change in rate with no
-//     observable change in the corruption can only mean the loss is not where
-//     the idle time is. Every one of those speeds wrote the same 8-byte burst
-//     and varied only what happened afterwards.
+// Hardware finding, real MicroBeast, pasting an ~800 B Forth block into VIBE.
 //
-// The bytes were therefore being lost INSIDE the burst, where an inter-chunk
-// pause cannot reach them — and chunk size, pinned at 8 for all three runs, was
-// never a variable the user could move. It is now, and it is the control that
-// matters. Default chunk 1 is the most conservative setting on the menu, not a
-// tuned one: walking it upward until the paste breaks is what will finally tell
-// us the receiver's usable buffer size. This module deliberately makes NO claim
-// about the receiving UART's FIFO configuration — it is unconfirmed on this
-// machine, and the earlier "16-byte FIFO, so write 8" reasoning was a guess
-// that the hardware then contradicted.
+//   2026-08-06 — with RTS/CTS at full speed the paste arrives CORRECT, so the
+//   firmware handshakes and the wire is not the problem when flow control is on.
+//   With flow control `none` the paste failed IDENTICALLY at 60, 120 and
+//   240 B/s, which at the time read as "the loss is inside the burst".
+//
+//   2026-08-07 — it is not. Sweeping the two controls found the ceiling:
+//   1 B / 200 ms (5 B/s) delivers the block intact; 1 B / 100 ms and
+//   2 B / 200 ms (both 10 B/s) both only nearly work. TWO DIFFERENT CHUNK SIZES
+//   AT THE SAME THROUGHPUT BEHAVE THE SAME, so throughput governs and burst size
+//   does not. The three failures of 2026-08-06 were identical because 60, 120 and
+//   240 B/s are all 10-50x over a ~5-8 B/s ceiling, and everything that far over
+//   capacity looks equally destroyed. The chunk-size control was still needed —
+//   the old rate-only model could not express a rate this low — but it is not the
+//   mechanism. This module makes NO claim about the receiving UART's FIFO
+//   configuration; it is unconfirmed, and no longer matters to the design.
+//
+// 5 B/s means ~2 min 40 s for that same 800 B block, against under a second with
+// RTS/CTS. Applying it to a handshaken port would be absurd, so it is not applied
+// to one: see setPasteFlowControl. Hardware handshaking throttles per byte, which
+// is strictly better than anything this module can do.
 
 // --- Compile-in constants -------------------------------------------------
 
@@ -73,6 +76,14 @@ import { isTransferRunning } from '../transport/slide.js';
 // projectPasteSettings).
 const MAX_PASTE_CHUNK = 4096;
 const MAX_PASTE_PAUSE_MS = 60000;
+
+// The shape a paste runs at when pacing does not apply — a full 32-byte chunk
+// with no pause, which is byte-for-byte what the pump did before any of this was
+// added. Used on a port opened with hardware flow control, where the receiver
+// throttles per byte and real hardware confirms a full-speed paste arrives
+// correct. Not a setting and not on any menu: it is the ABSENCE of pacing.
+const UNPACED_CHUNK = 32;
+const UNPACED_PAUSE_MS = 0;
 
 // The terminator each paste line-ending mode emits. `raw` is the pass-through
 // mode and deliberately has no byte sequence — normaliseLineBreaks returns its
@@ -89,7 +100,13 @@ const PASTE_LINE_ENDINGS = Object.freeze({
 
 let lineEnding = 'cr';           // prefs.pasteLineEnding — applied via setPasteLineEnding
 let pasteChunk = 1;              // prefs.pasteChunk, bytes written back-to-back
-let pastePauseMs = 20;           // prefs.pastePauseMs, idle time between chunks
+let pastePauseMs = 200;          // prefs.pastePauseMs, idle time between chunks
+
+// The flow control the OPEN port was opened with, pushed here by serial.js's
+// setLastConfig. 'hardware' turns pacing off entirely; everything else — 'none',
+// an unrecognised string, and the boot state of having never connected — paces.
+// See setPasteFlowControl.
+let portFlowControl = 'none';
 
 // Pacing FROZEN at enqueue for the paste currently in flight. A mid-paste switch
 // to a FASTER cadence must not re-pace the bytes already queued, or picking a big
@@ -98,7 +115,13 @@ let pastePauseMs = 20;           // prefs.pastePauseMs, idle time between chunks
 // bytes appended after the switch (see enqueuePaste). Seeded from the defaults
 // above so they are never unset.
 let runChunkSize = 1;
-let runPauseMs = 20;
+let runPauseMs = 200;
+// Whether the in-flight run is unpaced BECAUSE the port is handshaking, as
+// opposed to unpaced because the user picked a pause of 0. Frozen with the rest
+// of the snapshot so a mid-paste reconnect cannot change the reason a run is
+// running the way it is. Only the UI reads it — the pump itself needs nothing
+// beyond the chunk size and the pause.
+let runBypassedByFlowControl = false;
 // Which line-ending mode produced the bytes now queued. displayCopy needs it:
 // 'raw' promises the clipboard bytes pass through untouched, and that promise
 // covers the local echo as well as the wire.
@@ -242,12 +265,42 @@ export function setPastePauseMs(ms) {
 
 export function getPastePauseMs() { return pastePauseMs; }
 
+// The flow control of the port that is currently open, pushed from serial.js's
+// setLastConfig — the ONE place the open port's config is recorded. Call it with
+// null on disconnect.
+//
+// Only 'hardware' means anything here, and it means "do not pace at all". The
+// receiver handshakes per byte, which is strictly better than any fixed cadence
+// this module can impose, and real hardware confirms a full-speed paste over
+// RTS/CTS arrives correct. Applying the measured 5 B/s working point to a
+// handshaken port would turn a sub-second paste into nearly three minutes for no
+// benefit whatsoever.
+//
+// EVERYTHING ELSE is recorded as 'none' and paces: the literal 'none', a value
+// this module does not recognise, and the boot state of never having connected.
+// The asymmetry is deliberate — pacing a connection that does not need it costs
+// time, while not pacing one that does costs data.
+//
+// This is a hook of exactly the shape setBaudForPump had: a setter in here that
+// only serial.js calls. That one shipped with a comment claiming serial.js called
+// it while NOTHING did, in production or in a test, for months. The wiring is
+// therefore proved by a test rather than asserted by a comment — see
+// tests/transport/paste.spec.js, "the hook serial.js pushes through is live",
+// which fails if the setLastConfig call is deleted.
+export function setPasteFlowControl(fc) {
+    portFlowControl = (fc === 'hardware') ? 'hardware' : 'none';
+}
+
+export function getPasteFlowControl() { return portFlowControl; }
+
 // The throughput the two controls ADD UP TO, in bytes/sec — displayed, never set.
-// null when the pause is 0, because there is then no pacing limit at all and the
-// wire is the only ceiling; callers render that as "wire speed" rather than
-// inventing a number. Floored at 1 so no caller can divide by zero.
+// null when there is no pacing limit at all and the wire is the only ceiling —
+// either because the pause is 0 or because the open port is handshaking; callers
+// render that as "wire speed" rather than inventing a number, and read
+// getPasteFlowControl() to say WHICH of the two reasons it is. Floored at 1 so no
+// caller can divide by zero.
 export function getPasteThroughput() {
-    return throughputOf(pasteChunk, pastePauseMs);
+    return pacingFromSettings().throughput;
 }
 
 // The pacing a paste enqueued RIGHT NOW would run at, as one snapshot. Callers that
@@ -284,12 +337,29 @@ function throughputOf(chunk, pauseMs) {
 // estimate and the run itself be the same numbers: the Settings menu stays usable
 // while the confirm is up, and a change between the two used to leave the quote
 // out by up to ~30×.
+//
+// A handshaking port takes the UNPACED shape whatever the two settings hold. The
+// settings are not consulted, not clamped and not modified — they stay exactly as
+// the user left them, ready for the next bare connection — so the only thing that
+// must never happen is the UI quoting them as if they were in force. That is what
+// bypassedByFlowControl is for; every reader of this snapshot that shows the user
+// a number reads it too.
 function pacingFromSettings() {
+    if (portFlowControl === 'hardware') {
+        return {
+            chunk: UNPACED_CHUNK,
+            pauseMs: UNPACED_PAUSE_MS,
+            lineEnding,
+            throughput: null,
+            bypassedByFlowControl: true,
+        };
+    }
     return {
         chunk: pasteChunk,
         pauseMs: pastePauseMs,
         lineEnding,
         throughput: throughputOf(pasteChunk, pastePauseMs),
+        bypassedByFlowControl: false,
     };
 }
 
@@ -302,13 +372,15 @@ function pacingOfCurrentRun() {
         pauseMs: runPauseMs,
         lineEnding,
         throughput: throughputOf(runChunkSize, runPauseMs),
+        bypassedByFlowControl: runBypassedByFlowControl,
     };
 }
 
 // The slower of two pacings, by the throughput the pair adds up to. An unpaced
-// snapshot (pause 0, throughput null) is always the FASTER of any pair, so it can
-// never be adopted mid-run. On a tie the smaller chunk wins, because that is the
-// more conservative burst and burst length is what the hardware actually failed on.
+// snapshot (throughput null — a pause of 0, or a handshaking port) is always the
+// FASTER of any pair, so it can never be adopted mid-run. On a tie the smaller
+// chunk wins: equal throughput by two chunk sizes measured the same on hardware,
+// so neither is better, and the smaller burst is the more conservative guess.
 function slowerPacing(a, b) {
     const ta = a.throughput === null ? Infinity : a.throughput;
     const tb = b.throughput === null ? Infinity : b.throughput;
@@ -320,6 +392,7 @@ function slowerPacing(a, b) {
 function applyPacing(p) {
     runChunkSize = p.chunk;
     runPauseMs = p.pauseMs;
+    runBypassedByFlowControl = !!p.bypassedByFlowControl;
     runLineEnding = p.lineEnding;
 }
 
@@ -448,13 +521,21 @@ function measureNormalised(bytes, termLen) {
 // is part of why a dead pacing hook could sit there for months without anything
 // noticing. The pacing is the whole point of this module; it should be readable.
 //
-// These describe what the NEXT paste would do at the current settings. A run in
-// flight keeps whatever it froze at enqueue.
+// These describe what the NEXT paste would do. A run in flight keeps whatever it
+// froze at enqueue.
+//
+// chunkSize / pauseMs are the EFFECTIVE pair — what the next paste would actually
+// write at — so on a handshaking port they report the unpaced shape rather than
+// the two settings, which are not in force. The settings themselves stay readable
+// through getPasteChunk / getPastePauseMs, and flowControl says which is which.
 export function __getStateForTests() {
+    const p = pacingFromSettings();
     return {
-        chunkSize: pasteChunk,
-        pauseMs: pastePauseMs,
-        throughput: getPasteThroughput(),
+        chunkSize: p.chunk,
+        pauseMs: p.pauseMs,
+        throughput: p.throughput,
+        flowControl: portFlowControl,
+        bypassedByFlowControl: p.bypassedByFlowControl,
         lineEnding,
         queued: Math.max(0, queue.length - cursor),
         active: isActive(),

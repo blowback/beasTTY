@@ -216,7 +216,7 @@ test.describe('E3.3 AC-2 — reset re-projects every prefs-driven menu row', () 
     const p = await page.evaluate(() => window.__prefs.getPrefs());
     expect(p.pasteLineEnding).toBe('cr');
     expect(p.pasteChunk).toBe(1);
-    expect(p.pastePauseMs).toBe(20);
+    expect(p.pastePauseMs).toBe(200);
     await page.evaluate(() => window.__menuBar.open('settings'));
     await page.click('#dropdown-settings .menu-item[data-submenu="paste-eol"]');
     await expect(page.locator(pasteEolRadio('cr'))).toHaveAttribute('data-checked', 'true');
@@ -225,11 +225,11 @@ test.describe('E3.3 AC-2 — reset re-projects every prefs-driven menu row', () 
     await expect(page.locator(pasteChunkRadio('1'))).toHaveAttribute('data-checked', 'true');
     await expect(page.locator(pasteChunkRadio('32'))).toHaveAttribute('data-checked', 'false');
     await page.click('#dropdown-settings .menu-item[data-submenu="paste-pause"]');
-    await expect(page.locator(pastePauseRadio('20'))).toHaveAttribute('data-checked', 'true');
+    await expect(page.locator(pastePauseRadio('200'))).toHaveAttribute('data-checked', 'true');
     await expect(page.locator(pastePauseRadio('0'))).toHaveAttribute('data-checked', 'false');
     // applyPrefs is the single writer of the live pump state on the reset path.
     expect(await page.evaluate(() => window.__pastePump.getPasteLineEnding())).toBe('cr');
     expect(await page.evaluate(() => window.__pastePump.getPasteChunk())).toBe(1);
-    expect(await page.evaluate(() => window.__pastePump.getPastePauseMs())).toBe(20);
+    expect(await page.evaluate(() => window.__pastePump.getPastePauseMs())).toBe(200);
   });
 });

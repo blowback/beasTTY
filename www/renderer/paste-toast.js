@@ -26,7 +26,7 @@
 //
 // Public API (returned from wirePasteToast):
 //   - handleProgress(ev)                         ← paste-pump.onProgress observer
-//   - confirmLargePaste(byteCount, { getRate, getBreakPauseMs, breaks })
+//   - confirmLargePaste(byteCount, { getChunk, getPauseMs, isFlowControlled })
 //                                                → Promise<boolean>
 //   - hide()                                     ← lifecycle = 'hidden'
 //   - __getStateForTests / __resetForTests       ← Playwright chromium suite hooks
@@ -46,7 +46,9 @@ let lifecycle = 'hidden';   // 'hidden' | 'confirm' | 'pumping' | 'complete'
                             // | 'cancelled' | 'cancelled-port-lost'
 
 // Per-state data.
-let confirmData = null;     // { formattedN, seconds, rate } for 'confirm' (rate null = no pause set)
+let confirmData = null;     // { formattedN, seconds, rate, flowControlled } for 'confirm'
+                            // (rate null = nothing paces the run; flowControlled says the
+                            //  reason is the port handshaking, not a pause of 0)
 let confirmResolver = null; // (ok:boolean) => void — resolves confirmLargePaste's Promise
 let pumpingData = null;     // { total, pct } for the 'pumping' render
 let portLostUnsent = 0;     // bytes-unsent for the 'cancelled-port-lost' render
@@ -55,12 +57,12 @@ let portLostUnsent = 0;     // bytes-unsent for the 'cancelled-port-lost' render
 let autoHideHandle = null;
 
 // The cadence assumed in the large-paste confirm when NO getter is injected — the
-// pump's own defaults (1 byte every 20 ms). Only a harness ever sees these;
+// pump's own defaults (1 byte every 200 ms). Only a harness ever sees these;
 // main.js always passes the pump's live values. They stand in for a MISSING
 // getter, never for a value a real getter returned — substituting for a real
 // reading is how an estimate starts lying.
 const FALLBACK_CHUNK = 1;
-const FALLBACK_PAUSE_MS = 20;
+const FALLBACK_PAUSE_MS = 200;
 
 const COMPLETE_HIDE_MS = 2000;
 const CANCELLED_HIDE_MS = 2000;
@@ -157,8 +159,15 @@ export function confirmLargePaste(byteCount, opts) {
     // with a pause after each but the last. Nothing here depends on what the bytes
     // ARE — the pump pauses the same amount after every chunk, so a line break
     // costs exactly what any other byte costs.
+    //
+    // The cadence handed in is the SNAPSHOT the run will use, which on a port
+    // opened with hardware flow control is the unpaced shape whatever the Paste
+    // pause setting holds — so a handshaken port quotes wire speed here, and says
+    // that flow control is why (isFlowControlled). Quoting the paced figure for a
+    // run that will not be paced is the same lie the Settings readout must not tell.
     const getChunk = (opts && typeof opts.getChunk === 'function') ? opts.getChunk : null;
     const getPauseMs = (opts && typeof opts.getPauseMs === 'function') ? opts.getPauseMs : null;
+    const isFlowControlled = (opts && typeof opts.isFlowControlled === 'function') ? opts.isFlowControlled : null;
     return new Promise((resolve) => {
         // If a confirm is already pending (two large pastes before the user acts),
         // abandon the older one cleanly (resolve false = "don't paste") so its
@@ -177,6 +186,7 @@ export function confirmLargePaste(byteCount, opts) {
             formattedN: byteCount.toLocaleString(),
             seconds,
             rate: pauseMs > 0 ? Math.max(1, Math.round((chunk / pauseMs) * 1000)) : null,
+            flowControlled: isFlowControlled ? !!isFlowControlled() : false,
         };
         confirmResolver = resolve;
         clearAutoHide();
@@ -266,8 +276,8 @@ function refresh() {
             return;
 
         case 'confirm': {
-            const { formattedN, seconds, rate } =
-                confirmData || { formattedN: '0', seconds: 0, rate: null };
+            const { formattedN, seconds, rate, flowControlled } =
+                confirmData || { formattedN: '0', seconds: 0, rate: null, flowControlled: false };
             // Carried over from clipboard.js's showLargePasteConfirm (06-UI-SPEC
             // §Large-paste inline confirm chip), with the trailing figure changed
             // from the baud to the pump's derived throughput — the baud stopped
@@ -278,9 +288,20 @@ function refresh() {
             // no rate to quote — the wire is the only limit and the pump does not
             // know what it carries — so the sentence says so rather than inventing
             // a number. It is the same wording the Settings readout carries.
-            const rateText = (rate == null) ? 'wire speed' : `${rate} B/s`;
-            toastTextElRef.textContent =
-                `About to paste ${formattedN} B (~${seconds} s at ${rateText}).`;
+            //
+            // On a handshaking port there is no duration worth quoting — the paste
+            // runs at wire speed and is over before the sentence is read — and the
+            // "~1 s" floor the paced arithmetic collapses to would be noise dressed
+            // as an estimate. So that case drops the duration and spends the words
+            // on the reason instead, in the phrase the Settings readout uses.
+            if (flowControlled) {
+                toastTextElRef.textContent =
+                    `About to paste ${formattedN} B at wire speed (flow control).`;
+            } else {
+                const rateText = (rate == null) ? 'wire speed' : `${rate} B/s`;
+                toastTextElRef.textContent =
+                    `About to paste ${formattedN} B (~${seconds} s at ${rateText}).`;
+            }
             setButton(pasteBtnRef, true);
             setButton(cancelBtnRef, true);
             toastElRef.setAttribute('aria-label', `Confirm paste of ${formattedN} bytes — Paste or Cancel`);

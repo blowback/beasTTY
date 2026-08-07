@@ -131,6 +131,7 @@ import {
     getPasteLineEnding,
     getPasteChunk,
     getPastePauseMs,
+    getPasteFlowControl,
     getPasteThroughput,
     __getStateForTests as __pastePumpGetStateForTests,
 } from './input/paste-pump.js';
@@ -629,11 +630,15 @@ const menuBar = wireMenuBar({
     // The matching getters. menu-bar projects the three radios from what the pump
     // ACCEPTED rather than from the stored pref, so a checkmark can never claim a
     // value the pump rejected (or one it took that the menu does not offer).
-    // getPasteThroughput is the derived readout under them (null = no pause set,
-    // so the wire is the only limit).
+    // getPasteThroughput is the derived readout under them (null = no pacing limit
+    // at all, so the wire is the only one), and getPasteFlowControl says which of
+    // the two reasons that is: a pause of 0, or a handshaking port that turns the
+    // pacing off entirely. The readout has to be able to say the second one out
+    // loud, or the two rows above it would sit there ticked and ignored.
     getPasteLineEnding,
     getPasteChunk,
     getPastePauseMs,
+    getPasteFlowControl,
     getPasteThroughput,
     // Settings ▸ Wrap long lines — drives the wasm core's deferred autowrap. Injected
     // as a closure over the module-scope `term` (menu-bar may import ONLY canvas.js +
@@ -1105,6 +1110,13 @@ wireClipboard({
         // caller that passes no snapshot.
         getChunk: () => (pacing ? pacing.chunk : getPasteChunk()),
         getPauseMs: () => (pacing ? pacing.pauseMs : getPastePauseMs()),
+        // Whether that snapshot is unpaced because the port is handshaking, as
+        // opposed to because the user set the pause to 0. Both run at wire speed;
+        // only one of them means "your Paste pause setting does not apply here",
+        // and the confirm has to say which.
+        isFlowControlled: () => (pacing
+            ? !!pacing.bypassedByFlowControl
+            : getPasteFlowControl() === 'hardware'),
     }),
 });
 window.__copySelection = copySelection;
@@ -1128,6 +1140,12 @@ window.__pastePump = {
     getPasteChunk,
     getPastePauseMs,
     getPasteThroughput,
+    // What the pump learned about the open port from serial.js's setLastConfig.
+    // Exposed so a spec can prove that hook is genuinely wired: connect a mock port
+    // opened with RTS/CTS and this must read 'hardware'. It reads 'none' if the
+    // setLastConfig call is ever deleted, which is how the last hook of this shape
+    // stayed dead for months without a single test noticing.
+    getPasteFlowControl,
 };
 // Epic E7 Story E7.1 (AD-2) — paste-toast introspection for the
 // paste-toast.spec.js chromium suite. Public state-entry/confirm methods are

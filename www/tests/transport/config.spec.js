@@ -99,6 +99,11 @@ test.describe('XPORT-05 + D-08 — Serial config form', () => {
     // and nothing did, in production or in any spec, from the day it was written.
     // Reading either end told you it was wired. Only asking "who actually calls
     // this?" caught it.
+    //
+    // setLastConfig now pushes the port's FLOW CONTROL into the pump — a hook of
+    // exactly that shape, in exactly that place. This time the wiring is proved by
+    // a test: tests/transport/paste.spec.js, "the hook serial.js pushes through is
+    // live", which drives a real connect and fails if the call is deleted.
 
     test('connect honors non-default config values', async ({ page }) => {
         await setup(page);

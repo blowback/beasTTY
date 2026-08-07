@@ -10,9 +10,16 @@ import { test, expect } from '@playwright/test';
 import { SERIAL_MOCK } from '../transport/mock-serial.js';
 import { CLIPBOARD_MOCK } from './clipboard-mock.js';
 
-async function setup(page) {
+// `prefs` seeds a stored blob before boot — used below to open the port with
+// hardware flow control (applyPrefs mirrors prefs.serial onto the serial-config
+// form, and connectMicroBeast opens with whatever the form holds).
+async function setup(page, { prefs } = {}) {
     await page.addInitScript(SERIAL_MOCK);
     await page.addInitScript(CLIPBOARD_MOCK);
+    if (prefs) {
+        await page.addInitScript(
+            (blob) => localStorage.setItem('beastty.prefs', blob), JSON.stringify(prefs));
+    }
     await page.goto('/');
     await page.locator('#terminal-wrapper').focus();
     await page.waitForFunction(() => document.getElementById('terminal').width > 0);
@@ -131,13 +138,13 @@ test.describe('SESS-02/SESS-03 — Clipboard', () => {
         await page.evaluate(() => window.__setClipboardContents('A\x00B\tC\nD\x07E'));
         await connectMockSerial(page);
         await page.evaluate(() => window.__pasteFromClipboard());
-        await page.waitForFunction(() => window.__mockWriterLog.length > 0, { timeout: 2000 });
-        // Drain so all bytes land — small payload.
-        await page.waitForTimeout(500);
-        const log = await page.evaluate(() => window.__mockWriterLog);
-        const allBytes = log.flatMap((e) => e.bytes);
-        const text = String.fromCharCode(...allBytes);
-        expect(text).toBe('AB\tC\rDE');
+        // Poll for the whole stream rather than sleeping a fixed 500 ms: at the
+        // default cadence — 1 byte every 200 ms, the measured hardware working
+        // point — seven bytes take 1.2 s, and a fixed sleep would read a truncated
+        // wire and call it a strip.
+        await expect.poll(async () => page.evaluate(
+            () => String.fromCharCode(...window.__mockWriterLog.flatMap((e) => e.bytes))),
+            { timeout: 5000 }).toBe('AB\tC\rDE');
     });
 
     test('paste applies the line-break rewrite per pasteLineEnding', async ({ page }) => {
@@ -153,12 +160,11 @@ test.describe('SESS-02/SESS-03 — Clipboard', () => {
         await page.evaluate(() => window.__setClipboardContents('A\rB'));
         await connectMockSerial(page);
         await page.evaluate(() => window.__pasteFromClipboard());
-        await page.waitForFunction(() => window.__mockWriterLog.length > 0, { timeout: 2000 });
-        await page.waitForTimeout(500);
-        const log = await page.evaluate(() => window.__mockWriterLog);
-        const allBytes = log.flatMap((e) => e.bytes);
+        // Polled, not slept — see the strip case above.
         // 'A\rB' arrives at the pump after the strip. Pump rewrites \r → \n.
-        expect(allBytes).toEqual([0x41, 0x0A, 0x42]);
+        await expect.poll(async () => page.evaluate(
+            () => window.__mockWriterLog.flatMap((e) => e.bytes)),
+            { timeout: 5000 }).toEqual([0x41, 0x0A, 0x42]);
     });
 
     test('large paste >= 4096 bytes shows confirm chip; pump waits for click', async ({ page }) => {
@@ -225,6 +231,25 @@ test.describe('SESS-02/SESS-03 — Clipboard', () => {
         // The quoted 1-byte cadence is what actually ran.
         expect(Math.max(...sizes)).toBe(1);
         await page.evaluate(() => window.__pastePump.cancelPaste());
+    });
+
+    test('a handshaking port quotes wire speed in the confirm, end to end', async ({ page }) => {
+        // The paste-toast has a branch for "the port is handshaking, so your Paste
+        // pause does not apply here" — and a branch nothing reaches is a branch
+        // that does not exist. This drives the REAL path: a port opened with
+        // RTS/CTS, a real clipboard paste, the string the user actually sees. It
+        // fails if main.js stops injecting isFlowControlled, or if serial.js stops
+        // telling the pump how the port is framed.
+        await setup(page, { prefs: {
+            version: 2,
+            serial: { baud: 19200, dataBits: 8, stopBits: 1, parity: 'none', flowControl: 'hardware' },
+        } });
+        await page.evaluate(() => window.__setClipboardContents('A'.repeat(5000)));
+        await connectMockSerial(page);
+        await page.evaluate(() => { window.__pendingPasteResult = window.__pasteFromClipboard(); });
+        await expect(page.locator('#paste-toast-text'))
+            .toHaveText('About to paste 5,000 B at wire speed (flow control).');
+        await page.locator('#paste-toast button[data-action="cancel"]').click();
     });
 
     test('Cancel on confirm chip discards pending bytes', async ({ page }) => {

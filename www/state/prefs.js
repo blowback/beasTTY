@@ -88,22 +88,30 @@ const DEFAULTS = Object.freeze({
                                    //   no field validation. CURRENT_VERSION NOT bumped per Phase 6 D-32
                                    //   defensive merge, same as every pref above.
     pasteChunk: 1,                 // Settings ▸ Paste chunk size — how many bytes the paste pump hands
-                                   //   to the writer back-to-back. Real hardware lost text identically
-                                   //   at 60, 120 and 240 B/s while the chunk stayed pinned at 8, which
-                                   //   means the loss is inside the burst where an inter-chunk pause
-                                   //   cannot reach it. 1 is the most conservative cadence available and
-                                   //   is deliberately a starting point, not a tuned value: walking it up
-                                   //   until the paste breaks is what tells us the receiver's usable
-                                   //   buffer size. Validated at its consumer (paste-pump.js
-                                   //   setPasteChunk). CURRENT_VERSION NOT bumped.
-    pastePauseMs: 20,              // Settings ▸ Paste pause — idle ms between chunks, giving the receiver
+                                   //   to the writer back-to-back. Paired with pastePauseMs below, 1
+                                   //   byte every 200 ms is the cadence measured to work on real
+                                   //   hardware. Burst size is NOT the mechanism: 1 B / 100 ms and
+                                   //   2 B / 200 ms are the same 10 B/s and behave the same, so
+                                   //   throughput governs. The control exists because the previous model
+                                   //   could not express a rate this low, and because a user who wants
+                                   //   the same rate in bigger bursts should be able to ask for it.
+                                   //   Validated at its consumer (paste-pump.js setPasteChunk).
+                                   //   CURRENT_VERSION NOT bumped.
+    pastePauseMs: 200,             // Settings ▸ Paste pause — idle ms between chunks, giving the receiver
                                    //   time to drain. 0 means no pause at all (the wire is the only
                                    //   limit). Independent of pasteChunk above; throughput is the
                                    //   consequence of the two (chunk ÷ pause × 1000), shown in the menu
-                                   //   and the large-paste confirm but never set directly. Validated at
-                                   //   its consumer (paste-pump.js setPastePauseMs). CURRENT_VERSION NOT
-                                   //   bumped — a blob carrying the retired `pasteSpeed` is simply
-                                   //   ignored by the spread-merge.
+                                   //   and the large-paste confirm but never set directly.
+                                   //   200 ms is MEASURED, not chosen: on a real MicroBeast (2026-08-07)
+                                   //   with flow control `none`, 1 byte every 200 ms — 5 B/s — delivers
+                                   //   an ~800 B Forth block into VIBE intact, while 10 B/s by either
+                                   //   route (1 B / 100 ms or 2 B / 200 ms) only nearly works. That pair
+                                   //   is glacial on a handshaken port, so it is not applied to one: see
+                                   //   paste-pump.js setPasteFlowControl. Validated at its consumer
+                                   //   (paste-pump.js setPastePauseMs). CURRENT_VERSION NOT bumped — a
+                                   //   blob carrying the retired `pasteSpeed` is simply ignored by the
+                                   //   spread-merge, and one carrying the old 20 ms is a value the user
+                                   //   is entitled to keep.
     serialAssertRtsOnConnect: true,
         // Phase 12.1 Plan 12-08 — gates connect-time setSignals.requestToSend
         // (true = assert RTS on every port.open(); false = de-assert RTS as

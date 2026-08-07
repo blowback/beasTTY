@@ -10,8 +10,14 @@
 //
 // Boot-race guard (E0/E1 protocol): wait on the window.__* handles before driving.
 import { test, expect } from '@playwright/test';
+import { SERIAL_MOCK } from '../transport/mock-serial.js';
 
-async function ready(page) {
+async function ready(page, { prefs, serialMock } = {}) {
+  if (serialMock) await page.addInitScript(SERIAL_MOCK);
+  if (prefs) {
+    await page.addInitScript(
+      (blob) => localStorage.setItem('beastty.prefs', blob), JSON.stringify(prefs));
+  }
   await page.goto('/');
   await page.waitForFunction(
     () => window.__menuBar && typeof window.__menuBar.__getStateForTests === 'function',
@@ -367,7 +373,7 @@ test.describe('Settings ▸ Paste line ending', () => {
 });
 
 test.describe('Settings ▸ Paste chunk size and Paste pause', () => {
-  test('the rows default to 1 byte / 20 ms and read as plain physical facts @fast', async ({ page }) => {
+  test('the rows default to 1 byte / 200 ms and read as plain physical facts @fast', async ({ page }) => {
     await ready(page);
     await page.evaluate(() => window.__menuBar.open('settings'));
     await expect(page.locator(`${PASTE_CHUNK_PARENT} .lbl`)).toHaveText('Paste chunk size');
@@ -383,7 +389,9 @@ test.describe('Settings ▸ Paste chunk size and Paste pause', () => {
     }
 
     await page.click(PASTE_PAUSE_PARENT);
-    await expect(page.locator(pastePauseRadio('20'))).toHaveAttribute('data-checked', 'true');
+    // 200 ms is the MEASURED working point on real hardware, not a guess: 1 byte
+    // every 200 ms is 5 B/s, which delivers an 800 B block into VIBE intact.
+    await expect(page.locator(pastePauseRadio('200'))).toHaveAttribute('data-checked', 'true');
     await expect(page.locator(`${pastePauseRadio('0')} .lbl`)).toHaveText('None (wire speed)');
     for (const v of ['5', '10', '20', '50', '100', '200']) {
       await expect(page.locator(`${pastePauseRadio(v)} .lbl`)).toHaveText(`${v} ms`);
@@ -398,11 +406,11 @@ test.describe('Settings ▸ Paste chunk size and Paste pause', () => {
     await page.evaluate(() => window.__menuBar.open('settings'));
     await expect(page.locator(`${PASTE_THROUGHPUT} .lbl`)).toHaveText('Paste throughput');
     await expect(page.locator(PASTE_THROUGHPUT)).toHaveAttribute('data-disabled', 'true');
-    await expect(page.locator(`${PASTE_THROUGHPUT} .hint`)).toHaveText('≈ 50 B/s');   // 1 B / 20 ms
+    await expect(page.locator(`${PASTE_THROUGHPUT} .hint`)).toHaveText('≈ 5 B/s');    // 1 B / 200 ms
 
     await page.click(PASTE_CHUNK_PARENT);
     await page.click(pasteChunkRadio('8'));
-    await expect(page.locator(`${PASTE_THROUGHPUT} .hint`)).toHaveText('≈ 400 B/s');  // 8 B / 20 ms
+    await expect(page.locator(`${PASTE_THROUGHPUT} .hint`)).toHaveText('≈ 40 B/s');   // 8 B / 200 ms
 
     await page.click(PASTE_PAUSE_PARENT);
     await page.click(pastePauseRadio('100'));
@@ -423,9 +431,9 @@ test.describe('Settings ▸ Paste chunk size and Paste pause', () => {
   });
 
   for (const { value, chunk, throughput } of [
-    { value: '1', chunk: 1, throughput: 50 },
-    { value: '8', chunk: 8, throughput: 400 },
-    { value: '32', chunk: 32, throughput: 1600 },
+    { value: '1', chunk: 1, throughput: 5 },
+    { value: '8', chunk: 8, throughput: 40 },
+    { value: '32', chunk: 32, throughput: 160 },
   ]) {
     test(`chunk ${value} persists AND re-paces the pump @fast`, async ({ page }) => {
       await ready(page);
@@ -439,7 +447,7 @@ test.describe('Settings ▸ Paste chunk size and Paste pause', () => {
       expect(await page.evaluate(() => window.__prefs.getPrefs().pasteChunk)).toBe(chunk);
       expect(await page.evaluate(() => window.__pastePump.getPasteChunk())).toBe(chunk);
       expect(await page.evaluate(() => window.__pastePump.__getStateForTests()))
-        .toMatchObject({ chunkSize: chunk, pauseMs: 20, throughput });
+        .toMatchObject({ chunkSize: chunk, pauseMs: 200, throughput });
       expect(await page.evaluate(() => document.activeElement && document.activeElement.id)).toBe('terminal-wrapper');
     });
   }
@@ -449,7 +457,7 @@ test.describe('Settings ▸ Paste chunk size and Paste pause', () => {
   for (const { value, pauseMs, throughput } of [
     { value: '0', pauseMs: 0, throughput: null },
     { value: '5', pauseMs: 5, throughput: 200 },
-    { value: '200', pauseMs: 200, throughput: 5 },
+    { value: '20', pauseMs: 20, throughput: 50 },
   ]) {
     test(`pause ${value} ms persists AND re-paces the pump @fast`, async ({ page }) => {
       await ready(page);
@@ -468,6 +476,45 @@ test.describe('Settings ▸ Paste chunk size and Paste pause', () => {
     });
   }
 
+  // The readout's third state, and the reason it exists. On a port opened with
+  // hardware flow control the pump does not pace AT ALL — the receiver handshakes
+  // per byte, which beats any fixed cadence — so the two rows above are simply not
+  // in force. They keep their checkmarks, because they are still the user's
+  // settings and they apply again the moment a bare port is opened; without this
+  // line the menu would show a pause that the next paste is going to ignore, which
+  // is the exact defect this whole change keeps re-learning.
+  test('a handshaking port makes the readout say pacing is off, and why @fast', async ({ page }) => {
+    await ready(page, {
+      serialMock: true,
+      prefs: {
+        version: 2,
+        serial: { baud: 19200, dataBits: 8, stopBits: 1, parity: 'none', flowControl: 'hardware' },
+      },
+    });
+    // Before connecting, nothing is known about the port and the rows are in force.
+    await page.evaluate(() => window.__menuBar.open('settings'));
+    await expect(page.locator(`${PASTE_THROUGHPUT} .hint`)).toHaveText('≈ 5 B/s');
+    await page.evaluate(() => window.__menuBar.close());
+
+    await page.evaluate(() => window.__menuBar.open('connection'));
+    await page.click('#menu-connect-item');
+    await expect(page.locator('#menu-connect-item')).toHaveAttribute('data-state', 'connected');
+
+    await page.evaluate(() => window.__menuBar.open('settings'));
+    await expect(page.locator(`${PASTE_THROUGHPUT} .hint`)).toHaveText('wire speed (flow control)');
+    // The rows themselves are untouched — still ticked at what the user set.
+    await page.click(PASTE_PAUSE_PARENT);
+    await expect(page.locator(pastePauseRadio('200'))).toHaveAttribute('data-checked', 'true');
+    await page.evaluate(() => window.__menuBar.close());
+
+    // Disconnect and the readout goes back to the derived figure.
+    await page.evaluate(() => window.__menuBar.open('connection'));
+    await page.click('#menu-connect-item');
+    await expect(page.locator('#menu-connect-item')).toHaveAttribute('data-state', 'disconnected');
+    await page.evaluate(() => window.__menuBar.open('settings'));
+    await expect(page.locator(`${PASTE_THROUGHPUT} .hint`)).toHaveText('≈ 5 B/s');
+  });
+
   test('reset re-projects both rows and the readout to the defaults @fast', async ({ page }) => {
     await ready(page);
     await page.evaluate(() => window.__menuBar.open('settings'));
@@ -482,10 +529,10 @@ test.describe('Settings ▸ Paste chunk size and Paste pause', () => {
 
     await expect(page.locator(pasteChunkRadio('1'))).toHaveAttribute('data-checked', 'true');
     await expect(page.locator(pasteChunkRadio('32'))).toHaveAttribute('data-checked', 'false');
-    await expect(page.locator(pastePauseRadio('20'))).toHaveAttribute('data-checked', 'true');
+    await expect(page.locator(pastePauseRadio('200'))).toHaveAttribute('data-checked', 'true');
     await expect(page.locator(pastePauseRadio('0'))).toHaveAttribute('data-checked', 'false');
-    await expect(page.locator(`${PASTE_THROUGHPUT} .hint`)).toHaveText('≈ 50 B/s');
+    await expect(page.locator(`${PASTE_THROUGHPUT} .hint`)).toHaveText('≈ 5 B/s');
     expect(await page.evaluate(() => window.__pastePump.getPasteChunk())).toBe(1);
-    expect(await page.evaluate(() => window.__pastePump.getPastePauseMs())).toBe(20);
+    expect(await page.evaluate(() => window.__pastePump.getPastePauseMs())).toBe(200);
   });
 });

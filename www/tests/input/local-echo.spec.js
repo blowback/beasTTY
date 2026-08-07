@@ -4,7 +4,15 @@ import { test, expect } from '@playwright/test';
 // Cell layout from Phase 1 Plan 04: 8 bytes/cell, [ch, fg, bg, attr, ...].
 // Grid is 24 rows × 80 cols. Cell (0, 0) char byte is at offset 0.
 
-async function setup(page) {
+// `prefs` seeds a stored blob before boot. The paste cases below use it to pin a
+// quick cadence: the default is 1 byte every 200 ms — the measured working point
+// on real hardware — which is right for a paste and wrong for a test whose subject
+// is what the ECHOED bytes look like.
+async function setup(page, { prefs } = {}) {
+    if (prefs) {
+        await page.addInitScript(
+            (blob) => localStorage.setItem('beastty.prefs', blob), JSON.stringify(prefs));
+    }
     await page.goto('/');
     await page.locator('#terminal-wrapper').focus();
     await page.waitForFunction(() => document.getElementById('terminal').width > 0);
@@ -110,6 +118,10 @@ test.describe('INPUT-04 — Local echo toggle', () => {
 // column AND advances the row.
 test.describe('Local echo — a pasted block echoes as separate lines', () => {
     const ROW = 80 * 8;   // 8 bytes/cell, 80 cols — start of the next row
+    // These are about the DISPLAY copy of the bytes, not the cadence, so the
+    // cadence is pinned quick. The chunk size stays at the default 1, which is
+    // what makes the split-CRLF case below a real split rather than a contrivance.
+    const QUICK = { version: 2, pastePauseMs: 5 };
 
     async function pasteAndSettle(page, text) {
         await page.locator('#input').fill(text);
@@ -124,7 +136,7 @@ test.describe('Local echo — a pasted block echoes as separate lines', () => {
         { eol: 'crlf', label: 'CRLF' },
     ]) {
         test(`ending ${label}: three pasted lines occupy three rows`, async ({ page }) => {
-            await setup(page);
+            await setup(page, { prefs: QUICK });
             await setLocalEcho(page, true);
             if (eol !== 'cr') {
                 await page.evaluate(() => window.__menuBar.open('settings'));
@@ -152,7 +164,7 @@ test.describe('Local echo — a pasted block echoes as separate lines', () => {
         // different picture on the screen from the one the hardware is drawing.
         // The CR→LF display substitution belongs to the modes that REWROTE the
         // breaks, and to those only.
-        await setup(page);
+        await setup(page, { prefs: QUICK });
         await setLocalEcho(page, true);
         await page.evaluate(() => window.__menuBar.open('settings'));
         await page.click('#dropdown-settings .menu-item[data-submenu="paste-eol"]');
@@ -173,7 +185,7 @@ test.describe('Local echo — a pasted block echoes as separate lines', () => {
         // of 1 byte, always. The display copy looks ahead into the QUEUE rather
         // than the chunk, so the CR is left alone and the LF does the single line
         // feed — no blank row between.
-        await setup(page);
+        await setup(page, { prefs: QUICK });
         await setLocalEcho(page, true);
         await page.evaluate(() => window.__menuBar.open('settings'));
         await page.click('#dropdown-settings .menu-item[data-submenu="paste-eol"]');

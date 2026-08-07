@@ -21,7 +21,7 @@
 //     www/renderer/canvas.js:37-51 (module-scope state).
 
 import { registerWriter, unregisterWriter } from '../input/tx-sink.js';
-import { onPortLost as pastePumpOnPortLost } from '../input/paste-pump.js';
+import { onPortLost as pastePumpOnPortLost, setPasteFlowControl } from '../input/paste-pump.js';
 // Phase 8 D-05 + D-06 — route inbound bytes through the SLIDE dispatcher
 // instead of directly to term.feed. dispatchInbound is byte-transparent in
 // terminal mode (the post-feed invariant at lines 454-462 below is unchanged).
@@ -57,21 +57,26 @@ let reader = null;
 let writer = null;
 let state = 'disconnected';
 let lastConfig = null;
-// The ONE place lastConfig is written.
+// The ONE place lastConfig is written, and therefore the one place the paste pump
+// can learn how the open port is framed.
 //
-// This used to also call paste-pump's setBaudForPump, because the pump derived
-// its pacing from the byte rate of the open port. It no longer derives anything
-// from baud: the user sets the chunk size and the pause directly, and the pump
-// reads neither the port nor the wire. So there is nothing to push here, and the
-// call is gone rather than left as a hook that does nothing.
+// The pump paces pastes only on a port with NO flow control. The measured working
+// point on real hardware is 5 B/s, which is nearly three minutes for an 800 B
+// block; with RTS/CTS the same paste is correct at full wire speed, so imposing
+// that cadence on a handshaken port would be absurd. Pushing flowControl here is
+// how the pump finds out. Called with null on disconnect (see teardown).
 //
-// Worth remembering why the wording matters. setBaudForPump shipped with a
-// comment claiming serial.js called it, and nothing did — in production or in a
-// test — for months. Reading either end told you it was wired; only asking "who
-// actually calls this?" caught it. A comment that asserts a live connection is a
-// claim, and it has to stay true.
+// This is the second hook of this shape to live on this line, and the first one is
+// the reason the wording matters. setBaudForPump shipped with a comment claiming
+// serial.js called it, and NOTHING did — not production, not a test — for months,
+// so paste pacing sat frozen at its boot value the whole time. Reading either end
+// told you it was wired; only asking "who actually calls this?" caught it. So the
+// claim above is not left as a claim: tests/transport/paste.spec.js drives a real
+// connect and asserts the pump learned the flow control, and it fails if the call
+// below is deleted.
 function setLastConfig(cfg) {
     lastConfig = cfg;
+    setPasteFlowControl(cfg ? cfg.flowControl : null);
 }
 let lastPortRef = null;
 let shuttingDown = false;   // Gap 1 fix — set true in beforeunload so runReadLoop's
@@ -884,6 +889,13 @@ async function teardown({ deassertSignals = true } = {}) {
     // Step 5 — Phase 5 D-20 — drop any mid-paste queue.
     pastePumpOnPortLost();
     slidePumpOnPortLost();   // Phase 11 D-14 — symmetric SLIDE port-lost teardown.
+    // Step 6 — nothing is open, so the pump knows nothing about flow control and
+    // goes back to pacing. Deliberately NOT done on the port-lost paths: those keep
+    // the connection's identity for the silent auto-reconnect, which re-opens with
+    // this same lastConfig and never calls setLastConfig again — clearing here
+    // would leave the pump pacing a port that is still handshaking. An explicit
+    // Disconnect is the point at which the next open() reads the form afresh.
+    setPasteFlowControl(null);
     // NOTE: port variable stays set (so getPorts/VID-match still works on reconnect).
 }
 

@@ -187,7 +187,10 @@ let setPastePauseMsRef = null;
 let getPasteLineEndingRef = null;
 let getPasteChunkRef = null;
 let getPastePauseMsRef = null;
-let getPasteThroughputRef = null;  // derived (chunk ÷ pause), null when there is no pause at all
+let getPasteThroughputRef = null;  // derived (chunk ÷ pause), null when there is no pacing limit at all
+// The open port's flow control, as the pump recorded it. 'hardware' means the two
+// rows above are not in force — see projectPasteThroughput.
+let getPasteFlowControlRef = null;
 let pasteEolPanelEl = null;        // [data-submenu-panel="paste-eol"] — active radio derived from the pump's live mode
 let pasteChunkPanelEl = null;      // [data-submenu-panel="paste-chunk"] — active radio derived from the pump's live chunk size
 let pastePausePanelEl = null;      // [data-submenu-panel="paste-pause"] — active radio derived from the pump's live pause
@@ -415,6 +418,7 @@ export function wireMenuBar(opts = {}) {
     getPasteChunkRef = opts.getPasteChunk || null;
     getPastePauseMsRef = opts.getPastePauseMs || null;
     getPasteThroughputRef = opts.getPasteThroughput || null;
+    getPasteFlowControlRef = opts.getPasteFlowControl || null;
     setWrapRef = opts.setWrap || null;   // Settings ▸ Wrap long lines — core term.set_wrap (AD-3)
     setDebugPanelVisibleRef = opts.setDebugPanelVisible || null;   // E5.1 (FR-23, AD-3)
     // E3.3 (FR-21/FR-22, AD-3) — reset action + reserved-Ctrl modal opener, injected
@@ -1351,13 +1355,31 @@ function projectPasteSettings(prefs) {
 // derived from the same values the radios were just ticked from, so the readout and
 // the checkmarks can never disagree.
 //
-// With no pause the pump feeds the writer continuously and the wire is the only
-// limit, which is not a bytes/sec figure this module can know (the pump reads
-// neither the port nor the baud). It says "wire speed" rather than inventing one.
+// Three things it can say, and the third is why it exists at all:
+//
+//   "≈ N B/s"                 — the two rows are in force and this is what they
+//                               add up to.
+//   "wire speed"              — the user picked a pause of 0, so there is no
+//                               pacing limit and the wire is the only ceiling,
+//                               which is not a bytes/sec figure this module can
+//                               know (the pump reads neither the port nor the baud).
+//   "wire speed (flow control)" — the open port is handshaking, so the pump does
+//                               not pace at ALL and the two rows above are simply
+//                               not in force. The rows keep their checkmarks —
+//                               they are still the user's settings, and they apply
+//                               again the moment a bare port is opened — so
+//                               without this the menu would show a pause the next
+//                               paste is going to ignore. A setting that is
+//                               silently ignored is the defect this whole change
+//                               keeps re-learning; the readout carries the reason.
 function projectPasteThroughput(chunk, pause) {
     if (!pasteThroughputItemEl) return;              // row absent (harness) — no-op
     const hint = pasteThroughputItemEl.querySelector('.hint');
     if (!hint) return;
+    if (getPasteFlowControlRef && getPasteFlowControlRef() === 'hardware') {
+        hint.textContent = 'wire speed (flow control)';
+        return;
+    }
     let rate = null;
     if (getPasteThroughputRef) rate = getPasteThroughputRef();
     else if (chunk != null && pause != null && pause > 0) rate = Math.max(1, Math.round((chunk / pause) * 1000));

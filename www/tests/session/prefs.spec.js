@@ -47,11 +47,12 @@ test.describe('PREF-01/PREF-02/PLAT-05 — Preferences persistence', () => {
         expect(prefs.localEcho).toBe(false);
         expect(prefs.crlfMode).toBe('cr');
         // Paste has its own line-ending setting, separate from crlfMode above —
-        // and it is paced by default, because pasting at wire speed loses text.
-        // 1 byte every 20 ms is the most conservative cadence the menu offers.
+        // and it is paced by default, because pasting at wire speed loses text on
+        // a port with no flow control. 1 byte every 200 ms is 5 B/s, the cadence
+        // measured to deliver an 800 B block into VIBE intact on real hardware.
         expect(prefs.pasteLineEnding).toBe('cr');
         expect(prefs.pasteChunk).toBe(1);
-        expect(prefs.pastePauseMs).toBe(20);
+        expect(prefs.pastePauseMs).toBe(200);
         expect(prefs.autoConnect).toBe(false);
         expect(prefs.version).toBe(2);
     });
@@ -260,13 +261,13 @@ test.describe('PREF-01/PREF-02/PLAT-05 — Preferences persistence', () => {
         await pumpReady(page);
         expect(await page.evaluate(() => window.__prefs.getPrefs().theme)).toBe('clean');
         expect(await page.evaluate(() => window.__pastePump.getPasteChunk())).toBe(1);
-        expect(await page.evaluate(() => window.__pastePump.getPastePauseMs())).toBe(20);
+        expect(await page.evaluate(() => window.__pastePump.getPastePauseMs())).toBe(200);
     });
 
     for (const [label, stored, chunk, pause] of [
-        ['an out-of-range chunk', { pasteChunk: 99999 }, 1, 20],
-        ['a chunk of 0', { pasteChunk: 0 }, 1, 20],
-        ['a negative pause', { pastePauseMs: -1 }, 1, 20],
+        ['an out-of-range chunk', { pasteChunk: 99999 }, 1, 200],
+        ['a chunk of 0', { pasteChunk: 0 }, 1, 200],
+        ['a negative pause', { pastePauseMs: -1 }, 1, 200],
     ]) {
         test(`${label} falls back to the default`, async ({ page }) => {
             // prefs.js has no field validation (D-32) — the pump validates at its
@@ -300,14 +301,14 @@ test.describe('PREF-01/PREF-02/PLAT-05 — Preferences persistence', () => {
             await setup(page);
             await pumpReady(page);
             expect(await page.evaluate(() => window.__pastePump.getPasteChunk())).toBe(1);
-            expect(await page.evaluate(() => window.__pastePump.getPastePauseMs())).toBe(20);
+            expect(await page.evaluate(() => window.__pastePump.getPastePauseMs())).toBe(200);
             // And the menu shows the defaults, not the rejected values.
             await page.evaluate(() => window.__menuBar.open('settings'));
             await page.click('#dropdown-settings .menu-item[data-submenu="paste-chunk"]');
             await expect(page.locator('#dropdown-settings .submenu[data-submenu-panel="paste-chunk"] .menu-item[data-value="1"]'))
                 .toHaveAttribute('data-checked', 'true');
             await page.click('#dropdown-settings .menu-item[data-submenu="paste-pause"]');
-            await expect(page.locator('#dropdown-settings .submenu[data-submenu-panel="paste-pause"] .menu-item[data-value="20"]'))
+            await expect(page.locator('#dropdown-settings .submenu[data-submenu-panel="paste-pause"] .menu-item[data-value="200"]'))
                 .toHaveAttribute('data-checked', 'true');
         });
     }
@@ -337,8 +338,8 @@ test.describe('PREF-01/PREF-02/PLAT-05 — Preferences persistence', () => {
         for (const v of ['1', '2', '4', '8', '16', '32']) {
             await expect(page.locator(chunkRadio(v))).toHaveAttribute('data-checked', 'false');
         }
-        // The throughput readout still tells the truth about it: 3 B / 20 ms.
-        await expect(page.locator('#menu-paste-throughput-item .hint')).toHaveText('≈ 150 B/s');
+        // The throughput readout still tells the truth about it: 3 B / 200 ms.
+        await expect(page.locator('#menu-paste-throughput-item .hint')).toHaveText('≈ 15 B/s');
     });
 
     test('a stored pasteChunk of the STRING "8" is rejected and the menu still shows 1', async ({ page }) => {
