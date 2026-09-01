@@ -111,6 +111,19 @@ test.describe('E3.4 AC-3 — SLIDE.COM location row + validation cue', () => {
     await expect(row.locator('label')).toHaveText('Auto-start SLIDE on the device');
     await expect(row.locator('.field-tip')).toContainText('A:SLIDE.COM R');
   });
+
+  test('VideoBeast row: default off, label and tooltip @fast', async ({ page }) => {
+    await ready(page);
+    await openModal(page);
+    const row = dialog(page).locator('#slide-videobeast-row');
+    // Default OFF — older slide.com builds do not understand the V.
+    await expect(row.locator('#slide-videobeast-checkbox')).not.toBeChecked();
+    await expect(row.locator('label')).toHaveText('VideoBeast mode');
+    // The tip must name the argument it actually sends, and the auto-start
+    // dependency — the row is a no-op while auto-start is off.
+    await expect(row.locator('.field-tip')).toContainText('RV instead of R');
+    await expect(row.locator('.field-tip')).toContainText('Auto-start');
+  });
 });
 
 test.describe('E3.4 AC-4 — Show-summary + Confirm-transfers toggles move verbatim with defaults', () => {

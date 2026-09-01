@@ -229,9 +229,9 @@ let sendDispatchTail = Promise.resolve();
 // The bytes Beastty auto-types at the CCP to start SLIDE in receive mode
 // before a send. v2 composes them from where SLIDE.COM lives
 // (prefs.slideProgramDrive + slideProgramName) and appends the direction
-// letter ' R' plus the CR itself — the user no longer states either. The pull
-// pane composes ' S' from the same path, which is the point of storing a
-// location rather than a command line.
+// letter ' R' (' RV' in VideoBeast mode) plus the CR itself — the user no
+// longer states either. The pull pane composes ' S' from the same path, which
+// is the point of storing a location rather than a command line.
 //
 // Returns a zero-length Uint8Array — the caller's `length === 0` skip covers
 // it without a separate code path — in three cases:
@@ -244,6 +244,12 @@ let sendDispatchTail = Promise.resolve();
 //     hand-edited or corrupt blob can, and nothing unvalidated reaches the wire.
 const AUTO_SEND_DEFAULT_PATH = 'A:SLIDE.COM';
 const AUTO_SEND_DIRECTION = ' R\r';
+// VideoBeast mode (prefs.slideVideoBeastMode) — the `V` rides on the SAME CP/M
+// argument as the direction letter, so it is `SLIDE RV`, never `SLIDE R V`.
+// Newer slide.com binaries read it as "write the payload straight into
+// VideoBeast video memory"; older ones do not understand it, which is why the
+// pref defaults off and Beastty never assumes it.
+const AUTO_SEND_DIRECTION_VIDEOBEAST = ' RV\r';
 
 function readAutoSendCommandBytes() {
     // Live read so post-Settings-change values reach the wire without a reload
@@ -273,7 +279,12 @@ function readAutoSendCommandBytes() {
         } catch { /* ignore — DOM may not exist in tests */ }
         return new Uint8Array(0);
     }
-    return new TextEncoder().encode(path + AUTO_SEND_DIRECTION);
+    // Direction is chosen only AFTER the grammar check above: an unusable
+    // location types nothing whether or not VideoBeast mode is on.
+    const direction = p.slideVideoBeastMode
+        ? AUTO_SEND_DIRECTION_VIDEOBEAST
+        : AUTO_SEND_DIRECTION;
+    return new TextEncoder().encode(path + direction);
 }
 
 // SLIDE wire frame size — slide-rs/protocol.rs FRAME_SIZE (1024 bytes

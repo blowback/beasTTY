@@ -1368,6 +1368,7 @@ cancelSlideRecvLazy = cancelSlideRecv;
 const slideProgramDriveSelect = document.getElementById('slide-program-drive');
 const slideProgramNameInput = document.getElementById('slide-program-name');
 const slideAutoStartCheckbox = document.getElementById('slide-auto-start-checkbox');
+const slideVideoBeastCheckbox = document.getElementById('slide-videobeast-checkbox');
 const slideShowSummaryCheckbox = document.getElementById('slide-show-summary');
 const slideConfirmTransfersCheckbox = document.getElementById('slide-confirm-transfers-checkbox');
 const slideCompatSelect = document.getElementById('slide-compat-select');
@@ -1430,6 +1431,16 @@ if (slideAutoStartCheckbox) {
     slideAutoStartCheckbox.checked = prefs.slideAutoStart !== false;
     slideAutoStartCheckbox.addEventListener('change', (e) => {
         savePrefs({ slideAutoStart: !!e.target.checked });
+    });
+}
+
+// VideoBeast mode — sends ` RV` rather than ` R` as SLIDE's direction argument.
+// Read live by slide.js readAutoSendCommandBytes at send time, so a toggle
+// reaches the wire on the very next transfer without a reload.
+if (slideVideoBeastCheckbox) {
+    slideVideoBeastCheckbox.checked = !!prefs.slideVideoBeastMode;
+    slideVideoBeastCheckbox.addEventListener('change', (e) => {
+        savePrefs({ slideVideoBeastMode: !!e.target.checked });
     });
 }
 
@@ -1778,6 +1789,7 @@ const PREF_CONTROL_MIRRORS = [
     { id: 'slide-recv-to-folder-checkbox',         key: 'slideRecvToFolder',        kind: 'bool' },
     { id: 'slide-show-summary',                    key: 'slideShowSummary',         kind: 'bool' },
     { id: 'slide-auto-start-checkbox',             key: 'slideAutoStart',           kind: 'boolDefault' },
+    { id: 'slide-videobeast-checkbox',             key: 'slideVideoBeastMode',      kind: 'bool' },
     { id: 'slide-program-drive',                   key: 'slideProgramDrive',        kind: 'select',
       allowed: ['A:', 'B:', 'C:', 'D:', 'E:', 'F:', 'G:', 'H:', 'I:', 'J:', 'K:', 'L:', 'M:', 'N:', 'O:', 'P:'] },
     { id: 'slide-compat-select',                   key: 'slideCompatibilityMode',   kind: 'select',

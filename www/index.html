@@ -2760,13 +2760,26 @@
         </span>
       </div>
 
-      <!-- Row 3 — Show transfer summary chip (D-08 default ON). -->
+      <!-- Row 4 — VideoBeast mode. Sits beside auto-start because it changes the
+           very command auto-start types: the direction argument becomes RV
+           instead of R. A fact the user asserts about their device (which
+           slide.com build is on it), which Beastty has no way to detect. -->
+      <div class="field check" id="slide-videobeast-row">
+        <input type="checkbox" id="slide-videobeast-checkbox">
+        <label for="slide-videobeast-checkbox">VideoBeast mode</label>
+        <span class="field-info" tabindex="0" role="note" aria-label="About VideoBeast mode">
+          <span aria-hidden="true">ⓘ</span>
+          <span class="field-tip">Off by default. Starts SLIDE with RV instead of R — newer slide.com builds read the V as "write this file straight into VideoBeast video memory" rather than to disk. Older builds do not understand it, so leave this off unless you know the MicroBeast is running a build that does. This changes the command above it, so it only does anything while Auto-start is on; with auto-start off you choose R or RV yourself when you start SLIDE. Pulls are unaffected.</span>
+        </span>
+      </div>
+
+      <!-- Row 5 — Show transfer summary chip (D-08 default ON). -->
       <div class="field check" id="slide-show-summary-row">
         <input type="checkbox" id="slide-show-summary" checked>
         <label for="slide-show-summary">Show transfer summary chip</label>
       </div>
 
-      <!-- Row 4 — Confirm file transfers (default ON). Verbose help → ⓘ .field-tip. -->
+      <!-- Row 6 — Confirm file transfers (default ON). Verbose help → ⓘ .field-tip. -->
       <div class="field check" id="slide-confirm-transfers-row">
         <input type="checkbox" id="slide-confirm-transfers-checkbox" checked>
         <label for="slide-confirm-transfers-checkbox">Confirm file transfers</label>
@@ -2776,7 +2789,7 @@
         </span>
       </div>
 
-      <!-- Row 5 — Compatibility mode (D-07). Verbatim <option value>s. -->
+      <!-- Row 7 — Compatibility mode (D-07). Verbatim <option value>s. -->
       <div class="field" id="slide-compat-row">
         <label for="slide-compat-select">Compatibility mode:</label>
         <select id="slide-compat-select">
