@@ -14,6 +14,13 @@
 //   - 06-VALIDATION.md §Phase Requirements → Test Map (prefs row).
 //   - Analog: www/tests/transport/connect.spec.js (localStorage assertions).
 import { test, expect } from '@playwright/test';
+// Settings ▸ Paste settings… — the three paste controls moved out of the Settings
+// menu's radio submenus into #paste-config-modal.
+import {
+    setPasteEol, setPasteChunk, setPastePause,
+    openPasteSettings, closePasteSettings,
+    PASTE_EOL_SELECT, PASTE_CHUNK_SELECT, PASTE_PAUSE_SELECT, PASTE_THROUGHPUT,
+} from '../paste-settings.js';
 import { SERIAL_MOCK } from '../transport/mock-serial.js';
 
 async function setup(page) {
@@ -21,6 +28,19 @@ async function setup(page) {
     await page.goto('/');
     await page.locator('#terminal-wrapper').focus();
     await page.waitForFunction(() => document.getElementById('terminal').width > 0);
+    // The canvas has a width well before wireMenuBar assigns window.__menuBar, and
+    // most cases here drive the Settings menu straight after setup(). Observed
+    // failing once as "Cannot read properties of undefined (reading 'open')" and
+    // passing on retry — the boot-race guard the other suites already use.
+    await page.waitForFunction(
+        () => window.__menuBar && typeof window.__menuBar.open === 'function');
+}
+
+// window.__pastePump is assigned late in main.js, after the handles setup()
+// waits on — the paste cases need their own boot-race guard.
+async function pumpReady(page) {
+    await page.waitForFunction(
+        () => window.__pastePump && typeof window.__pastePump.getPasteChunk === 'function');
 }
 
 test.describe('PREF-01/PREF-02/PLAT-05 — Preferences persistence', () => {
@@ -33,8 +53,35 @@ test.describe('PREF-01/PREF-02/PLAT-05 — Preferences persistence', () => {
         expect(prefs.serial).toEqual({ baud: 19200, dataBits: 8, stopBits: 1, parity: 'none', flowControl: 'none' });
         expect(prefs.localEcho).toBe(false);
         expect(prefs.crlfMode).toBe('cr');
+        // Paste has its own line-ending setting, separate from crlfMode above —
+        // and it is paced by default, because pasting at wire speed loses text on
+        // a port with no flow control. 1 byte every 200 ms is 5 B/s, the cadence
+        // measured to deliver an 800 B block into VIBE intact on real hardware.
+        expect(prefs.pasteLineEnding).toBe('cr');
+        expect(prefs.pasteChunk).toBe(1);
+        expect(prefs.pastePauseMs).toBe(200);
         expect(prefs.autoConnect).toBe(false);
         expect(prefs.version).toBe(2);
+    });
+
+    test('the pump boots on the same values DEFAULTS carries @fast', async ({ page }) => {
+        // applyPrefs is the single writer of the pump's live settings, but it runs
+        // AFTER wirePastePump — so if the pump's module-scope defaults ever drift
+        // from DEFAULTS there is a window where a paste uses the wrong pacing, and
+        // nothing else would notice. Pin them equal.
+        await setup(page);
+        await pumpReady(page);
+        const { prefs, pump } = await page.evaluate(() => ({
+            prefs: window.__prefs.getPrefs(),
+            pump: {
+                lineEnding: window.__pastePump.getPasteLineEnding(),
+                chunk: window.__pastePump.getPasteChunk(),
+                pauseMs: window.__pastePump.getPastePauseMs(),
+            },
+        }));
+        expect(pump.lineEnding).toBe(prefs.pasteLineEnding);
+        expect(pump.chunk).toBe(prefs.pasteChunk);
+        expect(pump.pauseMs).toBe(prefs.pastePauseMs);
     });
 
     test('theme persists across reload (round-trip)', async ({ page }) => {
@@ -170,6 +217,176 @@ test.describe('PREF-01/PREF-02/PLAT-05 — Preferences persistence', () => {
         await page.reload();
         await setup(page);
         expect(await page.evaluate(() => window.__prefs.getPrefs().crlfMode)).toBe('lf');
+    });
+
+    test('pasteLineEnding persists across reload and re-applies to the pump', async ({ page }) => {
+        await setup(page);
+        await setPasteEol(page, 'crlf');
+        await page.waitForTimeout(300);   // > 250 ms debounce window
+        await page.reload();
+        await setup(page);
+        await pumpReady(page);
+        expect(await page.evaluate(() => window.__prefs.getPrefs().pasteLineEnding)).toBe('crlf');
+        // applyPrefs re-applied it on the boot path — the stored value governs the
+        // next paste, not just the checkmark.
+        expect(await page.evaluate(() => window.__pastePump.getPasteLineEnding())).toBe('crlf');
+        // …and the modal re-projects it from the pump the next time it opens.
+        await openPasteSettings(page);
+        await expect(page.locator(PASTE_EOL_SELECT)).toHaveValue('crlf');
+        await closePasteSettings(page);
+    });
+
+    test('the paste cadence persists across reload and re-applies to the pump', async ({ page }) => {
+        await setup(page);
+        await setPasteChunk(page, 8);
+        await setPastePause(page, 100);
+        await page.waitForTimeout(300);
+        await page.reload();
+        await setup(page);
+        await pumpReady(page);
+        expect(await page.evaluate(() => window.__prefs.getPrefs().pasteChunk)).toBe(8);
+        expect(await page.evaluate(() => window.__prefs.getPrefs().pastePauseMs)).toBe(100);
+        expect(await page.evaluate(() => window.__pastePump.getPasteChunk())).toBe(8);
+        expect(await page.evaluate(() => window.__pastePump.getPastePauseMs())).toBe(100);
+        // And the throughput they add up to: 8 B every 100 ms is 80 B/s.
+        expect(await page.evaluate(() => window.__pastePump.__getStateForTests()))
+            .toMatchObject({ chunkSize: 8, pauseMs: 100, throughput: 80 });
+    });
+
+    test('a stored blob carrying the retired pasteSpeed is simply ignored', async ({ page }) => {
+        // CURRENT_VERSION was deliberately NOT bumped when the rate model was
+        // replaced: the defensive spread-merge fills in the two new fields and the
+        // old one has no consumer left, so an existing blob needs no migration.
+        await page.addInitScript(() => localStorage.setItem(
+            'beastty.prefs', JSON.stringify({ version: 2, pasteSpeed: 60, theme: 'clean' })));
+        await setup(page);
+        await pumpReady(page);
+        expect(await page.evaluate(() => window.__prefs.getPrefs().theme)).toBe('clean');
+        expect(await page.evaluate(() => window.__pastePump.getPasteChunk())).toBe(1);
+        expect(await page.evaluate(() => window.__pastePump.getPastePauseMs())).toBe(200);
+    });
+
+    for (const [label, stored, chunk, pause] of [
+        ['an out-of-range chunk', { pasteChunk: 99999 }, 1, 200],
+        ['a chunk of 0', { pasteChunk: 0 }, 1, 200],
+        ['a negative pause', { pastePauseMs: -1 }, 1, 200],
+    ]) {
+        test(`${label} falls back to the default`, async ({ page }) => {
+            // prefs.js has no field validation (D-32) — the pump validates at its
+            // consumer, as setCrlfMode does. A blob carrying nonsense must leave the
+            // pump on its defaults rather than pacing absurdly or throwing.
+            await page.addInitScript(
+                (blob) => localStorage.setItem('beastty.prefs', blob),
+                JSON.stringify({ version: 2, ...stored }));
+            await setup(page);
+            await pumpReady(page);
+            expect(await page.evaluate(() => window.__pastePump.getPasteChunk())).toBe(chunk);
+            expect(await page.evaluate(() => window.__pastePump.getPastePauseMs())).toBe(pause);
+        });
+    }
+
+    // Number(null), Number(''), Number(false) and Number([]) are ALL 0, and 0 is a
+    // legal pastePauseMs meaning "no pause at all" — the one value that turns the
+    // pacing off. A validator that coerced before testing would silently accept
+    // every one of these from a stored blob. Both setters reject the TYPE first.
+    for (const [label, stored] of [
+        ['null', null],
+        ['an empty string', ''],
+        ['false', false],
+        ['an empty array', []],
+        ['a non-integer', 20.5],
+    ]) {
+        test(`a stored paste cadence of ${label} is rejected, not coerced`, async ({ page }) => {
+            await page.addInitScript(
+                (blob) => localStorage.setItem('beastty.prefs', blob),
+                JSON.stringify({ version: 2, pasteChunk: stored, pastePauseMs: stored }));
+            await setup(page);
+            await pumpReady(page);
+            expect(await page.evaluate(() => window.__pastePump.getPasteChunk())).toBe(1);
+            expect(await page.evaluate(() => window.__pastePump.getPastePauseMs())).toBe(200);
+            // And the modal shows the defaults, not the rejected values.
+            await openPasteSettings(page);
+            await expect(page.locator(PASTE_CHUNK_SELECT)).toHaveValue('1');
+            await expect(page.locator(PASTE_PAUSE_SELECT)).toHaveValue('200');
+            await closePasteSettings(page);
+        });
+    }
+
+    // The modal's controls are projected from what the pump ACCEPTED, not from the
+    // stored pref. These are the two ways those disagree.
+
+    test('a stored pasteChunk the pump ACCEPTS but the modal does not offer selects nothing', async ({ page }) => {
+        // setPasteChunk takes any integer in 1..4096; the select offers six values.
+        // A stored 3 therefore runs the pump at 3 bytes. Selecting 1 because 3 does
+        // not match an option would put the control on a value that is not live —
+        // the one thing it must never do. A blank select says, accurately, "the live
+        // chunk size is not on this menu".
+        await page.addInitScript(() => localStorage.setItem(
+            'beastty.prefs', JSON.stringify({ version: 2, pasteChunk: 3 })));
+        await setup(page);
+        await pumpReady(page);
+        expect(await page.evaluate(() => window.__pastePump.getPasteChunk())).toBe(3);
+        await openPasteSettings(page);
+        await expect(page.locator(PASTE_CHUNK_SELECT)).toHaveValue('');
+        expect(await page.locator(PASTE_CHUNK_SELECT).evaluate((el) => el.selectedIndex)).toBe(-1);
+        // The throughput readout still tells the truth about it: 3 B / 200 ms.
+        await expect(page.locator(PASTE_THROUGHPUT)).toHaveText('≈ 15 B/s');
+        await closePasteSettings(page);
+    });
+
+    test('a stored pasteChunk of the STRING "8" is rejected and the modal still shows 1', async ({ page }) => {
+        // '8' matches an option's value, so projecting the raw pref would show 8.
+        // setPasteChunk rejects the type before the value, so the pump stays at 1 —
+        // the control would have been a straight lie about the next paste. This is
+        // the case that proves the modal reads the PUMP and not the stored pref.
+        await page.addInitScript(() => localStorage.setItem(
+            'beastty.prefs', JSON.stringify({ version: 2, pasteChunk: '8' })));
+        await setup(page);
+        await pumpReady(page);
+        expect(await page.evaluate(() => window.__pastePump.getPasteChunk())).toBe(1);
+        expect(await page.evaluate(() => window.__prefs.getPrefs().pasteChunk)).toBe('8');
+        await openPasteSettings(page);
+        await expect(page.locator(PASTE_CHUNK_SELECT)).toHaveValue('1');
+        await closePasteSettings(page);
+    });
+
+    test('a stored pasteLineEnding of the STRING-shaped nonsense leaves CR selected', async ({ page }) => {
+        // Same contract on the other control: setPasteLineEnding validates by
+        // hasOwnProperty against the terminator table, so 'toString' (a prototype
+        // key) is rejected and the pump stays on CR. The modal must agree.
+        await page.addInitScript(() => localStorage.setItem(
+            'beastty.prefs', JSON.stringify({ version: 2, pasteLineEnding: 'toString' })));
+        await setup(page);
+        await pumpReady(page);
+        expect(await page.evaluate(() => window.__pastePump.getPasteLineEnding())).toBe('cr');
+        await openPasteSettings(page);
+        await expect(page.locator(PASTE_EOL_SELECT)).toHaveValue('cr');
+        await closePasteSettings(page);
+    });
+
+    test('a stored pause of 150 ms round-trips through the modal and the pump', async ({ page }) => {
+        // 150 ms — about 6.7 B/s — joined the offered pauses after the ~800 B block
+        // was timed on hardware: 59 s over RTS/CTS (so the handshake settles near
+        // 13.5 B/s) against 148 s at the configured 5 B/s. It sits between the
+        // 10 B/s that nearly worked and the 5 B/s that did.
+        await setup(page);
+        await pumpReady(page);
+        await setPastePause(page, 150);
+        expect(await page.evaluate(() => window.__prefs.getPrefs().pastePauseMs)).toBe(150);
+        expect(await page.evaluate(() => window.__pastePump.getPastePauseMs())).toBe(150);
+        await page.waitForTimeout(300);   // > 250 ms debounce window
+        await page.reload();
+        await setup(page);
+        await pumpReady(page);
+        expect(await page.evaluate(() => window.__pastePump.getPastePauseMs())).toBe(150);
+        await openPasteSettings(page);
+        await expect(page.locator(PASTE_PAUSE_SELECT)).toHaveValue('150');
+        // 1 byte every 150 ms is 6.67 B/s, and it keeps its decimal: rounding it to
+        // 7 here while the chip measuring the same run said 6.7 made the two figures
+        // impossible to compare, which is the one thing they are for. One rule now
+        // (renderer/paste-rate.js) — a decimal below 10, whole numbers above.
+        await expect(page.locator(PASTE_THROUGHPUT)).toHaveText('≈ 6.7 B/s');
+        await closePasteSettings(page);
     });
 
     test('fontZoom persists across reload', async ({ page }) => {

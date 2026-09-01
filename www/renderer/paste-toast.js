@@ -26,7 +26,8 @@
 //
 // Public API (returned from wirePasteToast):
 //   - handleProgress(ev)                         ← paste-pump.onProgress observer
-//   - confirmLargePaste(byteCount, { getBaud })  → Promise<boolean>
+//   - confirmLargePaste(byteCount, { getChunk, getPauseMs, isFlowControlled })
+//                                                → Promise<boolean>
 //   - hide()                                     ← lifecycle = 'hidden'
 //   - __getStateForTests / __resetForTests       ← Playwright chromium suite hooks
 //
@@ -36,22 +37,101 @@
 //        a paste in flight must never steal focus from the canvas.
 
 import { retainFocus } from './focus.js';
+// The one rounding rule for a throughput figure, shared with the Paste settings
+// readout — see renderer/paste-rate.js. The chip's measured rate and the modal's
+// derived one exist to be compared; they cannot be, if they round differently.
+import { formatThroughput } from './paste-rate.js';
 
 // ====== Module-scope state ======
 
 // Lifecycle state machine (mirrors the paste-pump event vocabulary + the
 // large-paste confirm gate).
 let lifecycle = 'hidden';   // 'hidden' | 'confirm' | 'pumping' | 'complete'
-                            // | 'cancelled' | 'cancelled-port-lost'
+                            // | 'cancelled' | 'cancelled-port-lost' | 'not-sent'
 
 // Per-state data.
-let confirmData = null;     // { formattedN, seconds, baud } for the 'confirm' render
+let confirmData = null;     // { formattedN, seconds, rate, flowControlled } for 'confirm'
+                            // (rate null = nothing paces the run; flowControlled says the
+                            //  reason is the port handshaking, not a pause of 0)
 let confirmResolver = null; // (ok:boolean) => void — resolves confirmLargePaste's Promise
-let pumpingData = null;     // { total, pct } for the 'pumping' render
+let pumpingData = null;     // { total, pct, written, elapsedMs, rate } for the 'pumping' render
 let portLostUnsent = 0;     // bytes-unsent for the 'cancelled-port-lost' render
+let notSentBytes = 0;       // bytes that never reached a wire, for the 'not-sent' render
+
+// When the pump fired 'started' for the run now in flight, on the monotonic clock.
+// The chip reports elapsed time and the rate ACTUALLY ACHIEVED, and both are measured
+// from here: bytes the pump says it has written, over wall-clock time it took to write
+// them. Nothing about either figure comes from the Paste settings.
+//
+// That is the whole point of showing them. A paste over a handshaking port ignores the
+// configured pause entirely and runs at whatever the handshake settles to — 13.5 B/s on
+// real hardware against a configured 5 — and a rate derived from the settings would
+// report the number the user typed instead of the number the wire delivered. The 59 s
+// figure that told us the handshake had headroom only exists because it was timed by
+// hand with a stopwatch; this is the app measuring itself.
+//
+// It starts at 'started', NOT when the large-paste confirm opened: the confirm can sit
+// on screen for as long as the user takes to read it, and none of that is paste time.
+let pumpStartedAt = null;
+
+// The rate window's origin: the first 'chunk' event of the run, and the byte count it
+// carried. The rate is measured from HERE, not from 'started', and that is a
+// correction rather than a detail.
+//
+// The pump writes its first chunk immediately and only then starts pausing, so after n
+// chunks it has sent n × chunk bytes over n − 1 pauses. Dividing the bytes by the time
+// since 'started' therefore reports n/(n−1) times the real cadence — double at the
+// second chunk, and never quite settling. Anchoring on the first chunk instead divides
+// (n − 1) × chunk by (n − 1) pauses, which is the cadence exactly.
+let rateAnchorAt = null;
+let rateAnchorWritten = 0;
+
+// The last byte count the pump reported, so a RESTART is recognisable. Appending a
+// paste to a live run compacts the pump's queue and `written` drops back to the new
+// run's first chunk; the clock has to restart with it, or elapsed and written stop
+// measuring the same interval and the rate decays towards 0.0 B/s for the rest of the
+// run.
+let lastWritten = 0;
+
+// No rate is quoted until the window has some length to it. The old guard was
+// "elapsed > 0", which the first chunk of a run satisfies about a millisecond after
+// 'started' — and 8 bytes in a millisecond reads as 8,000 B/s, a figure no part of this
+// app can produce. A tenth of a second is enough to divide by and short enough that a
+// paced run shows a rate on its second chunk.
+const MIN_RATE_WINDOW_MS = 100;
 
 // Single auto-hide timer handle (complete / cancelled / cancelled-port-lost).
 let autoHideHandle = null;
+
+// The cadence assumed in the large-paste confirm when NO getter is injected — the
+// pump's own defaults (1 byte every 200 ms). Only a harness ever sees these;
+// main.js always passes the pump's live values. They stand in for a MISSING
+// getter, never for a value a real getter returned — substituting for a real
+// reading is how an estimate starts lying.
+const FALLBACK_CHUNK = 1;
+const FALLBACK_PAUSE_MS = 200;
+
+// The two rates a paste cannot go faster than, whatever the pause says.
+//
+// The paced model's duration is the PAUSES and only the pauses, which is right while
+// the pauses are the slowest thing in the chain and nonsense when they are not. With
+// the pause set to None it says a 2 MB paste takes about a second; the wire says
+// seventeen minutes. Now that the write path waits on Web Serial backpressure, that
+// wire bound is real time the user spends waiting, so the estimate quotes whichever of
+// the two is slower.
+//
+// WIRE_BPS — the MicroBeast preset, 19200 8N1: ten bits carry each byte, so 1920 B/s.
+// A port opened slower is quoted optimistically; the estimate is a bound, not a
+// measurement, and the chip reports the real figure as the paste runs.
+//
+// HANDSHAKE_BPS — measured, not derived. An ~800 B block took 59 s over RTS/CTS on a
+// real MicroBeast, so the handshake settles at about 13.5 B/s: the machine's own
+// capacity, discovered per byte. It is nowhere near the wire, which is why a
+// handshaking port needs a duration quoted at all — at 13.5 B/s a 100 kB paste is
+// nearly two hours, and this confirm used to send the user into that with no number.
+const WIRE_BPS = 1920;
+const HANDSHAKE_BPS = 13.5;
+
 const COMPLETE_HIDE_MS = 2000;
 const CANCELLED_HIDE_MS = 2000;
 const PORT_LOST_HIDE_MS = 3000;
@@ -111,11 +191,27 @@ export function handleProgress(ev) {
     if (lifecycle === 'confirm') return;
     switch (ev.status) {
         case 'started':
-            enterPumping(ev.total, 0);
+            // The clock starts HERE — the first byte is about to go out.
+            startClocks();
+            enterPumping(ev.total, 0, 0);
             return;
         case 'chunk': {
-            const pct = ev.total > 0 ? Math.round((ev.written / ev.total) * 100) : 0;
-            enterPumping(ev.total, pct);
+            const written = ev.written || 0;
+            const pct = ev.total > 0 ? Math.round((written / ev.total) * 100) : 0;
+            // A harness may drive 'chunk' without a preceding 'started'; start the
+            // clock at the first event rather than reporting an absurd elapsed time.
+            if (pumpStartedAt === null) startClocks();
+            // The pump's byte count went BACKWARDS, so this is a new run over a
+            // compacted queue — an appended paste. Both clocks restart with it.
+            if (written < lastWritten) startClocks();
+            lastWritten = written;
+            // First chunk of the run: it opens the rate window rather than being
+            // measured inside it (see rateAnchorAt).
+            if (rateAnchorAt === null) {
+                rateAnchorAt = now();
+                rateAnchorWritten = written;
+            }
+            enterPumping(ev.total, pct, written);
             return;
         }
         case 'complete':
@@ -127,7 +223,18 @@ export function handleProgress(ev) {
         case 'cancelled-port-lost':
             enterPortLost(ev.unsent || 0);
             return;
+        case 'not-sent':
+            enterNotSent(ev.unsent || 0);
+            return;
     }
+}
+
+// Both clocks and the restart detector, together — they only ever move as a set.
+function startClocks() {
+    pumpStartedAt = now();
+    rateAnchorAt = null;
+    rateAnchorWritten = 0;
+    lastWritten = 0;
 }
 
 // ====== Large-paste confirm (Promise<boolean>) ======
@@ -138,15 +245,51 @@ export function handleProgress(ev) {
 // a confirmed paste re-renders as 'pumping' the instant the pump fires 'started'
 // (synchronous microtask after resolve, so no paint occurs in between).
 export function confirmLargePaste(byteCount, opts) {
-    const getBaud = (opts && typeof opts.getBaud === 'function') ? opts.getBaud : (() => 19200);
+    // The estimate reads the PUMP's cadence, not the baud: the pump does not pace
+    // to the wire at all any more — the user sets the chunk size and the pause
+    // directly — so a baud-derived figure would promise a paste many times faster
+    // than it runs.
+    //
+    // The duration is the pauses, and only the pauses: ceil(bytes / chunk) writes
+    // with a pause after each but the last. Nothing here depends on what the bytes
+    // ARE — the pump pauses the same amount after every chunk, so a line break
+    // costs exactly what any other byte costs.
+    //
+    // The cadence handed in is the SNAPSHOT the run will use, which on a port
+    // opened with hardware flow control is the unpaced shape whatever the Paste
+    // pause setting holds — so a handshaken port quotes wire speed here, and says
+    // that flow control is why (isFlowControlled). Quoting the paced figure for a
+    // run that will not be paced is the same lie the Settings readout must not tell.
+    const getChunk = (opts && typeof opts.getChunk === 'function') ? opts.getChunk : null;
+    const getPauseMs = (opts && typeof opts.getPauseMs === 'function') ? opts.getPauseMs : null;
+    const isFlowControlled = (opts && typeof opts.isFlowControlled === 'function') ? opts.isFlowControlled : null;
     return new Promise((resolve) => {
         // If a confirm is already pending (two large pastes before the user acts),
         // abandon the older one cleanly (resolve false = "don't paste") so its
         // awaiting caller never hangs — the newer confirm takes the surface.
         settlePendingConfirm(false);
-        const baud = getBaud() || 19200;
-        const seconds = Math.ceil((byteCount * 10) / baud);   // 10 bits / byte at 8N1
-        confirmData = { formattedN: byteCount.toLocaleString(), seconds, baud };
+        // Floor rather than fall back: a real getter's answer is used whatever it
+        // says, and only a MISSING getter takes the FALLBACK_* defaults.
+        const chunk = Math.max(1, getChunk ? getChunk() : FALLBACK_CHUNK);
+        const pauseMs = Math.max(0, getPauseMs ? getPauseMs() : FALLBACK_PAUSE_MS);
+        const flowControlled = isFlowControlled ? !!isFlowControlled() : false;
+        const writes = Math.ceil(byteCount / chunk);
+        // The pauses, and then the floor underneath them. A handshaking port is not
+        // paced at all, so its floor is the handshake; everything else is bounded by
+        // the wire. Whichever is slower is the one the user will actually wait for.
+        const pacedSeconds = ((writes - 1) * pauseMs) / 1000;
+        const boundSeconds = byteCount / (flowControlled ? HANDSHAKE_BPS : WIRE_BPS);
+        const seconds = Math.max(1, Math.round(Math.max(pacedSeconds, boundSeconds)));
+        // Throughput is derived, exactly as the Settings readout derives it, and
+        // formatted by the same rule. With no pause there is no pacing limit and the
+        // wire is the only ceiling, which is not a number this module can know — see
+        // refresh().
+        confirmData = {
+            formattedN: byteCount.toLocaleString(),
+            seconds,
+            rate: pauseMs > 0 ? (chunk / pauseMs) * 1000 : null,
+            flowControlled,
+        };
         confirmResolver = resolve;
         clearAutoHide();
         lifecycle = 'confirm';
@@ -174,11 +317,31 @@ function resolveConfirm(ok) {
 
 // ====== State-entry helpers ======
 
-function enterPumping(total, pct) {
+// `written` is the pump's own count of bytes the WIRE accepted, and the elapsed time is
+// measured against the monotonic clock — so the rate below is the one the run actually
+// achieved, whatever the settings said it would be.
+//
+// Two different intervals, deliberately. ELAPSED runs from 'started', because that is
+// how long the user has been waiting. The RATE is measured over the window that opens
+// at the first chunk, because that is the interval the pump actually spent pausing —
+// see rateAnchorAt. No rate is quoted until that window is long enough to divide by.
+function enterPumping(total, pct, written) {
     clearAutoHide();
-    pumpingData = { total, pct };
+    const elapsedMs = (pumpStartedAt === null) ? 0 : Math.max(0, now() - pumpStartedAt);
+    const windowMs = (rateAnchorAt === null) ? 0 : Math.max(0, now() - rateAnchorAt);
+    const windowBytes = written - rateAnchorWritten;
+    const rate = (windowMs >= MIN_RATE_WINDOW_MS && windowBytes > 0)
+        ? (windowBytes / (windowMs / 1000))
+        : null;
+    pumpingData = { total, pct, written, elapsedMs, rate };
     lifecycle = 'pumping';
     refresh();
+}
+
+// Monotonic — a wall-clock jump mid-paste must not make the achieved rate negative or
+// enormous. Guarded so a harness without performance still renders.
+function now() {
+    return (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
 }
 
 function enterComplete() {
@@ -203,6 +366,18 @@ function enterPortLost(unsent) {
     autoHideHandle = setTimeout(hide, PORT_LOST_HIDE_MS);
 }
 
+// The run drained without a single byte reaching a wire — nothing was connected. The
+// bytes still filled the TX diagnostics ring and still drove local echo, so the paste
+// was not a no-op, but nothing left the browser and the chip must not end by saying
+// "Paste complete".
+function enterNotSent(bytes) {
+    clearAutoHide();
+    notSentBytes = bytes;
+    lifecycle = 'not-sent';
+    refresh();
+    autoHideHandle = setTimeout(hide, PORT_LOST_HIDE_MS);
+}
+
 export function hide() {
     clearAutoHide();
     // Defensively settle a pending confirm (false = "don't paste") so hide() can
@@ -211,7 +386,12 @@ export function hide() {
     confirmData = null;
     lifecycle = 'hidden';
     pumpingData = null;
+    pumpStartedAt = null;   // the next run starts its own clock at its 'started'
+    rateAnchorAt = null;
+    rateAnchorWritten = 0;
+    lastWritten = 0;
     portLostUnsent = 0;
+    notSentBytes = 0;
     refresh();
 }
 
@@ -235,12 +415,33 @@ function refresh() {
             return;
 
         case 'confirm': {
-            const { formattedN, seconds, baud } = confirmData || { formattedN: '0', seconds: 0, baud: 19200 };
-            // Verbatim copy carried over from clipboard.js's showLargePasteConfirm
-            // (06-UI-SPEC §Large-paste inline confirm chip). The bracketed
-            // [Paste]/[Cancel] affordance is the persistent-button pair beside the text.
-            toastTextElRef.textContent =
-                `About to paste ${formattedN} B (~${seconds} s at ${baud} baud).`;
+            const { formattedN, seconds, rate, flowControlled } =
+                confirmData || { formattedN: '0', seconds: 0, rate: null, flowControlled: false };
+            // Carried over from clipboard.js's showLargePasteConfirm (06-UI-SPEC
+            // §Large-paste inline confirm chip), with the trailing figure changed
+            // from the baud to the pump's derived throughput — the baud stopped
+            // predicting how long a paste takes once the cadence became a setting.
+            //
+            // The two figures divide: seconds ≈ bytes ÷ rate, because both come
+            // from the same chunk-and-pause arithmetic. With no pause set there is
+            // no rate to quote — the wire is the only limit and the pump does not
+            // know what it carries — so the sentence says so rather than inventing
+            // a number. It is the same wording the Settings readout carries.
+            //
+            // A handshaking port ignores the Paste pause entirely, so the sentence
+            // spends its words on that reason rather than on a cadence that is not in
+            // force. It still quotes a DURATION, though: the handshake settles at
+            // about 13.5 B/s on real hardware, which makes a 100 kB paste nearly two
+            // hours, and "wire speed" on its own reads like "instant". An earlier
+            // draft dropped the duration here and sent the user into that unwarned.
+            if (flowControlled) {
+                toastTextElRef.textContent =
+                    `About to paste ${formattedN} B (~${seconds} s) at wire speed (flow control).`;
+            } else {
+                const rateText = (rate == null) ? 'wire speed' : `${formatThroughput(rate)} B/s`;
+                toastTextElRef.textContent =
+                    `About to paste ${formattedN} B (~${seconds} s at ${rateText}).`;
+            }
             setButton(pasteBtnRef, true);
             setButton(cancelBtnRef, true);
             toastElRef.setAttribute('aria-label', `Confirm paste of ${formattedN} bytes — Paste or Cancel`);
@@ -249,11 +450,23 @@ function refresh() {
         }
 
         case 'pumping': {
-            const { total, pct } = pumpingData || { total: 0, pct: 0 };
-            toastTextElRef.textContent = `Pasting ${total} B — ${pct}%`;
+            const { total, pct, elapsedMs, rate } =
+                pumpingData || { total: 0, pct: 0, elapsedMs: 0, rate: null };
+            // Bytes, percent, how long it has been running, and how fast it is
+            // actually going. The last two are MEASURED (see pumpStartedAt): on a
+            // handshaking port the configured pause is not applied at all, and this
+            // line then reports what the wire delivered rather than what the Paste
+            // settings asked for. Both advance as the paste proceeds — the pump fires
+            // an event per chunk, so there is no tick to keep in step with.
+            const seconds = Math.round(elapsedMs / 1000);
+            const measured = (rate == null)
+                ? `${seconds} s`
+                : `${seconds} s · ${formatThroughput(rate)} B/s`;
+            toastTextElRef.textContent = `Pasting ${total} B — ${pct}% · ${measured}`;
             setButton(pasteBtnRef, false);
             setButton(cancelBtnRef, true);
-            toastElRef.setAttribute('aria-label', `Pasting ${total} bytes, ${pct}% — click Cancel to abort`);
+            toastElRef.setAttribute('aria-label',
+                `Pasting ${total} bytes, ${pct}%, ${measured} — click Cancel to abort`);
             toastElRef.removeAttribute('hidden');
             return;
         }
@@ -279,6 +492,15 @@ function refresh() {
             setButton(cancelBtnRef, false);
             toastTextElRef.textContent = `Paste cancelled — port lost (${portLostUnsent} bytes unsent)`;
             toastElRef.setAttribute('aria-label', 'Paste cancelled — port lost');
+            toastElRef.removeAttribute('hidden');
+            return;
+
+        case 'not-sent':
+            setButton(pasteBtnRef, false);
+            setButton(cancelBtnRef, false);
+            toastTextElRef.textContent =
+                `Paste not sent — nothing connected (${notSentBytes} bytes)`;
+            toastElRef.setAttribute('aria-label', 'Paste not sent — nothing connected');
             toastElRef.removeAttribute('hidden');
             return;
     }
@@ -324,7 +546,12 @@ export function __resetForTests() {
     confirmData = null;
     confirmResolver = null;
     pumpingData = null;
+    pumpStartedAt = null;
+    rateAnchorAt = null;
+    rateAnchorWritten = 0;
+    lastWritten = 0;
     portLostUnsent = 0;
+    notSentBytes = 0;
     clearAutoHide();
     if (toastElRef) toastElRef.setAttribute('hidden', '');
     if (toastTextElRef) toastTextElRef.textContent = '';
@@ -338,6 +565,7 @@ export function __getStateForTests() {
         confirmData: confirmData ? { ...confirmData } : null,
         pumpingData: pumpingData ? { ...pumpingData } : null,
         portLostUnsent,
+        notSentBytes,
         hasConfirmResolver: confirmResolver !== null,
         hasAutoHideTimer: autoHideHandle !== null,
     };

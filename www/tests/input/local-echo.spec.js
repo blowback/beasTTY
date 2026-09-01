@@ -1,16 +1,30 @@
 // Phase 4 Plan 04 — INPUT-04 — Local echo toggle default OFF; flip ON renders typed char.
 import { test, expect } from '@playwright/test';
+// Settings ▸ Paste settings… ▸ Line ending — the control moved out of the Settings
+// menu's radio submenus into #paste-config-modal; the shared helper drives it.
+import { setPasteEol } from '../paste-settings.js';
 
 // Cell layout from Phase 1 Plan 04: 8 bytes/cell, [ch, fg, bg, attr, ...].
 // Grid is 24 rows × 80 cols. Cell (0, 0) char byte is at offset 0.
 
-async function setup(page) {
+// `prefs` seeds a stored blob before boot. The paste cases below use it to pin a
+// quick cadence: the default is 1 byte every 200 ms — the measured working point
+// on real hardware — which is right for a paste and wrong for a test whose subject
+// is what the ECHOED bytes look like.
+async function setup(page, { prefs } = {}) {
+    if (prefs) {
+        await page.addInitScript(
+            (blob) => localStorage.setItem('beastty.prefs', blob), JSON.stringify(prefs));
+    }
     await page.goto('/');
     await page.locator('#terminal-wrapper').focus();
     await page.waitForFunction(() => document.getElementById('terminal').width > 0);
     await page.waitForFunction(() => typeof window.__testGridView === 'function');
     await page.waitForFunction(() =>
         window.__menuBar && typeof window.__menuBar.open === 'function');
+    // window.__pastePump is assigned LATE in main.js; the paste cases below read it.
+    await page.waitForFunction(() =>
+        window.__pastePump && typeof window.__pastePump.isActive === 'function');
     await page.locator('#debug').evaluate((el) => { el.open = true; });
     await page.locator('#tx-reset').click();
 }
@@ -96,5 +110,97 @@ test.describe('INPUT-04 — Local echo toggle', () => {
             return v[1 * 8]; // (0, 1) char byte
         });
         expect(cellAfter).not.toBe(0x44);
+    });
+});
+
+// A pasted multi-line block must echo as multiple lines.
+//
+// The wire copy and the display copy are not the same bytes. The core treats
+// 0x0D as a column reset that leaves the row alone (terminal.rs:364), so with
+// the default Paste line ending — CR, which is what the MicroBeast needs — a
+// pasted block fed verbatim to the terminal draws every line on top of the last:
+// one row of overstrike where the user pasted five lines, in the DEFAULT
+// configuration. The pump shows a bare CR as 0x0A instead, which resets the
+// column AND advances the row.
+test.describe('Local echo — a pasted block echoes as separate lines', () => {
+    const ROW = 80 * 8;   // 8 bytes/cell, 80 cols — start of the next row
+    // These are about the DISPLAY copy of the bytes, not the cadence, so the
+    // cadence is pinned quick. The chunk size stays at the default 1, which is
+    // what makes the split-CRLF case below a real split rather than a contrivance.
+    const QUICK = { version: 2, pastePauseMs: 5 };
+
+    // Nothing is connected in this file — the subject is what the ECHO draws, which
+    // needs no port. The pump drains the queue and echoes every chunk either way, but
+    // it no longer ends by claiming 'Paste complete' when the wire took none of it:
+    // that was a fabricated completion, and the chip now says what happened instead.
+    // So the settle signal is the pump going idle, which is the thing this case
+    // actually needs to wait for.
+    async function pasteAndSettle(page, text) {
+        await page.locator('#input').fill(text);
+        await page.locator('#paste-test').click();
+        await expect(page.locator('#paste-toast')).toBeVisible();   // the pump started
+        await expect.poll(() => page.evaluate(() => window.__pastePump.isActive()),
+            { timeout: 10_000 }).toBe(false);
+        await page.waitForTimeout(80);   // rAF render tick (incumbent local-echo idiom)
+    }
+
+    for (const { eol, label } of [
+        { eol: 'cr', label: 'CR' },
+        { eol: 'lf', label: 'LF' },
+        { eol: 'crlf', label: 'CRLF' },
+    ]) {
+        test(`ending ${label}: three pasted lines occupy three rows`, async ({ page }) => {
+            await setup(page, { prefs: QUICK });
+            await setLocalEcho(page, true);
+            if (eol !== 'cr') {
+                await setPasteEol(page, eol);
+                await page.locator('#terminal-wrapper').focus();
+            }
+            await pasteAndSettle(page, 'AB\\x0ACD\\x0AEF');
+
+            const grid = await page.evaluate(() => Array.from(window.__testGridView()));
+            // Rows 0, 1, 2 each hold their own pair, at column 0.
+            expect([grid[0], grid[8]]).toEqual([0x41, 0x42]);
+            expect([grid[ROW], grid[ROW + 8]]).toEqual([0x43, 0x44]);
+            expect([grid[2 * ROW], grid[2 * ROW + 8]]).toEqual([0x45, 0x46]);
+        });
+    }
+
+    test('ending As-is: a bare CR overstrikes the row instead of opening a new one', async ({ page }) => {
+        // 'As-is' promises the clipboard bytes pass through untouched, and the echo
+        // is part of that promise. A transcript that uses a bare CR to redraw one
+        // line in place ("Loading 10%\rLoading 20%\r") is doing exactly that on the
+        // MicroBeast; showing it locally as a column of scrolling rows would put a
+        // different picture on the screen from the one the hardware is drawing.
+        // The CR→LF display substitution belongs to the modes that REWROTE the
+        // breaks, and to those only.
+        await setup(page, { prefs: QUICK });
+        await setLocalEcho(page, true);
+        await setPasteEol(page, 'raw');
+        await page.locator('#terminal-wrapper').focus();
+
+        await pasteAndSettle(page, 'ABCD\\x0DZ');
+        const grid = await page.evaluate(() => Array.from(window.__testGridView()));
+        expect(grid[0]).toBe(0x5A);           // 'Z' overwrote the 'A' at column 0
+        expect(grid[8]).toBe(0x42);           // 'B' still standing beside it
+        expect(grid[ROW]).not.toBe(0x5A);     // and nothing was drawn on the next row
+    });
+
+    test('a CRLF pair split across two writes still renders ONE new row', async ({ page }) => {
+        // Chunks are a fixed size and nothing about them keys off the bytes, so a
+        // CRLF pair lands across two writes routinely — at the default chunk size
+        // of 1 byte, always. The display copy looks ahead into the QUEUE rather
+        // than the chunk, so the CR is left alone and the LF does the single line
+        // feed — no blank row between.
+        await setup(page, { prefs: QUICK });
+        await setLocalEcho(page, true);
+        await setPasteEol(page, 'raw');
+        await page.locator('#terminal-wrapper').focus();
+
+        await pasteAndSettle(page, `${'A'.repeat(31)}\\x0D\\x0AZ`);
+        const grid = await page.evaluate(() => Array.from(window.__testGridView()));
+        expect(grid[0]).toBe(0x41);
+        expect(grid[ROW]).toBe(0x5A);        // 'Z' on the NEXT row, column 0
+        expect(grid[2 * ROW]).not.toBe(0x5A); // and not two rows down (no blank row)
     });
 });

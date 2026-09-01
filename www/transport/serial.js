@@ -21,7 +21,7 @@
 //     www/renderer/canvas.js:37-51 (module-scope state).
 
 import { registerWriter, unregisterWriter } from '../input/tx-sink.js';
-import { onPortLost as pastePumpOnPortLost, setBaudForPump } from '../input/paste-pump.js';
+import { onPortLost as pastePumpOnPortLost, setPasteFlowControl } from '../input/paste-pump.js';
 // Phase 8 D-05 + D-06 — route inbound bytes through the SLIDE dispatcher
 // instead of directly to term.feed. dispatchInbound is byte-transparent in
 // terminal mode (the post-feed invariant at lines 454-462 below is unchanged).
@@ -57,24 +57,26 @@ let reader = null;
 let writer = null;
 let state = 'disconnected';
 let lastConfig = null;
-// E11 retrospective (2026-08-06) — the ONE place lastConfig is written, so the
-// paste pump's pacing can never again drift out of step with the open port.
+// The ONE place lastConfig is written, and therefore the one place the paste pump
+// can learn how the open port is framed.
 //
-// paste-pump exported setBaudForPump with the comment "Called from serial.js on
-// config-driven connect". It was not. Nothing called it, in production or in a
-// test, since the day it was written — so gapMs stayed at computeGap(19200) for
-// the life of the page no matter what the user picked in the serial config
-// modal. Pasting on a 9600 connection therefore pushed 32 bytes every ~18 ms
-// (~1730 B/s) at a wire that carries ~960 B/s, i.e. a steady overrun, while the
-// pump's whole reason for existing is to stay under the byte rate.
+// The pump paces pastes only on a port with NO flow control. The measured working
+// point on real hardware is 5 B/s, which is nearly three minutes for an 800 B
+// block; with RTS/CTS the same paste is correct at full wire speed, so imposing
+// that cadence on a handshaken port would be absurd. Pushing flowControl here is
+// how the pump finds out. Called with null on disconnect (see teardown).
 //
-// Found by the E9 retro's dormant-hook sweep, finally run. The hook was dead
-// AND its comment asserted it was live, which is why neither reading the call
-// site nor reading the definition would have caught it — only asking "who
-// actually calls this?" did.
+// This is the second hook of this shape to live on this line, and the first one is
+// the reason the wording matters. setBaudForPump shipped with a comment claiming
+// serial.js called it, and NOTHING did — not production, not a test — for months,
+// so paste pacing sat frozen at its boot value the whole time. Reading either end
+// told you it was wired; only asking "who actually calls this?" caught it. So the
+// claim above is not left as a claim: tests/transport/paste.spec.js drives a real
+// connect and asserts the pump learned the flow control, and it fails if the call
+// below is deleted.
 function setLastConfig(cfg) {
     lastConfig = cfg;
-    if (cfg && typeof cfg.baudRate === 'number') setBaudForPump(cfg.baudRate);
+    setPasteFlowControl(cfg ? cfg.flowControl : null);
 }
 let lastPortRef = null;
 let shuttingDown = false;   // Gap 1 fix — set true in beforeunload so runReadLoop's
@@ -887,6 +889,12 @@ async function teardown({ deassertSignals = true } = {}) {
     // Step 5 — Phase 5 D-20 — drop any mid-paste queue.
     pastePumpOnPortLost();
     slidePumpOnPortLost();   // Phase 11 D-14 — symmetric SLIDE port-lost teardown.
+    // Step 6 — nothing is open, so the pump knows nothing about flow control and goes
+    // back to pacing. Safe to say unconditionally now: every path that opens a port
+    // records what it opened with (connectMicroBeast, the boot auto-connect, and
+    // finishReconnect), so the next open corrects this whatever it turns out to be.
+    // This used to have to reason about which teardowns a reconnect might follow.
+    setPasteFlowControl(null);
     // NOTE: port variable stays set (so getPorts/VID-match still works on reconnect).
 }
 
@@ -1039,6 +1047,19 @@ async function onNavSerialConnect(ev) {
 // No error log on clean unplug — the red border signal is sufficient.
 function onNavSerialDisconnect(ev) {
     if (ev.target === port || ev.target === lastPortRef) {
+        // Nothing is open any more, so the pump knows nothing about flow control —
+        // the same thing an explicit Disconnect says. This used to be left standing
+        // on the port-lost paths because a reconnect never re-recorded the config,
+        // so clearing here would have left the pump pacing a port that came back
+        // handshaking. finishReconnect records it now, like every other open, so the
+        // pump's belief can simply mean what it says: the flow control of the port
+        // that is currently open, with no exceptions to reason about.
+        //
+        // BEFORE setState, because setState fans out to every connection projector —
+        // including the Paste settings modal's throughput readout, which would
+        // otherwise re-derive from the belief this line is about to invalidate and
+        // go on claiming the pacing is off.
+        setPasteFlowControl(null);
         setState('port-lost');
         // Phase 5 D-20 — drain any mid-paste queue on hard unplug so the
         // pump stops trying to push bytes to a closed writer.
@@ -1052,8 +1073,11 @@ function onNavSerialDisconnect(ev) {
 async function handleReconnect(target) {
     setState('reconnecting');
     let openSucceeded = false;
+    // The config this open uses, carried to finishReconnect so it can be recorded.
+    // EVERY successful open records what it opened with — see finishReconnect.
+    const cfg = lastConfig || PRESET_CONFIG;
     try {
-        await target.open(lastConfig || PRESET_CONFIG);
+        await target.open(cfg);
         openSucceeded = true;
         // Phase 12.1 Plan 12-08 — RTS gated on prefs.serialAssertRtsOnConnect.
         await target.setSignals({
@@ -1071,7 +1095,7 @@ async function handleReconnect(target) {
         setTimeout(() => retryOpenOnce(target), 500);
         return;
     }
-    await finishReconnect(target);
+    await finishReconnect(target, cfg);
 }
 
 // D-04 retry — second attempt at open() after a 500ms gap. If this also fails
@@ -1079,8 +1103,9 @@ async function handleReconnect(target) {
 // and land in port-lost so the user can click Reconnect explicitly.
 async function retryOpenOnce(target) {
     let openSucceeded = false;
+    const cfg = lastConfig || PRESET_CONFIG;
     try {
-        await target.open(lastConfig || PRESET_CONFIG);
+        await target.open(cfg);
         openSucceeded = true;
         // Phase 12.1 Plan 12-08 — RTS gated on prefs.serialAssertRtsOnConnect.
         await target.setSignals({
@@ -1104,10 +1129,10 @@ async function retryOpenOnce(target) {
             : `Reconnect failed: ${retryErr.message}`);
         return;
     }
-    await finishReconnect(target);
+    await finishReconnect(target, cfg);
 }
 
-async function finishReconnect(target) {
+async function finishReconnect(target, cfg) {
     // Review fix — the port is open by the time we get here, so a throw from
     // getWriter/registerWriter would escape as an unhandled rejection (both callers
     // await this from a setTimeout or an event handler) and strand the open port.
@@ -1124,6 +1149,15 @@ async function finishReconnect(target) {
     }
     port = target;
     lastPortRef = target;
+    // Every successful open records the config it opened with — no exceptions, this
+    // path included. It used to be the exception, and the asymmetry cost data:
+    // Disconnect cleared the pump's flow-control belief to `none`, and a later unplug
+    // + replug reopened the port from the CACHED hardware config through here without
+    // telling the pump. The port handshook; the pump paced it anyway; an 800 B paste
+    // that takes 59 s took 148. Recording it here rather than reasoning about when it
+    // is safe not to is what makes the pump's belief match the open port by
+    // construction.
+    setLastConfig(cfg);
     // Phase 6 Plan 05 (D-29) — reconnect is a new session per the per-connection
     // lifecycle contract; capture a fresh connect-time UTC stamp BEFORE setState
     // so the read loop's first append finds an empty buffer and a current stamp.

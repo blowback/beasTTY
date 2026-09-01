@@ -11,6 +11,9 @@
 // Boot-race guard (E0/E1 protocol): wait on the window.__* handles before driving.
 import { test, expect } from '@playwright/test';
 
+// No options: the prefs-seeding and serial-mock branches went with the paste
+// submenus (see the note at the foot of this file). Every case here boots a plain
+// page, and a dead parameter is an invitation to think one is available.
 async function ready(page) {
   await page.goto('/');
   await page.waitForFunction(
@@ -135,6 +138,12 @@ test.describe('E3.2 AC-2/AC-4/AC-5 — Enter key sends', () => {
     await page.locator('#debug').evaluate((el) => { el.open = true; });
     // Fresh page: the submenu's active radio is CR (prefs.crlfMode default).
     await page.evaluate(() => window.__menuBar.open('settings'));
+    // The row's LABEL, verbatim. This assertion used to live in the retired Paste
+    // line ending case next door, which checked its own label and this one together
+    // so the pair read as deliberately distinct settings. That case moved to
+    // paste-config-modal.spec.js with the control; the half of it that belongs to
+    // Enter key sends belongs here.
+    await expect(page.locator(`${CRLF_PARENT} .lbl`)).toHaveText('Enter key sends');
     await page.click(CRLF_PARENT);
     await expect(page.locator(crlfRadio('cr'))).toHaveAttribute('data-checked', 'true');
     await page.evaluate(() => window.__menuBar.close());
@@ -296,3 +305,10 @@ test.describe('Settings ▸ Strip ctrl codes from logs', () => {
     expect(await page.evaluate(() => window.__prefs.getPrefs().stripCtrlLogs)).toBe(false);
   });
 });
+
+// The three paste settings — line ending, chunk size and pause — used to be radio
+// submenus here, with the throughput readout under them. They moved into
+// #paste-config-modal (Settings ▸ Paste settings…), so their coverage moved with
+// them: see tests/render/paste-config-modal.spec.js, which re-derives every case
+// that lived here — the defaults, persist ≠ apply on all three, the derived
+// throughput and its flow-control state, focus retention, and reset.

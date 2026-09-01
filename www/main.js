@@ -125,6 +125,14 @@ import {
     cancelPaste as cancelPastePump,
     isActive as pastePumpIsActive,
     wirePastePump,
+    setPasteLineEnding,
+    setPasteChunk,
+    setPastePauseMs,
+    getPasteLineEnding,
+    getPasteChunk,
+    getPastePauseMs,
+    getPasteFlowControl,
+    getPasteThroughput,
     __getStateForTests as __pastePumpGetStateForTests,
 } from './input/paste-pump.js';
 import {
@@ -182,6 +190,13 @@ import {
     __resetForTests as __pasteToastResetForTests,
     __getStateForTests as __pasteToastGetStateForTests,
 } from './renderer/paste-toast.js';
+// Settings ▸ Paste settings… — the controls inside #paste-config-modal (line ending,
+// chunk size, pause, and the throughput they add up to). Owns their change handlers
+// and their projection; modal.js still owns the dialog's open/close/focus mechanics.
+import {
+    wirePasteConfig,
+    __getStateForTests as __pasteConfigGetStateForTests,
+} from './renderer/paste-config.js';
 // E8 command-history escape hatch (2026-08-06) — generic one-line notice toast.
 // Distinct from paste-toast above: that module is a paste state machine with no
 // "just say this" entry point. Its only caller today is keyboard.js's
@@ -390,6 +405,40 @@ const openAbout = makeModalOpener(aboutModalEl, 'about-close', projectAboutBuild
 const slideConfigModalEl = document.getElementById('slide-config-modal');
 const openSlideConfig = makeModalOpener(slideConfigModalEl, 'slide-recv-to-folder-checkbox',
     () => syncProgramNameValidity(getPrefs()?.slideProgramName || ''));
+// Settings ▸ Paste settings… — the three paste controls (line ending, chunk size,
+// pause) plus the throughput they add up to, relocated out of the Settings menu's
+// radio submenus. Same opener contract as the four above; initialFocus = the Line
+// ending select (first form control, non-destructive modal).
+//
+// wirePasteConfig owns what is inside the dialog: each control applies to the pump
+// AND persists (persist ≠ apply — savePrefs does not fan out), and project() re-derives
+// every control from the pump's LIVE getters. It is passed as makeModalOpener's onOpen,
+// so that re-derive runs just before showModal — the same use-time projection the
+// submenus took on every Settings-menu open, and the reason a control here can never
+// show a value the next paste will not use.
+const pasteConfigModalEl = document.getElementById('paste-config-modal');
+const pasteConfig = wirePasteConfig({
+    setPasteLineEnding,
+    setPasteChunk,
+    setPastePauseMs,
+    getPasteLineEnding,
+    getPasteChunk,
+    getPastePauseMs,
+    // The derived readout: null = no pacing limit at all, so the wire is the only one.
+    // getPasteFlowControl says WHICH of the two reasons that is — a pause of 0, or a
+    // handshaking port that turns the pacing off entirely. The readout has to be able
+    // to say the second one out loud, or the two cadence rows would sit there set and
+    // ignored.
+    getPasteThroughput,
+    getPasteFlowControl,
+    // The readout's flow-control state belongs to the OPEN PORT, so a modal that is
+    // already open when the connection changes has to re-derive it. project() on open
+    // covers the other direction. Same onStateChange truth every other connection
+    // projector reads.
+    onConnectionChange: onStateChange,
+});
+const openPasteConfig = makeModalOpener(pasteConfigModalEl, 'paste-line-ending-select',
+    () => pasteConfig.project());
 // Phase 4 Plan 03 — Debug TX strip refs. E7.1 — the Settings-pane #local-echo /
 // #crlf-* refs + their listeners retired with <details id="settings">; Local echo
 // and Enter-key-sends are now menu-authoritative (Settings menu → keyboard.js
@@ -639,6 +688,11 @@ const menuBar = wireMenuBar({
     // #slide-config-modal via openModal. Injected like openSerialConfig / openReservedCtrl
     // (menu-bar imports neither modal.js nor slide*.js — AD-3).
     openSlideConfig,
+    // Settings ▸ Paste settings… opens the #paste-config-modal via openModal.
+    // Injected like openSlideConfig; its paste-config project() onOpen re-derives all
+    // three controls from the PUMP's live values before showModal, so the modal can
+    // never show a setting the next paste is not going to use.
+    openPasteConfig,
 });
 window.__menuBar = menuBar;   // Playwright hook (mirrors window.__scrollState / window.__modal)
 
@@ -1068,10 +1122,26 @@ const pasteToast = wirePasteToast({
 // stays DOM-agnostic: it calls the injected confirmLargePaste, which returns the
 // toast's Promise<boolean>.
 wireClipboard({
-    confirmLargePaste: (byteCount) => pasteToast.confirmLargePaste(byteCount, {
-        // Plan 06-06 (PREF-01) wires the Settings serial-config baud as the
-        // authoritative source. For now the form select element is the live value.
-        getBaud: () => parseInt(serialBaud.value, 10) || 19200,
+    confirmLargePaste: (byteCount, pacing) => pasteToast.confirmLargePaste(byteCount, {
+        // The estimate reads the PUMP's cadence, not the baud. The pump no longer
+        // paces to the wire at all — the user sets the chunk size and the pause
+        // directly — so a baud-derived figure would promise a paste many times
+        // faster than it runs (the default 1 byte / 20 ms is ~50 B/s against a
+        // 19200 wire's ~1700).
+        //
+        // `pacing` is the snapshot clipboard.js will hand straight to enqueuePaste,
+        // so the quote describes the run rather than whatever the settings say by
+        // the time the user clicks [Paste]. The live getters are the fallback for a
+        // caller that passes no snapshot.
+        getChunk: () => (pacing ? pacing.chunk : getPasteChunk()),
+        getPauseMs: () => (pacing ? pacing.pauseMs : getPastePauseMs()),
+        // Whether that snapshot is unpaced because the port is handshaking, as
+        // opposed to because the user set the pause to 0. Both run at wire speed;
+        // only one of them means "your Paste pause setting does not apply here",
+        // and the confirm has to say which.
+        isFlowControlled: () => (pacing
+            ? !!pacing.bypassedByFlowControl
+            : getPasteFlowControl() === 'hardware'),
     }),
 });
 window.__copySelection = copySelection;
@@ -1084,9 +1154,23 @@ window.__pastePump = {
     enqueuePaste,
     cancelPaste: cancelPastePump,
     isActive: pastePumpIsActive,
-    // E11 retro — exposes gapMs so a spec can see the pacing follow the port's
-    // baud. It could not before, which is part of why setBaudForPump sat dead.
+    // Exposes the live cadence so a spec can see what the menu rows applied — the
+    // pacing used to be unobservable, which is part of how a dead pacing hook sat
+    // there for months.
     __getStateForTests: __pastePumpGetStateForTests,
+    // The three paste settings plus the throughput they add up to, so a spec can
+    // read what the menu rows actually applied (persist ≠ apply is only checkable
+    // if the live side is readable). Getters only — the menu is the write surface.
+    getPasteLineEnding,
+    getPasteChunk,
+    getPastePauseMs,
+    getPasteThroughput,
+    // What the pump learned about the open port from serial.js's setLastConfig.
+    // Exposed so a spec can prove that hook is genuinely wired: connect a mock port
+    // opened with RTS/CTS and this must read 'hardware'. It reads 'none' if the
+    // setLastConfig call is ever deleted, which is how the last hook of this shape
+    // stayed dead for months without a single test noticing.
+    getPasteFlowControl,
 };
 // Epic E7 Story E7.1 (AD-2) — paste-toast introspection for the
 // paste-toast.spec.js chromium suite. Public state-entry/confirm methods are
@@ -1098,6 +1182,13 @@ window.__pasteToast = {
     handleProgress: pasteToast.handleProgress,
     confirmLargePaste: pasteToast.confirmLargePaste,
     hide: pasteToast.hide,
+};
+// The Paste settings modal's controls, for the render suite: what each control is
+// SHOWING (a projection of the pump, not of the prefs) and whether the dialog is open.
+window.__pasteConfig = {
+    __getStateForTests: __pasteConfigGetStateForTests,
+    project: () => pasteConfig.project(),
+    open: () => openPasteConfig(),
 };
 
 // ---- Phase 6 Plan 05 (Wave 4) — wire session log accumulator ----
@@ -1833,6 +1924,22 @@ function applyPrefs(p) {
     // resetPrefs() fan-out it restores OFF. menuBar.projectPrefs re-derives only the row.
     setDebugPanelVisible(p.showDebugPanel);
     setCrlfMode(p.crlfMode);
+    // Settings ▸ Paste line ending / chunk size / pause — applyPrefs is the SINGLE
+    // writer of the pump's live settings on the boot + resetPrefs() fan-out (mirrors
+    // setCrlfMode above); the menu rows own them on click (persist ≠ apply). Every
+    // setter validates its argument and keeps the current value on a reject, so a
+    // corrupt stored blob leaves the pump on its defaults rather than throwing.
+    // wirePastePump runs well above this (before wireSerial), and the pump's
+    // module-scope defaults match DEFAULTS, so there is no window in which a paste
+    // could use unset pacing.
+    setPasteLineEnding(p.pasteLineEnding);
+    setPasteChunk(p.pasteChunk);
+    setPastePauseMs(p.pastePauseMs);
+    // …then re-derive the Paste settings modal's controls from what the pump just
+    // ACCEPTED. The modal already re-projects on every open, so this matters in one
+    // case only: a resetPrefs() while the modal is held OPEN. Reading the pump rather
+    // than `p` keeps the rule intact — a rejected pref must never reach a control.
+    pasteConfig.project();
     // Settings ▸ Wrap long lines — applyPrefs is the SINGLE writer of the core's
     // wrap mode on the boot + resetPrefs() fan-out (mirrors setLocalEcho/setCrlfMode
     // above). The menu toggle owns it on click (persist ≠ apply); this restores the

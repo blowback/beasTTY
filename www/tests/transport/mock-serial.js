@@ -16,6 +16,14 @@
 //   - window.__simulateReplug()  — dispatches 'connect' on navigator.serial.
 //   - window.__mockReaderPush(bytes) — simulates bytes arriving via reader.read().
 //   - window.__mockWriterLog     — array of { bytes, ts } recording every writer.write.
+//   - window.__mockWriterDelayMs — make every write take this long to resolve (a
+//                                  throttled wire, so the paste pump's backpressure
+//                                  await has something to wait for).
+//   - window.__mockWriterHoldAt  — index of a write that hangs until the spec calls
+//                                  window.__mockWriterRelease(). Used to hold a write
+//                                  IN FLIGHT while the spec cancels underneath it.
+//   - window.__mockWriterRejectAt — index from which every write rejects (port lost
+//                                  with a write outstanding).
 //   - window.__mockLockLog       — Plan 05-08 — array of { op, ts } recording
 //                                  reader.cancel / reader.releaseLock /
 //                                  writer.releaseLock / port.close. Used by
@@ -61,7 +69,40 @@ export const SERIAL_MOCK = `
 
   class MockWriter {
     constructor(port) { this.port = port; }
+    // WritableStreamDefaultWriter.ready — the backpressure signal. Always resolved
+    // here; the mock models a slow wire with __mockWriterDelayMs on write() instead,
+    // which is easier to reason about in a spec and lands in the same place: the
+    // paste pump cannot advance until the writer says so.
+    get ready() { return Promise.resolve(); }
     async write(bytes) {
+      // Index of THIS write, before anything is logged — the hooks below address
+      // writes by position.
+      const idx = window.__mockWriterLog.length + (window.__mockWriterInFlight || 0);
+      // __mockWriterRejectAt — the write at this index rejects, and every one after
+      // it too (a port that has gone away does not come back). Models a port lost
+      // with a write in flight, which must reach the pump rather than a console line.
+      if (Number.isInteger(window.__mockWriterRejectAt) && idx >= window.__mockWriterRejectAt) {
+        const e = new Error('mock writer: the port went away');
+        e.name = 'NetworkError';
+        throw e;
+      }
+      // __mockWriterHoldAt — the write at this index never settles until the spec
+      // calls window.__mockWriterRelease(). This is how a spec gets a write STUCK
+      // in flight so it can cancel underneath it and then let it resolve.
+      if (Number.isInteger(window.__mockWriterHoldAt) && idx === window.__mockWriterHoldAt) {
+        window.__mockWriterInFlight = (window.__mockWriterInFlight || 0) + 1;
+        await new Promise((resolve) => { window.__mockWriterRelease = () => resolve(); });
+        window.__mockWriterInFlight -= 1;
+        window.__mockWriterReleased = true;
+      }
+      // __mockWriterDelayMs — a throttled wire. The write resolves this many ms
+      // later, which is what a real writer.ready does on a flow-controlled port.
+      const delay = window.__mockWriterDelayMs;
+      if (typeof delay === 'number' && delay > 0) {
+        window.__mockWriterInFlight = (window.__mockWriterInFlight || 0) + 1;
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        window.__mockWriterInFlight -= 1;
+      }
       window.__mockWriterLog.push({ bytes: Array.from(bytes), ts: performance.now() });
       return undefined;
     }

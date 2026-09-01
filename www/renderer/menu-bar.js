@@ -171,6 +171,14 @@ let setLocalEchoRef = null;
 let setCrlfModeRef = null;
 let localEchoItemEl = null;        // #menu-local-echo-item — checkable, derived from prefs.localEcho
 let crlfPanelEl = null;            // [data-submenu-panel="crlf"] — active radio derived from prefs.crlfMode
+// Settings ▸ Paste settings… — the three paste controls (line ending, chunk size,
+// pause) and their throughput readout used to be radio submenus here. They moved
+// into #paste-config-modal, so this module now knows one thing about them: the
+// injected opener, in the modalOpener table with the other four. renderer/
+// paste-config.js owns the controls, and holds the same persist ≠ apply contract
+// the submenus did. Paste line ending stays deliberately INDEPENDENT of crlfMode
+// above: Enter key sends governs the Enter key, Paste line ending governs pasted
+// text, and neither reads the other.
 // E8.3 (FR-19/FR-20) — the two Command-history rows this module projects.
 let commandHistoryItemEl = null;   // #menu-command-history-item — checkable, derived from prefs.commandHistoryEnabled
 let cmdHistorySizePanelEl = null;  // [data-submenu-panel="cmdhistory-size"] — active radio derived from prefs.commandHistorySize
@@ -233,6 +241,10 @@ let openAboutRef = null;
 // #slide-config-modal (main.js owns openModal — menu-bar must not import modal.js/
 // slide*.js). Optional: a harness that omits it leaves that row's click inert.
 let openSlideConfigRef = null;
+// Settings ▸ Paste settings… opener for the injected #paste-config-modal (main.js
+// owns openModal — menu-bar must not import modal.js/paste-pump.js). Optional: a
+// harness that omits it leaves that row's click inert.
+let openPasteConfigRef = null;
 let resetPrefsItemEl = null;       // #menu-reset-prefs-item — cached at wire time like the sibling projected rows
 // The Reset row's inline 2-click confirm. Both the labels AND the arm/commit/disarm
 // state machine are shared (confirm-toggle.js) with chrome.js's legacy #reset-prefs-button,
@@ -394,6 +406,7 @@ export function wireMenuBar(opts = {}) {
     openKeyboardShortcutsRef = opts.openKeyboardShortcuts || null;   // E6.1 (FR-24, AD-3)
     openAboutRef = opts.openAbout || null;   // E6.2 (FR-25, AD-3)
     openSlideConfigRef = opts.openSlideConfig || null;     // E3.4 (FR-20, AD-3)
+    openPasteConfigRef = opts.openPasteConfig || null;     // Settings ▸ Paste settings… (AD-3)
     menuBarEl = document.getElementById('menu-bar');
     liveRegionEl = document.getElementById('menu-bar-live');
     openMenu = null;
@@ -1024,6 +1037,7 @@ function onItemClick(item, ev) {
         'serial-config': openSerialConfigRef,   // Connection ▸ Serial Configuration…
         'reserved-ctrl': openReservedCtrlRef,   // Settings ▸ Browser-reserved Ctrl combos…
         'slide-config': openSlideConfigRef,     // Settings ▸ SLIDE File Transfer…
+        'paste-config': openPasteConfigRef,     // Settings ▸ Paste settings…
         'keyboard-shortcuts': openKeyboardShortcutsRef,   // Help ▸ Keyboard Shortcuts… (E6.1)
         'about': openAboutRef,                  // Help ▸ About Beastty… (E6.2)
     }[action];
@@ -1193,6 +1207,9 @@ function projectMenuOnOpen() {
         projectWrapLines();
         projectStripCtrl();
         projectCommandHistory();   // toggle glyph + size radio
+        // The three paste settings are not projected here any more: they live in
+        // #paste-config-modal, which re-projects itself from the pump just before it
+        // opens (main.js openPasteConfig → paste-config.js project).
         const p = getPrefs();
         if (crlfPanelEl && p && p.crlfMode) setRadioChecked(crlfPanelEl, p.crlfMode);
     }
@@ -1451,6 +1468,10 @@ export function projectPrefs(prefs) {
     projectWrapLines(p); // Settings ▸ Wrap long lines — resetPrefs() restores the unchecked default row
     projectStripCtrl(p); // Settings ▸ Strip ctrl codes from logs — resetPrefs() restores the unchecked default row
     if (crlfPanelEl && p.crlfMode) setRadioChecked(crlfPanelEl, p.crlfMode);
+    // The three paste settings have no row here to re-project: resetPrefs() restores
+    // them through applyPrefs (the pump's single writer on that path), and
+    // #paste-config-modal re-derives its controls from the pump the next time it
+    // opens — so the reset is visible there without this module knowing about it.
     // E8.3 (AC-5) — re-project the Settings ▸ Command history toggle + size radio so
     // resetPrefs() (AD-14) restores the defaults (enabled checked, size 100) in the menu
     // DOM. This IS the reset story — no bespoke reset handler. Placed before the View

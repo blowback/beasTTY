@@ -14,6 +14,10 @@
 // the OPEN; a real title CLICK is used only where the switch-path IS the assertion);
 // row click via [data-action]; retainFocus via activeElement.id.
 import { test, expect } from '@playwright/test';
+import {
+  openPasteSettings, closePasteSettings,
+  PASTE_EOL_SELECT, PASTE_CHUNK_SELECT, PASTE_PAUSE_SELECT, PASTE_THROUGHPUT,
+} from '../paste-settings.js';
 
 const RESET = '#dropdown-settings .menu-item[data-action="reset-prefs"]';
 const RESET_LBL = `${RESET} .lbl`;
@@ -185,5 +189,65 @@ test.describe('E3.3 AC-2 — reset re-projects every prefs-driven menu row', () 
     await page.click('#dropdown-settings .menu-item[data-submenu="crlf"]');
     await expect(page.locator(crlfRadio('cr'))).toHaveAttribute('data-checked', 'true');
     await expect(page.locator(crlfRadio('lf'))).toHaveAttribute('data-checked', 'false');
+  });
+
+  test('committed reset restores the three paste settings too @fast', async ({ page }) => {
+    // The paste settings left the menu for #paste-config-modal, so the reset shows
+    // up there rather than in a row here: applyPrefs restores the pump (it is the
+    // single writer on the reset path) and the modal re-derives its controls from
+    // the pump the next time it opens. Seeded non-default so a reset is observable
+    // in every control; a pause of 0 is seeded deliberately, being the value a
+    // truthy projector guard would skip.
+    await ready(page, { prefs: { version: 2, pasteLineEnding: 'raw', pasteChunk: 32, pastePauseMs: 0 } });
+    await page.waitForFunction(
+      () => window.__pastePump && typeof window.__pastePump.getPasteChunk === 'function');
+
+    await openPasteSettings(page);
+    await expect(page.locator(PASTE_EOL_SELECT)).toHaveValue('raw');
+    await expect(page.locator(PASTE_CHUNK_SELECT)).toHaveValue('32');
+    await expect(page.locator(PASTE_PAUSE_SELECT)).toHaveValue('0');
+    await expect(page.locator(PASTE_THROUGHPUT)).toHaveText('wire speed');
+    await closePasteSettings(page);
+
+    await page.evaluate(() => window.__menuBar.open('settings'));
+    await page.click(RESET);
+    await expect(page.locator(RESET_LBL)).toHaveText(CONFIRM);
+    await page.click(RESET);
+
+    const p = await page.evaluate(() => window.__prefs.getPrefs());
+    expect(p.pasteLineEnding).toBe('cr');
+    expect(p.pasteChunk).toBe(1);
+    expect(p.pastePauseMs).toBe(200);
+    // applyPrefs is the single writer of the live pump state on the reset path.
+    expect(await page.evaluate(() => window.__pastePump.getPasteLineEnding())).toBe('cr');
+    expect(await page.evaluate(() => window.__pastePump.getPasteChunk())).toBe(1);
+    expect(await page.evaluate(() => window.__pastePump.getPastePauseMs())).toBe(200);
+
+    await openPasteSettings(page);
+    await expect(page.locator(PASTE_EOL_SELECT)).toHaveValue('cr');
+    await expect(page.locator(PASTE_CHUNK_SELECT)).toHaveValue('1');
+    await expect(page.locator(PASTE_PAUSE_SELECT)).toHaveValue('200');
+    await expect(page.locator(PASTE_THROUGHPUT)).toHaveText('≈ 5 B/s');
+    await closePasteSettings(page);
+  });
+
+  test('a reset while the Paste settings modal is OPEN re-projects it in place @fast', async ({ page }) => {
+    // The modal re-derives on every open, so the one case that needs applyPrefs to
+    // push a projection is a reset committed while the dialog is already up. Reset
+    // is a menu row, so this drives resetPrefs() directly — which is the same
+    // fan-out the row commits to.
+    await ready(page, { prefs: { version: 2, pasteLineEnding: 'raw', pasteChunk: 32, pastePauseMs: 0 } });
+    await page.waitForFunction(
+      () => window.__pastePump && typeof window.__pastePump.getPasteChunk === 'function');
+    await openPasteSettings(page);
+    await expect(page.locator(PASTE_CHUNK_SELECT)).toHaveValue('32');
+
+    await page.evaluate(() => window.__prefs.resetPrefs());
+
+    await expect(page.locator(PASTE_EOL_SELECT)).toHaveValue('cr');
+    await expect(page.locator(PASTE_CHUNK_SELECT)).toHaveValue('1');
+    await expect(page.locator(PASTE_PAUSE_SELECT)).toHaveValue('200');
+    await expect(page.locator(PASTE_THROUGHPUT)).toHaveText('≈ 5 B/s');
+    await closePasteSettings(page);
   });
 });
