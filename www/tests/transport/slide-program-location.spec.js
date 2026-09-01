@@ -280,6 +280,92 @@ test('auto-start off types nothing, but the location still composes the pull com
         () => window.__pullPane.__getStateForTests().review.command)).toBe('B:SLIDE S GAME.COM');
 });
 
+// ── VideoBeast mode: the direction argument ──
+// The `V` rides on the SAME CP/M argument as the direction letter (`SLIDE RV`,
+// never `SLIDE R V`) — newer slide.com builds read it as "write straight into
+// VideoBeast video memory". These assert the exact bytes because the wire is
+// what reaches real hardware, and a stray space would be a different command.
+
+test('VideoBeast mode off (the default) sends the plain R direction', async ({ page }) => {
+    await setupConnected(page);
+    // No savePrefs of the mode at all — the shipped default must be the v2 bytes.
+    await page.evaluate(() => window.__prefs.savePrefs({
+        slideProgramDrive: 'A:', slideProgramName: 'SLIDE.COM',
+    }));
+    expect(await page.evaluate(() => window.__prefs.getPrefs().slideVideoBeastMode)).toBe(false);
+    const wire = await sendAndReadWire(page);
+    expect(wire).toContain('A:SLIDE.COM R\r');
+    expect(wire).not.toContain('RV');
+});
+
+test('VideoBeast mode on sends RV, glued to the direction letter', async ({ page }) => {
+    await setupConnected(page);
+    await page.evaluate(() => window.__prefs.savePrefs({
+        slideVideoBeastMode: true, slideProgramDrive: 'B:', slideProgramName: 'SLIDE',
+    }));
+    const wire = await sendAndReadWire(page);
+    expect(wire).toContain('B:SLIDE RV\r');
+    // The V is part of the direction argument, not a second one.
+    expect(wire).not.toContain('B:SLIDE R V');
+});
+
+test('VideoBeast mode with auto-start off still types nothing', async ({ page }) => {
+    await setupConnected(page);
+    await page.evaluate(() => window.__prefs.savePrefs({
+        slideVideoBeastMode: true, slideAutoStart: false,
+        slideProgramDrive: 'B:', slideProgramName: 'SLIDE',
+    }));
+    const wire = await sendAndReadWire(page);
+    expect(wire).not.toContain('B:SLIDE');
+    expect(wire).not.toContain('RV');
+});
+
+test('VideoBeast mode does not bypass the use-time location check', async ({ page }) => {
+    await setupConnected(page);
+    // The direction is chosen only after the grammar check — an unusable
+    // location types nothing whether or not VideoBeast mode is on.
+    await page.evaluate(() => window.__prefs.savePrefs({
+        slideVideoBeastMode: true, slideProgramDrive: 'A:', slideProgramName: 'SLIDE;RM',
+    }));
+    const wire = await sendAndReadWire(page);
+    // Level with the sibling case above: nothing is typed at all, not merely a
+    // sanitized command. Without the SLIDE assertion this passes even if the
+    // check were removed and the name silently scrubbed.
+    expect(wire).not.toContain(';');
+    expect(wire).not.toContain('SLIDE');
+    expect(wire).not.toContain('RV');
+});
+
+test('ticking the checkbox itself reaches the wire, without waiting for the save debounce', async ({ page }) => {
+    // The other cases set the pref through savePrefs directly, which leaves the
+    // two pieces of production wiring in main.js — the change listener and the
+    // key it writes — pinned only against localStorage. This drives the real
+    // control instead, so a typo in either the write or the read is caught.
+    await setupConnected(page);
+    await page.evaluate(() => window.__prefs.savePrefs({
+        slideProgramDrive: 'B:', slideProgramName: 'SLIDE',
+    }));
+    await openSlideModal(page);
+    await page.locator('#slide-videobeast-checkbox').check();
+    await page.locator('#slide-config-close').click();
+    await page.locator('#slide-config-modal').waitFor({ state: 'hidden' });
+    // No poll for the 250 ms localStorage flush: savePrefs updates the in-memory
+    // blob synchronously and readAutoSendCommandBytes reads that, which is what
+    // "reaches the wire on the very next transfer" means.
+    expect(await sendAndReadWire(page)).toContain('B:SLIDE RV\r');
+});
+
+test('VideoBeast mode leaves the pull direction alone', async ({ page }) => {
+    await setupConnected(page);
+    await page.evaluate(() => window.__prefs.savePrefs({
+        slideVideoBeastMode: true, slideProgramDrive: 'B:', slideProgramName: 'SLIDE',
+    }));
+    // Pulls do not read VideoBeast memory, so the pull command keeps its bare S.
+    await page.evaluate(() => window.__pullPane.beginReview('GAME.COM'));
+    expect(await page.evaluate(
+        () => window.__pullPane.__getStateForTests().review.command)).toBe('B:SLIDE S GAME.COM');
+});
+
 test('a location change reaches the wire with no page reload', async ({ page }) => {
     // Regression for .planning/debug/slide-stale-auto-send-cmd.md: slide.js
     // used to hold a boot-time prefs snapshot, so a Settings edit only took

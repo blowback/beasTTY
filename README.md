@@ -249,6 +249,13 @@ The SLIDE sub-block in the Settings pane covers four prefs. All persist in
   types nothing before a send and you start `slide.com` on the MicroBeast
   yourself. The location above still composes the pull command, so
   dragging files out of the pull pane keeps working either way.
+- **VideoBeast mode** *(default off)* — when on, BeasTTY starts SLIDE with
+  `RV` instead of `R`. Newer `slide.com` builds read the `V` as "write this
+  file straight into VideoBeast video memory" rather than to disk; older
+  builds do not understand the argument, so leave this off unless you know
+  which build is on the MicroBeast. It changes the command auto-start types,
+  so it does nothing while **Auto-start** is off. Pulls are unaffected — they
+  still use `S`.
 - **Show transfer summary chip** *(default on)* — when on, a small chip
   appears for ~5 s after a successful send or receive completes,
   reporting the file count, total bytes, and direction

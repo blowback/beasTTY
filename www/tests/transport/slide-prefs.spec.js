@@ -54,13 +54,16 @@ test.describe('slide-prefs — Settings layout', () => {
         await expect(page.locator('#slide-config-modal-title')).toHaveText('SLIDE File Transfer');
     });
 
-    test('contains 5 rows in order: Save-to-folder, Location, Auto-start, Show-summary, Compatibility', async ({ page }) => {
+    test('contains 6 rows in order: Save-to-folder, Location, Auto-start, VideoBeast, Show-summary, Compatibility', async ({ page }) => {
         await setup(page);
         // The D-05 rows (verbatim ids preserved through the move), plus the two
-        // that replaced the single Auto-send row in prefs v2.
+        // that replaced the single Auto-send row in prefs v2, plus VideoBeast
+        // mode — which sits next to auto-start because it changes the very
+        // command auto-start types.
         await expect(page.locator('#slide-recv-folder-row')).toHaveCount(1);
         await expect(page.locator('#slide-program-row')).toHaveCount(1);
         await expect(page.locator('#slide-auto-start-row')).toHaveCount(1);
+        await expect(page.locator('#slide-videobeast-row')).toHaveCount(1);
         await expect(page.locator('#slide-show-summary-row')).toHaveCount(1);
         await expect(page.locator('#slide-compat-row')).toHaveCount(1);
         // Rows must be inside #slide-config-modal (single-surface containment — NFR-4).
@@ -68,18 +71,20 @@ test.describe('slide-prefs — Settings layout', () => {
             '#slide-recv-folder-row',
             '#slide-program-row',
             '#slide-auto-start-row',
+            '#slide-videobeast-row',
             '#slide-show-summary-row',
             '#slide-compat-row',
         ]) {
             const inModal = await page.locator(`#slide-config-modal ${id}`).count();
             expect(inModal).toBe(1);
         }
-        // Visual order: the 4 rows appear in the listed sequence.
+        // Visual order: the rows appear in the listed sequence.
         const orderIds = await page.evaluate(() => {
             const rows = Array.from(document.querySelectorAll(
                 '#slide-config-modal #slide-recv-folder-row, ' +
                 '#slide-config-modal #slide-program-row, ' +
                 '#slide-config-modal #slide-auto-start-row, ' +
+                '#slide-config-modal #slide-videobeast-row, ' +
                 '#slide-config-modal #slide-show-summary-row, ' +
                 '#slide-config-modal #slide-compat-row'));
             return rows.map((r) => r.id);
@@ -88,6 +93,7 @@ test.describe('slide-prefs — Settings layout', () => {
             'slide-recv-folder-row',
             'slide-program-row',
             'slide-auto-start-row',
+            'slide-videobeast-row',
             'slide-show-summary-row',
             'slide-compat-row',
         ]);
@@ -130,6 +136,47 @@ test.describe('slide-prefs — SLIDE.COM location', () => {
             }),
             { timeout: 2000 },
         ).toBe(false);
+    });
+
+    test('VideoBeast mode ships off, persists on, and unticks on reset', async ({ page }) => {
+        await setup(page);
+        // Default OFF — older slide.com builds do not understand the V, and
+        // Beastty has no way to detect which build is on the device.
+        await expect(page.locator('#slide-videobeast-checkbox')).not.toBeChecked();
+        expect(await page.evaluate(
+            () => window.__prefs.getPrefs().slideVideoBeastMode)).toBe(false);
+
+        await page.locator('#slide-videobeast-checkbox').check();
+        await expect.poll(
+            () => page.evaluate(() => {
+                const raw = localStorage.getItem('beastty.prefs');
+                if (!raw) return null;
+                try { return JSON.parse(raw).slideVideoBeastMode; } catch { return null; }
+            }),
+            { timeout: 2000 },
+        ).toBe(true);
+
+        // Reset all preferences re-projects the checkbox in place, no reload
+        // (the PREF_CONTROL_MIRRORS entry is what makes that true).
+        await page.evaluate(() => window.__prefs.resetPrefs());
+        await expect(page.locator('#slide-videobeast-checkbox')).not.toBeChecked();
+    });
+
+    test('a stored blob predating VideoBeast mode reads as off', async ({ page }) => {
+        // No CURRENT_VERSION bump — the field arrives via the defensive
+        // spread-merge, so an older blob must not read as undefined/true.
+        await page.addInitScript(() => {
+            localStorage.setItem('beastty.prefs', JSON.stringify({
+                version: 2, slideProgramDrive: 'B:', slideProgramName: 'SLIDE',
+            }));
+        });
+        await setup(page);
+        expect(await page.evaluate(
+            () => window.__prefs.getPrefs().slideVideoBeastMode)).toBe(false);
+        await expect(page.locator('#slide-videobeast-checkbox')).not.toBeChecked();
+        // The unrelated stored values survive.
+        expect(await page.evaluate(
+            () => window.__prefs.getPrefs().slideProgramDrive)).toBe('B:');
     });
 
     test('debounce delay matches Phase 6 D-33 250 ms contract', async ({ page }) => {

@@ -55,6 +55,12 @@ const DEFAULTS = Object.freeze({
                                                   //   (you run SLIDE R yourself) — the v1 empty-command sentinel, now
                                                   //   explicit. The location above still drives the PULL command, so
                                                   //   drag-to-pull keeps working with auto-start off.
+    slideVideoBeastMode: false,                   // Send `RV` rather than `R` as the receive argument, which newer
+                                                  //   slide.com binaries read as "write straight into VideoBeast video
+                                                  //   memory". Default OFF: older binaries do not understand it, and
+                                                  //   Beastty cannot tell which one is on the device — the user asserts
+                                                  //   it. Send direction only; the pull command stays ` S `.
+                                                  //   CURRENT_VERSION NOT bumped per the Phase 6 D-32 defensive merge.
     slideShowSummary: true,                       // Phase 11 — D-09 (D-08 default ON; Cancelled summary chip ALWAYS shows regardless)
     slideCompatibilityMode: 'auto',               // Phase 11 — D-09 ('auto' | 'wakeup-required' | 'force-start')
     slideConfirmTransfers: true,

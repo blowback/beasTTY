@@ -154,3 +154,36 @@ command-history keys.
 Note both files are gitignored as auto-generated, so the durable fix is to regenerate
 them, not to hand-patch. `EXPERIENCE.md` is likewise gitignored as planning scratch,
 which is worth questioning on its own — it is the UX contract every story cites.
+
+### A beast-to-beast copy honours VideoBeast mode, but the copy modal still promises a file
+
+Surfaced by the edge-case review of `spec-slide-videobeast-mode.md` (2026-09-01).
+
+With VideoBeast mode on, dragging a filename from one Beastty tab onto another beast's
+terminal makes the *destination* tab type the receive command — `peer-drop.js:664`
+→ `file-source.js:492` → `slide.js` `readAutoSendCommandBytes` — so it sends ` RV`
+and the payload lands in VideoBeast RAM rather than on the destination's disk. That
+is mechanically consistent with the pref (the destination genuinely is in receive
+mode), and the review confirmed there is no second, missed composer: only two sites
+emit the receive command and both go through `readAutoSendCommandBytes`.
+
+What is unresolved is the copy modal's promise. `showCopyModal` renders "To: this beast"
+and a "Copy" button, the SLIDE chip reports a completed send, and no file exists
+afterwards. This is the case where the outcome looks most like success. Options: warn
+in the copy modal when the mode is on, suppress the mode for peer copies, or accept it
+as the documented consequence of a global switch. Needs a human decision — the spec's
+frozen boundaries explicitly ruled warnings out of scope for the original story.
+
+### VideoBeast mode is a per-device fact stored as a per-origin pref
+
+Same review. Which `slide.com` build is on a MicroBeast is a fact about *that device*,
+but `slideVideoBeastMode` is stored once per browser origin, so both tabs in the
+two-beasts-in-Split-View setup share it, and nothing listens for the cross-tab
+`storage` event so the other tab keeps a stale cached copy until reload.
+
+`slideProgramDrive` and `slideCompatibilityMode` have the identical shape and ship
+that way, so this is a pre-existing class rather than a regression — but it is the
+same class E11 already hit with the drive letter in the copy modal
+(`peer-drop.js:110-118`: "a row that states a fact the app does not have is worse
+than a row that states less"). Worth revisiting as a group if per-device settings
+ever become real.
